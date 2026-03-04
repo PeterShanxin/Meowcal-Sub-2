@@ -1,0 +1,16 @@
+[Script Info]
+Title: Sample ASS Subtitle
+ScriptType: v4.00+
+PlayResX: 384
+PlayResY: 288
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,16,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,0,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,Hello, world!
+Dialogue: 0,0:00:05.00,0:00:08.00,Default,,0,0,0,,This is a test subtitle.
+Dialogue: 0,0:00:09.00,0:00:12.50,Default,,0,0,0,,{\b1}Bold{\b0} and {\i1}italic{\i0} text
+Dialogue: 0,0:00:13.00,0:00:16.00,Default,,0,0,0,,Multi-line dialogue here

@@ -1,0 +1,63 @@
+# MeoCoSub2
+
+`meocosub2` is a Python CLI that searches OpenSubtitles, downloads and caches subtitle files, batch-translates them with Foundry Local when needed, and syncs translated overlay text against on-screen subtitles using OCR plus fuzzy matching.
+
+## Requirements
+
+- Python 3.11+
+- Windows for OCR support via `winocr`
+- An OpenSubtitles API key
+- Optional: a Foundry Local OpenAI-compatible endpoint for subtitle translation
+
+## Install
+
+```bash
+pip install -e ".[dev]"
+```
+
+## Config
+
+Default config path:
+
+- Windows: `%APPDATA%/meocosub2/config.toml`
+
+See [`config.example.toml`](config.example.toml) for the full schema.
+
+Sections:
+
+- `[opensubtitles]`: `api_key`, `username`, `password`
+- `[languages]`: `source`, `target`
+- `[capture]`: `region`, `interval_ms`, `ocr_language`
+- `[matching]`: `fuzzy_threshold`, `window_size`
+- `[translation]`: `endpoint`, `model`, `timeout_s`, `batch_size`
+- `[overlay]`: `port`, `font_size`, `font_family`, `text_color`, `bg_color`, `position`
+
+## Commands
+
+```bash
+meocosub2 --help
+```
+
+Available commands:
+
+- `search TITLE`
+- `download FILE_ID`
+- `translate PATH_TO_SRT`
+- `start SOURCE_SUBTITLE [--target-file TARGET_SUBTITLE]`
+- `run TITLE`
+
+Examples:
+
+```bash
+meocosub2 search "Inception" --source en --target zht
+meocosub2 download 123456
+meocosub2 translate .\movie.en.srt
+meocosub2 start .\movie.en.srt --target-file .\movie.zht.srt
+meocosub2 run "Inception" --source en --target zht
+```
+
+## Tests
+
+```bash
+pytest -v --tb=short
+```

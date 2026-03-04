@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "meocosub2"
+version = "0.1.0"
+description = "CLI app for fetching subtitles from OpenSubtitles, translating with Foundry Local, and syncing via OCR"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+
+dependencies = [
+    "typer[all]>=0.9",
+    "rich>=13.0",
+    "httpx>=0.25",
+    "pysubs2>=1.6",
+    "mss>=9.0",
+    "winocr>=0.2",
+    "rapidfuzz>=3.0",
+    "openai>=1.0",
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.23",
+    "tomli-w>=1.0",
+]
+
+[project.scripts]
+meocosub2 = "meocosub2.cli:app"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "respx>=0.21",
+    "pytest-mock>=3.12",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/meocosub2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

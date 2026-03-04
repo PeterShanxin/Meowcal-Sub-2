@@ -1,0 +1,31 @@
+[opensubtitles]
+api_key = "YOUR_API_KEY_HERE"
+username = ""
+password = ""
+
+[languages]
+source = "en"
+target = "zht"
+
+[capture]
+region = []
+interval_ms = 1500
+ocr_language = "en"
+
+[matching]
+fuzzy_threshold = 65
+window_size = 30
+
+[translation]
+endpoint = "http://127.0.0.1:5273/v1"
+model = ""
+timeout_s = 30
+batch_size = 5
+
+[overlay]
+port = 8765
+font_size = 28
+font_family = "Segoe UI"
+text_color = "#FFFFFF"
+bg_color = "rgba(0,0,0,0.75)"
+position = "bottom"
