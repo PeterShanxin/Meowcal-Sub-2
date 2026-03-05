@@ -18,12 +18,12 @@ class OpenSubtitlesClient:
     def __init__(
         self,
         api_key: str,
-        user_agent: str = "MeoCoSub2/0.1.0",
+        user_agent: str = "Meowcal-Sub-2/0.1.0",
         cache_dir: Path | None = None,
     ) -> None:
         self.api_key = api_key
         self.user_agent = user_agent
-        self.cache_dir = cache_dir or (Path.home() / ".cache" / "meocosub2")
+        self.cache_dir = cache_dir or (Path.home() / ".cache" / "meowcal-sub-2")
         self._client = httpx.AsyncClient(
             base_url=BASE_URL,
             headers={

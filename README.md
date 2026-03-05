@@ -1,6 +1,6 @@
-# MeoCoSub2
+# Meowcal-Sub-2
 
-`meocosub2` is a Python CLI that searches OpenSubtitles, downloads and caches subtitle files, batch-translates them with Foundry Local when needed, and syncs translated overlay text against on-screen subtitles using OCR plus fuzzy matching.
+`meowcal-sub-2` is a Python CLI that searches OpenSubtitles, downloads and caches subtitle files, batch-translates them with Foundry Local when needed, and syncs translated overlay text against on-screen subtitles using OCR plus fuzzy matching.
 
 ## Requirements
 
@@ -19,7 +19,7 @@ pip install -e ".[dev]"
 
 Default config path:
 
-- Windows: `%APPDATA%/meocosub2/config.toml`
+- Windows: `%APPDATA%/meowcal-sub-2/config.toml`
 
 See [`config.example.toml`](config.example.toml) for the full schema.
 
@@ -35,7 +35,7 @@ Sections:
 ## Commands
 
 ```bash
-meocosub2 --help
+meowcal-sub-2 --help
 ```
 
 Available commands:
@@ -49,11 +49,11 @@ Available commands:
 Examples:
 
 ```bash
-meocosub2 search "Inception" --source en --target zht
-meocosub2 download 123456
-meocosub2 translate .\movie.en.srt
-meocosub2 start .\movie.en.srt --target-file .\movie.zht.srt
-meocosub2 run "Inception" --source en --target zht
+meowcal-sub-2 search "Inception" --source en --target zht
+meowcal-sub-2 download 123456
+meowcal-sub-2 translate .\movie.en.srt
+meowcal-sub-2 start .\movie.en.srt --target-file .\movie.zht.srt
+meowcal-sub-2 run "Inception" --source en --target zht
 ```
 
 ## Tests

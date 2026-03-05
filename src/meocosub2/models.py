@@ -1,4 +1,4 @@
-"""Shared data models for MeoCoSub2."""
+"""Shared data models for Meowcal-Sub-2."""
 
 from dataclasses import dataclass, field
 

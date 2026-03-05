@@ -40,7 +40,7 @@ DOWNLOAD_RESPONSE = {
 
 @pytest.fixture
 def client(tmp_path: Path) -> OpenSubtitlesClient:
-    return OpenSubtitlesClient(api_key="test-key", user_agent="MeoCoSub2/0.1", cache_dir=tmp_path)
+    return OpenSubtitlesClient(api_key="test-key", user_agent="Meowcal-Sub-2/0.1", cache_dir=tmp_path)
 
 
 @respx.mock

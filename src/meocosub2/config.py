@@ -1,4 +1,4 @@
-"""Configuration loading and saving for MeoCoSub2."""
+"""Configuration loading and saving for Meowcal-Sub-2."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ class AppConfig:
 
 def default_config_path() -> Path:
     appdata = os.environ.get("APPDATA", str(Path.home()))
-    return Path(appdata) / "meocosub2" / "config.toml"
+    return Path(appdata) / "meowcal-sub-2" / "config.toml"
 
 
 def load_config(path: Path | None = None) -> AppConfig:

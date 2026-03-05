@@ -1,4 +1,4 @@
-"""CLI entry point for MeoCoSub2."""
+"""CLI entry point for Meowcal-Sub-2."""
 
 from __future__ import annotations
 
@@ -24,14 +24,14 @@ from meocosub2.subtitles import align_subtitles, load_subtitle_file
 from meocosub2.sync import run_sync_loop
 from meocosub2.translator import translate_lines
 
-app = typer.Typer(help="MeoCoSub2 - fetch, translate, and sync subtitles.")
+app = typer.Typer(help="Meowcal-Sub-2 - fetch, translate, and sync subtitles.")
 console = Console()
 logger = logging.getLogger(__name__)
 
 
 def _log_dir() -> Path:
     appdata = os.environ.get("APPDATA", str(Path.home()))
-    return Path(appdata) / "meocosub2" / "logs"
+    return Path(appdata) / "meowcal-sub-2" / "logs"
 
 
 def _setup_logging() -> None:
@@ -42,7 +42,7 @@ def _setup_logging() -> None:
     log_dir = _log_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
     handler = TimedRotatingFileHandler(
-        log_dir / "meocosub2.log",
+        log_dir / "meowcal-sub-2.log",
         when="D",
         backupCount=7,
         encoding="utf-8",
@@ -54,7 +54,7 @@ def _setup_logging() -> None:
 
 def _version_callback(value: bool) -> None:
     if value:
-        typer.echo(f"meocosub2 {__version__}")
+        typer.echo(f"meowcal-sub-2 {__version__}")
         raise typer.Exit()
 
 

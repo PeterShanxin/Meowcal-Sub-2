@@ -1,4 +1,4 @@
-# MeoCoSub2 Implementation Plan
+# Meowcal-Sub-2 Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
@@ -100,7 +100,7 @@ def test_match_result_fields():
 **Step 4: Run test to verify it fails**
 
 ```
-cd D:/Repos/Meowcal-Sub2
+cd D:/Repos/Meowcal-Sub-2
 pip install -e ".[dev]"
 pytest tests/test_models.py -v
 ```
@@ -390,7 +390,7 @@ import typer
 from typing import Optional
 from meocosub2 import __version__
 
-app = typer.Typer(help="MeoCoSub2 — fetch, translate, and sync subtitles for any video.")
+app = typer.Typer(help="Meowcal-Sub-2 — fetch, translate, and sync subtitles for any video.")
 
 
 def _version_callback(value: bool):
@@ -682,7 +682,7 @@ DOWNLOAD_RESPONSE = {
 
 @pytest.fixture
 def client():
-    return OpenSubtitlesClient(api_key="test-key", user_agent="MeoCoSub2/0.1")
+    return OpenSubtitlesClient(api_key="test-key", user_agent="Meowcal-Sub-2/0.1")
 
 
 @respx.mock
@@ -753,7 +753,7 @@ MAX_RETRIES = 3
 
 
 class OpenSubtitlesClient:
-    def __init__(self, api_key: str, user_agent: str = "MeoCoSub2/0.1"):
+    def __init__(self, api_key: str, user_agent: str = "Meowcal-Sub-2/0.1"):
         self._headers = {
             "Api-Key": api_key,
             "User-Agent": user_agent,
@@ -1603,7 +1603,7 @@ class OverlayServer:
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>MeoCoSub2</title>
+  <title>Meowcal-Sub-2</title>
   <link rel="stylesheet" href="/static/overlay.css">
 </head>
 <body>
@@ -1953,7 +1953,7 @@ from meocosub2.opensubtitles.client import OpenSubtitlesClient
 from meocosub2.subtitles import load_subtitle_file, align_subtitles
 from meocosub2.models import SubtitlePair
 
-app = typer.Typer(help="MeoCoSub2 — fetch, translate, and sync subtitles for any video.")
+app = typer.Typer(help="Meowcal-Sub-2 — fetch, translate, and sync subtitles for any video.")
 console = Console()
 
 

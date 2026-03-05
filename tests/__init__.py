@@ -1,1 +1,1 @@
-"""Test suite for MeoCoSub2."""
+"""Test suite for Meowcal-Sub-2."""

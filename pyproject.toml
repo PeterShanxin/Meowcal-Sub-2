@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "meocosub2"
+name = "meowcal-sub-2"
 version = "0.1.0"
 description = "CLI app for fetching subtitles from OpenSubtitles, translating with Foundry Local, and syncing via OCR"
 readme = "README.md"
@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.scripts]
-meocosub2 = "meocosub2.cli:app"
+meowcal-sub-2 = "meocosub2.cli:app"
 
 [project.optional-dependencies]
 dev = [
