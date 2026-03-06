@@ -11,16 +11,17 @@ requires-python = ">=3.11"
 license = {text = "MIT"}
 
 dependencies = [
-    "typer[all]>=0.9",
+    "typer>=0.9",
     "rich>=13.0",
     "httpx>=0.25",
     "pysubs2>=1.6",
     "mss>=9.0",
-    "winocr>=0.2",
+    "winocr>=0.0.15",
     "rapidfuzz>=3.0",
     "openai>=1.0",
+    "pillow>=10.0",
     "fastapi>=0.100",
-    "uvicorn[standard]>=0.23",
+    "uvicorn>=0.23",
     "tomli-w>=1.0",
 ]
 
