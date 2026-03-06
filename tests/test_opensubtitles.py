@@ -84,6 +84,30 @@ FEATURE_MOVIE_RESPONSE = {
     ]
 }
 
+FEATURE_SLASH_MOVIE_RESPONSE = {
+    "data": [
+        {
+            "id": "314",
+            "type": "feature",
+            "attributes": {
+                "title": "foo/bar",
+                "original_title": "Foo/Bar",
+                "year": "2020",
+                "subtitles_count": 12,
+                "season_number": None,
+                "episode_number": None,
+                "imdb_id": 3141592,
+                "tmdb_id": 314,
+                "parent_title": "",
+                "parent_imdb_id": None,
+                "parent_tmdb_id": None,
+                "title_aka": ["Foo/Bar"],
+                "feature_type": "Movie",
+            },
+        }
+    ]
+}
+
 TVSHOW_SUBTITLE_RESPONSE = {
     "data": [
         {
@@ -166,6 +190,35 @@ MOVIE_SUBTITLE_RESPONSE = {
                     "parent_feature_id": None,
                 },
                 "files": [{"file_id": 9001, "file_name": "Inception.srt"}],
+            },
+        }
+    ]
+}
+
+SLASH_MOVIE_SUBTITLE_RESPONSE = {
+    "data": [
+        {
+            "id": "314",
+            "type": "subtitle",
+            "attributes": {
+                "language": "en",
+                "download_count": 4000,
+                "feature_details": {
+                    "feature_id": 314,
+                    "feature_type": "Movie",
+                    "year": 2020,
+                    "title": "Foo/Bar",
+                    "movie_name": "Foo/Bar",
+                    "imdb_id": 3141592,
+                    "tmdb_id": 314,
+                    "season_number": None,
+                    "episode_number": None,
+                    "parent_imdb_id": None,
+                    "parent_title": None,
+                    "parent_tmdb_id": None,
+                    "parent_feature_id": None,
+                },
+                "files": [{"file_id": 314, "file_name": "foo-bar.srt"}],
             },
         }
     ]
@@ -295,6 +348,30 @@ async def test_search_uses_generic_slash_retry_only_after_empty_results(client: 
     feature_route = respx.get(f"{BASE_URL}/features").mock(
         side_effect=lambda request: httpx.Response(
             200,
+            json=FEATURE_SLASH_MOVIE_RESPONSE if request.url.params.get("query") == "Foo/Bar" else EMPTY_RESPONSE,
+        )
+    )
+    respx.get(f"{BASE_URL}/subtitles").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=SLASH_MOVIE_SUBTITLE_RESPONSE if request.url.params.get("id") == "314" else EMPTY_RESPONSE,
+        )
+    )
+
+    results = await client.search("Foo Bar", languages="en")
+
+    queried_titles = {call.request.url.params.get("query") for call in feature_route.calls}
+    assert "Foo/Bar" in queried_titles
+    assert results
+    assert results[0].title == "Foo/Bar"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_search_rejects_weak_generic_slash_retry_hits(client: OpenSubtitlesClient) -> None:
+    feature_route = respx.get(f"{BASE_URL}/features").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
             json=FEATURE_MOVIE_RESPONSE if request.url.params.get("query") == "Foo/Bar" else EMPTY_RESPONSE,
         )
     )
@@ -309,7 +386,7 @@ async def test_search_uses_generic_slash_retry_only_after_empty_results(client: 
 
     queried_titles = {call.request.url.params.get("query") for call in feature_route.calls}
     assert "Foo/Bar" in queried_titles
-    assert results
+    assert results == []
 
 
 @respx.mock
