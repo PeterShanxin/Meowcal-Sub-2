@@ -36,6 +36,30 @@ FEATURE_TVSHOW_RESPONSE = {
     ]
 }
 
+FEATURE_ZERO_RESPONSE = {
+    "data": [
+        {
+            "id": "127283",
+            "type": "feature",
+            "attributes": {
+                "title": "fate/zero",
+                "original_title": "Fate/Zero",
+                "year": "2011",
+                "subtitles_count": 12,
+                "season_number": 0,
+                "episode_number": None,
+                "imdb_id": 2051178,
+                "tmdb_id": 45845,
+                "parent_title": "",
+                "parent_imdb_id": None,
+                "parent_tmdb_id": None,
+                "title_aka": ["Fate/Zero"],
+                "feature_type": "Tvshow",
+            },
+        }
+    ]
+}
+
 FEATURE_MOVIE_RESPONSE = {
     "data": [
         {
@@ -84,6 +108,35 @@ TVSHOW_SUBTITLE_RESPONSE = {
                     "parent_feature_id": 2239923,
                 },
                 "files": [{"file_id": 11938126, "file_name": "Fate-strange Fake - S01E01.en"}],
+            },
+        }
+    ]
+}
+
+ZERO_SUBTITLE_RESPONSE = {
+    "data": [
+        {
+            "id": "200",
+            "type": "subtitle",
+            "attributes": {
+                "language": "en",
+                "download_count": 2500,
+                "feature_details": {
+                    "feature_id": 300,
+                    "feature_type": "Episode",
+                    "year": 2011,
+                    "title": "The End of the Holy Grail War",
+                    "movie_name": "Fate/Zero - S01E13  The End of the Holy Grail War",
+                    "imdb_id": 2051178,
+                    "tmdb_id": 1,
+                    "season_number": 1,
+                    "episode_number": 13,
+                    "parent_imdb_id": 2051178,
+                    "parent_title": "Fate/Zero",
+                    "parent_tmdb_id": 45845,
+                    "parent_feature_id": 127283,
+                },
+                "files": [{"file_id": 200, "file_name": "fate-zero.srt"}],
             },
         }
     ]
@@ -177,6 +230,19 @@ async def test_search_preserves_unicode_queries(client: OpenSubtitlesClient) -> 
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_search_does_not_generate_synthetic_slash_queries_for_two_word_titles(client: OpenSubtitlesClient) -> None:
+    feature_route = respx.get(f"{BASE_URL}/features").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
+    respx.get(f"{BASE_URL}/subtitles").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
+
+    await client.search("Star Wars", languages="en")
+
+    queried_titles = {call.request.url.params.get("query") for call in feature_route.calls}
+    assert "Star Wars" in queried_titles
+    assert "Star/Wars" not in queried_titles
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_search_does_not_strip_leading_year_from_title(client: OpenSubtitlesClient) -> None:
     feature_route = respx.get(f"{BASE_URL}/features").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
     respx.get(f"{BASE_URL}/subtitles").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
@@ -258,12 +324,18 @@ async def test_search_uses_org_fallback_only_when_enabled(tmp_path: Path, mocker
 async def test_org_fallback_aliases_are_used_for_ranking(tmp_path: Path, mocker) -> None:
     def feature_handler(request: httpx.Request) -> httpx.Response:
         query = request.url.params.get("query")
-        return httpx.Response(200, json=FEATURE_TVSHOW_RESPONSE if query == "Fate/strange Fake" else EMPTY_RESPONSE)
+        if query == "Fate/strange Fake":
+            return httpx.Response(200, json=FEATURE_TVSHOW_RESPONSE)
+        if query == "Fate/Zero":
+            return httpx.Response(200, json=FEATURE_ZERO_RESPONSE)
+        return httpx.Response(200, json=EMPTY_RESPONSE)
 
     def subtitle_handler(request: httpx.Request) -> httpx.Response:
         if request.url.params.get("parent_feature_id") == "2239923":
             return httpx.Response(200, json=TVSHOW_SUBTITLE_RESPONSE)
-        if request.url.params.get("query") == "Mystery Title":
+        if request.url.params.get("parent_feature_id") == "127283":
+            return httpx.Response(200, json=ZERO_SUBTITLE_RESPONSE)
+        if request.url.params.get("query") == "Fate fake london":
             return httpx.Response(
                 200,
                 json={
@@ -306,13 +378,14 @@ async def test_org_fallback_aliases_are_used_for_ranking(tmp_path: Path, mocker)
         cache_dir=tmp_path,
         enable_org_fallback=True,
     )
-    mocker.patch.object(client, "_search_org_aliases", new=mocker.AsyncMock(return_value=["Fate/strange Fake"]))
+    mocker.patch.object(client, "_search_org_aliases", new=mocker.AsyncMock(return_value=["Fate/strange Fake", "Fate/Zero"]))
 
-    results = await client.search("Mystery Title", languages="en")
+    results = await client.search("Fate fake london", languages="en")
 
     assert results
     assert results[0].parent_title == "Fate/strange Fake"
-    assert results[0].match_score > results[1].match_score
+    assert any(result.parent_title == "Fate/Zero" for result in results)
+    assert results[0].match_score > next(result.match_score for result in results if result.parent_title == "Fate/Zero")
 
 
 @respx.mock

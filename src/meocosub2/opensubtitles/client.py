@@ -131,9 +131,20 @@ class OpenSubtitlesClient:
             extra_queries = self._dedupe_queries(
                 [alias for alias in org_aliases if alias.casefold() not in {item.casefold() for item in intent.aliases}]
             )
-            if extra_queries:
-                fallback_intent = self._intent_with_aliases(intent, extra_queries)
-                extra_results = await self._search_with_queries(fallback_intent, normalized_languages, extra_queries)
+            for extra_query in extra_queries:
+                extra_results = await self._search_with_queries(intent, normalized_languages, [extra_query])
+                for result in extra_results:
+                    query_alignment = self._score_alias_values(intent.normalized_query, [extra_query]) if intent.normalized_query else 0.0
+                    alias_bonus = min(
+                        60.0,
+                        self._score_alias_values(
+                            self._canonical_title(extra_query),
+                            [result.parent_title or "", result.title, result.movie_name or ""],
+                        )
+                        * min(1.0, query_alignment / 180.0)
+                        * 0.3,
+                    )
+                    result.match_score += alias_bonus
                 results = self._merge_results(results, extra_results)
 
         return self._sort_results(results)
@@ -359,8 +370,6 @@ class OpenSubtitlesClient:
         tokens = self._canonical_title(query).split()
         if tokens:
             variants.append(" ".join(token.capitalize() for token in tokens))
-        if len(tokens) == 2:
-            variants.append(f"{tokens[0].capitalize()}/{tokens[1].capitalize()}")
         if tokens == ["fate", "fake"]:
             variants.extend(["Fate strange Fake", "Fate/strange Fake"])
 
@@ -431,24 +440,10 @@ class OpenSubtitlesClient:
 
     def _score_title_values(self, intent: SearchIntent, values: list[str]) -> float:
         best = 0.0
-        for value in values:
-            normalized_value = self._canonical_title(value)
-            if not normalized_value:
+        for alias in intent.normalized_aliases:
+            if not alias:
                 continue
-            for alias in intent.normalized_aliases:
-                if not alias:
-                    continue
-                score = max(
-                    fuzz.ratio(alias, normalized_value),
-                    fuzz.token_set_ratio(alias, normalized_value),
-                )
-                if normalized_value == alias:
-                    score += 120.0
-                elif normalized_value.startswith(alias) or alias.startswith(normalized_value):
-                    score += 72.0
-                elif alias in normalized_value or normalized_value in alias:
-                    score += 42.0
-                best = max(best, score)
+            best = max(best, self._score_alias_values(alias, values))
         return best
 
     def _canonical_title(self, value: str) -> str:
@@ -471,20 +466,6 @@ class OpenSubtitlesClient:
             deduped.append(cleaned)
         return deduped
 
-    def _intent_with_aliases(self, intent: SearchIntent, extra_aliases: list[str]) -> SearchIntent:
-        combined_aliases = tuple(self._dedupe_queries([*intent.aliases, *extra_aliases]))
-        return SearchIntent(
-            original_query=intent.original_query,
-            query=intent.query,
-            normalized_query=intent.normalized_query,
-            aliases=combined_aliases,
-            normalized_aliases=tuple(self._canonical_title(alias) for alias in combined_aliases),
-            media_type=intent.media_type,
-            year=intent.year,
-            season=intent.season,
-            episode=intent.episode,
-        )
-
     def _extract_trailing_year(self, query: str) -> tuple[str, int | None]:
         for pattern in (PAREN_YEAR_SUFFIX_PATTERN, TRAILING_YEAR_SUFFIX_PATTERN):
             match = pattern.match(query)
@@ -493,6 +474,25 @@ class OpenSubtitlesClient:
                 if title:
                     return title, int(match.group("year"))
         return query, None
+
+    def _score_alias_values(self, alias: str, values: list[str]) -> float:
+        best = 0.0
+        for value in values:
+            normalized_value = self._canonical_title(value)
+            if not normalized_value:
+                continue
+            score = max(
+                fuzz.ratio(alias, normalized_value),
+                fuzz.token_set_ratio(alias, normalized_value),
+            )
+            if normalized_value == alias:
+                score += 120.0
+            elif normalized_value.startswith(alias) or alias.startswith(normalized_value):
+                score += 72.0
+            elif alias in normalized_value or normalized_value in alias:
+                score += 42.0
+            best = max(best, score)
+        return best
 
     def _has_strong_results(self, results: list[SearchResult]) -> bool:
         return any(result.match_score >= STRONG_MATCH_THRESHOLD for result in results)
