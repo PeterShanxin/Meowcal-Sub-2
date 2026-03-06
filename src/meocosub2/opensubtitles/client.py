@@ -27,7 +27,8 @@ MAX_SEARCH_RESULTS = 50
 STRONG_MATCH_THRESHOLD = 185.0
 ORG_SEARCH_URL = "https://www.opensubtitles.org/en/search2/moviename-{query}/sublanguageid-all"
 ORG_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0 Safari/537.36"
-YEAR_PATTERN = re.compile(r"(?:\(|\b)(19\d{2}|20\d{2}|21\d{2})(?:\)|\b)")
+PAREN_YEAR_SUFFIX_PATTERN = re.compile(r"^(?P<title>.+?)\s*\((?P<year>19\d{2}|20\d{2}|21\d{2})\)\s*$")
+TRAILING_YEAR_SUFFIX_PATTERN = re.compile(r"^(?P<title>.+?)\s+(?P<year>19\d{2}|20\d{2}|21\d{2})\s*$")
 EPISODE_PATTERN = re.compile(r"\bS(?P<season>\d{1,2})E(?P<episode>\d{1,3})\b", re.IGNORECASE)
 
 
@@ -322,10 +323,7 @@ class OpenSubtitlesClient:
             working_query = EPISODE_PATTERN.sub(" ", working_query)
             media_type = media_type or "episode"
 
-        year_match = YEAR_PATTERN.search(working_query)
-        if year_match:
-            year = int(year_match.group(1))
-            working_query = YEAR_PATTERN.sub(" ", working_query, count=1)
+        working_query, year = self._extract_trailing_year(working_query)
 
         cleaned_query = re.sub(r"\s+", " ", working_query).strip(" -_:/")
         query_value = cleaned_query or original_query
@@ -454,11 +452,11 @@ class OpenSubtitlesClient:
 
     def _canonical_title(self, value: str) -> str:
         normalized = unicodedata.normalize("NFKD", html.unescape(value or ""))
-        ascii_value = normalized.encode("ascii", "ignore").decode("ascii")
-        ascii_value = ascii_value.lower().replace("&", " and ")
-        ascii_value = re.sub(r"[\"'`]", "", ascii_value)
-        ascii_value = re.sub(r"[^a-z0-9]+", " ", ascii_value)
-        return re.sub(r"\s+", " ", ascii_value).strip()
+        text = "".join(character for character in normalized if not unicodedata.combining(character))
+        text = text.casefold().replace("&", " and ")
+        text = re.sub(r"[\"'`]", "", text)
+        text = re.sub(r"[\W_]+", " ", text, flags=re.UNICODE)
+        return re.sub(r"\s+", " ", text).strip()
 
     def _dedupe_queries(self, values: list[str]) -> list[str]:
         seen: set[str] = set()
@@ -466,11 +464,21 @@ class OpenSubtitlesClient:
         for value in values:
             cleaned = re.sub(r"\s+", " ", value).strip()
             canonical = self._canonical_title(cleaned)
-            if not cleaned or not canonical or canonical in seen:
+            dedupe_key = canonical or cleaned.casefold()
+            if not cleaned or dedupe_key in seen:
                 continue
-            seen.add(canonical)
+            seen.add(dedupe_key)
             deduped.append(cleaned)
         return deduped
+
+    def _extract_trailing_year(self, query: str) -> tuple[str, int | None]:
+        for pattern in (PAREN_YEAR_SUFFIX_PATTERN, TRAILING_YEAR_SUFFIX_PATTERN):
+            match = pattern.match(query)
+            if match:
+                title = re.sub(r"\s+", " ", match.group("title")).strip(" -_:/")
+                if title:
+                    return title, int(match.group("year"))
+        return query, None
 
     def _has_strong_results(self, results: list[SearchResult]) -> bool:
         return any(result.match_score >= STRONG_MATCH_THRESHOLD for result in results)

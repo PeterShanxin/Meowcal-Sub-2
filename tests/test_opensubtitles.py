@@ -164,6 +164,32 @@ async def test_search_uses_feature_pipeline_and_alias_variants(client: OpenSubti
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_search_preserves_unicode_queries(client: OpenSubtitlesClient) -> None:
+    feature_route = respx.get(f"{BASE_URL}/features").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
+    respx.get(f"{BASE_URL}/subtitles").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
+
+    await client.search("君の名は", languages="ja")
+
+    assert feature_route.called
+    assert any(call.request.url.params.get("query") == "君の名は" for call in feature_route.calls)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_search_does_not_strip_leading_year_from_title(client: OpenSubtitlesClient) -> None:
+    feature_route = respx.get(f"{BASE_URL}/features").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
+    respx.get(f"{BASE_URL}/subtitles").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
+
+    await client.search("2001: A Space Odyssey", languages="en")
+
+    assert feature_route.called
+    first_call = feature_route.calls[0].request
+    assert first_call.url.params.get("query") == "2001: A Space Odyssey"
+    assert "year" not in first_call.url.params
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_search_follows_redirects(client: OpenSubtitlesClient) -> None:
     redirected = {"done": False}
 
