@@ -84,7 +84,7 @@ def _best_result(results: list, language: str):
     matches = [result for result in results if result.language == language]
     if not matches:
         return None
-    return max(matches, key=lambda result: result.download_count)
+    return max(matches, key=lambda result: (getattr(result, "match_score", 0.0), result.download_count))
 
 
 def _write_translated_srt(lines: list, output_path: Path) -> None:
@@ -112,7 +112,10 @@ def search(
     target = target_lang or config.target_language
 
     async def _search() -> list:
-        async with OpenSubtitlesClient(api_key=config.opensubtitles_api_key) as client:
+        async with OpenSubtitlesClient(
+            api_key=config.opensubtitles_api_key,
+            enable_org_fallback=config.opensubtitles_enable_org_fallback,
+        ) as client:
             return await client.search(title, languages=f"{source},{target}")
 
     results = asyncio.run(_search())
@@ -206,7 +209,10 @@ def gui() -> None:
 
 
 async def _run_flow(title: str, source_lang: str, target_lang: str, config: AppConfig) -> None:
-    async with OpenSubtitlesClient(api_key=config.opensubtitles_api_key) as client:
+    async with OpenSubtitlesClient(
+        api_key=config.opensubtitles_api_key,
+        enable_org_fallback=config.opensubtitles_enable_org_fallback,
+    ) as client:
         results = await client.search(title, languages=f"{source_lang},{target_lang}")
         source_result = _best_result(results, source_lang)
         if source_result is None:

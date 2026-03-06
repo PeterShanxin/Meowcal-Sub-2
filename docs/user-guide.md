@@ -38,6 +38,15 @@ source = "en"
 target = "zht"
 ```
 
+Optional legacy-title fallback:
+
+```toml
+[opensubtitles]
+enable_org_fallback = true
+```
+
+This only scrapes `.org` search result titles as extra aliases when the official `.com` search path misses a title. Downloads still come from the official API.
+
 If you want local translation fallback, also set:
 
 ```toml

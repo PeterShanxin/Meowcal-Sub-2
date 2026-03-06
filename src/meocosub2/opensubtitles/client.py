@@ -3,15 +3,65 @@
 from __future__ import annotations
 
 import asyncio
+import html
+import re
+import unicodedata
+from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import quote_plus
 
 import httpx
+from rapidfuzz import fuzz
 
 from meocosub2.errors import OpenSubtitlesError
-from meocosub2.opensubtitles.types import SearchResult
+from meocosub2.opensubtitles.types import FeatureCandidate, SearchResult
 
 BASE_URL = "https://api.opensubtitles.com/api/v1"
 MAX_RETRIES = 3
+MAX_QUERY_VARIANTS = 6
+MAX_FEATURES_PER_QUERY = 10
+MAX_FEATURES_TO_RESOLVE = 6
+MAX_SUBTITLE_RESULTS_PER_QUERY = 25
+MAX_SEARCH_RESULTS = 50
+STRONG_MATCH_THRESHOLD = 185.0
+ORG_SEARCH_URL = "https://www.opensubtitles.org/en/search2/moviename-{query}/sublanguageid-all"
+ORG_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0 Safari/537.36"
+YEAR_PATTERN = re.compile(r"(?:\(|\b)(19\d{2}|20\d{2}|21\d{2})(?:\)|\b)")
+EPISODE_PATTERN = re.compile(r"\bS(?P<season>\d{1,2})E(?P<episode>\d{1,3})\b", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class SearchIntent:
+    original_query: str
+    query: str
+    normalized_query: str
+    aliases: tuple[str, ...]
+    normalized_aliases: tuple[str, ...]
+    media_type: str | None
+    year: int | None = None
+    season: int | None = None
+    episode: int | None = None
+
+
+class _OpenSubtitlesOrgAliasParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.titles: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != "a":
+            return
+
+        attributes = {name: value or "" for name, value in attrs}
+        title = attributes.get("title", "")
+        css = attributes.get("class", "")
+        if "bnone" not in css or not title.lower().startswith("subtitles - "):
+            return
+
+        cleaned = html.unescape(title.removeprefix("subtitles - ")).strip()
+        if cleaned:
+            self.titles.append(re.sub(r"\s+", " ", cleaned))
 
 
 class OpenSubtitlesClient:
@@ -20,10 +70,12 @@ class OpenSubtitlesClient:
         api_key: str,
         user_agent: str = "Meowcal-Sub-2/0.1.0",
         cache_dir: Path | None = None,
+        enable_org_fallback: bool = False,
     ) -> None:
         self.api_key = api_key
         self.user_agent = user_agent
         self.cache_dir = cache_dir or (Path.home() / ".cache" / "meowcal-sub-2")
+        self.enable_org_fallback = enable_org_fallback
         self._client = httpx.AsyncClient(
             base_url=BASE_URL,
             headers={
@@ -31,6 +83,7 @@ class OpenSubtitlesClient:
                 "User-Agent": user_agent,
                 "Content-Type": "application/json",
             },
+            follow_redirects=True,
             timeout=30.0,
         )
 
@@ -68,16 +121,20 @@ class OpenSubtitlesClient:
         languages: str,
         media_type: str | None = None,
     ) -> list[SearchResult]:
-        params: dict[str, str] = {"query": query, "languages": languages}
-        if media_type:
-            params["type"] = media_type
+        intent = self._build_search_intent(query, media_type)
+        normalized_languages = self._normalize_languages(languages)
+        results = await self._search_with_queries(intent, normalized_languages, list(intent.aliases))
 
-        response = await self._request("GET", "/subtitles", params=params)
-        if response.status_code != 200:
-            raise OpenSubtitlesError(f"OpenSubtitles search failed: {response.status_code}")
+        if self.enable_org_fallback and not self._has_strong_results(results):
+            org_aliases = await self._search_org_aliases(intent.query)
+            extra_queries = self._dedupe_queries(
+                [alias for alias in org_aliases if self._canonical_title(alias) not in set(intent.normalized_aliases)]
+            )
+            if extra_queries:
+                extra_results = await self._search_with_queries(intent, normalized_languages, extra_queries)
+                results = self._merge_results(results, extra_results)
 
-        payload = response.json()
-        return [self._parse_result(item) for item in payload.get("data", [])]
+        return self._sort_results(results)
 
     async def get_download_link(self, file_id: int) -> tuple[str, int]:
         response = await self._request("POST", "/download", json={"file_id": file_id})
@@ -97,11 +154,381 @@ class OpenSubtitlesClient:
             return destination
 
         link, _ = await self.get_download_link(file_id)
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             response = await client.get(link)
             response.raise_for_status()
             destination.write_bytes(response.content)
         return destination
+
+    async def _search_with_queries(
+        self,
+        intent: SearchIntent,
+        languages: str,
+        queries: list[str],
+    ) -> list[SearchResult]:
+        collected: dict[str, SearchResult] = {}
+        ranked_features = await self._collect_ranked_features(intent, queries)
+
+        for feature in ranked_features[:MAX_FEATURES_TO_RESOLVE]:
+            feature_results = await self._fetch_feature_subtitles(feature, languages, intent)
+            for result in feature_results:
+                result.match_score = max(result.match_score, feature.match_score + self._score_search_result(intent, result))
+                self._store_result(collected, result)
+
+        if len(collected) < MAX_SEARCH_RESULTS or not self._has_strong_results(list(collected.values())):
+            for query_index, query_variant in enumerate(queries[:MAX_QUERY_VARIANTS]):
+                direct_results = await self._search_direct_subtitles(intent, languages, query_variant)
+                query_bonus = max(0.0, 10.0 - (query_index * 2.0))
+                for result in direct_results:
+                    result.match_score = max(result.match_score, self._score_search_result(intent, result) + query_bonus)
+                    self._store_result(collected, result)
+
+        return list(collected.values())
+
+    async def _collect_ranked_features(self, intent: SearchIntent, queries: list[str]) -> list[FeatureCandidate]:
+        features_by_id: dict[int, FeatureCandidate] = {}
+        for query_index, query_variant in enumerate(queries[:MAX_QUERY_VARIANTS]):
+            params: dict[str, str] = {"query": query_variant, "full_search": "true"}
+            feature_type = self._feature_type_filter(intent.media_type)
+            if feature_type:
+                params["type"] = feature_type
+            if intent.year is not None:
+                params["year"] = str(intent.year)
+
+            response = await self._request("GET", "/features", params=params)
+            if response.status_code != 200:
+                raise OpenSubtitlesError(f"OpenSubtitles feature search failed: {response.status_code}")
+
+            payload = response.json()
+            for item in payload.get("data", [])[:MAX_FEATURES_PER_QUERY]:
+                feature = self._parse_feature(item)
+                score = self._score_feature(intent, feature, query_index)
+                feature.match_score = score
+                existing = features_by_id.get(feature.id)
+                if existing is None or score > existing.match_score:
+                    features_by_id[feature.id] = feature
+
+        return sorted(
+            features_by_id.values(),
+            key=lambda feature: (feature.match_score, feature.subtitles_count, feature.id),
+            reverse=True,
+        )
+
+    async def _fetch_feature_subtitles(
+        self,
+        feature: FeatureCandidate,
+        languages: str,
+        intent: SearchIntent,
+    ) -> list[SearchResult]:
+        params: dict[str, str] = {"languages": languages}
+        subtitle_type = self._subtitle_type_filter(intent.media_type or feature.media_type)
+        if subtitle_type:
+            params["type"] = subtitle_type
+
+        if feature.media_type == "tvshow":
+            params["parent_feature_id"] = str(feature.id)
+            if intent.season is not None:
+                params["season_number"] = str(intent.season)
+            if intent.episode is not None:
+                params["episode_number"] = str(intent.episode)
+            return await self._search_subtitles_by_params(params)
+
+        params["id"] = str(feature.id)
+        results = await self._search_subtitles_by_params(params)
+        if results:
+            return results
+
+        fallback_params: list[dict[str, str]] = []
+        if feature.imdb_id:
+            fallback = {"imdb_id": feature.imdb_id, "languages": languages}
+            if subtitle_type:
+                fallback["type"] = subtitle_type
+            if intent.year is not None:
+                fallback["year"] = str(intent.year)
+            fallback_params.append(fallback)
+        if feature.tmdb_id:
+            fallback = {"tmdb_id": feature.tmdb_id, "languages": languages}
+            if subtitle_type:
+                fallback["type"] = subtitle_type
+            if intent.year is not None:
+                fallback["year"] = str(intent.year)
+            fallback_params.append(fallback)
+
+        for fallback in fallback_params:
+            results = await self._search_subtitles_by_params(fallback)
+            if results:
+                return results
+        return []
+
+    async def _search_direct_subtitles(
+        self,
+        intent: SearchIntent,
+        languages: str,
+        query: str,
+    ) -> list[SearchResult]:
+        params: dict[str, str] = {"query": query, "languages": languages}
+        subtitle_type = self._subtitle_type_filter(intent.media_type)
+        if subtitle_type:
+            params["type"] = subtitle_type
+        if intent.year is not None:
+            params["year"] = str(intent.year)
+        if intent.season is not None:
+            params["season_number"] = str(intent.season)
+        if intent.episode is not None:
+            params["episode_number"] = str(intent.episode)
+        return await self._search_subtitles_by_params(params)
+
+    async def _search_subtitles_by_params(self, params: dict[str, str]) -> list[SearchResult]:
+        response = await self._request("GET", "/subtitles", params=params)
+        if response.status_code != 200:
+            raise OpenSubtitlesError(f"OpenSubtitles search failed: {response.status_code}")
+
+        payload = response.json()
+        return [self._parse_result(item) for item in payload.get("data", [])[:MAX_SUBTITLE_RESULTS_PER_QUERY]]
+
+    async def _search_org_aliases(self, query: str) -> list[str]:
+        slug = quote_plus(" ".join(query.split()))
+        if not slug:
+            return []
+
+        try:
+            async with httpx.AsyncClient(
+                follow_redirects=True,
+                timeout=20.0,
+                headers={"User-Agent": ORG_USER_AGENT},
+            ) as client:
+                response = await client.get(ORG_SEARCH_URL.format(query=slug))
+        except Exception:
+            return []
+
+        if response.status_code != 200:
+            return []
+
+        parser = _OpenSubtitlesOrgAliasParser()
+        parser.feed(response.text)
+        return self._dedupe_queries(parser.titles)[:MAX_QUERY_VARIANTS]
+
+    def _build_search_intent(self, query: str, media_type: str | None) -> SearchIntent:
+        original_query = " ".join(query.split())
+        working_query = original_query
+        year: int | None = None
+        season: int | None = None
+        episode: int | None = None
+
+        episode_match = EPISODE_PATTERN.search(working_query)
+        if episode_match:
+            season = int(episode_match.group("season"))
+            episode = int(episode_match.group("episode"))
+            working_query = EPISODE_PATTERN.sub(" ", working_query)
+            media_type = media_type or "episode"
+
+        year_match = YEAR_PATTERN.search(working_query)
+        if year_match:
+            year = int(year_match.group(1))
+            working_query = YEAR_PATTERN.sub(" ", working_query, count=1)
+
+        cleaned_query = re.sub(r"\s+", " ", working_query).strip(" -_:/")
+        query_value = cleaned_query or original_query
+        aliases = tuple(self._build_query_variants(query_value))
+        normalized_aliases = tuple(self._canonical_title(alias) for alias in aliases)
+        return SearchIntent(
+            original_query=original_query,
+            query=query_value,
+            normalized_query=self._canonical_title(query_value),
+            aliases=aliases,
+            normalized_aliases=normalized_aliases,
+            media_type=media_type,
+            year=year,
+            season=season,
+            episode=episode,
+        )
+
+    def _build_query_variants(self, query: str) -> list[str]:
+        query = " ".join(query.split())
+        if not query:
+            return []
+
+        variants = [query]
+        relaxed = re.sub(r"[\"'`]", "", query)
+        relaxed = re.sub(r"[:|]", " ", relaxed)
+        relaxed = re.sub(r"[\\/]+", " ", relaxed)
+        relaxed = re.sub(r"[-_.]+", " ", relaxed)
+        relaxed = re.sub(r"\s+", " ", relaxed).strip()
+        if relaxed:
+            variants.append(relaxed)
+
+        tokens = self._canonical_title(query).split()
+        if tokens:
+            variants.append(" ".join(token.capitalize() for token in tokens))
+        if len(tokens) == 2:
+            variants.append(f"{tokens[0].capitalize()}/{tokens[1].capitalize()}")
+        if tokens == ["fate", "fake"]:
+            variants.extend(["Fate strange Fake", "Fate/strange Fake"])
+
+        return self._dedupe_queries(variants)[:MAX_QUERY_VARIANTS]
+
+    def _feature_type_filter(self, media_type: str | None) -> str | None:
+        if media_type in {"movie", "episode", "tvshow"}:
+            return media_type
+        return None
+
+    def _subtitle_type_filter(self, media_type: str | None) -> str | None:
+        if media_type == "tvshow":
+            return "episode"
+        if media_type in {"movie", "episode"}:
+            return media_type
+        return None
+
+    def _normalize_languages(self, languages: str) -> str:
+        codes = sorted({part.strip() for part in languages.split(",") if part.strip()})
+        return ",".join(codes)
+
+    def _score_feature(self, intent: SearchIntent, feature: FeatureCandidate, query_index: int) -> float:
+        title_score = self._score_title_values(
+            intent,
+            [feature.title, feature.parent_title or "", *feature.aka_titles],
+        )
+        score = title_score + min(feature.subtitles_count, 20) + max(0.0, 12.0 - (query_index * 2.0))
+
+        if intent.media_type:
+            score += 24.0 if feature.media_type == intent.media_type else -16.0
+        if intent.year is not None and feature.year is not None:
+            if feature.year == intent.year:
+                score += 24.0
+            else:
+                score -= min(abs(feature.year - intent.year), 5) * 4.0
+        if intent.season is not None and feature.season == intent.season:
+            score += 14.0
+        if intent.episode is not None and feature.episode == intent.episode:
+            score += 14.0
+
+        return score
+
+    def _score_search_result(self, intent: SearchIntent, result: SearchResult) -> float:
+        title_score = self._score_title_values(
+            intent,
+            [result.parent_title or "", result.title, result.movie_name or ""],
+        )
+        score = title_score + min(result.download_count / 50.0, 20.0)
+
+        if intent.media_type:
+            score += 20.0 if result.media_type == intent.media_type else -14.0
+        elif result.media_type == "episode" and result.parent_title:
+            score += 8.0
+
+        if intent.year is not None and result.year is not None:
+            if result.year == intent.year:
+                score += 20.0
+            else:
+                score -= min(abs(result.year - intent.year), 5) * 4.0
+        if intent.season is not None and result.season == intent.season:
+            score += 14.0
+        if intent.episode is not None and result.episode == intent.episode:
+            score += 14.0
+        if result.parent_title and result.media_type == "episode":
+            score += 10.0
+
+        return score
+
+    def _score_title_values(self, intent: SearchIntent, values: list[str]) -> float:
+        best = 0.0
+        for value in values:
+            normalized_value = self._canonical_title(value)
+            if not normalized_value:
+                continue
+            for alias in intent.normalized_aliases:
+                if not alias:
+                    continue
+                score = max(
+                    fuzz.ratio(alias, normalized_value),
+                    fuzz.token_set_ratio(alias, normalized_value),
+                )
+                if normalized_value == alias:
+                    score += 120.0
+                elif normalized_value.startswith(alias) or alias.startswith(normalized_value):
+                    score += 72.0
+                elif alias in normalized_value or normalized_value in alias:
+                    score += 42.0
+                best = max(best, score)
+        return best
+
+    def _canonical_title(self, value: str) -> str:
+        normalized = unicodedata.normalize("NFKD", html.unescape(value or ""))
+        ascii_value = normalized.encode("ascii", "ignore").decode("ascii")
+        ascii_value = ascii_value.lower().replace("&", " and ")
+        ascii_value = re.sub(r"[\"'`]", "", ascii_value)
+        ascii_value = re.sub(r"[^a-z0-9]+", " ", ascii_value)
+        return re.sub(r"\s+", " ", ascii_value).strip()
+
+    def _dedupe_queries(self, values: list[str]) -> list[str]:
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for value in values:
+            cleaned = re.sub(r"\s+", " ", value).strip()
+            canonical = self._canonical_title(cleaned)
+            if not cleaned or not canonical or canonical in seen:
+                continue
+            seen.add(canonical)
+            deduped.append(cleaned)
+        return deduped
+
+    def _has_strong_results(self, results: list[SearchResult]) -> bool:
+        return any(result.match_score >= STRONG_MATCH_THRESHOLD for result in results)
+
+    def _merge_results(self, left: list[SearchResult], right: list[SearchResult]) -> list[SearchResult]:
+        merged: dict[str, SearchResult] = {}
+        for result in [*left, *right]:
+            self._store_result(merged, result)
+        return list(merged.values())
+
+    def _sort_results(self, results: list[SearchResult]) -> list[SearchResult]:
+        return sorted(
+            results,
+            key=lambda result: (result.match_score, result.download_count, result.file_id),
+            reverse=True,
+        )[:MAX_SEARCH_RESULTS]
+
+    def _store_result(self, collected: dict[str, SearchResult], result: SearchResult) -> None:
+        key = str(result.file_id or result.id)
+        current = collected.get(key)
+        if current is None or (result.match_score, result.download_count) > (
+            current.match_score,
+            current.download_count,
+        ):
+            collected[key] = result
+
+    def _parse_feature(self, item: dict[str, object]) -> FeatureCandidate:
+        attributes = item.get("attributes", {})
+        if not isinstance(attributes, dict):
+            attributes = {}
+
+        feature_type = str(attributes.get("feature_type", "")).lower()
+        if "tvshow" in feature_type:
+            media_type = "tvshow"
+        elif "episode" in feature_type:
+            media_type = "episode"
+        else:
+            media_type = "movie"
+
+        title = str(attributes.get("original_title") or attributes.get("title") or "")
+        aka_titles_raw = attributes.get("title_aka", [])
+        aka_titles = tuple(str(title_aka) for title_aka in aka_titles_raw if str(title_aka).strip()) if isinstance(aka_titles_raw, list) else ()
+
+        return FeatureCandidate(
+            id=self._coerce_int(item.get("id") or attributes.get("feature_id")),
+            title=title,
+            year=self._coerce_optional_int(attributes.get("year")),
+            imdb_id=self._coerce_optional_string(attributes.get("imdb_id")),
+            tmdb_id=self._coerce_optional_string(attributes.get("tmdb_id")),
+            media_type=media_type,
+            season=self._coerce_optional_int(attributes.get("season_number")),
+            episode=self._coerce_optional_int(attributes.get("episode_number")),
+            parent_title=self._coerce_optional_string(attributes.get("parent_title")),
+            parent_imdb_id=self._coerce_optional_string(attributes.get("parent_imdb_id")),
+            parent_tmdb_id=self._coerce_optional_string(attributes.get("parent_tmdb_id")),
+            subtitles_count=self._coerce_int(attributes.get("subtitles_count")),
+            aka_titles=aka_titles,
+        )
 
     def _parse_result(self, item: dict[str, object]) -> SearchResult:
         attributes = item.get("attributes", {})
@@ -120,13 +547,36 @@ class OpenSubtitlesClient:
         return SearchResult(
             id=str(item.get("id", "")),
             title=str(feature_details.get("title", "")),
-            year=feature_details.get("year"),
-            imdb_id=feature_details.get("imdb_id"),
+            year=self._coerce_optional_int(feature_details.get("year")),
+            imdb_id=self._coerce_optional_string(feature_details.get("imdb_id")),
             media_type=media_type,
-            season=feature_details.get("season_number"),
-            episode=feature_details.get("episode_number"),
+            season=self._coerce_optional_int(feature_details.get("season_number")),
+            episode=self._coerce_optional_int(feature_details.get("episode_number")),
             language=str(attributes.get("language", "")),
-            download_count=int(attributes.get("download_count", 0)),
-            file_id=int(file_info.get("file_id", 0)),
+            download_count=self._coerce_int(attributes.get("download_count")),
+            file_id=self._coerce_int(file_info.get("file_id")),
             file_name=str(file_info.get("file_name", "")),
+            parent_title=self._coerce_optional_string(feature_details.get("parent_title")),
+            parent_imdb_id=self._coerce_optional_string(feature_details.get("parent_imdb_id")),
+            parent_feature_id=self._coerce_optional_int(feature_details.get("parent_feature_id")),
+            tmdb_id=self._coerce_optional_string(feature_details.get("tmdb_id")),
+            parent_tmdb_id=self._coerce_optional_string(feature_details.get("parent_tmdb_id")),
+            feature_id=self._coerce_optional_int(feature_details.get("feature_id")),
+            movie_name=self._coerce_optional_string(feature_details.get("movie_name")),
         )
+
+    def _coerce_int(self, value: object) -> int:
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def _coerce_optional_int(self, value: object) -> int | None:
+        try:
+            return int(value) if value not in {None, ""} else None
+        except (TypeError, ValueError):
+            return None
+
+    def _coerce_optional_string(self, value: object) -> str | None:
+        text = str(value).strip() if value is not None else ""
+        return text or None

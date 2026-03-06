@@ -1,4 +1,3 @@
-import asyncio
 from pathlib import Path
 
 import httpx
@@ -6,9 +5,91 @@ import pytest
 import respx
 
 from meocosub2.errors import OpenSubtitlesError
-from meocosub2.opensubtitles.client import BASE_URL, MAX_RETRIES, OpenSubtitlesClient
+from meocosub2.opensubtitles.client import (
+    BASE_URL,
+    MAX_RETRIES,
+    OpenSubtitlesClient,
+    _OpenSubtitlesOrgAliasParser,
+)
 
-SEARCH_RESPONSE = {
+FEATURE_TVSHOW_RESPONSE = {
+    "data": [
+        {
+            "id": "2239923",
+            "type": "feature",
+            "attributes": {
+                "title": "fate/strange fake",
+                "original_title": "Fate/strange Fake",
+                "year": "2024",
+                "subtitles_count": 9,
+                "season_number": 0,
+                "episode_number": None,
+                "imdb_id": 32864316,
+                "tmdb_id": 229858,
+                "parent_title": "",
+                "parent_imdb_id": None,
+                "parent_tmdb_id": None,
+                "title_aka": ["Fate/strange Fake"],
+                "feature_type": "Tvshow",
+            },
+        }
+    ]
+}
+
+FEATURE_MOVIE_RESPONSE = {
+    "data": [
+        {
+            "id": "42",
+            "type": "feature",
+            "attributes": {
+                "title": "inception",
+                "original_title": "Inception",
+                "year": "2010",
+                "subtitles_count": 12,
+                "season_number": None,
+                "episode_number": None,
+                "imdb_id": 1375666,
+                "tmdb_id": 27205,
+                "parent_title": "",
+                "parent_imdb_id": None,
+                "parent_tmdb_id": None,
+                "title_aka": ["Inception"],
+                "feature_type": "Movie",
+            },
+        }
+    ]
+}
+
+TVSHOW_SUBTITLE_RESPONSE = {
+    "data": [
+        {
+            "id": "11041820",
+            "type": "subtitle",
+            "attributes": {
+                "language": "en",
+                "download_count": 1959,
+                "feature_details": {
+                    "feature_id": 2399979,
+                    "feature_type": "Episode",
+                    "year": 2024,
+                    "title": "The Heroic Spirit Incident",
+                    "movie_name": "Fate/strange Fake - S01E01  The Heroic Spirit Incident",
+                    "imdb_id": 34742962,
+                    "tmdb_id": 6744143,
+                    "season_number": 1,
+                    "episode_number": 1,
+                    "parent_imdb_id": 32864316,
+                    "parent_title": "Fate/strange Fake",
+                    "parent_tmdb_id": 229858,
+                    "parent_feature_id": 2239923,
+                },
+                "files": [{"file_id": 11938126, "file_name": "Fate-strange Fake - S01E01.en"}],
+            },
+        }
+    ]
+}
+
+MOVIE_SUBTITLE_RESPONSE = {
     "data": [
         {
             "id": "123",
@@ -17,19 +98,27 @@ SEARCH_RESPONSE = {
                 "language": "en",
                 "download_count": 5000,
                 "feature_details": {
+                    "feature_id": 42,
                     "feature_type": "Movie",
-                    "title": "Inception",
                     "year": 2010,
-                    "imdb_id": "tt1375666",
+                    "title": "Inception",
+                    "movie_name": "Inception",
+                    "imdb_id": 1375666,
+                    "tmdb_id": 27205,
                     "season_number": None,
                     "episode_number": None,
+                    "parent_imdb_id": None,
+                    "parent_title": None,
+                    "parent_tmdb_id": None,
+                    "parent_feature_id": None,
                 },
                 "files": [{"file_id": 9001, "file_name": "Inception.srt"}],
             },
         }
-    ],
-    "total_count": 1,
+    ]
 }
+
+EMPTY_RESPONSE = {"data": []}
 
 DOWNLOAD_RESPONSE = {
     "link": "https://dl.opensubtitles.com/abc/Inception.srt",
@@ -45,23 +134,96 @@ def client(tmp_path: Path) -> OpenSubtitlesClient:
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_search_returns_results(client: OpenSubtitlesClient) -> None:
-    respx.get(f"{BASE_URL}/subtitles").mock(return_value=httpx.Response(200, json=SEARCH_RESPONSE))
-    results = await client.search("Inception", languages="en")
-    assert len(results) == 1
-    assert results[0].title == "Inception"
-    assert results[0].file_id == 9001
-    assert results[0].language == "en"
-    assert results[0].download_count == 5000
+async def test_search_uses_feature_pipeline_and_alias_variants(client: OpenSubtitlesClient) -> None:
+    feature_route = respx.get(f"{BASE_URL}/features").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=FEATURE_TVSHOW_RESPONSE
+            if request.url.params.get("query") in {"Fate strange Fake", "Fate/strange Fake"}
+            else EMPTY_RESPONSE,
+        )
+    )
+    subtitle_route = respx.get(f"{BASE_URL}/subtitles").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=TVSHOW_SUBTITLE_RESPONSE
+            if request.url.params.get("parent_feature_id") == "2239923"
+            else EMPTY_RESPONSE,
+        )
+    )
+
+    results = await client.search("Fate/Fake", languages="en")
+
+    assert results
+    assert results[0].parent_title == "Fate/strange Fake"
+    assert results[0].display_label().startswith("Fate/strange Fake S01E01 - The Heroic Spirit Incident")
+    queried_titles = {call.request.url.params.get("query") for call in feature_route.calls}
+    assert "Fate strange Fake" in queried_titles
+    assert any(call.request.url.params.get("languages") == "en" for call in subtitle_route.calls)
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_search_passes_language_param(client: OpenSubtitlesClient) -> None:
-    route = respx.get(f"{BASE_URL}/subtitles").mock(return_value=httpx.Response(200, json={"data": []}))
-    await client.search("Inception", languages="en,zh")
-    assert route.called
-    assert route.calls[0].request.url.params["languages"] == "en,zh"
+async def test_search_follows_redirects(client: OpenSubtitlesClient) -> None:
+    redirected = {"done": False}
+
+    def feature_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params.get("query") != "Inception":
+            return httpx.Response(200, json=EMPTY_RESPONSE)
+        if not redirected["done"]:
+            redirected["done"] = True
+            return httpx.Response(301, headers={"Location": "/api/v1/features?full_search=true&query=Inception"})
+        return httpx.Response(200, json=FEATURE_MOVIE_RESPONSE)
+
+    respx.get(f"{BASE_URL}/features").mock(side_effect=feature_handler)
+    respx.get(f"{BASE_URL}/subtitles").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=MOVIE_SUBTITLE_RESPONSE if request.url.params.get("id") == "42" else EMPTY_RESPONSE,
+        )
+    )
+
+    results = await client.search("Inception", languages="en")
+
+    assert redirected["done"] is True
+    assert len(results) == 1
+    assert results[0].title == "Inception"
+    assert results[0].file_id == 9001
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_search_uses_org_fallback_only_when_enabled(tmp_path: Path, mocker) -> None:
+    feature_route = respx.get(f"{BASE_URL}/features").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=FEATURE_TVSHOW_RESPONSE if request.url.params.get("query") == "Fate/strange Fake" else EMPTY_RESPONSE,
+        )
+    )
+    respx.get(f"{BASE_URL}/subtitles").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=TVSHOW_SUBTITLE_RESPONSE if request.url.params.get("parent_feature_id") == "2239923" else EMPTY_RESPONSE,
+        )
+    )
+
+    disabled_client = OpenSubtitlesClient(api_key="test-key", user_agent="Meowcal-Sub-2/0.1", cache_dir=tmp_path)
+    mocker.patch.object(disabled_client, "_search_org_aliases", new=mocker.AsyncMock(return_value=["Fate/strange Fake"]))
+    assert await disabled_client.search("Mystery Title", languages="en") == []
+
+    enabled_client = OpenSubtitlesClient(
+        api_key="test-key",
+        user_agent="Meowcal-Sub-2/0.1",
+        cache_dir=tmp_path,
+        enable_org_fallback=True,
+    )
+    mocker.patch.object(enabled_client, "_search_org_aliases", new=mocker.AsyncMock(return_value=["Fate/strange Fake"]))
+
+    results = await enabled_client.search("Mystery Title", languages="en")
+
+    assert results
+    assert results[0].parent_title == "Fate/strange Fake"
+    assert any(call.request.url.params.get("query") == "Fate/strange Fake" for call in feature_route.calls)
 
 
 @respx.mock
@@ -77,15 +239,18 @@ async def test_get_download_link(client: OpenSubtitlesClient) -> None:
 @pytest.mark.asyncio
 async def test_rate_limit_retry(client: OpenSubtitlesClient, mocker) -> None:
     sleep = mocker.patch("meocosub2.opensubtitles.client.asyncio.sleep", new=mocker.AsyncMock())
-    route = respx.get(f"{BASE_URL}/subtitles").mock(
+    route = respx.get(f"{BASE_URL}/features").mock(
         side_effect=[
             httpx.Response(429, headers={"Retry-After": "1"}, json={}),
-            httpx.Response(200, json=SEARCH_RESPONSE),
+            httpx.Response(200, json=EMPTY_RESPONSE),
+            httpx.Response(200, json=EMPTY_RESPONSE),
         ]
     )
-    results = await client.search("Inception", languages="en")
-    assert len(results) == 1
-    assert route.call_count == 2
+    respx.get(f"{BASE_URL}/subtitles").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
+
+    await client.search("Inception", languages="en")
+
+    assert route.call_count >= 2
     sleep.assert_awaited_once_with(1)
 
 
@@ -93,11 +258,13 @@ async def test_rate_limit_retry(client: OpenSubtitlesClient, mocker) -> None:
 @pytest.mark.asyncio
 async def test_request_raises_after_max_retries(client: OpenSubtitlesClient, mocker) -> None:
     sleep = mocker.patch("meocosub2.opensubtitles.client.asyncio.sleep", new=mocker.AsyncMock())
-    route = respx.get(f"{BASE_URL}/subtitles").mock(
+    route = respx.get(f"{BASE_URL}/features").mock(
         side_effect=[httpx.Response(429, headers={"Retry-After": "1"}, json={})] * (MAX_RETRIES + 1)
     )
+
     with pytest.raises(OpenSubtitlesError):
         await client.search("Inception", languages="en")
+
     assert route.call_count == MAX_RETRIES + 1
     assert sleep.await_count == MAX_RETRIES
 
@@ -109,3 +276,19 @@ async def test_download_uses_cache(client: OpenSubtitlesClient) -> None:
     path.write_text("cached", encoding="utf-8")
     downloaded = await client.download(9001)
     assert downloaded == path
+
+
+def test_org_alias_parser_extracts_titles() -> None:
+    parser = _OpenSubtitlesOrgAliasParser()
+    parser.feed(
+        """
+        <a class="bnone" title="subtitles - Fate/strange Fake" href="/en/search/sublanguageid-all/idmovie-1796469">
+          Fate/strange Fake (2024)
+        </a>
+        <a class="bnone" title="subtitles - &quot;Fate/strange Fake&quot; The Heroic Spirit Incident" href="/en/search/sublanguageid-all/idmovie-1797350">
+          The Heroic Spirit Incident
+        </a>
+        """
+    )
+
+    assert parser.titles == ["Fate/strange Fake", '"Fate/strange Fake" The Heroic Spirit Incident']

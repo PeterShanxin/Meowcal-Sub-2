@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from meocosub2.config import AppConfig, overlay_style_payload
+from meocosub2.errors import OpenSubtitlesError
 from meocosub2.models import SearchRequest
 from meocosub2.overlay.controller import GuiController
 
@@ -90,6 +91,8 @@ class OverlayServer:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             except RuntimeError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except OpenSubtitlesError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
             return {"results": results}
 
         @self.app.post("/api/session/prepare")
@@ -103,6 +106,8 @@ class OverlayServer:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             except RuntimeError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except OpenSubtitlesError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
             return {"session": session}
 
         @self.app.post("/api/session/start")

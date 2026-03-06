@@ -242,6 +242,39 @@ select:focus {
   text-decoration: none;
 }
 
+.save-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
+}
+
+.save-state[data-state="busy"] {
+  border-color: rgba(255, 216, 168, 0.36);
+  background: rgba(242, 199, 143, 0.12);
+  color: #ffd7a4;
+}
+
+.save-state[data-state="success"] {
+  border-color: rgba(156, 224, 192, 0.34);
+  background: rgba(156, 224, 192, 0.12);
+  color: #cff8e5;
+}
+
+.save-state[data-state="error"] {
+  border-color: rgba(255, 141, 145, 0.34);
+  background: rgba(255, 141, 145, 0.12);
+  color: #ffc5c8;
+}
+
 .progress-card,
 .run-card,
 .preview-stage {

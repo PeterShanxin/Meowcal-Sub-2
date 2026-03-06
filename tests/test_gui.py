@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from meocosub2.config import AppConfig
+from meocosub2.errors import OpenSubtitlesError
 from meocosub2.overlay.server import OverlayServer
 
 
@@ -84,3 +85,20 @@ def test_start_route_returns_conflict_on_runtime_error(tmp_path: Path, mocker) -
 
     assert response.status_code == 409
     assert response.json()["detail"] == "A session is already running."
+
+
+def test_search_route_returns_bad_gateway_on_opensubtitles_error(tmp_path: Path, mocker) -> None:
+    server = make_server(tmp_path / "config.toml")
+    mocker.patch.object(
+        server.controller,
+        "search",
+        new=mocker.AsyncMock(side_effect=OpenSubtitlesError("OpenSubtitles search failed: 403")),
+    )
+    with TestClient(server.app) as client:
+        response = client.post(
+            "/api/search",
+            json={"title": "Inception", "sourceLanguage": "en", "targetLanguage": "zht"},
+        )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "OpenSubtitles search failed: 403"

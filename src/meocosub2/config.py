@@ -16,6 +16,7 @@ class AppConfig:
     opensubtitles_api_key: str = ""
     opensubtitles_username: str = ""
     opensubtitles_password: str = ""
+    opensubtitles_enable_org_fallback: bool = False
     source_language: str = "en"
     target_language: str = "zh"
     capture_region: list[int] = field(default_factory=list)
@@ -62,6 +63,7 @@ def load_config(path: Path | None = None) -> AppConfig:
         opensubtitles_api_key=data.get("opensubtitles", {}).get("api_key", ""),
         opensubtitles_username=data.get("opensubtitles", {}).get("username", ""),
         opensubtitles_password=data.get("opensubtitles", {}).get("password", ""),
+        opensubtitles_enable_org_fallback=bool(data.get("opensubtitles", {}).get("enable_org_fallback", False)),
         source_language=data.get("languages", {}).get("source", "en"),
         target_language=data.get("languages", {}).get("target", "zh"),
         capture_region=data.get("capture", {}).get("region", []),
@@ -98,6 +100,7 @@ def save_config(config: AppConfig, path: Path | None = None) -> None:
             "api_key": config.opensubtitles_api_key,
             "username": config.opensubtitles_username,
             "password": config.opensubtitles_password,
+            "enable_org_fallback": config.opensubtitles_enable_org_fallback,
         },
         "languages": {
             "source": config.source_language,
@@ -163,6 +166,7 @@ def config_to_payload(config: AppConfig) -> dict[str, object]:
             "apiKey": config.opensubtitles_api_key,
             "username": config.opensubtitles_username,
             "password": config.opensubtitles_password,
+            "enableOrgFallback": config.opensubtitles_enable_org_fallback,
         },
         "languages": {
             "source": config.source_language,
@@ -216,6 +220,20 @@ def _coerce_float(value: Any, fallback: float) -> float:
         return fallback
 
 
+def _coerce_bool(value: Any, fallback: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return fallback
+
+
 def config_from_payload(payload: dict[str, object], fallback: AppConfig | None = None) -> AppConfig:
     base = fallback or AppConfig()
     opensubtitles = payload.get("opensubtitles", {})
@@ -242,6 +260,10 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
         opensubtitles_api_key=str(opensubtitles.get("apiKey", base.opensubtitles_api_key)),
         opensubtitles_username=str(opensubtitles.get("username", base.opensubtitles_username)),
         opensubtitles_password=str(opensubtitles.get("password", base.opensubtitles_password)),
+        opensubtitles_enable_org_fallback=_coerce_bool(
+            opensubtitles.get("enableOrgFallback", base.opensubtitles_enable_org_fallback),
+            base.opensubtitles_enable_org_fallback,
+        ),
         source_language=str(languages.get("source", base.source_language)),
         target_language=str(languages.get("target", base.target_language)),
         capture_region=_coerce_int_list(capture.get("region", base.capture_region), base.capture_region),

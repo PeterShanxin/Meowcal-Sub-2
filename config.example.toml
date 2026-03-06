@@ -2,6 +2,7 @@
 api_key = "YOUR_API_KEY_HERE"
 username = ""
 password = ""
+enable_org_fallback = false
 
 [languages]
 source = "en"

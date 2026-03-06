@@ -60,8 +60,9 @@ async function fetchJson(url, options = {}) {
   return response.json();
 }
 
-function setSaveState(label) {
+function setSaveState(label, kind = "neutral") {
   dom.saveState.textContent = label;
+  dom.saveState.dataset.state = kind;
 }
 
 function regionToString(region) {
@@ -341,7 +342,7 @@ async function loadInitialState() {
 
 dom.searchForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  setSaveState("Searching...");
+  setSaveState("Searching...", "busy");
   try {
     const payload = await fetchJson("/api/search", {
       method: "POST",
@@ -360,22 +361,22 @@ dom.searchForm.addEventListener("submit", async (event) => {
     }
     state.selectedSourceFileId = null;
     state.selectedTargetFileId = null;
-    setSaveState("Results ready");
+    setSaveState("Results ready", "success");
     scheduleRender();
   } catch (error) {
-    setSaveState(error.message);
+    setSaveState(error.message, "error");
   }
 });
 
 dom.prepareButton.addEventListener("click", async () => {
   const sourceFileId = state.selectedSourceFileId ?? state.snapshot?.selected_source_file_id;
   if (!sourceFileId) {
-    setSaveState("Select a source subtitle first");
+    setSaveState("Select a source subtitle first", "error");
     return;
   }
 
   try {
-    setSaveState("Preparing session...");
+    setSaveState("Preparing session...", "busy");
     const payload = await fetchJson("/api/session/prepare", {
       method: "POST",
       body: JSON.stringify({
@@ -388,17 +389,17 @@ dom.prepareButton.addEventListener("click", async () => {
       state.snapshot.selected_source_file_id = sourceFileId;
       state.snapshot.selected_target_file_id = state.selectedTargetFileId;
     }
-    setSaveState("Session prepared");
+    setSaveState("Session prepared", "success");
     scheduleRender();
   } catch (error) {
-    setSaveState(error.message);
+    setSaveState(error.message, "error");
   }
 });
 
 dom.startButton.addEventListener("click", async () => {
   const sessionId = state.snapshot?.prepared_session?.session_id;
   if (!sessionId) {
-    setSaveState("Prepare a session before starting");
+    setSaveState("Prepare a session before starting", "error");
     return;
   }
 
@@ -406,50 +407,50 @@ dom.startButton.addEventListener("click", async () => {
     if (!state.overlayWindow || state.overlayWindow.closed) {
       state.overlayWindow = window.open("/overlay", "meowcal-overlay", "width=1280,height=320");
     }
-    setSaveState("Starting sync...");
+    setSaveState("Starting sync...", "busy");
     await fetchJson("/api/session/start", {
       method: "POST",
       body: JSON.stringify({ sessionId }),
     });
-    setSaveState("Sync running");
+    setSaveState("Sync running", "success");
   } catch (error) {
-    setSaveState(error.message);
+    setSaveState(error.message, "error");
   }
 });
 
 dom.stopButton.addEventListener("click", async () => {
   try {
-    setSaveState("Stopping session...");
+    setSaveState("Stopping session...", "busy");
     await fetchJson("/api/session/stop", { method: "POST" });
-    setSaveState("Session stopped");
+    setSaveState("Session stopped", "success");
   } catch (error) {
-    setSaveState(error.message);
+    setSaveState(error.message, "error");
   }
 });
 
 dom.configForm.addEventListener("input", () => {
-  setSaveState("Unsaved changes");
+  setSaveState("Unsaved changes", "neutral");
   applyStylePreview(currentOverlayConfigFromForm());
 });
 
 dom.configForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
-    setSaveState("Saving config...");
+    setSaveState("Saving config...", "busy");
     const config = await fetchJson("/api/config", {
       method: "PUT",
       body: JSON.stringify(buildConfigPayload()),
     });
     state.config = config;
     fillConfigForm(config);
-    setSaveState("Config saved");
+    setSaveState("Config saved", "success");
     scheduleRender();
   } catch (error) {
-    setSaveState(error.message);
+    setSaveState(error.message, "error");
   }
 });
 
 bindResultSelection();
 loadInitialState().then(connectSocket).catch((error) => {
-  setSaveState(error.message);
+  setSaveState(error.message, "error");
 });

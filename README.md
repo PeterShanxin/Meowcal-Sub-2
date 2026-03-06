@@ -29,7 +29,7 @@ See [`config.example.toml`](config.example.toml) for the full schema.
 
 Sections:
 
-- `[opensubtitles]`: `api_key`, `username`, `password`
+- `[opensubtitles]`: `api_key`, `username`, `password`, `enable_org_fallback`
 - `[languages]`: `source`, `target`
 - `[capture]`: `region`, `interval_ms`, `ocr_language`
 - `[matching]`: `fuzzy_threshold`, `window_size`
@@ -61,6 +61,11 @@ meowcal-sub-2 start .\movie.en.srt --target-file .\movie.zht.srt
 meowcal-sub-2 run "Inception" --source en --target zht
 meowcal-sub-2 gui
 ```
+
+Optional legacy-title fallback:
+
+- Set `opensubtitles.enable_org_fallback = true` in the config file to let the app scrape `.org` search result titles as extra aliases when the official `.com` API misses a title.
+- The fallback only contributes title hints. Search, download, and session prep still use the official `.com` API.
 
 ## Tests
 

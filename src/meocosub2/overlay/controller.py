@@ -25,10 +25,12 @@ def search_result_payload(result: Any) -> dict[str, object]:
         "mediaType": result.media_type,
         "season": result.season,
         "episode": result.episode,
+        "parentTitle": getattr(result, "parent_title", None),
         "language": result.language,
         "downloadCount": result.download_count,
         "fileId": result.file_id,
         "fileName": result.file_name,
+        "matchScore": getattr(result, "match_score", 0.0),
         "displayLabel": result.display_label(),
     }
 
@@ -99,7 +101,10 @@ class GuiController:
             raise ValueError("OpenSubtitles API key is not configured.")
 
         try:
-            async with OpenSubtitlesClient(api_key=api_key) as client:
+            async with OpenSubtitlesClient(
+                api_key=api_key,
+                enable_org_fallback=self.config.opensubtitles_enable_org_fallback,
+            ) as client:
                 results = await client.search(
                     request.title,
                     languages=f"{request.source_language},{request.target_language}",

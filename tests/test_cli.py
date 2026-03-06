@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from typer.testing import CliRunner
 
-from meocosub2.cli import _run_flow, _setup_logging, app
+from meocosub2.cli import _best_result, _run_flow, _setup_logging, app
 from meocosub2.config import AppConfig
 from meocosub2.models import SubtitleLine
 from meocosub2.opensubtitles.types import SearchResult
@@ -61,6 +61,42 @@ def test_search_command_shows_results(mocker) -> None:
     result = runner.invoke(app, ["search", "Inception"])
     assert result.exit_code == 0
     assert "Inception" in result.output
+
+
+def test_best_result_prefers_match_score_over_download_count() -> None:
+    low_rank = SearchResult(
+        id="1",
+        title="Fake Tattoos",
+        year=2017,
+        imdb_id="tt0000001",
+        media_type="movie",
+        season=None,
+        episode=None,
+        language="en",
+        download_count=10000,
+        file_id=1,
+        file_name="fake.srt",
+        match_score=20,
+    )
+    exact_match = SearchResult(
+        id="2",
+        title="The Heroic Spirit Incident",
+        year=2024,
+        imdb_id="tt34742962",
+        media_type="episode",
+        season=1,
+        episode=1,
+        language="en",
+        download_count=500,
+        file_id=2,
+        file_name="fate.srt",
+        parent_title="Fate/strange Fake",
+        match_score=260,
+    )
+
+    selected = _best_result([low_rank, exact_match], "en")
+
+    assert selected == exact_match
 
 
 def test_download_command_prints_downloaded_path(mocker, tmp_path: Path) -> None:
