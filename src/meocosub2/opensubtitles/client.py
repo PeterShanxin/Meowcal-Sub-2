@@ -60,7 +60,7 @@ class _OpenSubtitlesOrgAliasParser(HTMLParser):
         if "bnone" not in css or not title.lower().startswith("subtitles - "):
             return
 
-        cleaned = html.unescape(title.removeprefix("subtitles - ")).strip()
+        cleaned = html.unescape(title[len("subtitles - "):]).strip()
         if cleaned:
             self.titles.append(re.sub(r"\s+", " ", cleaned))
 
@@ -129,10 +129,11 @@ class OpenSubtitlesClient:
         if self.enable_org_fallback and not self._has_strong_results(results):
             org_aliases = await self._search_org_aliases(intent.query)
             extra_queries = self._dedupe_queries(
-                [alias for alias in org_aliases if self._canonical_title(alias) not in set(intent.normalized_aliases)]
+                [alias for alias in org_aliases if alias.casefold() not in {item.casefold() for item in intent.aliases}]
             )
             if extra_queries:
-                extra_results = await self._search_with_queries(intent, normalized_languages, extra_queries)
+                fallback_intent = self._intent_with_aliases(intent, extra_queries)
+                extra_results = await self._search_with_queries(fallback_intent, normalized_languages, extra_queries)
                 results = self._merge_results(results, extra_results)
 
         return self._sort_results(results)
@@ -463,13 +464,26 @@ class OpenSubtitlesClient:
         deduped: list[str] = []
         for value in values:
             cleaned = re.sub(r"\s+", " ", value).strip()
-            canonical = self._canonical_title(cleaned)
-            dedupe_key = canonical or cleaned.casefold()
+            dedupe_key = cleaned.casefold()
             if not cleaned or dedupe_key in seen:
                 continue
             seen.add(dedupe_key)
             deduped.append(cleaned)
         return deduped
+
+    def _intent_with_aliases(self, intent: SearchIntent, extra_aliases: list[str]) -> SearchIntent:
+        combined_aliases = tuple(self._dedupe_queries([*intent.aliases, *extra_aliases]))
+        return SearchIntent(
+            original_query=intent.original_query,
+            query=intent.query,
+            normalized_query=intent.normalized_query,
+            aliases=combined_aliases,
+            normalized_aliases=tuple(self._canonical_title(alias) for alias in combined_aliases),
+            media_type=intent.media_type,
+            year=intent.year,
+            season=intent.season,
+            episode=intent.episode,
+        )
 
     def _extract_trailing_year(self, query: str) -> tuple[str, int | None]:
         for pattern in (PAREN_YEAR_SUFFIX_PATTERN, TRAILING_YEAR_SUFFIX_PATTERN):

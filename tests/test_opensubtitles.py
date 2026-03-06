@@ -159,6 +159,7 @@ async def test_search_uses_feature_pipeline_and_alias_variants(client: OpenSubti
     assert results[0].display_label().startswith("Fate/strange Fake S01E01 - The Heroic Spirit Incident")
     queried_titles = {call.request.url.params.get("query") for call in feature_route.calls}
     assert "Fate strange Fake" in queried_titles
+    assert "Fate/strange Fake" in queried_titles
     assert any(call.request.url.params.get("languages") == "en" for call in subtitle_route.calls)
 
 
@@ -254,6 +255,68 @@ async def test_search_uses_org_fallback_only_when_enabled(tmp_path: Path, mocker
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_org_fallback_aliases_are_used_for_ranking(tmp_path: Path, mocker) -> None:
+    def feature_handler(request: httpx.Request) -> httpx.Response:
+        query = request.url.params.get("query")
+        return httpx.Response(200, json=FEATURE_TVSHOW_RESPONSE if query == "Fate/strange Fake" else EMPTY_RESPONSE)
+
+    def subtitle_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params.get("parent_feature_id") == "2239923":
+            return httpx.Response(200, json=TVSHOW_SUBTITLE_RESPONSE)
+        if request.url.params.get("query") == "Mystery Title":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "bad",
+                            "type": "subtitle",
+                            "attributes": {
+                                "language": "en",
+                                "download_count": 9000,
+                                "feature_details": {
+                                    "feature_id": 999,
+                                    "feature_type": "Movie",
+                                    "year": 2017,
+                                    "title": "Fake Tattoos",
+                                    "movie_name": "Fake Tattoos",
+                                    "imdb_id": 123,
+                                    "tmdb_id": 456,
+                                    "season_number": None,
+                                    "episode_number": None,
+                                    "parent_imdb_id": None,
+                                    "parent_title": None,
+                                    "parent_tmdb_id": None,
+                                    "parent_feature_id": None,
+                                },
+                                "files": [{"file_id": 100, "file_name": "fake.srt"}],
+                            },
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(200, json=EMPTY_RESPONSE)
+
+    respx.get(f"{BASE_URL}/features").mock(side_effect=feature_handler)
+    respx.get(f"{BASE_URL}/subtitles").mock(side_effect=subtitle_handler)
+
+    client = OpenSubtitlesClient(
+        api_key="test-key",
+        user_agent="Meowcal-Sub-2/0.1",
+        cache_dir=tmp_path,
+        enable_org_fallback=True,
+    )
+    mocker.patch.object(client, "_search_org_aliases", new=mocker.AsyncMock(return_value=["Fate/strange Fake"]))
+
+    results = await client.search("Mystery Title", languages="en")
+
+    assert results
+    assert results[0].parent_title == "Fate/strange Fake"
+    assert results[0].match_score > results[1].match_score
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_get_download_link(client: OpenSubtitlesClient) -> None:
     respx.post(f"{BASE_URL}/download").mock(return_value=httpx.Response(200, json=DOWNLOAD_RESPONSE))
     link, remaining = await client.get_download_link(file_id=9001)
@@ -308,7 +371,7 @@ def test_org_alias_parser_extracts_titles() -> None:
     parser = _OpenSubtitlesOrgAliasParser()
     parser.feed(
         """
-        <a class="bnone" title="subtitles - Fate/strange Fake" href="/en/search/sublanguageid-all/idmovie-1796469">
+        <a class="bnone" title="Subtitles - Fate/strange Fake" href="/en/search/sublanguageid-all/idmovie-1796469">
           Fate/strange Fake (2024)
         </a>
         <a class="bnone" title="subtitles - &quot;Fate/strange Fake&quot; The Heroic Spirit Incident" href="/en/search/sublanguageid-all/idmovie-1797350">
