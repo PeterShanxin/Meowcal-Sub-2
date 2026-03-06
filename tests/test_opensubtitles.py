@@ -108,6 +108,30 @@ FEATURE_SLASH_MOVIE_RESPONSE = {
     ]
 }
 
+FEATURE_PARTIAL_SLASH_RESPONSE = {
+    "data": [
+        {
+            "id": "2718",
+            "type": "feature",
+            "attributes": {
+                "title": "the foo/bar show",
+                "original_title": "The Foo/Bar Show",
+                "year": "2020",
+                "subtitles_count": 12,
+                "season_number": None,
+                "episode_number": None,
+                "imdb_id": 2718,
+                "tmdb_id": 2718,
+                "parent_title": "",
+                "parent_imdb_id": None,
+                "parent_tmdb_id": None,
+                "title_aka": ["The Foo/Bar Show"],
+                "feature_type": "Movie",
+            },
+        }
+    ]
+}
+
 TVSHOW_SUBTITLE_RESPONSE = {
     "data": [
         {
@@ -219,6 +243,35 @@ SLASH_MOVIE_SUBTITLE_RESPONSE = {
                     "parent_feature_id": None,
                 },
                 "files": [{"file_id": 314, "file_name": "foo-bar.srt"}],
+            },
+        }
+    ]
+}
+
+PARTIAL_SLASH_MOVIE_SUBTITLE_RESPONSE = {
+    "data": [
+        {
+            "id": "2718",
+            "type": "subtitle",
+            "attributes": {
+                "language": "en",
+                "download_count": 6000,
+                "feature_details": {
+                    "feature_id": 2718,
+                    "feature_type": "Movie",
+                    "year": 2020,
+                    "title": "The Foo/Bar Show",
+                    "movie_name": "The Foo/Bar Show",
+                    "imdb_id": 2718,
+                    "tmdb_id": 2718,
+                    "season_number": None,
+                    "episode_number": None,
+                    "parent_imdb_id": None,
+                    "parent_title": None,
+                    "parent_tmdb_id": None,
+                    "parent_feature_id": None,
+                },
+                "files": [{"file_id": 2718, "file_name": "foo-bar-show.srt"}],
             },
         }
     ]
@@ -372,13 +425,13 @@ async def test_search_rejects_weak_generic_slash_retry_hits(client: OpenSubtitle
     feature_route = respx.get(f"{BASE_URL}/features").mock(
         side_effect=lambda request: httpx.Response(
             200,
-            json=FEATURE_MOVIE_RESPONSE if request.url.params.get("query") == "Foo/Bar" else EMPTY_RESPONSE,
+            json=FEATURE_PARTIAL_SLASH_RESPONSE if request.url.params.get("query") == "Foo/Bar" else EMPTY_RESPONSE,
         )
     )
     respx.get(f"{BASE_URL}/subtitles").mock(
         side_effect=lambda request: httpx.Response(
             200,
-            json=MOVIE_SUBTITLE_RESPONSE if request.url.params.get("id") == "42" else EMPTY_RESPONSE,
+            json=PARTIAL_SLASH_MOVIE_SUBTITLE_RESPONSE if request.url.params.get("id") == "2718" else EMPTY_RESPONSE,
         )
     )
 

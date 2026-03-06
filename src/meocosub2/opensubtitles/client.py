@@ -155,7 +155,7 @@ class OpenSubtitlesClient:
         slash_variant = self._maybe_slash_variant(intent.query)
         if slash_variant and slash_variant.casefold() not in {alias.casefold() for alias in intent.aliases} and not results:
             slash_results = await self._search_with_queries(intent, normalized_languages, [slash_variant])
-            if self._has_strong_results(slash_results):
+            if self._has_strong_title_results(intent, slash_results):
                 results = self._merge_results(results, slash_results)
 
         return self._sort_results(results)
@@ -529,6 +529,13 @@ class OpenSubtitlesClient:
 
     def _has_strong_results(self, results: list[SearchResult]) -> bool:
         return any(result.match_score >= STRONG_MATCH_THRESHOLD for result in results)
+
+    def _has_strong_title_results(self, intent: SearchIntent, results: list[SearchResult]) -> bool:
+        return any(
+            self._score_title_values(intent, [result.parent_title or "", result.title, result.movie_name or ""])
+            >= STRONG_MATCH_THRESHOLD
+            for result in results
+        )
 
     def _merge_results(self, left: list[SearchResult], right: list[SearchResult]) -> list[SearchResult]:
         merged: dict[str, SearchResult] = {}
