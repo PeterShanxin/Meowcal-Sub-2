@@ -230,19 +230,6 @@ async def test_search_preserves_unicode_queries(client: OpenSubtitlesClient) -> 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_search_does_not_generate_synthetic_slash_queries_for_two_word_titles(client: OpenSubtitlesClient) -> None:
-    feature_route = respx.get(f"{BASE_URL}/features").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
-    respx.get(f"{BASE_URL}/subtitles").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
-
-    await client.search("Star Wars", languages="en")
-
-    queried_titles = {call.request.url.params.get("query") for call in feature_route.calls}
-    assert "Star Wars" in queried_titles
-    assert "Star/Wars" not in queried_titles
-
-
-@respx.mock
-@pytest.mark.asyncio
 async def test_search_does_not_strip_leading_year_from_title(client: OpenSubtitlesClient) -> None:
     feature_route = respx.get(f"{BASE_URL}/features").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
     respx.get(f"{BASE_URL}/subtitles").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
@@ -253,6 +240,30 @@ async def test_search_does_not_strip_leading_year_from_title(client: OpenSubtitl
     first_call = feature_route.calls[0].request
     assert first_call.url.params.get("query") == "2001: A Space Odyssey"
     assert "year" not in first_call.url.params
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_search_uses_slash_variant_after_weak_initial_results(client: OpenSubtitlesClient) -> None:
+    feature_route = respx.get(f"{BASE_URL}/features").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=FEATURE_ZERO_RESPONSE if request.url.params.get("query") == "Fate/Zero" else EMPTY_RESPONSE,
+        )
+    )
+    respx.get(f"{BASE_URL}/subtitles").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=ZERO_SUBTITLE_RESPONSE if request.url.params.get("parent_feature_id") == "127283" else EMPTY_RESPONSE,
+        )
+    )
+
+    results = await client.search("Fate Zero", languages="en")
+
+    queried_titles = {call.request.url.params.get("query") for call in feature_route.calls}
+    assert "Fate/Zero" in queried_titles
+    assert results
+    assert results[0].parent_title == "Fate/Zero"
 
 
 @respx.mock
@@ -317,6 +328,61 @@ async def test_search_uses_org_fallback_only_when_enabled(tmp_path: Path, mocker
     assert results
     assert results[0].parent_title == "Fate/strange Fake"
     assert any(call.request.url.params.get("query") == "Fate/strange Fake" for call in feature_route.calls)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_org_alias_can_lift_exact_feature_into_resolution_window(tmp_path: Path, mocker) -> None:
+    many_candidates = {
+        "data": [
+            {
+                "id": str(index),
+                "type": "feature",
+                "attributes": {
+                    "title": f"Fake Show {index}",
+                    "original_title": f"Fake Show {index}",
+                    "year": "2020",
+                    "subtitles_count": 50 - index,
+                    "season_number": 0,
+                    "episode_number": None,
+                    "imdb_id": 1000 + index,
+                    "tmdb_id": 2000 + index,
+                    "parent_title": "",
+                    "parent_imdb_id": None,
+                    "parent_tmdb_id": None,
+                    "title_aka": [f"Fake Show {index}"],
+                    "feature_type": "Tvshow",
+                },
+            }
+            for index in range(1, 7)
+        ]
+        + FEATURE_TVSHOW_RESPONSE["data"]
+    }
+
+    def feature_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=many_candidates if request.url.params.get("query") == "Fate/strange Fake" else EMPTY_RESPONSE)
+
+    def subtitle_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json=TVSHOW_SUBTITLE_RESPONSE if request.url.params.get("parent_feature_id") == "2239923" else EMPTY_RESPONSE,
+        )
+
+    respx.get(f"{BASE_URL}/features").mock(side_effect=feature_handler)
+    respx.get(f"{BASE_URL}/subtitles").mock(side_effect=subtitle_handler)
+
+    client = OpenSubtitlesClient(
+        api_key="test-key",
+        user_agent="Meowcal-Sub-2/0.1",
+        cache_dir=tmp_path,
+        enable_org_fallback=True,
+    )
+    mocker.patch.object(client, "_search_org_aliases", new=mocker.AsyncMock(return_value=["Fate/strange Fake"]))
+
+    results = await client.search("Need rare alias", languages="en")
+
+    assert results
+    assert results[0].parent_title == "Fate/strange Fake"
 
 
 @respx.mock

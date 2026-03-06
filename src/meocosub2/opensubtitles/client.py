@@ -126,13 +126,23 @@ class OpenSubtitlesClient:
         normalized_languages = self._normalize_languages(languages)
         results = await self._search_with_queries(intent, normalized_languages, list(intent.aliases))
 
+        slash_variant = self._maybe_slash_variant(intent.query)
+        if slash_variant and slash_variant.casefold() not in {alias.casefold() for alias in intent.aliases} and not self._has_strong_results(results):
+            slash_results = await self._search_with_queries(intent, normalized_languages, [slash_variant])
+            results = self._merge_results(results, slash_results)
+
         if self.enable_org_fallback and not self._has_strong_results(results):
             org_aliases = await self._search_org_aliases(intent.query)
             extra_queries = self._dedupe_queries(
                 [alias for alias in org_aliases if alias.casefold() not in {item.casefold() for item in intent.aliases}]
             )
             for extra_query in extra_queries:
-                extra_results = await self._search_with_queries(intent, normalized_languages, [extra_query])
+                extra_results = await self._search_with_queries(
+                    intent,
+                    normalized_languages,
+                    [extra_query],
+                    feature_hint_alias=extra_query,
+                )
                 for result in extra_results:
                     query_alignment = self._score_alias_values(intent.normalized_query, [extra_query]) if intent.normalized_query else 0.0
                     alias_bonus = min(
@@ -178,9 +188,10 @@ class OpenSubtitlesClient:
         intent: SearchIntent,
         languages: str,
         queries: list[str],
+        feature_hint_alias: str | None = None,
     ) -> list[SearchResult]:
         collected: dict[str, SearchResult] = {}
-        ranked_features = await self._collect_ranked_features(intent, queries)
+        ranked_features = await self._collect_ranked_features(intent, queries, feature_hint_alias=feature_hint_alias)
 
         for feature in ranked_features[:MAX_FEATURES_TO_RESOLVE]:
             feature_results = await self._fetch_feature_subtitles(feature, languages, intent)
@@ -198,8 +209,14 @@ class OpenSubtitlesClient:
 
         return list(collected.values())
 
-    async def _collect_ranked_features(self, intent: SearchIntent, queries: list[str]) -> list[FeatureCandidate]:
+    async def _collect_ranked_features(
+        self,
+        intent: SearchIntent,
+        queries: list[str],
+        feature_hint_alias: str | None = None,
+    ) -> list[FeatureCandidate]:
         features_by_id: dict[int, FeatureCandidate] = {}
+        hint_alias = self._canonical_title(feature_hint_alias or "")
         for query_index, query_variant in enumerate(queries[:MAX_QUERY_VARIANTS]):
             params: dict[str, str] = {"query": query_variant, "full_search": "true"}
             feature_type = self._feature_type_filter(intent.media_type)
@@ -216,6 +233,11 @@ class OpenSubtitlesClient:
             for item in payload.get("data", [])[:MAX_FEATURES_PER_QUERY]:
                 feature = self._parse_feature(item)
                 score = self._score_feature(intent, feature, query_index)
+                if hint_alias:
+                    score += min(
+                        50.0,
+                        self._score_alias_values(hint_alias, [feature.title, feature.parent_title or "", *feature.aka_titles]) * 0.2,
+                    )
                 feature.match_score = score
                 existing = features_by_id.get(feature.id)
                 if existing is None or score > existing.match_score:
@@ -474,6 +496,14 @@ class OpenSubtitlesClient:
                 if title:
                     return title, int(match.group("year"))
         return query, None
+
+    def _maybe_slash_variant(self, query: str) -> str | None:
+        if "/" in query:
+            return None
+        tokens = re.findall(r"\w+", query, flags=re.UNICODE)
+        if len(tokens) != 2:
+            return None
+        return f"{tokens[0].capitalize()}/{tokens[1].capitalize()}"
 
     def _score_alias_values(self, alias: str, values: list[str]) -> float:
         best = 0.0
