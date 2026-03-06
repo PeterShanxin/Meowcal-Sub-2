@@ -25,6 +25,7 @@ MAX_FEATURES_TO_RESOLVE = 6
 MAX_SUBTITLE_RESULTS_PER_QUERY = 25
 MAX_SEARCH_RESULTS = 50
 STRONG_MATCH_THRESHOLD = 185.0
+STRONG_TITLE_MATCH_THRESHOLD = 170.0
 ORG_SEARCH_URL = "https://www.opensubtitles.org/en/search2/moviename-{query}/sublanguageid-all"
 ORG_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0 Safari/537.36"
 PAREN_YEAR_SUFFIX_PATTERN = re.compile(r"^(?P<title>.+?)\s*\((?P<year>19\d{2}|20\d{2}|21\d{2})\)\s*$")
@@ -533,7 +534,7 @@ class OpenSubtitlesClient:
     def _has_strong_title_results(self, intent: SearchIntent, results: list[SearchResult]) -> bool:
         return any(
             self._score_title_values(intent, [result.parent_title or "", result.title, result.movie_name or ""])
-            >= STRONG_MATCH_THRESHOLD
+            >= STRONG_TITLE_MATCH_THRESHOLD
             for result in results
         )
 

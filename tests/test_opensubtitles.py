@@ -277,6 +277,35 @@ PARTIAL_SLASH_MOVIE_SUBTITLE_RESPONSE = {
     ]
 }
 
+PREFIX_SLASH_MOVIE_SUBTITLE_RESPONSE = {
+    "data": [
+        {
+            "id": "2719",
+            "type": "subtitle",
+            "attributes": {
+                "language": "en",
+                "download_count": 3200,
+                "feature_details": {
+                    "feature_id": 2719,
+                    "feature_type": "Episode",
+                    "year": 2020,
+                    "title": "Pilot",
+                    "movie_name": "Foo/Bar - S01E01 Pilot",
+                    "imdb_id": 2719,
+                    "tmdb_id": 2719,
+                    "season_number": 1,
+                    "episode_number": 1,
+                    "parent_imdb_id": None,
+                    "parent_title": None,
+                    "parent_tmdb_id": None,
+                    "parent_feature_id": None,
+                },
+                "files": [{"file_id": 2719, "file_name": "foo-bar-pilot.srt"}],
+            },
+        }
+    ]
+}
+
 EMPTY_RESPONSE = {"data": []}
 
 DOWNLOAD_RESPONSE = {
@@ -440,6 +469,30 @@ async def test_search_rejects_weak_generic_slash_retry_hits(client: OpenSubtitle
     queried_titles = {call.request.url.params.get("query") for call in feature_route.calls}
     assert "Foo/Bar" in queried_titles
     assert results == []
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_search_accepts_strong_prefixed_slash_retry_hits(client: OpenSubtitlesClient) -> None:
+    feature_route = respx.get(f"{BASE_URL}/features").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=FEATURE_SLASH_MOVIE_RESPONSE if request.url.params.get("query") == "Foo/Bar" else EMPTY_RESPONSE,
+        )
+    )
+    respx.get(f"{BASE_URL}/subtitles").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=PREFIX_SLASH_MOVIE_SUBTITLE_RESPONSE if request.url.params.get("id") == "314" else EMPTY_RESPONSE,
+        )
+    )
+
+    results = await client.search("Foo Bar", languages="en")
+
+    queried_titles = {call.request.url.params.get("query") for call in feature_route.calls}
+    assert "Foo/Bar" in queried_titles
+    assert results
+    assert results[0].movie_name == "Foo/Bar - S01E01 Pilot"
 
 
 @respx.mock
