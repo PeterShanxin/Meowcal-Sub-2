@@ -1,0 +1,86 @@
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from meocosub2.config import AppConfig
+from meocosub2.overlay.server import OverlayServer
+
+
+def make_server(config_path: Path | None = None) -> OverlayServer:
+    return OverlayServer(AppConfig(), config_path=config_path)
+
+
+def test_state_route_returns_snapshot(tmp_path: Path) -> None:
+    server = make_server(tmp_path / "config.toml")
+    with TestClient(server.app) as client:
+        response = client.get("/api/state")
+    assert response.status_code == 200
+    assert response.json()["status"] == "idle"
+    assert response.json()["overlay_url"].endswith("/overlay")
+
+
+def test_search_route_delegates_to_controller(tmp_path: Path, mocker) -> None:
+    server = make_server(tmp_path / "config.toml")
+    search = mocker.patch.object(
+        server.controller,
+        "search",
+        new=mocker.AsyncMock(return_value=[{"fileId": 42, "language": "en"}]),
+    )
+    with TestClient(server.app) as client:
+        response = client.post(
+            "/api/search",
+            json={"title": "Inception", "sourceLanguage": "en", "targetLanguage": "zht"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"results": [{"fileId": 42, "language": "en"}]}
+    request = search.await_args.args[0]
+    assert request.title == "Inception"
+    assert request.source_language == "en"
+    assert request.target_language == "zht"
+
+
+def test_prepare_start_and_stop_routes_delegate_to_controller(tmp_path: Path, mocker) -> None:
+    server = make_server(tmp_path / "config.toml")
+    prepare = mocker.patch.object(
+        server.controller,
+        "prepare_session",
+        new=mocker.AsyncMock(return_value={"session_id": "abc123"}),
+    )
+    start = mocker.patch.object(
+        server.controller,
+        "start_session",
+        new=mocker.AsyncMock(return_value={"status": "running"}),
+    )
+    stop = mocker.patch.object(
+        server.controller,
+        "stop_session",
+        new=mocker.AsyncMock(return_value={"status": "idle"}),
+    )
+
+    with TestClient(server.app) as client:
+        prepare_response = client.post("/api/session/prepare", json={"sourceFileId": 1, "targetFileId": 2})
+        start_response = client.post("/api/session/start", json={"sessionId": "abc123"})
+        stop_response = client.post("/api/session/stop")
+
+    assert prepare_response.status_code == 200
+    assert prepare_response.json()["session"]["session_id"] == "abc123"
+    assert start_response.json()["status"] == "running"
+    assert stop_response.json()["status"] == "idle"
+    prepare.assert_awaited_once_with(source_file_id=1, target_file_id=2)
+    start.assert_awaited_once_with("abc123")
+    stop.assert_awaited_once_with()
+
+
+def test_start_route_returns_conflict_on_runtime_error(tmp_path: Path, mocker) -> None:
+    server = make_server(tmp_path / "config.toml")
+    mocker.patch.object(
+        server.controller,
+        "start_session",
+        new=mocker.AsyncMock(side_effect=RuntimeError("A session is already running.")),
+    )
+    with TestClient(server.app) as client:
+        response = client.post("/api/session/start", json={"sessionId": "abc123"})
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "A session is already running."

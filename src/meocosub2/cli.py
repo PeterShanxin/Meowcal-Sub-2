@@ -171,9 +171,18 @@ async def _start_overlay(pair, config: AppConfig) -> None:
     overlay = OverlayServer(config)
     server_config = uvicorn.Config(overlay.app, host="127.0.0.1", port=config.overlay_port, log_level="error")
     server = uvicorn.Server(server_config)
-    overlay_url = f"http://127.0.0.1:{config.overlay_port}"
+    overlay_url = f"http://127.0.0.1:{config.overlay_port}/overlay"
     webbrowser.open(overlay_url)
     await asyncio.gather(server.serve(), run_sync_loop(pair, config, overlay.broadcast))
+
+
+async def _start_gui(config: AppConfig) -> None:
+    overlay = OverlayServer(config)
+    server_config = uvicorn.Config(overlay.app, host="127.0.0.1", port=config.overlay_port, log_level="error")
+    server = uvicorn.Server(server_config)
+    studio_url = f"http://127.0.0.1:{config.overlay_port}/"
+    webbrowser.open(studio_url)
+    await server.serve()
 
 
 @app.command()
@@ -188,6 +197,12 @@ def start(
         source_line.translated = target_line.text
     pair = align_subtitles(source_lines, target_lines)
     asyncio.run(_start_overlay(pair, config))
+
+
+@app.command()
+def gui() -> None:
+    config = _get_config()
+    asyncio.run(_start_gui(config))
 
 
 async def _run_flow(title: str, source_lang: str, target_lang: str, config: AppConfig) -> None:

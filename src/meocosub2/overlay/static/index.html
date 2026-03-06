@@ -3,13 +3,228 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Meowcal-Sub-2 Overlay</title>
-  <link rel="stylesheet" href="/static/overlay.css">
+  <title>Meowcal-Sub-2 Studio</title>
+  <link rel="stylesheet" href="/static/theme.css">
+  <link rel="stylesheet" href="/static/app.css">
 </head>
-<body>
-  <div id="subtitle-container">
-    <div id="subtitle-text"></div>
-  </div>
-  <script src="/static/overlay.js"></script>
+<body class="studio-body">
+  <div class="aurora aurora-one"></div>
+  <div class="aurora aurora-two"></div>
+  <div class="grain"></div>
+
+  <main class="app-shell">
+    <header class="command-bar glass-panel">
+      <div class="brand-block">
+        <p class="eyebrow">Glass Cinematic GUI</p>
+        <h1>Meowcal Subtitle Studio</h1>
+        <p class="subcopy">Search, prepare, style, and run subtitle sync from one local dashboard.</p>
+      </div>
+
+      <form id="search-form" class="search-strip">
+        <label>
+          <span>Title</span>
+          <input id="title-input" name="title" type="text" placeholder="Movie or episode title" required>
+        </label>
+        <label class="compact">
+          <span>Source</span>
+          <input id="source-language-input" name="sourceLanguage" type="text" value="en" maxlength="8">
+        </label>
+        <label class="compact">
+          <span>Target</span>
+          <input id="target-language-input" name="targetLanguage" type="text" value="zh" maxlength="8">
+        </label>
+        <button type="submit" class="action-button primary">Search</button>
+      </form>
+    </header>
+
+    <section class="status-strip glass-panel">
+      <div>
+        <p class="eyebrow">Session State</p>
+        <div class="status-line">
+          <span id="status-chip" class="status-chip idle">Idle</span>
+          <span id="status-message" class="status-message">Ready for a title search.</span>
+        </div>
+      </div>
+      <div class="status-actions">
+        <button id="prepare-button" type="button" class="action-button">Prepare Session</button>
+        <button id="start-button" type="button" class="action-button primary">Start Sync</button>
+        <button id="stop-button" type="button" class="action-button ghost">Stop</button>
+      </div>
+    </section>
+
+    <section class="main-grid">
+      <section class="workflow-panel glass-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Workflow</p>
+            <h2>Search Results & Active Run</h2>
+          </div>
+          <a id="overlay-link" class="panel-link" href="/overlay" target="_blank" rel="noreferrer">Open Overlay</a>
+        </div>
+
+        <div class="progress-card">
+          <div class="progress-copy">
+            <strong id="progress-stage">No background work running</strong>
+            <span id="progress-meta" class="progress-meta">Search and choose subtitle files to begin.</span>
+          </div>
+          <div class="progress-track">
+            <div id="progress-fill" class="progress-fill"></div>
+          </div>
+        </div>
+
+        <div class="selection-grid">
+          <section class="result-column">
+            <div class="column-header">
+              <h3>Source Subtitle</h3>
+              <span id="source-result-count" class="muted-count">0 results</span>
+            </div>
+            <div id="source-results" class="result-list empty-state">Search to load source subtitle candidates.</div>
+          </section>
+
+          <section class="result-column">
+            <div class="column-header">
+              <h3>Target Subtitle</h3>
+              <span id="target-result-count" class="muted-count">0 results</span>
+            </div>
+            <div id="target-results" class="result-list empty-state">Choose a translated subtitle or leave it blank to use local translation.</div>
+          </section>
+        </div>
+
+        <section class="run-card">
+          <div class="column-header">
+            <h3>Prepared Session</h3>
+            <span id="session-badge" class="muted-count">None</span>
+          </div>
+          <div id="prepared-session" class="session-summary empty-state">No session has been prepared yet.</div>
+          <div class="current-subtitle-block">
+            <p class="eyebrow">Latest Overlay Subtitle</p>
+            <p id="current-subtitle">No subtitle broadcast yet.</p>
+          </div>
+        </section>
+      </section>
+
+      <aside class="studio-panel glass-panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Studio</p>
+            <h2>Style & Config</h2>
+          </div>
+          <span id="save-state" class="save-state">Unsaved changes</span>
+        </div>
+
+        <section class="preview-stage">
+          <div class="preview-chrome">
+            <span></span><span></span><span></span>
+          </div>
+          <div id="preview-shell" class="preview-shell">
+            <div id="preview-subtitle" class="preview-subtitle">A sleek, fluent subtitle preview lives here.</div>
+          </div>
+        </section>
+
+        <form id="config-form" class="config-form">
+          <div class="field-group">
+            <h3>Connection</h3>
+            <label>
+              <span>OpenSubtitles API key</span>
+              <input id="api-key-input" name="apiKey" type="password" placeholder="Required for search">
+            </label>
+            <label>
+              <span>Translation endpoint</span>
+              <input id="translation-endpoint-input" name="translationEndpoint" type="text">
+            </label>
+            <label>
+              <span>Translation model</span>
+              <input id="translation-model-input" name="translationModel" type="text" placeholder="Auto-detect when blank">
+            </label>
+          </div>
+
+          <div class="field-group">
+            <h3>Capture</h3>
+            <div class="field-grid">
+              <label>
+                <span>OCR language</span>
+                <input id="ocr-language-input" name="ocrLanguage" type="text">
+              </label>
+              <label>
+                <span>Interval ms</span>
+                <input id="capture-interval-input" name="captureInterval" type="number" min="50">
+              </label>
+              <label class="wide">
+                <span>Region (x,y,w,h)</span>
+                <input id="capture-region-input" name="captureRegion" type="text" placeholder="0,800,1920,200">
+              </label>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <h3>Overlay Style</h3>
+            <div class="field-grid">
+              <label>
+                <span>Theme</span>
+                <select id="overlay-theme-input" name="overlayTheme">
+                  <option value="glass-cinematic">Glass cinematic</option>
+                </select>
+              </label>
+              <label>
+                <span>Position</span>
+                <select id="overlay-position-input" name="overlayPosition">
+                  <option value="bottom">Bottom</option>
+                  <option value="top">Top</option>
+                </select>
+              </label>
+              <label>
+                <span>Font family</span>
+                <input id="overlay-font-family-input" name="overlayFontFamily" type="text">
+              </label>
+              <label>
+                <span>Font size</span>
+                <input id="overlay-font-size-input" name="overlayFontSize" type="number" min="12">
+              </label>
+              <label>
+                <span>Text color</span>
+                <input id="overlay-text-color-input" name="overlayTextColor" type="text">
+              </label>
+              <label>
+                <span>Background</span>
+                <input id="overlay-bg-color-input" name="overlayBgColor" type="text">
+              </label>
+              <label>
+                <span>Radius px</span>
+                <input id="overlay-radius-input" name="overlayRadius" type="number" min="0">
+              </label>
+              <label>
+                <span>Padding px</span>
+                <input id="overlay-padding-input" name="overlayPadding" type="number" min="0">
+              </label>
+              <label>
+                <span>Max width vw</span>
+                <input id="overlay-max-width-input" name="overlayMaxWidth" type="number" min="20" max="95">
+              </label>
+              <label>
+                <span>Blur px</span>
+                <input id="overlay-blur-input" name="overlayBlur" type="number" min="0">
+              </label>
+              <label>
+                <span>Shadow strength</span>
+                <input id="overlay-shadow-input" name="overlayShadow" type="number" min="0" max="1" step="0.05">
+              </label>
+              <label>
+                <span>Offset %</span>
+                <input id="overlay-offset-input" name="overlayOffset" type="number" min="0" max="35">
+              </label>
+              <label>
+                <span>Animation ms</span>
+                <input id="overlay-animation-input" name="overlayAnimation" type="number" min="0">
+              </label>
+            </div>
+          </div>
+
+          <button type="submit" class="action-button primary full-width">Save Config</button>
+        </form>
+      </aside>
+    </section>
+  </main>
+
+  <script src="/static/app.js" type="module"></script>
 </body>
 </html>

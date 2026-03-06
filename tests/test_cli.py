@@ -15,7 +15,7 @@ runner = CliRunner()
 def test_help_lists_all_commands() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    for command in ("search", "download", "translate", "start", "run"):
+    for command in ("search", "download", "translate", "start", "run", "gui"):
         assert command in result.output
 
 
@@ -143,3 +143,11 @@ def test_setup_logging_creates_rotating_handler(tmp_path: Path, mocker) -> None:
             root.removeHandler(handler)
         for handler in old_handlers:
             root.addHandler(handler)
+
+
+def test_gui_command_starts_dashboard_server(mocker) -> None:
+    start_gui = mocker.patch("meocosub2.cli._start_gui", new=mocker.AsyncMock())
+    mocker.patch("meocosub2.cli._get_config", return_value=AppConfig())
+    result = runner.invoke(app, ["gui"])
+    assert result.exit_code == 0
+    start_gui.assert_awaited_once()

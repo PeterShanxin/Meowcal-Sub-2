@@ -25,7 +25,15 @@ batch_size = 5
 [overlay]
 port = 8765
 font_size = 28
-font_family = "Segoe UI"
+font_family = "Aptos"
 text_color = "#FFFFFF"
-bg_color = "rgba(0,0,0,0.75)"
+bg_color = "rgba(12,18,29,0.64)"
 position = "bottom"
+theme = "glass-cinematic"
+radius_px = 28
+padding_px = 20
+max_width_vw = 78
+blur_px = 20
+shadow_strength = 0.45
+offset_pct = 10
+animation_ms = 220

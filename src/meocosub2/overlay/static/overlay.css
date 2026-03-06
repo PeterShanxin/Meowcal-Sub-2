@@ -1,40 +1,62 @@
-* { margin: 0; padding: 0; box-sizing: border-box; }
-
-:root {
-  --font-size: 28px;
-  --font-family: "Segoe UI", sans-serif;
-  --text-color: #FFFFFF;
-  --bg-color: rgba(0, 0, 0, 0.75);
-}
-
-html, body {
-  width: 100%;
-  height: 100%;
-  background: transparent;
+.overlay-body {
+  width: 100vw;
+  height: 100vh;
   overflow: hidden;
+  background: transparent;
 }
 
-#subtitle-container {
+#subtitle-shell {
   position: fixed;
   left: 50%;
-  bottom: 10%;
+  bottom: var(--overlay-offset);
   transform: translateX(-50%);
-  max-width: 85vw;
-  text-align: center;
+  width: min(var(--overlay-max-width), calc(100vw - 32px));
+  display: flex;
+  justify-content: center;
   pointer-events: none;
 }
 
+#subtitle-shell.top {
+  bottom: auto;
+  top: var(--overlay-offset);
+}
+
 #subtitle-text {
+  position: relative;
   display: inline-block;
-  padding: 8px 18px;
-  border-radius: 4px;
-  font-size: var(--font-size);
-  font-family: var(--font-family);
-  color: var(--text-color);
-  background: var(--bg-color);
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.85);
-  line-height: 1.4;
-  opacity: 0;
-  transition: opacity 0.4s ease;
+  max-width: 100%;
+  border-radius: var(--overlay-radius);
+  padding: var(--overlay-padding);
+  color: var(--overlay-text-color);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 38%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.06), transparent 55%),
+    var(--overlay-bg-color);
+  font-size: var(--overlay-font-size);
+  font-family: var(--overlay-font-family);
+  text-align: center;
+  line-height: 1.45;
+  letter-spacing: 0.01em;
   white-space: pre-wrap;
+  backdrop-filter: blur(var(--overlay-blur));
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow:
+    0 26px 64px rgba(0, 0, 0, calc(var(--overlay-shadow-strength) + 0.1)),
+    0 10px 22px rgba(0, 0, 0, calc(var(--overlay-shadow-strength) * 0.8)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.7),
+    0 0 24px rgba(0, 0, 0, 0.18);
+  opacity: 0;
+  transform: translateY(18px) scale(0.985);
+  transition:
+    opacity var(--overlay-animation-ms) ease,
+    transform var(--overlay-animation-ms) ease,
+    background var(--overlay-animation-ms) ease,
+    box-shadow var(--overlay-animation-ms) ease;
+}
+
+#subtitle-text.visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
 }

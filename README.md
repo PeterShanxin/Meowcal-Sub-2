@@ -2,6 +2,10 @@
 
 `meowcal-sub-2` is a Python CLI that searches OpenSubtitles, downloads and caches subtitle files, batch-translates them with Foundry Local when needed, and syncs translated overlay text against on-screen subtitles using OCR plus fuzzy matching.
 
+User guide:
+
+- [`docs/user-guide.md`](docs/user-guide.md)
+
 ## Requirements
 
 - Python 3.11+
@@ -45,6 +49,7 @@ Available commands:
 - `translate PATH_TO_SRT`
 - `start SOURCE_SUBTITLE [--target-file TARGET_SUBTITLE]`
 - `run TITLE`
+- `gui`
 
 Examples:
 
@@ -54,6 +59,7 @@ meowcal-sub-2 download 123456
 meowcal-sub-2 translate .\movie.en.srt
 meowcal-sub-2 start .\movie.en.srt --target-file .\movie.zht.srt
 meowcal-sub-2 run "Inception" --source en --target zht
+meowcal-sub-2 gui
 ```
 
 ## Tests
