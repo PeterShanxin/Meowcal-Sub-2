@@ -152,6 +152,11 @@ class OpenSubtitlesClient:
                     result.match_score += alias_bonus
                 results = self._merge_results(results, extra_results)
 
+        slash_variant = self._maybe_slash_variant(intent.query)
+        if slash_variant and slash_variant.casefold() not in {alias.casefold() for alias in intent.aliases} and not results:
+            slash_results = await self._search_with_queries(intent, normalized_languages, [slash_variant])
+            results = self._merge_results(results, slash_results)
+
         return self._sort_results(results)
 
     async def get_download_link(self, file_id: int) -> tuple[str, int]:
@@ -493,6 +498,14 @@ class OpenSubtitlesClient:
                 if title:
                     return title, int(match.group("year"))
         return query, None
+
+    def _maybe_slash_variant(self, query: str) -> str | None:
+        if "/" in query:
+            return None
+        tokens = re.findall(r"\w+", query, flags=re.UNICODE)
+        if len(tokens) != 2:
+            return None
+        return f"{tokens[0].capitalize()}/{tokens[1].capitalize()}"
 
     def _score_alias_values(self, alias: str, values: list[str]) -> float:
         best = 0.0

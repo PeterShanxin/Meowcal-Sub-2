@@ -231,8 +231,18 @@ async def test_search_preserves_unicode_queries(client: OpenSubtitlesClient) -> 
 @respx.mock
 @pytest.mark.asyncio
 async def test_search_does_not_generate_generic_slash_variant(client: OpenSubtitlesClient) -> None:
-    feature_route = respx.get(f"{BASE_URL}/features").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
-    respx.get(f"{BASE_URL}/subtitles").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
+    feature_route = respx.get(f"{BASE_URL}/features").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=FEATURE_MOVIE_RESPONSE if request.url.params.get("query") == "Star Wars" else EMPTY_RESPONSE,
+        )
+    )
+    respx.get(f"{BASE_URL}/subtitles").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=MOVIE_SUBTITLE_RESPONSE if request.url.params.get("id") == "42" else EMPTY_RESPONSE,
+        )
+    )
 
     await client.search("Star Wars", languages="en")
 
@@ -277,6 +287,29 @@ async def test_search_uses_slash_variant_after_weak_initial_results(client: Open
     assert "Fate/Zero" in queried_titles
     assert results
     assert results[0].parent_title == "Fate/Zero"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_search_uses_generic_slash_retry_only_after_empty_results(client: OpenSubtitlesClient) -> None:
+    feature_route = respx.get(f"{BASE_URL}/features").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=FEATURE_MOVIE_RESPONSE if request.url.params.get("query") == "Foo/Bar" else EMPTY_RESPONSE,
+        )
+    )
+    respx.get(f"{BASE_URL}/subtitles").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=MOVIE_SUBTITLE_RESPONSE if request.url.params.get("id") == "42" else EMPTY_RESPONSE,
+        )
+    )
+
+    results = await client.search("Foo Bar", languages="en")
+
+    queried_titles = {call.request.url.params.get("query") for call in feature_route.calls}
+    assert "Foo/Bar" in queried_titles
+    assert results
 
 
 @respx.mock
