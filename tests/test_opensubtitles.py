@@ -230,6 +230,19 @@ async def test_search_preserves_unicode_queries(client: OpenSubtitlesClient) -> 
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_search_does_not_generate_generic_slash_variant(client: OpenSubtitlesClient) -> None:
+    feature_route = respx.get(f"{BASE_URL}/features").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
+    respx.get(f"{BASE_URL}/subtitles").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
+
+    await client.search("Star Wars", languages="en")
+
+    queried_titles = {call.request.url.params.get("query") for call in feature_route.calls}
+    assert "Star Wars" in queried_titles
+    assert "Star/Wars" not in queried_titles
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_search_does_not_strip_leading_year_from_title(client: OpenSubtitlesClient) -> None:
     feature_route = respx.get(f"{BASE_URL}/features").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
     respx.get(f"{BASE_URL}/subtitles").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))

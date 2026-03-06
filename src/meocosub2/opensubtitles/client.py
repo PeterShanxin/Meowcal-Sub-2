@@ -126,11 +126,6 @@ class OpenSubtitlesClient:
         normalized_languages = self._normalize_languages(languages)
         results = await self._search_with_queries(intent, normalized_languages, list(intent.aliases))
 
-        slash_variant = self._maybe_slash_variant(intent.query)
-        if slash_variant and slash_variant.casefold() not in {alias.casefold() for alias in intent.aliases} and not self._has_strong_results(results):
-            slash_results = await self._search_with_queries(intent, normalized_languages, [slash_variant])
-            results = self._merge_results(results, slash_results)
-
         if self.enable_org_fallback and not self._has_strong_results(results):
             org_aliases = await self._search_org_aliases(intent.query)
             extra_queries = self._dedupe_queries(
@@ -394,6 +389,8 @@ class OpenSubtitlesClient:
             variants.append(" ".join(token.capitalize() for token in tokens))
         if tokens == ["fate", "fake"]:
             variants.extend(["Fate strange Fake", "Fate/strange Fake"])
+        if tokens == ["fate", "zero"]:
+            variants.append("Fate/Zero")
 
         return self._dedupe_queries(variants)[:MAX_QUERY_VARIANTS]
 
@@ -496,14 +493,6 @@ class OpenSubtitlesClient:
                 if title:
                     return title, int(match.group("year"))
         return query, None
-
-    def _maybe_slash_variant(self, query: str) -> str | None:
-        if "/" in query:
-            return None
-        tokens = re.findall(r"\w+", query, flags=re.UNICODE)
-        if len(tokens) != 2:
-            return None
-        return f"{tokens[0].capitalize()}/{tokens[1].capitalize()}"
 
     def _score_alias_values(self, alias: str, values: list[str]) -> float:
         best = 0.0
