@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import asdict
 from pathlib import Path
+import subprocess
 from typing import Any
 from uuid import uuid4
 
+logger = logging.getLogger(__name__)
+
 from meocosub2.config import AppConfig, config_to_payload, overlay_style_payload, save_config
+from meocosub2.capture import resolve_ocr_language
+from meocosub2.errors import TranslationError
+from meocosub2.foundry import foundry_status, make_foundry_ready
+from meocosub2.languages import expand_search_languages, language_label, source_language_mode
 from meocosub2.models import AppProgress, AppStateSnapshot, PreparedSession, SearchRequest, SubtitlePair
 from meocosub2.opensubtitles.client import OpenSubtitlesClient
-from meocosub2.subtitles import align_subtitles, load_subtitle_file
+from meocosub2.subtitles import align_subtitles, assign_target_translations, load_subtitle_file
 from meocosub2.sync import run_sync_loop
 from meocosub2.translator import translate_lines
 
@@ -32,6 +40,7 @@ def search_result_payload(result: Any) -> dict[str, object]:
         "fileName": result.file_name,
         "matchScore": getattr(result, "match_score", 0.0),
         "displayLabel": result.display_label(),
+        "languageLabel": language_label(result.language),
     }
 
 
@@ -71,7 +80,54 @@ class GuiController:
     async def get_config_payload(self) -> dict[str, object]:
         return config_to_payload(self.config)
 
+    async def get_foundry_status_payload(self, probe: bool = False, auto_start: bool = False) -> dict[str, object]:
+        logger.debug("get_foundry_status_payload(probe=%s, auto_start=%s)", probe, auto_start)
+        status = await asyncio.to_thread(foundry_status, self.config, probe, auto_start)
+        logger.info("Foundry status: phase=%s notes=%s", status.phase, status.notes)
+        return asdict(status)
+
+    async def prepare_foundry_payload(self) -> dict[str, object]:
+        status = await asyncio.to_thread(make_foundry_ready, self.config)
+        return asdict(status)
+
+    async def install_ocr_language(self, language_tag: str) -> dict[str, object]:
+        capability_tag = {
+            "en-US": "en-US",
+            "zh-TW": "zh-Hant",
+            "zh-CN": "zh-Hans",
+            "ja-JP": "ja",
+            "ko-KR": "ko",
+        }.get(language_tag)
+        if capability_tag is None:
+            raise ValueError(f"Unsupported OCR language: {language_tag}")
+
+        inner_script = (
+            f"Write-Host 'Installing OCR language pack: {capability_tag}...' -ForegroundColor Cyan; "
+            f"$cap = Get-WindowsCapability -Online | Where-Object {{ $_.Name -Like 'Language.OCR*{capability_tag}*' -and $_.State -ne 'Installed' }}; "
+            "if ($cap) { $cap | Add-WindowsCapability -Online; Write-Host 'Done!' -ForegroundColor Green } "
+            "else { Write-Host 'Language pack is already installed or not available.' -ForegroundColor Yellow }; "
+            "Start-Sleep -Seconds 3"
+        )
+
+        outer_args = [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile -Command "
+            + inner_script.replace("'", "''")
+            + "'",
+        ]
+
+        await asyncio.to_thread(
+            subprocess.run,
+            outer_args,
+            check=False,
+            creationflags=0x08000000,
+        )
+        return {"launched": True, "requiresRefresh": True}
+
     async def save_config_payload(self, payload: dict[str, object]) -> dict[str, object]:
+        logger.info("Saving config")
         from meocosub2.config import config_from_payload
 
         new_config = config_from_payload(payload, fallback=self.config)
@@ -85,12 +141,14 @@ class GuiController:
         return config_to_payload(self.config)
 
     async def search(self, request: SearchRequest) -> list[dict[str, object]]:
+        logger.info("Search: title=%r source=%s target=%s", request.title, request.source_language, request.target_language)
         async with self._lock:
             self._state.status = "searching"
             self._state.title = request.title
             self._state.source_language = request.source_language
             self._state.target_language = request.target_language
             self._state.error_message = ""
+            self._state.warning_message = ""
             self._state.progress = AppProgress(stage="search", message="Searching OpenSubtitles...")
         await self._emit_app_state()
         await self._emit_app_progress()
@@ -107,7 +165,7 @@ class GuiController:
             ) as client:
                 results = await client.search(
                     request.title,
-                    languages=f"{request.source_language},{request.target_language}",
+                    languages=expand_search_languages(request.source_language, request.target_language),
                 )
         except Exception as exc:
             await self._set_error(str(exc))
@@ -125,6 +183,7 @@ class GuiController:
         return payload
 
     async def prepare_session(self, source_file_id: int, target_file_id: int | None = None) -> dict[str, object]:
+        logger.info("Prepare session: source_file_id=%s target_file_id=%s", source_file_id, target_file_id)
         if self._sync_task and not self._sync_task.done():
             await self._set_error("Stop the active session before preparing another one.")
             raise RuntimeError("A session is already running.")
@@ -141,6 +200,7 @@ class GuiController:
             self._state.selected_source_file_id = source_file_id
             self._state.selected_target_file_id = target_file_id
             self._state.error_message = ""
+            self._state.warning_message = ""
             self._state.progress = AppProgress(stage="download", message="Downloading subtitle files...", current=0, total=2)
         await self._emit_app_state()
         await self._emit_app_progress()
@@ -165,10 +225,12 @@ class GuiController:
 
             used_translation = False
             if target_lines:
-                for source_line, target_line in zip(source_lines, target_lines):
-                    source_line.translated = target_line.text
+                assign_target_translations(source_lines, target_lines)
             else:
                 used_translation = True
+                warm_status = await asyncio.to_thread(make_foundry_ready, self.config)
+                if warm_status.phase != "ready":
+                    raise TranslationError(warm_status.notes)
                 await self._set_progress("translation", "Translating subtitles...", 0, len(source_lines))
                 await translate_lines(
                     source_lines,
@@ -190,6 +252,11 @@ class GuiController:
             title=self._state.title,
             source_language=self._state.source_language,
             target_language=self._state.target_language,
+            resolved_source_language=str(source_result.get("language") or self._state.source_language),
+            source_language_mode=source_language_mode(
+                self._state.source_language,
+                str(source_result.get("language") or self._state.source_language),
+            ),
             source_file_id=source_file_id,
             source_file_name=str(source_result.get("fileName") or ""),
             source_path=str(source_path),
@@ -207,11 +274,14 @@ class GuiController:
             self._state.prepared_session = session
             self._state.status = "idle"
             self._state.progress = AppProgress(stage="ready", message="Session prepared.", current=1, total=1)
+            if session.source_language_mode != "exact":
+                self._state.warning_message = "Using a Chinese-family source subtitle fallback because no exact source language match was available."
         await self._emit_app_state()
         await self._emit_app_progress()
         return asdict(session)
 
     async def start_session(self, session_id: str | None = None) -> dict[str, object]:
+        logger.info("Start session: session_id=%s", session_id)
         if self._prepared_pair is None or self._state.prepared_session is None:
             raise ValueError("Prepare a session before starting sync.")
         if session_id and session_id != self._state.prepared_session.session_id:
@@ -219,9 +289,13 @@ class GuiController:
         if self._sync_task and not self._sync_task.done():
             raise RuntimeError("A session is already running.")
 
+        resolution = resolve_ocr_language(self.config.ocr_language)
+        if resolution.warning_message and resolution.resolved_language == resolution.requested_language and "not installed" in resolution.warning_message.lower():
+            raise RuntimeError(resolution.warning_message)
         async with self._lock:
             self._state.status = "running"
             self._state.error_message = ""
+            self._state.warning_message = resolution.warning_message
             self._state.progress = AppProgress(stage="sync", message="Sync loop is running.", current=1, total=1)
         await self._emit_app_state()
         await self._emit_app_progress()
@@ -230,12 +304,14 @@ class GuiController:
         return {"status": self._state.status}
 
     async def stop_session(self) -> dict[str, object]:
+        logger.info("Stop session requested")
         task = self._sync_task
         if task is None or task.done():
             async with self._lock:
                 self._state.status = "idle"
                 self._state.last_subtitle = ""
                 self._state.progress = AppProgress()
+                self._state.warning_message = ""
             await self._emit_app_state()
             await self._emit_app_event("subtitle", {"text": ""})
             await self._emit_overlay_event("subtitle", {"text": ""})
@@ -259,6 +335,7 @@ class GuiController:
             self._state.status = "idle"
             self._state.last_subtitle = ""
             self._state.progress = AppProgress()
+            self._state.warning_message = ""
         await self._emit_app_state()
         await self._emit_app_event("subtitle", {"text": ""})
         await self._emit_overlay_event("subtitle", {"text": ""})
@@ -307,6 +384,7 @@ class GuiController:
         async with self._lock:
             self._state.status = "error"
             self._state.error_message = message
+            self._state.warning_message = ""
             self._state.progress = AppProgress()
         await self._emit_app_state()
         await self._emit_app_event("error", {"message": message})

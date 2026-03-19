@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import logging
 import os
 import webbrowser
@@ -34,22 +35,45 @@ def _log_dir() -> Path:
     return Path(appdata) / "meowcal-sub-2" / "logs"
 
 
-def _setup_logging() -> None:
+def _setup_logging(verbose: bool = True) -> None:
     root = logging.getLogger()
     if any(isinstance(handler, TimedRotatingFileHandler) for handler in root.handlers):
         return
 
     log_dir = _log_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
-    handler = TimedRotatingFileHandler(
+    log_format = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+
+    file_handler = TimedRotatingFileHandler(
         log_dir / "meowcal-sub-2.log",
         when="D",
         backupCount=7,
         encoding="utf-8",
     )
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-    root.setLevel(logging.INFO)
-    root.addHandler(handler)
+    file_handler.setFormatter(logging.Formatter(log_format))
+    file_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
+    root.addHandler(file_handler)
+
+    if verbose and _has_console():
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(logging.Formatter(log_format))
+        console_handler.setLevel(logging.DEBUG)
+        root.addHandler(console_handler)
+
+    root.setLevel(logging.DEBUG if verbose else logging.INFO)
+
+    # Keep noisy third-party loggers quiet even in verbose mode
+    for noisy in ("httpx", "httpcore", "asyncio", "watchfiles"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
+def _has_console() -> bool:
+    """Return True when stderr is attached to a real console or pipe."""
+    import sys
+    try:
+        return sys.stderr is not None and sys.stderr.fileno() >= 0
+    except Exception:
+        return False
 
 
 def _version_callback(value: bool) -> None:
@@ -62,6 +86,13 @@ def _get_config() -> AppConfig:
     return load_config()
 
 
+def _ensure_websocket_runtime() -> None:
+    if importlib.util.find_spec("websockets") or importlib.util.find_spec("wsproto"):
+        return
+    console.print("[red]A websocket runtime dependency is missing. Install the project dependencies again.[/red]")
+    raise typer.Exit(1)
+
+
 @app.callback()
 def main(
     version: Optional[bool] = typer.Option(
@@ -70,8 +101,14 @@ def main(
         callback=_version_callback,
         is_eager=True,
     ),
+    verbose: bool = typer.Option(
+        True,
+        "--verbose/--quiet",
+        "-v/-q",
+        help="Enable verbose console logging (on by default).",
+    ),
 ) -> None:
-    _setup_logging()
+    _setup_logging(verbose=verbose)
 
 
 def _require_api_key(config: AppConfig) -> None:
@@ -171,6 +208,7 @@ def translate(
 
 
 async def _start_overlay(pair, config: AppConfig) -> None:
+    _ensure_websocket_runtime()
     overlay = OverlayServer(config)
     server_config = uvicorn.Config(overlay.app, host="127.0.0.1", port=config.overlay_port, log_level="error")
     server = uvicorn.Server(server_config)
@@ -180,11 +218,20 @@ async def _start_overlay(pair, config: AppConfig) -> None:
 
 
 async def _start_gui(config: AppConfig) -> None:
+    _ensure_websocket_runtime()
     overlay = OverlayServer(config)
     server_config = uvicorn.Config(overlay.app, host="127.0.0.1", port=config.overlay_port, log_level="error")
     server = uvicorn.Server(server_config)
     studio_url = f"http://127.0.0.1:{config.overlay_port}/"
     webbrowser.open(studio_url)
+    await server.serve()
+
+
+async def _serve_gui(config: AppConfig) -> None:
+    _ensure_websocket_runtime()
+    overlay = OverlayServer(config)
+    server_config = uvicorn.Config(overlay.app, host="127.0.0.1", port=config.overlay_port, log_level="error")
+    server = uvicorn.Server(server_config)
     await server.serve()
 
 
@@ -206,6 +253,12 @@ def start(
 def gui() -> None:
     config = _get_config()
     asyncio.run(_start_gui(config))
+
+
+@app.command()
+def serve() -> None:
+    config = _get_config()
+    asyncio.run(_serve_gui(config))
 
 
 async def _run_flow(title: str, source_lang: str, target_lang: str, config: AppConfig) -> None:

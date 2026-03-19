@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Select Capture Area</title>
+  <link rel="stylesheet" href="selector.css">
+</head>
+<body>
+  <div id="overlay-root" class="selector-root">
+    <div id="selection-box" class="selection-box hidden"></div>
+    <div id="selector-toolbar" class="selector-toolbar hidden">
+      <span id="selector-dimensions">0 × 0</span>
+      <button id="selector-confirm" type="button">Confirm</button>
+      <button id="selector-cancel" type="button">Cancel</button>
+    </div>
+    <div id="selector-instructions" class="selector-instructions">Drag to select the subtitle capture area.</div>
+  </div>
+  <script src="selector.js" type="module"></script>
+</body>
+</html>

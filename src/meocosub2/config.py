@@ -10,6 +10,8 @@ from typing import Any
 
 import tomli_w
 
+from meocosub2.languages import derive_ocr_language, normalize_source_language, normalize_target_language
+
 
 @dataclass
 class AppConfig:
@@ -21,7 +23,7 @@ class AppConfig:
     target_language: str = "zh"
     capture_region: list[int] = field(default_factory=list)
     capture_interval_ms: int = 1500
-    ocr_language: str = "en"
+    ocr_language: str = "en-US"
     fuzzy_threshold: int = 65
     match_window_size: int = 30
     foundry_endpoint: str = "http://127.0.0.1:5273/v1"
@@ -59,16 +61,20 @@ def load_config(path: Path | None = None) -> AppConfig:
     except tomllib.TOMLDecodeError:
         return AppConfig()
 
+    source_language = normalize_source_language(data.get("languages", {}).get("source", "en"))
+    target_language = normalize_target_language(data.get("languages", {}).get("target", "zh"))
+    ocr_language = str(data.get("capture", {}).get("ocr_language", "")) or derive_ocr_language(source_language)
+
     return AppConfig(
         opensubtitles_api_key=data.get("opensubtitles", {}).get("api_key", ""),
         opensubtitles_username=data.get("opensubtitles", {}).get("username", ""),
         opensubtitles_password=data.get("opensubtitles", {}).get("password", ""),
         opensubtitles_enable_org_fallback=bool(data.get("opensubtitles", {}).get("enable_org_fallback", False)),
-        source_language=data.get("languages", {}).get("source", "en"),
-        target_language=data.get("languages", {}).get("target", "zh"),
+        source_language=source_language,
+        target_language=target_language,
         capture_region=data.get("capture", {}).get("region", []),
         capture_interval_ms=data.get("capture", {}).get("interval_ms", 1500),
-        ocr_language=data.get("capture", {}).get("ocr_language", "en"),
+        ocr_language=derive_ocr_language(source_language, ocr_language),
         fuzzy_threshold=data.get("matching", {}).get("fuzzy_threshold", 65),
         match_window_size=data.get("matching", {}).get("window_size", 30),
         foundry_endpoint=data.get("translation", {}).get("endpoint", "http://127.0.0.1:5273/v1"),
@@ -109,7 +115,7 @@ def save_config(config: AppConfig, path: Path | None = None) -> None:
         "capture": {
             "region": config.capture_region,
             "interval_ms": config.capture_interval_ms,
-            "ocr_language": config.ocr_language,
+            "ocr_language": derive_ocr_language(config.source_language, config.ocr_language),
         },
         "matching": {
             "fuzzy_threshold": config.fuzzy_threshold,
@@ -175,7 +181,7 @@ def config_to_payload(config: AppConfig) -> dict[str, object]:
         "capture": {
             "region": list(config.capture_region),
             "intervalMs": config.capture_interval_ms,
-            "ocrLanguage": config.ocr_language,
+            "ocrLanguage": derive_ocr_language(config.source_language, config.ocr_language),
         },
         "matching": {
             "fuzzyThreshold": config.fuzzy_threshold,
@@ -264,11 +270,14 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
             opensubtitles.get("enableOrgFallback", base.opensubtitles_enable_org_fallback),
             base.opensubtitles_enable_org_fallback,
         ),
-        source_language=str(languages.get("source", base.source_language)),
-        target_language=str(languages.get("target", base.target_language)),
+        source_language=normalize_source_language(str(languages.get("source", base.source_language))),
+        target_language=normalize_target_language(str(languages.get("target", base.target_language))),
         capture_region=_coerce_int_list(capture.get("region", base.capture_region), base.capture_region),
         capture_interval_ms=_coerce_int(capture.get("intervalMs", base.capture_interval_ms), base.capture_interval_ms),
-        ocr_language=str(capture.get("ocrLanguage", base.ocr_language)),
+        ocr_language=derive_ocr_language(
+            str(languages.get("source", base.source_language)),
+            str(capture.get("ocrLanguage", base.ocr_language)),
+        ),
         fuzzy_threshold=_coerce_int(matching.get("fuzzyThreshold", base.fuzzy_threshold), base.fuzzy_threshold),
         match_window_size=_coerce_int(matching.get("windowSize", base.match_window_size), base.match_window_size),
         foundry_endpoint=str(translation.get("endpoint", base.foundry_endpoint)),

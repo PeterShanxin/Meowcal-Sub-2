@@ -21,9 +21,9 @@ pip install -e ".[dev]"
 
 ## Windows Desktop Launch
 
-- Double-click `run_app.vbs` to open the desktop app without a console window.
-- From PowerShell, use `Start-Process .\run_app.vbs` or run `.\run_app.ps1`.
-- The launcher prefers the built Tauri shell and falls back to `pythonw -m meocosub2.cli gui` when the shell is not available.
+- Use `run_app.vbs` to open the desktop app without a console window.
+- `run_app.vbs` is the only Windows launcher now. It opens the built desktop shell when present and falls back to the Python GUI through `pythonw.exe`.
+- The startup spinner now means the studio is still loading. It only clears once the language controls and saved settings are ready to use.
 
 ## Config
 
