@@ -1,0 +1,515 @@
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
+use reqwest::blocking::Client;
+use serde::Serialize;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State,
+};
+use tokio::time::sleep;
+use url::Url;
+use windows::Win32::Foundation::POINT;
+use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+const API_BASE: &str = "http://127.0.0.1:8765";
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+#[derive(Clone)]
+struct BackendProcess(Arc<Mutex<Option<Child>>>);
+
+#[derive(Serialize, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+struct CaptureRegionPayload {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HudRegionPayload {
+    left: i32,
+    top: i32,
+    width: i32,
+    height: i32,
+    frame_left: i32,
+    frame_top: i32,
+    top_margin: i32,
+    bottom_margin: i32,
+    subtitle_position: &'static str,
+}
+
+#[derive(Serialize, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
+struct HoverStatePayload {
+    hovering: bool,
+}
+
+#[derive(Clone, Copy)]
+struct CaptureRegionState {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    device_scale_factor: f64,
+}
+
+#[derive(Clone)]
+struct ShellState {
+    capture_region: Arc<Mutex<Option<CaptureRegionState>>>,
+    hud_enabled: Arc<AtomicBool>,
+    hud_hovering: Arc<AtomicBool>,
+}
+
+fn repo_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("repo root")
+        .to_path_buf()
+}
+
+fn python_executable() -> PathBuf {
+    if let Ok(path) = std::env::var("MEOWCAL_PYTHON") {
+        let candidate = PathBuf::from(path);
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+    repo_root().join(".venv").join("Scripts").join("python.exe")
+}
+
+fn backend_ready() -> bool {
+    Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+        .ok()
+        .and_then(|client| client.get(format!("{API_BASE}/api/state")).send().ok())
+        .map(|response| response.status().is_success())
+        .unwrap_or(false)
+}
+
+fn ensure_backend_running(process: &BackendProcess) {
+    if backend_ready() {
+        return;
+    }
+
+    let python = python_executable();
+    let mut command = if python.exists() {
+        let mut command = Command::new(python);
+        command.current_dir(repo_root());
+        command.args(["-m", "meocosub2.cli", "serve"]);
+        command
+    } else {
+        let mut command = Command::new("python");
+        command.current_dir(repo_root());
+        command.args(["-m", "meocosub2.cli", "serve"]);
+        command
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    if let Ok(child) = command.spawn() {
+        *process.0.lock().expect("backend process lock") = Some(child);
+    }
+
+    for _ in 0..30 {
+        if backend_ready() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+fn post_json(path: &str, body: serde_json::Value) -> Result<(), String> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let response = client
+        .post(format!("{API_BASE}{path}"))
+        .json(&body)
+        .send()
+        .map_err(|error| error.to_string())?;
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!("Backend request failed: {}", response.status()))
+    }
+}
+
+fn fetch_capture_region_from_backend() -> Option<CaptureRegionState> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .ok()?;
+    let payload: serde_json::Value = client
+        .get(format!("{API_BASE}/api/config"))
+        .send()
+        .ok()?
+        .error_for_status()
+        .ok()?
+        .json()
+        .ok()?;
+
+    let region = payload.get("capture")?.get("region")?.as_array()?;
+    if region.len() != 4 {
+        return None;
+    }
+    let x = region[0].as_i64()? as i32;
+    let y = region[1].as_i64()? as i32;
+    let width = region[2].as_i64()? as i32;
+    let height = region[3].as_i64()? as i32;
+    if width <= 0 || height <= 0 {
+        return None;
+    }
+    Some(CaptureRegionState {
+        x,
+        y,
+        width,
+        height,
+        device_scale_factor: 1.0,
+    })
+}
+
+fn current_cursor_position() -> Option<(i32, i32)> {
+    unsafe {
+        let mut point = POINT::default();
+        if GetCursorPos(&mut point).is_ok() {
+            Some((point.x, point.y))
+        } else {
+            None
+        }
+    }
+}
+
+fn compute_hud_region(region: CaptureRegionState) -> HudRegionPayload {
+    let left_margin = 18;
+    let right_margin = 18;
+    let top_margin = if region.y >= 150 { 150 } else { 48 };
+    let bottom_margin = 122;
+    HudRegionPayload {
+        left: region.x - left_margin,
+        top: region.y - top_margin,
+        width: region.width + left_margin + right_margin,
+        height: region.height + top_margin + bottom_margin,
+        frame_left: left_margin,
+        frame_top: top_margin,
+        top_margin,
+        bottom_margin,
+        subtitle_position: if top_margin >= 110 { "above" } else { "below" },
+    }
+}
+
+fn configure_capture_hud(app: &AppHandle, shell: &ShellState) -> Result<(), String> {
+    let region = *shell.capture_region.lock().map_err(|_| "capture region lock poisoned")?;
+    let window = app
+        .get_webview_window("capture-hud")
+        .ok_or("Capture HUD window not found")?;
+    if let Some(region) = region {
+        let hud = compute_hud_region(region);
+        window
+            .set_position(LogicalPosition::new(hud.left as f64, hud.top as f64))
+            .map_err(|error| error.to_string())?;
+        window
+            .set_size(LogicalSize::new(hud.width as f64, hud.height as f64))
+            .map_err(|error| error.to_string())?;
+        app.emit_to("capture-hud", "capture-hud-region", hud)
+            .map_err(|error| error.to_string())?;
+        if shell.hud_enabled.load(Ordering::SeqCst) {
+            window.show().map_err(|error| error.to_string())?;
+            window
+                .set_ignore_cursor_events(!shell.hud_hovering.load(Ordering::SeqCst))
+                .map_err(|error| error.to_string())?;
+        } else {
+            window.hide().map_err(|error| error.to_string())?;
+        }
+    } else {
+        window.hide().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn open_area_selector(app: AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("selector")
+        .ok_or("Selector window not found")?;
+    window.show().map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn close_area_selector(app: AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("selector")
+        .ok_or("Selector window not found")?;
+    window.hide().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn hide_main_window(app: AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or("Main window not found")?;
+    window.hide().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn show_main_window(app: AppHandle) -> Result<(), String> {
+    show_main(&app);
+    Ok(())
+}
+
+#[tauri::command]
+fn show_capture_hud(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), String> {
+    if shell
+        .capture_region
+        .lock()
+        .map_err(|_| "capture region lock poisoned")?
+        .is_none()
+    {
+        *shell
+            .capture_region
+            .lock()
+            .map_err(|_| "capture region lock poisoned")? = fetch_capture_region_from_backend();
+    }
+    shell.hud_enabled.store(true, Ordering::SeqCst);
+    shell.hud_hovering.store(false, Ordering::SeqCst);
+    configure_capture_hud(&app, &shell)?;
+    app.emit_to("capture-hud", "capture-hud-pulse", serde_json::json!({}))
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn stop_translation(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), String> {
+    post_json("/api/session/stop", serde_json::json!({}))?;
+    shell.hud_enabled.store(false, Ordering::SeqCst);
+    shell.hud_hovering.store(false, Ordering::SeqCst);
+    if let Some(window) = app.get_webview_window("capture-hud") {
+        let _ = window.hide();
+    }
+    show_main(&app);
+    Ok(())
+}
+
+#[tauri::command]
+fn set_capture_region(
+    app: AppHandle,
+    shell: State<'_, ShellState>,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    device_scale_factor: f64,
+) -> Result<(), String> {
+    let region = [
+        (x as f64 * device_scale_factor).round() as i32,
+        (y as f64 * device_scale_factor).round() as i32,
+        (width as f64 * device_scale_factor).round() as i32,
+        (height as f64 * device_scale_factor).round() as i32,
+    ];
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let mut payload: serde_json::Value = client
+        .get(format!("{API_BASE}/api/config"))
+        .send()
+        .and_then(|response| response.error_for_status())
+        .map_err(|error| error.to_string())?
+        .json()
+        .map_err(|error| error.to_string())?;
+    payload["capture"]["region"] = serde_json::json!(region);
+
+    client
+        .put(format!("{API_BASE}/api/config"))
+        .json(&payload)
+        .send()
+        .and_then(|response| response.error_for_status())
+        .map_err(|error| error.to_string())?;
+
+    app.emit(
+        "capture-region-selected",
+        CaptureRegionPayload {
+            x,
+            y,
+            width,
+            height,
+        },
+    )
+    .map_err(|error| error.to_string())?;
+
+    *shell.capture_region.lock().map_err(|_| "capture region lock poisoned")? = Some(CaptureRegionState {
+        x,
+        y,
+        width,
+        height,
+        device_scale_factor,
+    });
+    configure_capture_hud(&app, &shell)?;
+
+    if let Some(selector) = app.get_webview_window("selector") {
+        let _ = selector.hide();
+    }
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.show();
+        let _ = main.set_focus();
+    }
+
+    Ok(())
+}
+
+fn show_main(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+fn main() {
+    let backend_process = BackendProcess(Arc::new(Mutex::new(None)));
+    let shell_state = ShellState {
+        capture_region: Arc::new(Mutex::new(None)),
+        hud_enabled: Arc::new(AtomicBool::new(false)),
+        hud_hovering: Arc::new(AtomicBool::new(false)),
+    };
+
+    tauri::Builder::default()
+        .manage(backend_process.clone())
+        .manage(shell_state.clone())
+        .invoke_handler(tauri::generate_handler![
+            open_area_selector,
+            close_area_selector,
+            hide_main_window,
+            show_main_window,
+            show_capture_hud,
+            stop_translation,
+            set_capture_region,
+        ])
+        .setup(move |app| {
+            ensure_backend_running(app.state::<BackendProcess>().inner());
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.navigate(Url::parse(API_BASE).map_err(|error| error.to_string())?);
+            }
+
+            let show_item = MenuItem::with_id(app, "show", "Open App", true, None::<&str>)?;
+            let selector_item =
+                MenuItem::with_id(app, "select-area", "Select Capture Area", true, None::<&str>)?;
+            let stop_item = MenuItem::with_id(app, "stop", "Stop Translation", true, None::<&str>)?;
+            let exit_item = MenuItem::with_id(app, "exit", "Exit", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_item, &selector_item, &stop_item, &exit_item])?;
+
+            let icon = app
+                .default_window_icon()
+                .cloned()
+                .ok_or("Default window icon is missing")?;
+            let handle = app.handle().clone();
+            TrayIconBuilder::new()
+                .icon(icon)
+                .menu(&menu)
+                .on_menu_event(move |tray, event| match event.id.as_ref() {
+                    "show" => show_main(tray.app_handle()),
+                    "select-area" => {
+                        if let Some(window) = tray.app_handle().get_webview_window("selector") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "stop" => {
+                        let app_handle = tray.app_handle().clone();
+                        let _ = post_json("/api/session/stop", serde_json::json!({}));
+                        {
+                            let shell = app_handle.state::<ShellState>();
+                            shell.hud_enabled.store(false, Ordering::SeqCst);
+                            shell.hud_hovering.store(false, Ordering::SeqCst);
+                        }
+                        if let Some(window) = app_handle.get_webview_window("capture-hud") {
+                            let _ = window.hide();
+                        }
+                        show_main(&app_handle);
+                    }
+                    "exit" => {
+                        tray.app_handle().exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(move |tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        show_main(tray.app_handle());
+                    }
+                })
+                .build(app)?;
+
+            if let Some(main) = app.get_webview_window("main") {
+                let app_handle = handle.clone();
+                main.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.hide();
+                        }
+                    }
+                });
+            }
+
+            if let Some(hud) = app.get_webview_window("capture-hud") {
+                let _ = hud.set_ignore_cursor_events(true);
+            }
+
+            let app_handle = app.handle().clone();
+            let shell = shell_state.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    if shell.hud_enabled.load(Ordering::SeqCst) {
+                        let region = *shell.capture_region.lock().expect("capture region lock");
+                        if let Some(region) = region {
+                            if let Some((cursor_x, cursor_y)) = current_cursor_position() {
+                                let hovering = cursor_x >= region.x
+                                    && cursor_x <= region.x + region.width
+                                    && cursor_y >= region.y
+                                    && cursor_y <= region.y + region.height;
+                                let previous = shell.hud_hovering.swap(hovering, Ordering::SeqCst);
+                                if previous != hovering {
+                                    if let Some(window) = app_handle.get_webview_window("capture-hud") {
+                                        let _ = window.set_ignore_cursor_events(!hovering);
+                                    }
+                                    let _ = app_handle.emit_to(
+                                        "capture-hud",
+                                        "capture-hud-hover",
+                                        HoverStatePayload { hovering },
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    sleep(Duration::from_millis(120)).await;
+                }
+            });
+
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .expect("error while running tauri app");
+}

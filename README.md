@@ -19,6 +19,12 @@ User guide:
 pip install -e ".[dev]"
 ```
 
+## Windows Desktop Launch
+
+- Double-click `run_app.vbs` to open the desktop app without a console window.
+- From PowerShell, use `Start-Process .\run_app.vbs` or run `.\run_app.ps1`.
+- The launcher prefers the built Tauri shell and falls back to `pythonw -m meocosub2.cli gui` when the shell is not available.
+
 ## Config
 
 Default config path:
