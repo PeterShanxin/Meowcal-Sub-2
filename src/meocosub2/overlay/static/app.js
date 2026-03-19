@@ -1,7 +1,24 @@
 const dom = {
+  commandBar: document.getElementById("command-bar"),
+  statusStrip: document.getElementById("status-strip"),
+  settingsOpenButton: document.getElementById("settings-open-button"),
+  settingsInlineButton: document.getElementById("settings-inline-button"),
+  settingsCloseButton: document.getElementById("settings-close-button"),
+  settingsDrawer: document.getElementById("settings-drawer"),
+  settingsBackdrop: document.getElementById("settings-backdrop"),
   titleInput: document.getElementById("title-input"),
+  sourceLanguageField: document.getElementById("source-language-field"),
+  sourceLanguageTrigger: document.getElementById("source-language-trigger"),
+  sourceLanguagePicker: document.getElementById("source-language-picker"),
+  sourceLanguageOptions: document.getElementById("source-language-options"),
   sourceLanguageInput: document.getElementById("source-language-input"),
+  sourceLanguageCustomInput: document.getElementById("source-language-custom"),
+  targetLanguageField: document.getElementById("target-language-field"),
+  targetLanguageTrigger: document.getElementById("target-language-trigger"),
+  targetLanguagePicker: document.getElementById("target-language-picker"),
+  targetLanguageOptions: document.getElementById("target-language-options"),
   targetLanguageInput: document.getElementById("target-language-input"),
+  targetLanguageCustomInput: document.getElementById("target-language-custom"),
   statusChip: document.getElementById("status-chip"),
   statusMessage: document.getElementById("status-message"),
   progressStage: document.getElementById("progress-stage"),
@@ -21,18 +38,54 @@ const dom = {
   overlayLink: document.getElementById("overlay-link"),
   searchForm: document.getElementById("search-form"),
   configForm: document.getElementById("config-form"),
+  foundryStatusChip: document.getElementById("foundry-status-chip"),
+  foundryStatusNote: document.getElementById("foundry-status-note"),
+  ocrLanguageDisplay: document.getElementById("ocr-language-display"),
+  ocrLanguageNote: document.getElementById("ocr-language-note"),
+  ocrInstallButton: document.getElementById("ocr-install-button"),
+  selectRegionButton: document.getElementById("select-region-button"),
+  loadingOverlay: document.getElementById("loading-overlay"),
+  loadingSpinner: document.getElementById("loading-spinner"),
+  loadingTitle: document.getElementById("loading-title"),
+  loadingMessage: document.getElementById("loading-message"),
+  loadingRetry: document.getElementById("loading-retry"),
 };
 
 const state = {
   snapshot: null,
   config: null,
+  languageCatalog: null,
+  foundryStatus: null,
   selectedSourceFileId: null,
   selectedTargetFileId: null,
   overlayWindow: null,
+  activeLanguagePicker: null,
+  ui: {
+    settingsOpen: false,
+  },
+  bootstrap: {
+    ready: false,
+    loading: false,
+  },
 };
 
 let socket;
 let renderScheduled = false;
+let bootstrapPromise = null;
+const TAURI = window.__TAURI__?.core?.invoke ? window.__TAURI__ : null;
+const API_BASE = TAURI ? "http://127.0.0.1:8765" : "";
+
+function apiUrl(path) {
+  return `${API_BASE}${path}`;
+}
+
+function wsUrl(path) {
+  if (!API_BASE) {
+    return `ws://${location.host}${path}`;
+  }
+  const url = new URL(API_BASE);
+  return `ws://${url.host}${path}`;
+}
 
 function scheduleRender() {
   if (renderScheduled) {
@@ -47,7 +100,7 @@ function scheduleRender() {
 }
 
 async function fetchJson(url, options = {}) {
-  const response = await fetch(url, {
+  const response = await fetch(apiUrl(url), {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
@@ -63,6 +116,406 @@ async function fetchJson(url, options = {}) {
 function setSaveState(label, kind = "neutral") {
   dom.saveState.textContent = label;
   dom.saveState.dataset.state = kind;
+}
+
+function interactiveControls() {
+  return [
+    ...document.querySelectorAll("#search-form input, #search-form select, #search-form button"),
+    ...document.querySelectorAll("#config-form input, #config-form select, #config-form button"),
+    dom.prepareButton,
+    dom.startButton,
+    dom.stopButton,
+    dom.settingsOpenButton,
+    dom.settingsInlineButton,
+    dom.settingsCloseButton,
+  ].filter(Boolean);
+}
+
+function setOverlayLinkDisabled(disabled) {
+  dom.overlayLink.classList.toggle("is-disabled", disabled);
+  dom.overlayLink.setAttribute("aria-disabled", String(disabled));
+  dom.overlayLink.tabIndex = disabled ? -1 : 0;
+}
+
+function setControlsDisabled(disabled) {
+  if (disabled && state.activeLanguagePicker) {
+    closeLanguagePicker({ restoreFocus: false });
+  }
+  if (disabled && state.ui.settingsOpen) {
+    setSettingsDrawerOpen(false);
+  }
+  for (const control of interactiveControls()) {
+    control.disabled = disabled;
+  }
+  setOverlayLinkDisabled(disabled);
+}
+
+function setBootstrapLoading(title, message) {
+  state.bootstrap.loading = true;
+  state.bootstrap.ready = false;
+  setControlsDisabled(true);
+  if (!dom.loadingOverlay) {
+    return;
+  }
+  dom.loadingOverlay.classList.remove("fade-out", "is-error");
+  dom.loadingTitle.textContent = title;
+  dom.loadingMessage.textContent = message;
+  dom.loadingRetry.classList.add("hidden");
+  dom.loadingSpinner.classList.remove("hidden");
+}
+
+function setBootstrapError(message) {
+  state.bootstrap.loading = false;
+  state.bootstrap.ready = false;
+  setControlsDisabled(true);
+  if (!dom.loadingOverlay) {
+    return;
+  }
+  dom.loadingOverlay.classList.remove("fade-out");
+  dom.loadingOverlay.classList.add("is-error");
+  dom.loadingTitle.textContent = "Studio startup incomplete";
+  dom.loadingMessage.textContent = message;
+  dom.loadingRetry.classList.remove("hidden");
+  dom.loadingSpinner.classList.add("hidden");
+}
+
+function waitForNextPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(resolve);
+    });
+  });
+}
+
+function setSettingsDrawerOpen(open) {
+  state.ui.settingsOpen = open;
+  dom.settingsDrawer?.classList.toggle("is-open", open);
+  dom.settingsDrawer?.setAttribute("aria-hidden", String(!open));
+  dom.settingsBackdrop?.classList.toggle("hidden", !open);
+  document.body.classList.toggle("drawer-open", open);
+}
+
+function openSettingsDrawer() {
+  if (!state.bootstrap.ready) {
+    return;
+  }
+  setSettingsDrawerOpen(true);
+}
+
+function closeSettingsDrawer() {
+  setSettingsDrawerOpen(false);
+}
+
+const CUSTOM_LANGUAGE = "__custom__";
+
+function languageControls() {
+  return [
+    {
+      key: "source",
+      fieldEl: dom.sourceLanguageField,
+      selectEl: dom.sourceLanguageInput,
+      triggerEl: dom.sourceLanguageTrigger,
+      pickerEl: dom.sourceLanguagePicker,
+      optionsEl: dom.sourceLanguageOptions,
+      customInput: dom.sourceLanguageCustomInput,
+      label: "Source language",
+    },
+    {
+      key: "target",
+      fieldEl: dom.targetLanguageField,
+      selectEl: dom.targetLanguageInput,
+      triggerEl: dom.targetLanguageTrigger,
+      pickerEl: dom.targetLanguagePicker,
+      optionsEl: dom.targetLanguageOptions,
+      customInput: dom.targetLanguageCustomInput,
+      label: "Target language",
+    },
+  ];
+}
+
+function languageControlForSelect(selectEl) {
+  return languageControls().find((control) => control.selectEl === selectEl) || null;
+}
+
+function activeLanguageControl() {
+  return languageControls().find((control) => control.key === state.activeLanguagePicker) || null;
+}
+
+function selectedLanguageLabel(control) {
+  if (control.selectEl.value === CUSTOM_LANGUAGE) {
+    return control.customInput.value.trim() || "Custom…";
+  }
+  return control.selectEl.selectedOptions[0]?.textContent?.trim() || "Select language";
+}
+
+function updateLanguageTrigger(selectEl) {
+  const control = languageControlForSelect(selectEl);
+  if (!control) {
+    return;
+  }
+  const label = selectedLanguageLabel(control);
+  const textNode = control.triggerEl.querySelector(".language-trigger-text");
+  if (textNode) {
+    textNode.textContent = label;
+    return;
+  }
+  control.triggerEl.textContent = label;
+}
+
+function renderLanguagePickerOptions(control) {
+  if (!control.optionsEl) {
+    return;
+  }
+  const options = Array.from(control.selectEl.options).map((option) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `language-picker-option${option.selected ? " is-selected" : ""}`;
+    button.setAttribute("role", "option");
+    button.dataset.value = option.value;
+    button.setAttribute("aria-selected", option.selected ? "true" : "false");
+    button.textContent = option.textContent;
+    return button;
+  });
+  control.optionsEl.replaceChildren(...options);
+}
+
+function closeLanguagePicker({ restoreFocus = true } = {}) {
+  const control = activeLanguageControl();
+  if (!control) {
+    return;
+  }
+  control.fieldEl?.classList.remove("is-open");
+  control.pickerEl?.classList.add("hidden");
+  control.optionsEl?.replaceChildren();
+  control.triggerEl.setAttribute("aria-expanded", "false");
+  state.activeLanguagePicker = null;
+  if (restoreFocus) {
+    control.triggerEl.focus();
+  }
+}
+
+function openLanguagePicker(control) {
+  if (control.triggerEl.disabled) {
+    return;
+  }
+  if (state.activeLanguagePicker === control.key) {
+    closeLanguagePicker();
+    return;
+  }
+  closeLanguagePicker({ restoreFocus: false });
+  state.activeLanguagePicker = control.key;
+  control.fieldEl?.classList.add("is-open");
+  renderLanguagePickerOptions(control);
+  control.pickerEl?.classList.remove("hidden");
+  control.triggerEl.setAttribute("aria-expanded", "true");
+  requestAnimationFrame(() => {
+    const selectedOption = control.optionsEl?.querySelector(".is-selected");
+    const firstOption = control.optionsEl?.querySelector(".language-picker-option");
+    (selectedOption || firstOption)?.focus();
+  });
+}
+
+function normalizeLanguageCode(code) {
+  const lowered = (code || "").trim().toLowerCase();
+  const aliases = {
+    "en-us": "en",
+    "en-gb": "en",
+    en: "en",
+    zh: "zh",
+    "zh-cn": "zh",
+    "zh-hans": "zh",
+    "zh-hans-cn": "zh",
+    zhs: "zh",
+    zht: "zht",
+    "zh-tw": "zht",
+    "zh-hant": "zht",
+    "zh-hant-tw": "zht",
+    ja: "ja",
+    "ja-jp": "ja",
+    ko: "ko",
+    "ko-kr": "ko",
+    es: "es",
+    "es-es": "es",
+    fr: "fr",
+    "fr-fr": "fr",
+    de: "de",
+    "de-de": "de",
+  };
+  return aliases[lowered] || lowered;
+}
+
+function isChineseFamily(code) {
+  const normalized = normalizeLanguageCode(code);
+  return normalized === "zh" || normalized === "zht" || normalized.startsWith("zh");
+}
+
+function deriveOcrLanguage(sourceLanguage) {
+  const normalized = normalizeLanguageCode(sourceLanguage);
+  if (normalized === "zht") return "zh-TW";
+  if (normalized === "zh") return "zh-CN";
+  if (normalized === "ja") return "ja-JP";
+  if (normalized === "ko") return "ko-KR";
+  if (normalized === "es") return "es-ES";
+  if (normalized === "fr") return "fr-FR";
+  if (normalized === "de") return "de-DE";
+  return "en-US";
+}
+
+function currentLanguageValue(selectEl, customInput) {
+  if (selectEl.value === CUSTOM_LANGUAGE) {
+    return customInput.value.trim();
+  }
+  return selectEl.value.trim();
+}
+
+function syncCustomLanguageInput(selectEl, customInput) {
+  customInput.classList.toggle("hidden", selectEl.value !== CUSTOM_LANGUAGE);
+}
+
+function populateLanguageSelect(selectEl, customInput, options, currentValue) {
+  const normalized = normalizeLanguageCode(currentValue);
+  const known = options.some((option) => option.code === normalized);
+  selectEl.innerHTML = options
+    .map((option) => `<option value="${option.code}">${option.label}</option>`)
+    .join("");
+  selectEl.insertAdjacentHTML("beforeend", `<option value="${CUSTOM_LANGUAGE}">Custom…</option>`);
+  if (known) {
+    selectEl.value = normalized;
+    customInput.value = "";
+  } else {
+    selectEl.value = CUSTOM_LANGUAGE;
+    customInput.value = currentValue || "";
+  }
+  syncCustomLanguageInput(selectEl, customInput);
+  updateLanguageTrigger(selectEl);
+  const control = languageControlForSelect(selectEl);
+  if (control && state.activeLanguagePicker === control.key) {
+    renderLanguagePickerOptions(control);
+  }
+}
+
+function renderFoundryStatus(status) {
+  state.foundryStatus = status;
+  if (!status) {
+    dom.foundryStatusChip.textContent = "Unknown";
+    dom.foundryStatusChip.className = "status-chip error";
+    dom.foundryStatusNote.textContent = "Could not load Foundry Local status.";
+    return;
+  }
+
+  const phase = (status.phase || "error").toString();
+  const labelMap = {
+    unchecked: "Unchecked",
+    ready: "Ready",
+    preparing: "Preparing",
+    notRunning: "Not Running",
+    noModels: "No Models",
+    notInstalled: "Not Installed",
+    error: "Error",
+  };
+  const classMap = {
+    unchecked: "idle",
+    ready: "running",
+    preparing: "searching",
+    notRunning: "error",
+    noModels: "error",
+    notInstalled: "error",
+    error: "error",
+  };
+
+  dom.foundryStatusChip.textContent = labelMap[phase] || "Unknown";
+  dom.foundryStatusChip.className = `status-chip ${classMap[phase] || "error"}`;
+  dom.foundryStatusNote.textContent = status.notes || "Foundry Local status loaded.";
+}
+
+function languageLabel(code) {
+  const normalized = normalizeLanguageCode(code);
+  return (
+    state.languageCatalog?.sourceTarget?.find((option) => option.code === normalized)?.label ||
+    state.languageCatalog?.sourceTarget?.find((option) => option.code === code)?.label ||
+    (code || "Unknown").toUpperCase()
+  );
+}
+
+function statusLabel(status) {
+  const labels = {
+    idle: "Idle",
+    searching: "Searching",
+    preparing: "Preparing",
+    running: "Running",
+    stopping: "Stopping",
+    error: "Error",
+  };
+  return labels[status] || "Idle";
+}
+
+function sessionHeadline(snapshot, selectedSource, selectedTarget) {
+  if (snapshot.status === "searching") {
+    return snapshot.title ? `Finding subtitles for ${snapshot.title}` : "Finding subtitle matches";
+  }
+  if (snapshot.status === "preparing") {
+    return "Preparing your subtitle session";
+  }
+  if (snapshot.status === "running") {
+    return "Live sync is active";
+  }
+  if (snapshot.status === "stopping") {
+    return "Stopping live sync";
+  }
+  if (snapshot.error_message) {
+    return "Something needs attention";
+  }
+  if (snapshot.prepared_session) {
+    return "Session prepared. Start sync when the video is ready.";
+  }
+  if (selectedSource && selectedTarget != null) {
+    return "Subtitle pair selected. Prepare the session next.";
+  }
+  if (selectedSource) {
+    return "Source selected. Keep local translation or choose a target subtitle.";
+  }
+  if ((snapshot.search_results || []).length) {
+    return "Choose the subtitle pair for this session.";
+  }
+  return "Search for a title to begin";
+}
+
+function sessionMessage(snapshot, selectedSource, selectedTarget) {
+  if (snapshot.error_message) {
+    return snapshot.error_message;
+  }
+  if (snapshot.warning_message) {
+    return snapshot.warning_message;
+  }
+  if (snapshot.status === "running") {
+    return "The OCR loop is matching on-screen subtitles and sending lines to the overlay.";
+  }
+  if (snapshot.prepared_session) {
+    return "Your subtitle files are ready. Open the overlay and start sync when playback begins.";
+  }
+  if (selectedSource && selectedTarget == null) {
+    return "No target subtitle is selected yet. You can still prepare with local translation.";
+  }
+  if ((snapshot.search_results || []).length) {
+    return "Review the results below. The source subtitle choice drives the rest of the flow.";
+  }
+  return "Ready for a title search.";
+}
+
+function progressSummary(snapshot, selectedSource) {
+  if (snapshot.progress?.message) {
+    return snapshot.progress.message;
+  }
+  if (snapshot.prepared_session) {
+    return "Prepared session is ready for the next viewing run.";
+  }
+  if (selectedSource) {
+    return "Prepare the session once the subtitle choice looks right.";
+  }
+  if ((snapshot.search_results || []).length) {
+    return "Select a source subtitle and confirm the target side.";
+  }
+  return "Search and choose subtitle files to begin.";
 }
 
 function regionToString(region) {
@@ -101,7 +554,6 @@ function fillConfigForm(config) {
   document.getElementById("api-key-input").value = opensubtitles.apiKey || "";
   document.getElementById("translation-endpoint-input").value = translation.endpoint || "";
   document.getElementById("translation-model-input").value = translation.model || "";
-  document.getElementById("ocr-language-input").value = capture.ocrLanguage || "";
   document.getElementById("capture-interval-input").value = capture.intervalMs ?? 1500;
   document.getElementById("capture-region-input").value = regionToString(capture.region);
   document.getElementById("overlay-theme-input").value = overlay.theme;
@@ -117,6 +569,7 @@ function fillConfigForm(config) {
   document.getElementById("overlay-shadow-input").value = overlay.shadowStrength;
   document.getElementById("overlay-offset-input").value = overlay.offsetPct;
   document.getElementById("overlay-animation-input").value = overlay.animationMs;
+  updateDerivedOcrDisplay(capture.ocrLanguage || deriveOcrLanguage(config.languages.source));
   applyStylePreview(overlay);
 }
 
@@ -139,16 +592,18 @@ function currentOverlayConfigFromForm() {
 }
 
 function buildConfigPayload() {
+  const sourceLanguage = currentLanguageValue(dom.sourceLanguageInput, dom.sourceLanguageCustomInput) || "en";
+  const targetLanguage = currentLanguageValue(dom.targetLanguageInput, dom.targetLanguageCustomInput) || "zh";
   return {
     opensubtitles: {
       apiKey: document.getElementById("api-key-input").value,
     },
     languages: {
-      source: dom.sourceLanguageInput.value.trim() || "en",
-      target: dom.targetLanguageInput.value.trim() || "zh",
+      source: sourceLanguage,
+      target: targetLanguage,
     },
     capture: {
-      ocrLanguage: document.getElementById("ocr-language-input").value.trim() || "en",
+      ocrLanguage: deriveOcrLanguage(sourceLanguage),
       intervalMs: Number(document.getElementById("capture-interval-input").value || 1500),
       region: parseRegion(document.getElementById("capture-region-input").value),
     },
@@ -169,7 +624,47 @@ function buildConfigPayload() {
   };
 }
 
-function renderResults(container, results, selectedId) {
+function updateDerivedOcrDisplay(ocrLanguage) {
+  const resolved = ocrLanguage || deriveOcrLanguage(currentLanguageValue(dom.sourceLanguageInput, dom.sourceLanguageCustomInput));
+  dom.ocrLanguageDisplay.textContent = resolved;
+
+  const entry = state.languageCatalog?.ocr?.find((option) => option.code === resolved);
+  const installed = entry ? entry.installed : true;
+  if (installed) {
+    dom.ocrLanguageNote.textContent = "OCR follows the selected source language automatically.";
+    dom.ocrInstallButton.classList.add("hidden");
+    dom.ocrInstallButton.dataset.languageTag = "";
+    return;
+  }
+
+  dom.ocrLanguageNote.textContent = `${resolved} is not installed. Install the OCR pack or switch the source language.`;
+  dom.ocrInstallButton.classList.remove("hidden");
+  dom.ocrInstallButton.dataset.languageTag = resolved;
+}
+
+function setupTauriBridge() {
+  if (!TAURI) {
+    return;
+  }
+  dom.selectRegionButton.classList.remove("hidden");
+  dom.selectRegionButton.addEventListener("click", async () => {
+    try {
+      await TAURI.core.invoke("open_area_selector");
+    } catch (error) {
+      setSaveState(String(error), "error");
+    }
+  });
+  TAURI.event.listen("capture-region-selected", (event) => {
+    const region = event.payload;
+    if (!region) {
+      return;
+    }
+    document.getElementById("capture-region-input").value = `${region.x},${region.y},${region.width},${region.height}`;
+    setSaveState("Capture area selected", "success");
+  });
+}
+
+function renderResults(container, results, selectedId, requestedSourceLanguage = "") {
   if (!results.length) {
     container.className = "result-list empty-state";
     container.textContent = "No results available for this language.";
@@ -178,13 +673,33 @@ function renderResults(container, results, selectedId) {
 
   container.className = "result-list";
   container.innerHTML = results
-    .map((result) => {
+    .map((result, index) => {
       const selected = result.fileId === selectedId ? "selected" : "";
+      const fallbackBadge =
+        requestedSourceLanguage &&
+        normalizeLanguageCode(result.language) !== normalizeLanguageCode(requestedSourceLanguage) &&
+        isChineseFamily(requestedSourceLanguage) &&
+        isChineseFamily(result.language)
+          ? '<span class="result-badge">Chinese-family fallback</span>'
+          : "";
+      const recommendedBadge = index === 0 ? '<span class="result-card-tag">Recommended</span>' : "";
+      const exactnessBadge =
+        normalizeLanguageCode(result.language) === normalizeLanguageCode(requestedSourceLanguage)
+          ? '<span class="result-badge">Exact language</span>'
+          : "";
       return `
         <button type="button" class="result-card ${selected}" data-file-id="${result.fileId}">
-          <h4>${result.displayLabel}</h4>
-          <p>${result.fileName}</p>
-          <p>${result.downloadCount.toLocaleString()} downloads</p>
+          <div class="result-card-top">
+            <h4 class="result-card-title">${result.displayLabel}</h4>
+            ${recommendedBadge}
+          </div>
+          <div class="result-card-meta">
+            <span class="result-badge">${languageLabel(result.language)}</span>
+            ${exactnessBadge}
+            ${fallbackBadge}
+          </div>
+          <p class="result-card-file">${result.fileName}</p>
+          <p class="result-card-foot">${result.downloadCount.toLocaleString()} downloads</p>
         </button>
       `;
     })
@@ -195,21 +710,35 @@ function renderTargetResults(container, results, selectedId) {
   const noneSelected = selectedId == null ? "selected" : "";
   const items = [
     `
-      <button type="button" class="result-card ${noneSelected}" data-file-id="">
-        <h4>Use local translation</h4>
-        <p>No target subtitle file. Prepare by translating the source lines locally.</p>
+      <button type="button" class="result-card ${noneSelected}" data-kind="local" data-file-id="">
+        <div class="result-card-top">
+          <h4 class="result-card-title">Use local translation</h4>
+          <span class="result-card-tag">Fallback</span>
+        </div>
+        <div class="result-card-meta">
+          <span class="result-badge">No target file</span>
+        </div>
+        <p class="result-card-file">Prepare the session by translating the selected source subtitle locally.</p>
+        <p class="result-card-foot">Best when no matching target subtitle looks trustworthy.</p>
       </button>
     `,
   ];
 
   items.push(
-    ...results.map((result) => {
+    ...results.map((result, index) => {
       const selected = result.fileId === selectedId ? "selected" : "";
+      const recommendedBadge = index === 0 ? '<span class="result-card-tag">Best match</span>' : "";
       return `
         <button type="button" class="result-card ${selected}" data-file-id="${result.fileId}">
-          <h4>${result.displayLabel}</h4>
-          <p>${result.fileName}</p>
-          <p>${result.downloadCount.toLocaleString()} downloads</p>
+          <div class="result-card-top">
+            <h4 class="result-card-title">${result.displayLabel}</h4>
+            ${recommendedBadge}
+          </div>
+          <div class="result-card-meta">
+            <span class="result-badge">${languageLabel(result.language)}</span>
+          </div>
+          <p class="result-card-file">${result.fileName}</p>
+          <p class="result-card-foot">${result.downloadCount.toLocaleString()} downloads</p>
         </button>
       `;
     }),
@@ -234,6 +763,7 @@ function renderSessionSummary(preparedSession) {
       <dt>Title</dt><dd>${preparedSession.title}</dd>
       <dt>Source File</dt><dd>${preparedSession.source_file_name}</dd>
       <dt>Target File</dt><dd>${preparedSession.target_file_name || "Generated via translation"}</dd>
+      <dt>Resolved Source</dt><dd>${preparedSession.resolved_source_language}${preparedSession.source_language_mode !== "exact" ? " (fallback)" : ""}</dd>
       <dt>Source Lines</dt><dd>${preparedSession.source_line_count}</dd>
       <dt>Translated Lines</dt><dd>${preparedSession.translated_line_count}</dd>
       <dt>Mode</dt><dd>${preparedSession.used_translation ? "Local translation" : "Matched target subtitle"}</dd>
@@ -247,35 +777,46 @@ function render() {
   }
 
   const snapshot = state.snapshot;
-  const sourceLanguage = snapshot.source_language || dom.sourceLanguageInput.value.trim();
-  const targetLanguage = snapshot.target_language || dom.targetLanguageInput.value.trim();
+  const sourceLanguage =
+    snapshot.source_language || currentLanguageValue(dom.sourceLanguageInput, dom.sourceLanguageCustomInput);
+  const targetLanguage =
+    snapshot.target_language || currentLanguageValue(dom.targetLanguageInput, dom.targetLanguageCustomInput);
   const searchResults = snapshot.search_results || [];
-  const sourceResults = searchResults.filter((result) => result.language === sourceLanguage);
-  const targetResults = searchResults.filter((result) => result.language === targetLanguage);
+  const sourceResults = searchResults
+    .filter((result) => {
+      if (normalizeLanguageCode(result.language) === normalizeLanguageCode(sourceLanguage)) {
+        return true;
+      }
+      return isChineseFamily(sourceLanguage) && isChineseFamily(result.language);
+    })
+    .sort((left, right) => {
+      const leftExact = normalizeLanguageCode(left.language) === normalizeLanguageCode(sourceLanguage) ? 0 : 1;
+      const rightExact = normalizeLanguageCode(right.language) === normalizeLanguageCode(sourceLanguage) ? 0 : 1;
+      return leftExact - rightExact;
+    });
+  const targetResults = searchResults.filter((result) => normalizeLanguageCode(result.language) === normalizeLanguageCode(targetLanguage));
   const progress = snapshot.progress || {};
   const progressRatio = progress.total ? Math.min(progress.current / progress.total, 1) : 0;
   const selectedSource = state.selectedSourceFileId ?? snapshot.selected_source_file_id;
   const selectedTarget = state.selectedTargetFileId ?? snapshot.selected_target_file_id;
 
-  dom.statusChip.textContent = snapshot.status || "idle";
+  dom.statusChip.textContent = statusLabel(snapshot.status || "idle");
   dom.statusChip.className = `status-chip ${snapshot.status || "idle"}`;
-  dom.statusMessage.textContent =
-    snapshot.error_message ||
-    progress.message ||
-    (snapshot.prepared_session ? "Session prepared. Start sync when the overlay is open." : "Ready for the next action.");
-  dom.progressStage.textContent = progress.stage ? progress.stage.toUpperCase() : "No background work running";
-  dom.progressMeta.textContent = progress.message || "Search and choose subtitle files to begin.";
+  dom.statusMessage.textContent = sessionMessage(snapshot, selectedSource, selectedTarget);
+  dom.progressStage.textContent = sessionHeadline(snapshot, selectedSource, selectedTarget);
+  dom.progressMeta.textContent = progressSummary(snapshot, selectedSource);
   dom.progressFill.style.width = `${progressRatio * 100}%`;
   dom.sourceResultCount.textContent = `${sourceResults.length} results`;
   dom.targetResultCount.textContent = `${targetResults.length} results`;
-  renderResults(dom.sourceResults, sourceResults, selectedSource);
+  renderResults(dom.sourceResults, sourceResults, selectedSource, sourceLanguage);
   renderTargetResults(dom.targetResults, targetResults, selectedTarget);
   renderSessionSummary(snapshot.prepared_session);
   dom.currentSubtitle.textContent = snapshot.last_subtitle || "No subtitle broadcast yet.";
-  dom.prepareButton.disabled = !selectedSource;
-  dom.startButton.disabled = !(snapshot.prepared_session && snapshot.status !== "running");
-  dom.stopButton.disabled = snapshot.status !== "running" && snapshot.status !== "stopping";
-  dom.overlayLink.href = snapshot.overlay_url || "/overlay";
+  dom.prepareButton.disabled = !state.bootstrap.ready || !selectedSource;
+  dom.startButton.disabled = !state.bootstrap.ready || !(snapshot.prepared_session && snapshot.status !== "running");
+  dom.stopButton.disabled = !state.bootstrap.ready || (snapshot.status !== "running" && snapshot.status !== "stopping");
+  dom.prepareButton.textContent = snapshot.prepared_session ? "Prepare Again" : "Prepare Session";
+  dom.overlayLink.href = snapshot.overlay_url || apiUrl("/overlay");
 }
 
 function bindResultSelection() {
@@ -299,7 +840,10 @@ function bindResultSelection() {
 }
 
 function connectSocket() {
-  socket = new WebSocket(`ws://${location.host}/ws/app`);
+  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+  socket = new WebSocket(wsUrl("/ws/app"));
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data);
     if (message.type === "state") {
@@ -327,36 +871,107 @@ function connectSocket() {
   };
 }
 
+function ensureLanguageCatalog(catalog) {
+  if (!catalog || !Array.isArray(catalog.sourceTarget) || catalog.sourceTarget.length === 0) {
+    throw new Error("Language options failed to load. Retry startup.");
+  }
+}
+
 async function loadInitialState() {
-  const [config, snapshot] = await Promise.all([
+  const [config, snapshot, catalog] = await Promise.all([
     fetchJson("/api/config"),
     fetchJson("/api/state"),
+    fetchJson("/api/languages"),
   ]);
+  ensureLanguageCatalog(catalog);
+  state.languageCatalog = catalog;
   state.config = config;
   state.snapshot = snapshot;
   fillConfigForm(config);
-  dom.sourceLanguageInput.value = config.languages.source;
-  dom.targetLanguageInput.value = config.languages.target;
+  populateLanguageSelect(dom.sourceLanguageInput, dom.sourceLanguageCustomInput, catalog.sourceTarget, config.languages.source);
+  populateLanguageSelect(dom.targetLanguageInput, dom.targetLanguageCustomInput, catalog.sourceTarget, config.languages.target);
+  updateDerivedOcrDisplay(config.capture.ocrLanguage);
   scheduleRender();
 }
 
+function setupLanguagePicker() {
+  for (const control of languageControls()) {
+    control.triggerEl.addEventListener("click", () => {
+      if (!state.bootstrap.ready) {
+        return;
+      }
+      openLanguagePicker(control);
+    });
+    control.triggerEl.addEventListener("keydown", (event) => {
+      if (!state.bootstrap.ready) {
+        return;
+      }
+      if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openLanguagePicker(control);
+      }
+    });
+    control.optionsEl.addEventListener("click", (event) => {
+      const option = event.target.closest("[data-value]");
+      if (!option) {
+        return;
+      }
+      control.selectEl.value = option.dataset.value;
+      control.selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+      closeLanguagePicker();
+    });
+  }
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && state.activeLanguagePicker) {
+      event.preventDefault();
+      closeLanguagePicker();
+      return;
+    }
+    if (event.key === "Escape" && state.ui.settingsOpen) {
+      event.preventDefault();
+      closeSettingsDrawer();
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    const control = activeLanguageControl();
+    if (!control || control.fieldEl?.contains(event.target)) {
+      return;
+    }
+    closeLanguagePicker({ restoreFocus: false });
+  });
+}
+
+for (const button of [dom.settingsOpenButton, dom.settingsInlineButton]) {
+  button?.addEventListener("click", openSettingsDrawer);
+}
+
+dom.settingsCloseButton?.addEventListener("click", closeSettingsDrawer);
+dom.settingsBackdrop?.addEventListener("click", closeSettingsDrawer);
+
 dom.searchForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (!state.bootstrap.ready) {
+    return;
+  }
   setSaveState("Searching...", "busy");
+  const sourceLanguage = currentLanguageValue(dom.sourceLanguageInput, dom.sourceLanguageCustomInput) || "en";
+  const targetLanguage = currentLanguageValue(dom.targetLanguageInput, dom.targetLanguageCustomInput) || "zh";
   try {
     const payload = await fetchJson("/api/search", {
       method: "POST",
       body: JSON.stringify({
         title: dom.titleInput.value.trim(),
-        sourceLanguage: dom.sourceLanguageInput.value.trim(),
-        targetLanguage: dom.targetLanguageInput.value.trim(),
+        sourceLanguage,
+        targetLanguage,
       }),
     });
     if (state.snapshot) {
       state.snapshot.search_results = payload.results;
       state.snapshot.title = dom.titleInput.value.trim();
-      state.snapshot.source_language = dom.sourceLanguageInput.value.trim();
-      state.snapshot.target_language = dom.targetLanguageInput.value.trim();
+      state.snapshot.source_language = sourceLanguage;
+      state.snapshot.target_language = targetLanguage;
       state.snapshot.prepared_session = null;
     }
     state.selectedSourceFileId = null;
@@ -369,6 +984,9 @@ dom.searchForm.addEventListener("submit", async (event) => {
 });
 
 dom.prepareButton.addEventListener("click", async () => {
+  if (!state.bootstrap.ready) {
+    return;
+  }
   const sourceFileId = state.selectedSourceFileId ?? state.snapshot?.selected_source_file_id;
   if (!sourceFileId) {
     setSaveState("Select a source subtitle first", "error");
@@ -397,6 +1015,9 @@ dom.prepareButton.addEventListener("click", async () => {
 });
 
 dom.startButton.addEventListener("click", async () => {
+  if (!state.bootstrap.ready) {
+    return;
+  }
   const sessionId = state.snapshot?.prepared_session?.session_id;
   if (!sessionId) {
     setSaveState("Prepare a session before starting", "error");
@@ -404,7 +1025,7 @@ dom.startButton.addEventListener("click", async () => {
   }
 
   try {
-    if (!state.overlayWindow || state.overlayWindow.closed) {
+    if (!TAURI && (!state.overlayWindow || state.overlayWindow.closed)) {
       state.overlayWindow = window.open("/overlay", "meowcal-overlay", "width=1280,height=320");
     }
     setSaveState("Starting sync...", "busy");
@@ -412,6 +1033,10 @@ dom.startButton.addEventListener("click", async () => {
       method: "POST",
       body: JSON.stringify({ sessionId }),
     });
+    if (TAURI) {
+      await TAURI.core.invoke("show_capture_hud");
+      await TAURI.core.invoke("hide_main_window");
+    }
     setSaveState("Sync running", "success");
   } catch (error) {
     setSaveState(error.message, "error");
@@ -419,6 +1044,9 @@ dom.startButton.addEventListener("click", async () => {
 });
 
 dom.stopButton.addEventListener("click", async () => {
+  if (!state.bootstrap.ready) {
+    return;
+  }
   try {
     setSaveState("Stopping session...", "busy");
     await fetchJson("/api/session/stop", { method: "POST" });
@@ -429,12 +1057,66 @@ dom.stopButton.addEventListener("click", async () => {
 });
 
 dom.configForm.addEventListener("input", () => {
+  if (!state.bootstrap.ready) {
+    return;
+  }
   setSaveState("Unsaved changes", "neutral");
   applyStylePreview(currentOverlayConfigFromForm());
 });
 
+for (const [selectEl, customInput] of [
+  [dom.sourceLanguageInput, dom.sourceLanguageCustomInput],
+  [dom.targetLanguageInput, dom.targetLanguageCustomInput],
+]) {
+  selectEl.addEventListener("change", () => {
+    if (!state.bootstrap.ready) {
+      return;
+    }
+    syncCustomLanguageInput(selectEl, customInput);
+    updateLanguageTrigger(selectEl);
+    updateDerivedOcrDisplay(deriveOcrLanguage(currentLanguageValue(dom.sourceLanguageInput, dom.sourceLanguageCustomInput)));
+    setSaveState("Unsaved changes", "neutral");
+    scheduleRender();
+  });
+  customInput.addEventListener("input", () => {
+    if (!state.bootstrap.ready) {
+      return;
+    }
+    updateLanguageTrigger(selectEl);
+    updateDerivedOcrDisplay(deriveOcrLanguage(currentLanguageValue(dom.sourceLanguageInput, dom.sourceLanguageCustomInput)));
+    setSaveState("Unsaved changes", "neutral");
+    scheduleRender();
+  });
+}
+
+dom.ocrInstallButton.addEventListener("click", async () => {
+  if (!state.bootstrap.ready) {
+    return;
+  }
+  const languageTag = dom.ocrInstallButton.dataset.languageTag;
+  if (!languageTag) {
+    return;
+  }
+  try {
+    setSaveState("Launching OCR installer...", "busy");
+    await fetchJson("/api/ocr/install", {
+      method: "POST",
+      body: JSON.stringify({ languageTag }),
+    });
+    const catalog = await fetchJson("/api/languages");
+    state.languageCatalog = catalog;
+    updateDerivedOcrDisplay(languageTag);
+    setSaveState("OCR installer launched", "success");
+  } catch (error) {
+    setSaveState(error.message, "error");
+  }
+});
+
 dom.configForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (!state.bootstrap.ready) {
+    return;
+  }
   try {
     setSaveState("Saving config...", "busy");
     const config = await fetchJson("/api/config", {
@@ -443,6 +1125,7 @@ dom.configForm.addEventListener("submit", async (event) => {
     });
     state.config = config;
     fillConfigForm(config);
+    renderFoundryStatus(await fetchJson("/api/foundry/status"));
     setSaveState("Config saved", "success");
     scheduleRender();
   } catch (error) {
@@ -451,6 +1134,66 @@ dom.configForm.addEventListener("submit", async (event) => {
 });
 
 bindResultSelection();
-loadInitialState().then(connectSocket).catch((error) => {
-  setSaveState(error.message, "error");
+setupLanguagePicker();
+setupTauriBridge();
+setControlsDisabled(true);
+
+function dismissLoadingOverlay() {
+  if (!dom.loadingOverlay) {
+    return;
+  }
+  dom.loadingSpinner?.classList.add("hidden");
+  dom.loadingOverlay.remove();
+  dom.loadingOverlay = null;
+}
+
+function probeFoundryStatus() {
+  renderFoundryStatus({
+    phase: "unchecked",
+    notes: "Checking Foundry Local status...",
+  });
+  fetchJson("/api/foundry/status?probe=true")
+    .then(renderFoundryStatus)
+    .catch(() => renderFoundryStatus(null));
+}
+
+async function bootstrapApp() {
+  if (bootstrapPromise) {
+    return bootstrapPromise;
+  }
+  bootstrapPromise = (async () => {
+    setBootstrapLoading("Loading studio...", "Preparing languages and saved settings.");
+    setSaveState("Loading studio...", "busy");
+    try {
+      await loadInitialState();
+      render();
+      await waitForNextPaint();
+      state.bootstrap.loading = false;
+      state.bootstrap.ready = true;
+      setControlsDisabled(false);
+      render();
+      await waitForNextPaint();
+      dismissLoadingOverlay();
+      connectSocket();
+      probeFoundryStatus();
+      setSaveState("Studio ready", "success");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setBootstrapError(message);
+      setSaveState(message, "error");
+      renderFoundryStatus({
+        phase: "unchecked",
+        notes: "Foundry status will be checked after startup completes.",
+      });
+    } finally {
+      bootstrapPromise = null;
+    }
+  })();
+  return bootstrapPromise;
+}
+
+dom.loadingRetry.addEventListener("click", () => {
+  bootstrapApp();
 });
+
+bootstrapApp();
