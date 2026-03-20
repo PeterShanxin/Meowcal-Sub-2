@@ -19,6 +19,12 @@ User guide:
 pip install -e ".[dev]"
 ```
 
+## Windows Desktop Launch
+
+- Use `run_app.vbs` to open the desktop app without a console window.
+- `run_app.vbs` is the only Windows launcher now. It opens the built desktop shell when present and falls back to the Python GUI through `pythonw.exe`.
+- The startup spinner now means the studio is still loading. It only clears once the language controls and saved settings are ready to use.
+
 ## Config
 
 Default config path:

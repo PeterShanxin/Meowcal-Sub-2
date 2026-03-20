@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import re
 from typing import Callable
 
-from openai import AsyncOpenAI
+from openai import APIConnectionError, APIError, APITimeoutError, AsyncOpenAI
 
 from meocosub2.config import AppConfig
 from meocosub2.errors import TranslationError
+from meocosub2.foundry import resolve_foundry_api_base, select_model
 from meocosub2.models import SubtitleLine
 
 
@@ -67,12 +69,17 @@ def parse_batch_response(response: str, expected_count: int) -> list[str]:
 
 
 async def _resolve_model(client: AsyncOpenAI, config: AppConfig) -> str:
-    if config.foundry_model:
-        return config.foundry_model
-    models = await client.models.list()
+    try:
+        models = await client.models.list()
+    except (APIConnectionError, APITimeoutError, APIError) as exc:
+        raise TranslationError(f"Foundry Local model discovery failed: {exc}") from exc
     if not getattr(models, "data", None):
         raise TranslationError("No models available from Foundry Local")
-    return str(models.data[0].id)
+    model_ids = [str(model.id) for model in models.data]
+    selected = select_model(config.foundry_model or None, model_ids)
+    if not selected:
+        raise TranslationError("Foundry Local did not return a usable model.")
+    return selected
 
 
 async def _emit_progress(
@@ -98,8 +105,9 @@ async def translate_lines(
 
     own_client = client is None
     if client is None:
+        api_base = await asyncio.to_thread(resolve_foundry_api_base, config)
         client = AsyncOpenAI(
-            base_url=config.foundry_endpoint,
+            base_url=api_base,
             api_key="foundry-local",
             timeout=config.translation_timeout_s,
         )
@@ -117,11 +125,14 @@ async def translate_lines(
                 config.target_language,
                 context[-3:],
             )
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0,
-            )
+            try:
+                response = await client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0,
+                )
+            except (APIConnectionError, APITimeoutError, APIError) as exc:
+                raise TranslationError(f"Foundry Local translation request failed: {exc}") from exc
             content = response.choices[0].message.content or ""
             outputs = parse_batch_response(content, len(batch))
 

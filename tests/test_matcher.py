@@ -66,3 +66,12 @@ def test_fallback_full_scan_when_window_misses() -> None:
 def test_threshold_blocks_weak_matches() -> None:
     matcher = SubtitleMatcher(make_lines(), fuzzy_threshold=100)
     assert matcher.match("completely unrelated phrase") is None
+
+
+def test_match_handles_spaced_cjk_and_script_variants() -> None:
+    matcher = SubtitleMatcher(
+        [SubtitleLine(index=0, start_ms=0, end_ms=1000, text="之前拿到的资料，我都看过了", translated="I already read it.")]
+    )
+    result = matcher.match("之 前 拿 到 的 資 料 ， 我 都 看 過 了")
+    assert result is not None
+    assert result.target_text == "I already read it."

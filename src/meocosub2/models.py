@@ -48,6 +48,8 @@ class PreparedSession:
     title: str
     source_language: str
     target_language: str
+    resolved_source_language: str
+    source_language_mode: Literal["exact", "family_fallback"]
     source_file_id: int
     source_file_name: str
     source_path: str
@@ -73,6 +75,7 @@ class AppStateSnapshot:
     progress: AppProgress = field(default_factory=AppProgress)
     last_subtitle: str = ""
     error_message: str = ""
+    warning_message: str = ""
     overlay_url: str = ""
 
 

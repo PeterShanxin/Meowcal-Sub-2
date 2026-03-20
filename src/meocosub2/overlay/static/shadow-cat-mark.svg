@@ -1,0 +1,16 @@
+<svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="catAura" x1="20" y1="20" x2="100" y2="100" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F2C78F"/>
+      <stop offset="1" stop-color="#85D4FF"/>
+    </linearGradient>
+  </defs>
+  <circle cx="60" cy="60" r="50" fill="rgba(10,14,22,0.88)" stroke="url(#catAura)" stroke-width="4"/>
+  <path d="M34 78C35 60 44 48 60 48C76 48 85 60 86 78" stroke="url(#catAura)" stroke-width="5" stroke-linecap="round"/>
+  <path d="M41 52L47 26L60 42" fill="#040608" stroke="url(#catAura)" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M79 52L73 26L60 42" fill="#040608" stroke="url(#catAura)" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M37 75C37 57 46 44 60 44C74 44 83 57 83 75V80C83 87 77 93 70 93H50C43 93 37 87 37 80V75Z" fill="#05070D" stroke="url(#catAura)" stroke-width="4"/>
+  <path d="M51 62L45 71H54L49 80" stroke="#9CE0C0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M69 62L63 71H72L67 80" stroke="#9CE0C0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M53 88C56 90 58 91 60 91C62 91 64 90 67 88" stroke="url(#catAura)" stroke-width="4" stroke-linecap="round"/>
+</svg>

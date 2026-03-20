@@ -8,6 +8,7 @@ import re
 from rapidfuzz import fuzz, process
 
 from meocosub2.models import MatchResult, SubtitleLine
+from meocosub2.textnorm import clean_cjk_text, is_cjk_compactable_char, to_simplified
 
 
 class SubtitleMatcher:
@@ -24,7 +25,8 @@ class SubtitleMatcher:
         self.window_backward = window_backward
         self._last_match_position: int | None = None
         self._last_frame_hash: str | None = None
-        self._normalized = [self.normalize_text(line.text) for line in subtitles]
+        self._contains_cjk = any(any(is_cjk_compactable_char(ch) for ch in line.text) for line in subtitles)
+        self._normalized = [self._normalize_for_match(line.text) for line in subtitles]
 
     @staticmethod
     def normalize_text(text: str) -> str:
@@ -33,6 +35,12 @@ class SubtitleMatcher:
         text = re.sub(r"\[[^\]]+\]", " ", text)
         text = re.sub(r"[^\w\s]", " ", text.lower())
         return re.sub(r"\s+", " ", text).strip()
+
+    def _normalize_for_match(self, text: str) -> str:
+        normalized = self.normalize_text(text)
+        if self._contains_cjk or any(is_cjk_compactable_char(ch) for ch in normalized):
+            return to_simplified(clean_cjk_text(normalized))
+        return normalized
 
     def _hash_text(self, text: str) -> str:
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -60,7 +68,7 @@ class SubtitleMatcher:
         return index, float(score)
 
     def match(self, ocr_text: str) -> MatchResult | None:
-        normalized_ocr = self.normalize_text(ocr_text)
+        normalized_ocr = self._normalize_for_match(ocr_text)
         if len(normalized_ocr) < 3:
             return None
 

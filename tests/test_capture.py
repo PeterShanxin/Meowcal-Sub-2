@@ -46,11 +46,12 @@ async def test_ocr_image_calls_preprocess_before_run_ocr(mocker) -> None:
     prepared = object()
     preprocess = mocker.patch("meocosub2.capture.preprocess_for_ocr", return_value=prepared)
     run_ocr = mocker.patch("meocosub2.capture._run_ocr", new=mocker.AsyncMock(return_value="hello"))
+    mocker.patch("meocosub2.capture.resolve_ocr_language", return_value=SimpleNamespace(resolved_language="en-US"))
     image = Image.new("RGB", (1, 1))
     result = await ocr_image(image, "en")
     assert result == "hello"
     preprocess.assert_called_once_with(image)
-    run_ocr.assert_awaited_once_with(prepared, "en")
+    assert run_ocr.await_args_list[0].args == (prepared, "en-US")
 
 
 @pytest.mark.asyncio

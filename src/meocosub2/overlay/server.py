@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -12,11 +13,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from meocosub2.config import AppConfig, overlay_style_payload
-from meocosub2.errors import OpenSubtitlesError
+from meocosub2.capture import available_ocr_languages
+from meocosub2.errors import OpenSubtitlesError, TranslationError
+from meocosub2.languages import languages_payload
 from meocosub2.models import SearchRequest
 from meocosub2.overlay.controller import GuiController
 
 STATIC_DIR = Path(__file__).parent / "static"
+logger = logging.getLogger(__name__)
 
 
 class SearchBody(BaseModel):
@@ -32,6 +36,10 @@ class PrepareSessionBody(BaseModel):
 
 class StartSessionBody(BaseModel):
     sessionId: str | None = None
+
+
+class OcrInstallBody(BaseModel):
+    languageTag: str
 
 
 class OverlayServer:
@@ -68,6 +76,25 @@ class OverlayServer:
         @self.app.get("/api/config")
         async def api_get_config() -> dict[str, object]:
             return await self.controller.get_config_payload()
+
+        @self.app.get("/api/languages")
+        async def api_get_languages() -> dict[str, object]:
+            return languages_payload(set(available_ocr_languages()))
+
+        @self.app.get("/api/foundry/status")
+        async def api_get_foundry_status(probe: bool = False, autoStart: bool = False) -> dict[str, object]:
+            return await self.controller.get_foundry_status_payload(probe=probe, auto_start=autoStart)
+
+        @self.app.post("/api/foundry/prepare")
+        async def api_prepare_foundry() -> dict[str, object]:
+            return await self.controller.prepare_foundry_payload()
+
+        @self.app.post("/api/ocr/install")
+        async def api_install_ocr_language(body: OcrInstallBody) -> dict[str, object]:
+            try:
+                return await self.controller.install_ocr_language(body.languageTag)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         @self.app.put("/api/config")
         async def api_put_config(payload: dict[str, object]) -> dict[str, object]:
@@ -108,6 +135,8 @@ class OverlayServer:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             except OpenSubtitlesError as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
+            except TranslationError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
             return {"session": session}
 
         @self.app.post("/api/session/start")
@@ -145,6 +174,7 @@ class OverlayServer:
 
     async def _app_socket(self, websocket: WebSocket) -> None:
         await websocket.accept()
+        logger.debug("App WebSocket connected (total: %d)", len(self.app_connections) + 1)
         self.app_connections.append(websocket)
         await websocket.send_text(json.dumps({"type": "state", "state": self.controller.state_snapshot()}))
         await websocket.send_text(json.dumps({"type": "style", "style": overlay_style_payload(self.config)}))
@@ -156,9 +186,11 @@ class OverlayServer:
         finally:
             if websocket in self.app_connections:
                 self.app_connections.remove(websocket)
+            logger.debug("App WebSocket disconnected (remaining: %d)", len(self.app_connections))
 
     async def _overlay_socket(self, websocket: WebSocket) -> None:
         await websocket.accept()
+        logger.debug("Overlay WebSocket connected (total: %d)", len(self.overlay_connections) + 1)
         self.overlay_connections.append(websocket)
         await websocket.send_text(json.dumps({"type": "style", "style": overlay_style_payload(self.config)}))
         subtitle = self.controller.state_snapshot().get("last_subtitle", "")
@@ -172,6 +204,7 @@ class OverlayServer:
         finally:
             if websocket in self.overlay_connections:
                 self.overlay_connections.remove(websocket)
+            logger.debug("Overlay WebSocket disconnected (remaining: %d)", len(self.overlay_connections))
 
     async def broadcast(self, subtitle_text: str) -> None:
         await self.controller.broadcast_overlay_subtitle(subtitle_text)

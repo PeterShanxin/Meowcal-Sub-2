@@ -67,6 +67,7 @@ def test_config_to_payload_uses_nested_camel_case_sections() -> None:
         )
     )
     assert payload["capture"]["region"] == [1, 2, 3, 4]
+    assert payload["capture"]["ocrLanguage"] == "en-US"
     assert payload["opensubtitles"]["enableOrgFallback"] is True
     assert payload["overlay"]["radiusPx"] == 36
     assert payload["overlay"]["theme"] == "glass-cinematic"
@@ -85,3 +86,8 @@ def test_config_from_payload_merges_with_fallback() -> None:
     assert loaded.overlay_font_size == 40
     assert loaded.overlay_max_width_vw == 72
     assert loaded.overlay_blur_px == 12
+
+
+def test_config_ocr_language_follows_source_language() -> None:
+    loaded = config_from_payload({"languages": {"source": "zht"}}, fallback=AppConfig())
+    assert loaded.ocr_language == "zh-TW"

@@ -1,0 +1,68 @@
+html,
+body,
+.selector-root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: rgba(5, 8, 14, 0.28);
+  font-family: "Segoe UI", sans-serif;
+}
+
+.selector-root {
+  position: relative;
+  cursor: crosshair;
+}
+
+.selection-box {
+  position: absolute;
+  border: 2px solid rgba(255, 216, 168, 0.95);
+  box-shadow: 0 0 0 9999px rgba(3, 5, 10, 0.48);
+  background: rgba(255, 216, 168, 0.08);
+  border-radius: 16px;
+}
+
+.selector-toolbar {
+  position: absolute;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(16, 22, 33, 0.88);
+  color: #f5f8ff;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.selector-toolbar button {
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.selector-toolbar button:first-of-type {
+  background: #f0c988;
+  color: #1d1408;
+}
+
+.selector-toolbar button:last-of-type {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f5f8ff;
+}
+
+.selector-instructions {
+  position: absolute;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%);
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: rgba(16, 22, 33, 0.82);
+  color: #f5f8ff;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.hidden {
+  display: none;
+}
