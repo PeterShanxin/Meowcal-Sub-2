@@ -24,6 +24,10 @@ const dom = {
   progressStage: document.getElementById("progress-stage"),
   progressMeta: document.getElementById("progress-meta"),
   progressFill: document.getElementById("progress-fill"),
+  titleMatchStrip: document.getElementById("title-match-strip"),
+  titleMatchResults: document.getElementById("title-match-results"),
+  titleMatchCount: document.getElementById("title-match-count"),
+  searchResultSummary: document.getElementById("search-result-summary"),
   sourceResults: document.getElementById("source-results"),
   targetResults: document.getElementById("target-results"),
   sourceResultCount: document.getElementById("source-result-count"),
@@ -37,6 +41,7 @@ const dom = {
   saveState: document.getElementById("save-state"),
   overlayLink: document.getElementById("overlay-link"),
   searchForm: document.getElementById("search-form"),
+  searchSubmitButton: document.getElementById("search-submit-button"),
   configForm: document.getElementById("config-form"),
   foundryStatusChip: document.getElementById("foundry-status-chip"),
   foundryStatusNote: document.getElementById("foundry-status-note"),
@@ -56,8 +61,10 @@ const state = {
   config: null,
   languageCatalog: null,
   foundryStatus: null,
+  selectedFeatureId: null,
   selectedSourceFileId: null,
   selectedTargetFileId: null,
+  sourceSelectionMode: null,
   overlayWindow: null,
   activeLanguagePicker: null,
   ui: {
@@ -368,6 +375,30 @@ function currentLanguageValue(selectEl, customInput) {
   return selectEl.value.trim();
 }
 
+function resultMatchesFeature(result, featureId) {
+  if (!featureId) {
+    return true;
+  }
+  return [result.parentFeatureId, result.featureId].some((value) => Number(value) === Number(featureId));
+}
+
+function currentFeatureId(snapshot) {
+  return state.selectedFeatureId ?? snapshot?.selected_feature_id ?? snapshot?.search_matches?.[0]?.id ?? null;
+}
+
+function currentSourceSelectionMode(snapshot, sourceResults, featureId) {
+  if (state.sourceSelectionMode) {
+    return state.sourceSelectionMode;
+  }
+  if (snapshot?.prepared_session?.session_mode) {
+    return snapshot.prepared_session.session_mode === "ocr_fallback" ? "ocr_fallback" : "subtitle";
+  }
+  if (featureId && sourceResults.length === 0 && (snapshot?.search_matches || []).length) {
+    return "ocr_fallback";
+  }
+  return "subtitle";
+}
+
 function syncCustomLanguageInput(selectEl, customInput) {
   customInput.classList.toggle("hidden", selectEl.value !== CUSTOM_LANGUAGE);
 }
@@ -472,13 +503,18 @@ function sessionHeadline(snapshot, selectedSource, selectedTarget) {
     return "Something needs attention";
   }
   if (snapshot.prepared_session) {
-    return "Session prepared. Start sync when the video is ready.";
+    return snapshot.prepared_session.session_mode === "ocr_fallback"
+      ? "OCR fallback session prepared. Start sync when playback begins."
+      : "Session prepared. Start sync when the video is ready.";
   }
   if (selectedSource && selectedTarget != null) {
     return "Subtitle pair selected. Prepare the session next.";
   }
   if (selectedSource) {
     return "Source selected. Keep local translation or choose a target subtitle.";
+  }
+  if ((snapshot.search_matches || []).length) {
+    return "Choose a matched title, then pick subtitles or OCR fallback.";
   }
   if ((snapshot.search_results || []).length) {
     return "Choose the subtitle pair for this session.";
@@ -494,13 +530,20 @@ function sessionMessage(snapshot, selectedSource, selectedTarget) {
     return snapshot.warning_message;
   }
   if (snapshot.status === "running") {
-    return "The OCR loop is matching on-screen subtitles and sending lines to the overlay.";
+    return snapshot.prepared_session?.session_mode === "ocr_fallback"
+      ? "Live OCR text is being translated and aligned against target subtitles when possible."
+      : "The OCR loop is matching on-screen subtitles and sending lines to the overlay.";
   }
   if (snapshot.prepared_session) {
-    return "Your subtitle files are ready. Open the overlay and start sync when playback begins.";
+    return snapshot.prepared_session.session_mode === "ocr_fallback"
+      ? "Foundry-backed OCR fallback is ready. Open the overlay and start sync when playback begins."
+      : "Your subtitle files are ready. Open the overlay and start sync when playback begins.";
   }
   if (selectedSource && selectedTarget == null) {
     return "No target subtitle is selected yet. You can still prepare with local translation.";
+  }
+  if ((snapshot.search_matches || []).length) {
+    return "Review the matched titles below. If no source subtitle exists, OCR fallback can still continue.";
   }
   if ((snapshot.search_results || []).length) {
     return "Review the results below. The source subtitle choice drives the rest of the flow.";
@@ -513,10 +556,15 @@ function progressSummary(snapshot, selectedSource) {
     return snapshot.progress.message;
   }
   if (snapshot.prepared_session) {
-    return "Prepared session is ready for the next viewing run.";
+    return snapshot.prepared_session.session_mode === "ocr_fallback"
+      ? "Prepared OCR fallback session will translate live OCR and optionally align against target subtitles."
+      : "Prepared session is ready for the next viewing run.";
   }
   if (selectedSource) {
     return "Prepare the session once the subtitle choice looks right.";
+  }
+  if ((snapshot.search_matches || []).length) {
+    return "Pick a title first, then choose source subtitles or OCR fallback.";
   }
   if ((snapshot.search_results || []).length) {
     return "Select a source subtitle and confirm the target side.";
@@ -635,7 +683,7 @@ function updateDerivedOcrDisplay(ocrLanguage) {
   dom.ocrLanguageDisplay.textContent = resolved;
 
   const entry = state.languageCatalog?.ocr?.find((option) => option.code === resolved);
-  const installed = entry ? entry.installed : true;
+  const installed = entry ? entry.installed : false;
   if (installed) {
     dom.ocrLanguageNote.textContent = "OCR follows the selected source language automatically.";
     dom.ocrInstallButton.classList.add("hidden");
@@ -643,7 +691,11 @@ function updateDerivedOcrDisplay(ocrLanguage) {
     return;
   }
 
-  dom.ocrLanguageNote.textContent = `${resolved} is not installed. Install the OCR pack or switch the source language.`;
+  const simplifiedFallback =
+    resolved === "zh-TW" && state.languageCatalog?.ocr?.find((option) => option.code === "zh-CN")?.installed;
+  dom.ocrLanguageNote.textContent = simplifiedFallback
+    ? `${resolved} is not installed. Start Sync will fall back to zh-CN OCR, or you can install the Traditional pack.`
+    : `${resolved} is not installed. Install the OCR pack or switch the source language.`;
   dom.ocrInstallButton.classList.remove("hidden");
   dom.ocrInstallButton.dataset.languageTag = resolved;
 }
@@ -739,7 +791,82 @@ function buildResultCard({
   return card;
 }
 
-function renderResults(container, results, selectedId, requestedSourceLanguage = "") {
+function buildTitleMatchCard(match, selected = false) {
+  const classes = ["title-match-card"];
+  if (selected) {
+    classes.push("selected");
+  }
+  const card = createElement("button", {
+    className: classes.join(" "),
+    attrs: { type: "button" },
+    dataset: { featureId: match.id },
+  });
+  const top = createElement("div", { className: "result-card-top" });
+  top.append(createElement("h4", { className: "result-card-title", text: match.displayLabel || match.title }));
+  if (selected) {
+    top.append(createElement("span", { className: "result-card-tag", text: "Selected" }));
+  }
+  card.append(top);
+  const meta = createElement("div", { className: "result-card-meta" });
+  appendBadge(meta, match.mediaType || "title");
+  appendBadge(meta, `${(match.subtitlesCount || 0).toLocaleString()} subtitle files`);
+  card.append(meta);
+  card.append(createElement("p", { className: "result-card-foot", text: "Use this title to scope source/target subtitle choices." }));
+  return card;
+}
+
+function renderTitleMatches(matches, selectedFeatureId) {
+  if (!matches.length) {
+    dom.titleMatchResults.className = "title-match-results empty-state";
+    dom.titleMatchResults.textContent = "Search to load matched shows and movies.";
+    dom.titleMatchCount.textContent = "0 titles";
+    return;
+  }
+
+  dom.titleMatchCount.textContent = `${matches.length} titles`;
+  dom.titleMatchResults.className = "title-match-results";
+  dom.titleMatchResults.replaceChildren(
+    ...matches.map((match) => buildTitleMatchCard(match, Number(match.id) === Number(selectedFeatureId))),
+  );
+}
+
+function buildSearchResultSummary(selectedMatch, sourceResults, targetResults, sourceSelectionMode, sourceLanguage) {
+  if (!selectedMatch) {
+    return "Pick a matched title first, then choose subtitles or OCR fallback.";
+  }
+  if (!sourceResults.length && !targetResults.length) {
+    return `${selectedMatch.displayLabel || selectedMatch.title} matched, but no subtitle files fit the selected languages. OCR fallback is available.`;
+  }
+  if (!sourceResults.length && sourceSelectionMode === "ocr_fallback") {
+    return `${selectedMatch.displayLabel || selectedMatch.title} has no ${languageLabel(sourceLanguage)} source subtitle. OCR fallback is selected${targetResults.length ? " and can still align against target subtitles." : "."}`;
+  }
+  if (!sourceResults.length) {
+    return `${selectedMatch.displayLabel || selectedMatch.title} has no ${languageLabel(sourceLanguage)} source subtitle. Select OCR fallback to continue.`;
+  }
+  if (!targetResults.length) {
+    return `${selectedMatch.displayLabel || selectedMatch.title} has ${sourceResults.length} source subtitle choices. Target can fall back to local translation.`;
+  }
+  return `${selectedMatch.displayLabel || selectedMatch.title}: ${sourceResults.length} source matches and ${targetResults.length} target matches ready.`;
+}
+
+function renderSourceResults(container, results, selectedId, requestedSourceLanguage = "", options = {}) {
+  const { selectedMatch = null, sourceSelectionMode = "subtitle" } = options;
+  if (!results.length && selectedMatch) {
+    container.className = "result-list";
+    container.replaceChildren(
+      buildResultCard({
+        kind: "ocr-fallback",
+        selected: sourceSelectionMode === "ocr_fallback",
+        title: "Use OCR source language",
+        tag: "Fallback",
+        badges: [languageLabel(requestedSourceLanguage), "No source file"],
+        fileText: "No source subtitle file matches this title and language. Use OCR plus live AI translation instead.",
+        footText: "If a target subtitle is selected, the live translation will try to align against it.",
+      }),
+    );
+    return;
+  }
+
   if (!results.length) {
     container.className = "result-list empty-state";
     container.textContent = "No results available for this language.";
@@ -763,7 +890,7 @@ function renderResults(container, results, selectedId, requestedSourceLanguage =
       }
       return buildResultCard({
         fileId: result.fileId,
-        selected: result.fileId === selectedId,
+        selected: result.fileId === selectedId && sourceSelectionMode !== "ocr_fallback",
         title: result.displayLabel,
         tag: index === 0 ? "Recommended" : "",
         badges,
@@ -774,7 +901,7 @@ function renderResults(container, results, selectedId, requestedSourceLanguage =
   );
 }
 
-function renderTargetResults(container, results, selectedId) {
+function renderTargetResults(container, results, selectedId, sourceSelectionMode = "subtitle") {
   container.className = "result-list";
   container.replaceChildren(
     buildResultCard({
@@ -784,8 +911,14 @@ function renderTargetResults(container, results, selectedId) {
       title: "Use local translation",
       tag: "Fallback",
       badges: ["No target file"],
-      fileText: "Prepare the session by translating the selected source subtitle locally.",
-      footText: "Best when no matching target subtitle looks trustworthy.",
+      fileText:
+        sourceSelectionMode === "ocr_fallback"
+          ? "Prepare the session by translating live OCR text directly into the target language."
+          : "Prepare the session by translating the selected source subtitle locally.",
+      footText:
+        sourceSelectionMode === "ocr_fallback"
+          ? "Best when no matching target subtitle looks trustworthy."
+          : "Best when no matching target subtitle looks trustworthy.",
     }),
     ...results.map((result, index) =>
       buildResultCard({
@@ -812,9 +945,16 @@ function renderSessionSummary(preparedSession) {
   dom.sessionBadge.textContent = preparedSession.session_id;
   dom.preparedSession.className = "session-summary";
   const summary = createElement("dl");
+  const modeLabelMap = {
+    subtitle_file: "Matched target subtitle",
+    local_translation: "Local translation",
+    target_subtitle_match: "OCR fallback + target subtitle match",
+    direct_translation: "OCR fallback + direct AI translation",
+  };
   const rows = [
     ["Title", preparedSession.title],
-    ["Source File", preparedSession.source_file_name],
+    ["Session Mode", preparedSession.session_mode === "ocr_fallback" ? "OCR fallback" : "Subtitle pair"],
+    ["Source File", preparedSession.source_file_name || "OCR source language"],
     ["Target File", preparedSession.target_file_name || "Generated via translation"],
     [
       "Resolved Source",
@@ -822,7 +962,7 @@ function renderSessionSummary(preparedSession) {
     ],
     ["Source Lines", preparedSession.source_line_count],
     ["Translated Lines", preparedSession.translated_line_count],
-    ["Mode", preparedSession.used_translation ? "Local translation" : "Matched target subtitle"],
+    ["Mode", modeLabelMap[preparedSession.target_match_mode] || "Matched target subtitle"],
   ];
   for (const [term, description] of rows) {
     summary.append(createElement("dt", { text: term }));
@@ -842,7 +982,11 @@ function render() {
   const targetLanguage =
     snapshot.target_language || currentLanguageValue(dom.targetLanguageInput, dom.targetLanguageCustomInput);
   const searchResults = snapshot.search_results || [];
-  const sourceResults = searchResults
+  const searchMatches = snapshot.search_matches || [];
+  const selectedFeatureId = currentFeatureId(snapshot);
+  const selectedMatch = searchMatches.find((match) => Number(match.id) === Number(selectedFeatureId)) || null;
+  const filteredResults = searchResults.filter((result) => resultMatchesFeature(result, selectedFeatureId));
+  const sourceResults = filteredResults
     .filter((result) => {
       if (normalizeLanguageCode(result.language) === normalizeLanguageCode(sourceLanguage)) {
         return true;
@@ -854,38 +998,78 @@ function render() {
       const rightExact = normalizeLanguageCode(right.language) === normalizeLanguageCode(sourceLanguage) ? 0 : 1;
       return leftExact - rightExact;
     });
-  const targetResults = searchResults.filter((result) => normalizeLanguageCode(result.language) === normalizeLanguageCode(targetLanguage));
+  const targetResults = filteredResults.filter(
+    (result) => normalizeLanguageCode(result.language) === normalizeLanguageCode(targetLanguage),
+  );
   const progress = snapshot.progress || {};
   const progressRatio = progress.total ? Math.min(progress.current / progress.total, 1) : 0;
   const selectedSource = state.selectedSourceFileId ?? snapshot.selected_source_file_id;
   const selectedTarget = state.selectedTargetFileId ?? snapshot.selected_target_file_id;
+  const sourceSelectionMode = currentSourceSelectionMode(snapshot, sourceResults, selectedFeatureId);
+  const fallbackSelected = sourceSelectionMode === "ocr_fallback" && !selectedSource;
+  const progressIndeterminate = snapshot.status === "searching" || (progress.total === 0 && !!progress.message);
+  const canPrepare = Boolean(selectedFeatureId) && (Boolean(selectedSource) || fallbackSelected);
 
   dom.statusChip.textContent = statusLabel(snapshot.status || "idle");
   dom.statusChip.className = `status-chip ${snapshot.status || "idle"}`;
   dom.statusMessage.textContent = sessionMessage(snapshot, selectedSource, selectedTarget);
   dom.progressStage.textContent = sessionHeadline(snapshot, selectedSource, selectedTarget);
   dom.progressMeta.textContent = progressSummary(snapshot, selectedSource);
-  dom.progressFill.style.width = `${progressRatio * 100}%`;
+  dom.progressFill.classList.toggle("is-indeterminate", progressIndeterminate);
+  dom.progressFill.style.width = progressIndeterminate ? "42%" : `${progressRatio * 100}%`;
+  dom.searchSubmitButton.disabled = !state.bootstrap.ready || snapshot.status === "searching";
+  dom.searchSubmitButton.textContent = snapshot.status === "searching" ? "Searching…" : "Find Subtitles";
+  dom.titleMatchStrip.classList.toggle("has-results", searchMatches.length > 0);
+  renderTitleMatches(searchMatches, selectedFeatureId);
+  dom.searchResultSummary.textContent = buildSearchResultSummary(
+    selectedMatch,
+    sourceResults,
+    targetResults,
+    sourceSelectionMode,
+    sourceLanguage,
+  );
   dom.sourceResultCount.textContent = `${sourceResults.length} results`;
   dom.targetResultCount.textContent = `${targetResults.length} results`;
-  renderResults(dom.sourceResults, sourceResults, selectedSource, sourceLanguage);
-  renderTargetResults(dom.targetResults, targetResults, selectedTarget);
+  renderSourceResults(dom.sourceResults, sourceResults, selectedSource, sourceLanguage, {
+    selectedMatch,
+    sourceSelectionMode,
+  });
+  renderTargetResults(dom.targetResults, targetResults, selectedTarget, sourceSelectionMode);
   renderSessionSummary(snapshot.prepared_session);
   dom.currentSubtitle.textContent = snapshot.last_subtitle || "No subtitle broadcast yet.";
-  dom.prepareButton.disabled = !state.bootstrap.ready || !selectedSource;
+  dom.prepareButton.disabled = !state.bootstrap.ready || !canPrepare;
   dom.startButton.disabled = !state.bootstrap.ready || !(snapshot.prepared_session && snapshot.status !== "running");
   dom.stopButton.disabled = !state.bootstrap.ready || (snapshot.status !== "running" && snapshot.status !== "stopping");
-  dom.prepareButton.textContent = snapshot.prepared_session ? "Prepare Again" : "Prepare Session";
+  dom.prepareButton.textContent = snapshot.prepared_session ? "Prepare Again" : fallbackSelected ? "Prepare OCR Fallback" : "Prepare Session";
   dom.overlayLink.href = snapshot.overlay_url || apiUrl("/overlay");
 }
 
 function bindResultSelection() {
-  dom.sourceResults.addEventListener("click", (event) => {
-    const card = event.target.closest("[data-file-id]");
+  dom.titleMatchResults.addEventListener("click", (event) => {
+    const card = event.target.closest("[data-feature-id]");
     if (!card) {
       return;
     }
+    state.selectedFeatureId = Number(card.dataset.featureId);
+    state.selectedSourceFileId = null;
+    state.selectedTargetFileId = null;
+    state.sourceSelectionMode = null;
+    scheduleRender();
+  });
+
+  dom.sourceResults.addEventListener("click", (event) => {
+    const card = event.target.closest("[data-kind], [data-file-id]");
+    if (!card) {
+      return;
+    }
+    if (card.dataset.kind === "ocr-fallback") {
+      state.selectedSourceFileId = null;
+      state.sourceSelectionMode = "ocr_fallback";
+      scheduleRender();
+      return;
+    }
     state.selectedSourceFileId = Number(card.dataset.fileId);
+    state.sourceSelectionMode = "subtitle";
     scheduleRender();
   });
 
@@ -908,6 +1092,11 @@ function connectSocket() {
     const message = JSON.parse(event.data);
     if (message.type === "state") {
       state.snapshot = message.state;
+      const matches = message.state.search_matches || [];
+      const localFeatureStillValid = matches.some((match) => Number(match.id) === Number(state.selectedFeatureId));
+      if (!localFeatureStillValid) {
+        state.selectedFeatureId = message.state.selected_feature_id ?? matches[0]?.id ?? null;
+      }
     }
     if (message.type === "progress" && state.snapshot) {
       state.snapshot.progress = message.progress;
@@ -1018,6 +1207,11 @@ dom.searchForm.addEventListener("submit", async (event) => {
   setSaveState("Searching...", "busy");
   const sourceLanguage = currentLanguageValue(dom.sourceLanguageInput, dom.sourceLanguageCustomInput) || "en";
   const targetLanguage = currentLanguageValue(dom.targetLanguageInput, dom.targetLanguageCustomInput) || "zh";
+  if (state.snapshot) {
+    state.snapshot.status = "searching";
+    state.snapshot.progress = { stage: "search", message: "Searching OpenSubtitles...", current: 0, total: 0 };
+    scheduleRender();
+  }
   try {
     const payload = await fetchJson("/api/search", {
       method: "POST",
@@ -1029,13 +1223,17 @@ dom.searchForm.addEventListener("submit", async (event) => {
     });
     if (state.snapshot) {
       state.snapshot.search_results = payload.results;
+      state.snapshot.search_matches = payload.matches;
       state.snapshot.title = dom.titleInput.value.trim();
       state.snapshot.source_language = sourceLanguage;
       state.snapshot.target_language = targetLanguage;
+      state.snapshot.selected_feature_id = payload.matches?.[0]?.id ?? null;
       state.snapshot.prepared_session = null;
     }
+    state.selectedFeatureId = payload.matches?.[0]?.id ?? null;
     state.selectedSourceFileId = null;
     state.selectedTargetFileId = null;
+    state.sourceSelectionMode = null;
     setSaveState("Results ready", "success");
     scheduleRender();
   } catch (error) {
@@ -1047,9 +1245,25 @@ dom.prepareButton.addEventListener("click", async () => {
   if (!state.bootstrap.ready) {
     return;
   }
+  const featureId = currentFeatureId(state.snapshot);
+  const snapshotResults = (state.snapshot?.search_results || []).filter((result) => resultMatchesFeature(result, featureId));
+  const sourceLanguage =
+    state.snapshot?.source_language || currentLanguageValue(dom.sourceLanguageInput, dom.sourceLanguageCustomInput) || "en";
+  const sourceResults = snapshotResults.filter((result) => {
+    if (normalizeLanguageCode(result.language) === normalizeLanguageCode(sourceLanguage)) {
+      return true;
+    }
+    return isChineseFamily(sourceLanguage) && isChineseFamily(result.language);
+  });
   const sourceFileId = state.selectedSourceFileId ?? state.snapshot?.selected_source_file_id;
-  if (!sourceFileId) {
-    setSaveState("Select a source subtitle first", "error");
+  const sourceSelectionMode = currentSourceSelectionMode(state.snapshot, sourceResults, featureId);
+  const mode = sourceFileId ? "subtitle_pair" : sourceSelectionMode === "ocr_fallback" ? "ocr_fallback" : "";
+  if (!featureId) {
+    setSaveState("Select a matched title first", "error");
+    return;
+  }
+  if (!mode) {
+    setSaveState("Select a source subtitle or OCR fallback first", "error");
     return;
   }
 
@@ -1058,12 +1272,15 @@ dom.prepareButton.addEventListener("click", async () => {
     const payload = await fetchJson("/api/session/prepare", {
       method: "POST",
       body: JSON.stringify({
+        mode,
+        featureId,
         sourceFileId,
         targetFileId: state.selectedTargetFileId,
       }),
     });
     if (state.snapshot) {
       state.snapshot.prepared_session = payload.session;
+      state.snapshot.selected_feature_id = featureId;
       state.snapshot.selected_source_file_id = sourceFileId;
       state.snapshot.selected_target_file_id = state.selectedTargetFileId;
     }
@@ -1159,14 +1376,14 @@ dom.ocrInstallButton.addEventListener("click", async () => {
   }
   try {
     setSaveState("Launching OCR installer...", "busy");
-    await fetchJson("/api/ocr/install", {
+    const payload = await fetchJson("/api/ocr/install", {
       method: "POST",
       body: JSON.stringify({ languageTag }),
     });
     const catalog = await fetchJson("/api/languages");
     state.languageCatalog = catalog;
     updateDerivedOcrDisplay(languageTag);
-    setSaveState("OCR installer launched", "success");
+    setSaveState(payload.message, payload.installed ? "success" : "error");
   } catch (error) {
     setSaveState(error.message, "error");
   }

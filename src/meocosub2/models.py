@@ -50,10 +50,13 @@ class PreparedSession:
     target_language: str
     resolved_source_language: str
     source_language_mode: Literal["exact", "family_fallback"]
-    source_file_id: int
-    source_file_name: str
-    source_path: str
-    source_line_count: int
+    session_mode: Literal["subtitle_pair", "ocr_fallback"] = "subtitle_pair"
+    target_match_mode: Literal["subtitle_file", "local_translation", "target_subtitle_match", "direct_translation"] = "subtitle_file"
+    feature_id: int | None = None
+    source_file_id: int | None = None
+    source_file_name: str | None = None
+    source_path: str | None = None
+    source_line_count: int = 0
     target_file_id: int | None = None
     target_file_name: str | None = None
     target_path: str | None = None
@@ -69,6 +72,8 @@ class AppStateSnapshot:
     source_language: str = "en"
     target_language: str = "zh"
     search_results: list[dict[str, object]] = field(default_factory=list)
+    search_matches: list[dict[str, object]] = field(default_factory=list)
+    selected_feature_id: int | None = None
     selected_source_file_id: int | None = None
     selected_target_file_id: int | None = None
     prepared_session: PreparedSession | None = None
@@ -83,3 +88,11 @@ class AppStateSnapshot:
 class AppWebSocketEvent:
     type: Literal["state", "progress", "subtitle", "style", "error"]
     payload: dict[str, object]
+
+
+@dataclass
+class PreparedRuntime:
+    session_mode: Literal["subtitle_pair", "ocr_fallback"]
+    pair: SubtitlePair | None = None
+    target_lines: list[SubtitleLine] = field(default_factory=list)
+    feature_id: int | None = None

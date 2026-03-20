@@ -8,6 +8,7 @@ from meocosub2.translator import (
     build_translation_prompt,
     parse_batch_response,
     sanitize_output,
+    translate_text,
     translate_lines,
 )
 
@@ -100,3 +101,32 @@ async def test_translate_lines_auto_detects_model_when_blank() -> None:
     client = FakeClient(["1. translated"])
     await translate_lines([SubtitleLine(index=0, start_ms=0, end_ms=1000, text="source")], config, client=client)
     assert client.chat.completions.calls[0]["model"] == "auto-model"
+
+
+@pytest.mark.asyncio
+async def test_translate_text_uses_context_and_sanitizes_single_line_output() -> None:
+    config = AppConfig(foundry_model="manual-model")
+    client = FakeClient(['Translation: "hello there"'])
+
+    output = await translate_text(
+        "source line",
+        config,
+        context_lines=["older", "previous", "latest"],
+        client=client,
+    )
+
+    assert output == "hello there"
+    prompt = client.chat.completions.calls[0]["messages"][0]["content"]
+    assert "older" in prompt
+    assert "latest" in prompt
+    assert "source line" in prompt
+
+
+@pytest.mark.asyncio
+async def test_translate_text_falls_back_to_source_when_model_returns_empty() -> None:
+    config = AppConfig(foundry_model="manual-model")
+    client = FakeClient([""])
+
+    output = await translate_text("source line", config, client=client)
+
+    assert output == "source line"

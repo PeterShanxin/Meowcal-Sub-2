@@ -10,11 +10,6 @@
   },
   "app": {
     "withGlobalTauri": true,
-    "trayIcon": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": false,
-      "title": "Meowcal Sub 2"
-    },
     "windows": [
       {
         "title": "Meowcal Sub 2",

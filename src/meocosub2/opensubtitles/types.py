@@ -26,6 +26,15 @@ class FeatureCandidate:
     aka_titles: tuple[str, ...] = ()
     match_score: float = 0.0
 
+    def display_label(self) -> str:
+        year_suffix = f" ({self.year})" if self.year else ""
+        if self.media_type == "episode" and self.season and self.episode:
+            if self.parent_title and self.title:
+                return f"{self.parent_title} S{self.season:02d}E{self.episode:02d} - {self.title}{year_suffix}"
+            series_title = self.parent_title or self.title
+            return f"{series_title} S{self.season:02d}E{self.episode:02d}{year_suffix}"
+        return f"{self.title}{year_suffix}"
+
 
 @dataclass
 class SearchResult:
@@ -60,3 +69,9 @@ class SearchResult:
             series_title = self.parent_title or self.title
             return f"{series_title} S{self.season:02d}E{self.episode:02d}{year_suffix} [{self.language}]"
         return f"{self.title}{year_suffix} [{self.language}]"
+
+
+@dataclass
+class SearchCatalog:
+    results: list[SearchResult]
+    matches: list[FeatureCandidate]

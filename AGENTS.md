@@ -57,3 +57,5 @@
 - WebView2 can appear stale during debugging, so cache-busting shared asset URLs is useful when the desktop shell seems to ignore new `app.css` or `app.js`.
 - For desktop UI bugs, verify the runtime path before changing the wrong file. The shared `index.html` route matters more than `desktop-main.html`.
 - For real desktop UI inspection, a window-level screenshot helper is more trustworthy than browser-only automation against the served page.
+- Tauri will create duplicate tray icons on Windows if the shell uses both `app.trayIcon` in `tauri.conf.json` and a manual `TrayIconBuilder` in Rust. Keep only one creation path.
+- Windows OCR capability lookup for this app should use exact BCP-47 tags such as `zh-TW` in the `Language.OCR*<tag>*` query, and the UI should treat post-install re-enumeration as the success signal instead of assuming the installer succeeded.

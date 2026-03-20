@@ -82,6 +82,21 @@ async def _resolve_model(client: AsyncOpenAI, config: AppConfig) -> str:
     return selected
 
 
+async def open_translation_client(config: AppConfig) -> tuple[AsyncOpenAI, str]:
+    api_base = await asyncio.to_thread(resolve_foundry_api_base, config)
+    client = AsyncOpenAI(
+        base_url=api_base,
+        api_key="foundry-local",
+        timeout=config.translation_timeout_s,
+    )
+    try:
+        model = await _resolve_model(client, config)
+    except Exception:
+        await client.close()
+        raise
+    return client, model
+
+
 async def _emit_progress(
     callback: Callable[[int, int], object] | None,
     done: int,
@@ -105,15 +120,11 @@ async def translate_lines(
 
     own_client = client is None
     if client is None:
-        api_base = await asyncio.to_thread(resolve_foundry_api_base, config)
-        client = AsyncOpenAI(
-            base_url=api_base,
-            api_key="foundry-local",
-            timeout=config.translation_timeout_s,
-        )
+        client, model = await open_translation_client(config)
+    else:
+        model = await _resolve_model(client, config)
 
     try:
-        model = await _resolve_model(client, config)
         context: list[str] = []
         total = len(lines)
 
@@ -146,6 +157,47 @@ async def translate_lines(
             await _emit_progress(progress_callback, min(start + len(batch), total), total)
 
         return lines
+    finally:
+        if own_client:
+            await client.close()
+
+
+async def translate_text(
+    text: str,
+    config: AppConfig,
+    context_lines: list[str] | None = None,
+    client: AsyncOpenAI | None = None,
+    model: str | None = None,
+) -> str:
+    if not text.strip():
+        return ""
+
+    own_client = client is None
+    if client is None:
+        client, model = await open_translation_client(config)
+    elif model is None:
+        model = await _resolve_model(client, config)
+
+    try:
+        prompt = build_translation_prompt(
+            [text],
+            config.source_language,
+            config.target_language,
+            context_lines,
+        )
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+            )
+        except (APIConnectionError, APITimeoutError, APIError) as exc:
+            raise TranslationError(f"Foundry Local translation request failed: {exc}") from exc
+
+        content = response.choices[0].message.content or ""
+        outputs = parse_batch_response(content, 1)
+        translated = sanitize_output(outputs[0] if outputs else content)
+        return translated or text
     finally:
         if own_client:
             await client.close()
