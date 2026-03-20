@@ -324,6 +324,11 @@ fn show_capture_hud(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), 
 }
 
 #[tauri::command]
+fn get_api_base() -> String {
+    api_base()
+}
+
+#[tauri::command]
 fn stop_translation(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), String> {
     post_json("/api/session/stop", serde_json::json!({}))?;
     shell.hud_enabled.store(false, Ordering::SeqCst);
@@ -428,6 +433,7 @@ fn main() {
             hide_main_window,
             show_main_window,
             show_capture_hud,
+            get_api_base,
             stop_translation,
             set_capture_region,
         ])

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import re
 from typing import Callable
@@ -104,7 +105,7 @@ async def translate_lines(
 
     own_client = client is None
     if client is None:
-        api_base = resolve_foundry_api_base(config)
+        api_base = await asyncio.to_thread(resolve_foundry_api_base, config)
         client = AsyncOpenAI(
             base_url=api_base,
             api_key="foundry-local",

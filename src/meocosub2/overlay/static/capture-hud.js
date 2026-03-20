@@ -1,5 +1,5 @@
 const TAURI = window.__TAURI__;
-const API_BASE = "http://127.0.0.1:8765";
+let apiBase = "";
 
 const frame = document.getElementById("capture-frame");
 const statusChip = document.getElementById("hud-status-chip");
@@ -19,8 +19,16 @@ const state = {
 };
 
 function wsUrl(path) {
-  const url = new URL(API_BASE);
+  const url = new URL(apiBase);
   return `ws://${url.host}${path}`;
+}
+
+async function ensureApiBase() {
+  if (apiBase) {
+    return apiBase;
+  }
+  apiBase = await TAURI.core.invoke("get_api_base");
+  return apiBase;
 }
 
 function setStatus(snapshot, progress = null) {
@@ -88,6 +96,7 @@ function renderSubtitle(text) {
 }
 
 async function connect() {
+  await ensureApiBase();
   const socket = new WebSocket(wsUrl("/ws/app"));
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data);
@@ -132,4 +141,4 @@ settingsButton.addEventListener("click", async () => {
   await TAURI.core.invoke("show_main_window");
 });
 
-connect();
+ensureApiBase().then(connect);

@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from dataclasses import asdict
-from pathlib import Path
 import subprocess
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
+CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 from meocosub2.config import AppConfig, config_to_payload, overlay_style_payload, save_config
 from meocosub2.capture import resolve_ocr_language
@@ -122,7 +124,7 @@ class GuiController:
             subprocess.run,
             outer_args,
             check=False,
-            creationflags=0x08000000,
+            creationflags=CREATE_NO_WINDOW,
         )
         return {"launched": True, "requiresRefresh": True}
 

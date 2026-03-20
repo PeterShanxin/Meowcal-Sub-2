@@ -8,8 +8,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-
-logger = logging.getLogger(__name__)
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -22,6 +20,7 @@ from meocosub2.models import SearchRequest
 from meocosub2.overlay.controller import GuiController
 
 STATIC_DIR = Path(__file__).parent / "static"
+logger = logging.getLogger(__name__)
 
 
 class SearchBody(BaseModel):
