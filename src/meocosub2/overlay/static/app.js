@@ -73,7 +73,7 @@ let socket;
 let renderScheduled = false;
 let bootstrapPromise = null;
 const TAURI = window.__TAURI__?.core?.invoke ? window.__TAURI__ : null;
-const API_BASE = TAURI ? "http://127.0.0.1:8765" : "";
+const API_BASE = /^https?:$/i.test(window.location.protocol) ? window.location.origin : "";
 
 function apiUrl(path) {
   return `${API_BASE}${path}`;
@@ -664,6 +664,75 @@ function setupTauriBridge() {
   });
 }
 
+function createElement(tagName, options = {}) {
+  const element = document.createElement(tagName);
+  if (options.className) {
+    element.className = options.className;
+  }
+  if (options.text != null) {
+    element.textContent = String(options.text);
+  }
+  if (options.attrs) {
+    for (const [name, value] of Object.entries(options.attrs)) {
+      if (value != null) {
+        element.setAttribute(name, String(value));
+      }
+    }
+  }
+  if (options.dataset) {
+    for (const [name, value] of Object.entries(options.dataset)) {
+      if (value != null) {
+        element.dataset[name] = String(value);
+      }
+    }
+  }
+  return element;
+}
+
+function appendBadge(container, text, className = "result-badge") {
+  container.append(createElement("span", { className, text }));
+}
+
+function buildResultCard({
+  fileId = "",
+  selected = false,
+  kind = "",
+  title,
+  tag = "",
+  badges = [],
+  fileText,
+  footText,
+}) {
+  const classes = ["result-card"];
+  if (selected) {
+    classes.push("selected");
+  }
+  const card = createElement("button", {
+    className: classes.join(" "),
+    attrs: { type: "button" },
+    dataset: { fileId, kind: kind || undefined },
+  });
+
+  const top = createElement("div", { className: "result-card-top" });
+  top.append(createElement("h4", { className: "result-card-title", text: title }));
+  if (tag) {
+    top.append(createElement("span", { className: "result-card-tag", text: tag }));
+  }
+  card.append(top);
+
+  if (badges.length) {
+    const meta = createElement("div", { className: "result-card-meta" });
+    for (const badge of badges) {
+      appendBadge(meta, badge);
+    }
+    card.append(meta);
+  }
+
+  card.append(createElement("p", { className: "result-card-file", text: fileText }));
+  card.append(createElement("p", { className: "result-card-foot", text: footText }));
+  return card;
+}
+
 function renderResults(container, results, selectedId, requestedSourceLanguage = "") {
   if (!results.length) {
     container.className = "result-list empty-state";
@@ -672,80 +741,58 @@ function renderResults(container, results, selectedId, requestedSourceLanguage =
   }
 
   container.className = "result-list";
-  container.innerHTML = results
-    .map((result, index) => {
-      const selected = result.fileId === selectedId ? "selected" : "";
-      const fallbackBadge =
+  container.replaceChildren(
+    ...results.map((result, index) => {
+      const badges = [languageLabel(result.language)];
+      if (normalizeLanguageCode(result.language) === normalizeLanguageCode(requestedSourceLanguage)) {
+        badges.push("Exact language");
+      }
+      if (
         requestedSourceLanguage &&
         normalizeLanguageCode(result.language) !== normalizeLanguageCode(requestedSourceLanguage) &&
         isChineseFamily(requestedSourceLanguage) &&
         isChineseFamily(result.language)
-          ? '<span class="result-badge">Chinese-family fallback</span>'
-          : "";
-      const recommendedBadge = index === 0 ? '<span class="result-card-tag">Recommended</span>' : "";
-      const exactnessBadge =
-        normalizeLanguageCode(result.language) === normalizeLanguageCode(requestedSourceLanguage)
-          ? '<span class="result-badge">Exact language</span>'
-          : "";
-      return `
-        <button type="button" class="result-card ${selected}" data-file-id="${result.fileId}">
-          <div class="result-card-top">
-            <h4 class="result-card-title">${result.displayLabel}</h4>
-            ${recommendedBadge}
-          </div>
-          <div class="result-card-meta">
-            <span class="result-badge">${languageLabel(result.language)}</span>
-            ${exactnessBadge}
-            ${fallbackBadge}
-          </div>
-          <p class="result-card-file">${result.fileName}</p>
-          <p class="result-card-foot">${result.downloadCount.toLocaleString()} downloads</p>
-        </button>
-      `;
-    })
-    .join("");
+      ) {
+        badges.push("Chinese-family fallback");
+      }
+      return buildResultCard({
+        fileId: result.fileId,
+        selected: result.fileId === selectedId,
+        title: result.displayLabel,
+        tag: index === 0 ? "Recommended" : "",
+        badges,
+        fileText: result.fileName,
+        footText: `${result.downloadCount.toLocaleString()} downloads`,
+      });
+    }),
+  );
 }
 
 function renderTargetResults(container, results, selectedId) {
-  const noneSelected = selectedId == null ? "selected" : "";
-  const items = [
-    `
-      <button type="button" class="result-card ${noneSelected}" data-kind="local" data-file-id="">
-        <div class="result-card-top">
-          <h4 class="result-card-title">Use local translation</h4>
-          <span class="result-card-tag">Fallback</span>
-        </div>
-        <div class="result-card-meta">
-          <span class="result-badge">No target file</span>
-        </div>
-        <p class="result-card-file">Prepare the session by translating the selected source subtitle locally.</p>
-        <p class="result-card-foot">Best when no matching target subtitle looks trustworthy.</p>
-      </button>
-    `,
-  ];
-
-  items.push(
-    ...results.map((result, index) => {
-      const selected = result.fileId === selectedId ? "selected" : "";
-      const recommendedBadge = index === 0 ? '<span class="result-card-tag">Best match</span>' : "";
-      return `
-        <button type="button" class="result-card ${selected}" data-file-id="${result.fileId}">
-          <div class="result-card-top">
-            <h4 class="result-card-title">${result.displayLabel}</h4>
-            ${recommendedBadge}
-          </div>
-          <div class="result-card-meta">
-            <span class="result-badge">${languageLabel(result.language)}</span>
-          </div>
-          <p class="result-card-file">${result.fileName}</p>
-          <p class="result-card-foot">${result.downloadCount.toLocaleString()} downloads</p>
-        </button>
-      `;
-    }),
-  );
-
   container.className = "result-list";
-  container.innerHTML = items.join("");
+  container.replaceChildren(
+    buildResultCard({
+      fileId: "",
+      kind: "local",
+      selected: selectedId == null,
+      title: "Use local translation",
+      tag: "Fallback",
+      badges: ["No target file"],
+      fileText: "Prepare the session by translating the selected source subtitle locally.",
+      footText: "Best when no matching target subtitle looks trustworthy.",
+    }),
+    ...results.map((result, index) =>
+      buildResultCard({
+        fileId: result.fileId,
+        selected: result.fileId === selectedId,
+        title: result.displayLabel,
+        tag: index === 0 ? "Best match" : "",
+        badges: [languageLabel(result.language)],
+        fileText: result.fileName,
+        footText: `${result.downloadCount.toLocaleString()} downloads`,
+      }),
+    ),
+  );
 }
 
 function renderSessionSummary(preparedSession) {
@@ -758,17 +805,24 @@ function renderSessionSummary(preparedSession) {
 
   dom.sessionBadge.textContent = preparedSession.session_id;
   dom.preparedSession.className = "session-summary";
-  dom.preparedSession.innerHTML = `
-    <dl>
-      <dt>Title</dt><dd>${preparedSession.title}</dd>
-      <dt>Source File</dt><dd>${preparedSession.source_file_name}</dd>
-      <dt>Target File</dt><dd>${preparedSession.target_file_name || "Generated via translation"}</dd>
-      <dt>Resolved Source</dt><dd>${preparedSession.resolved_source_language}${preparedSession.source_language_mode !== "exact" ? " (fallback)" : ""}</dd>
-      <dt>Source Lines</dt><dd>${preparedSession.source_line_count}</dd>
-      <dt>Translated Lines</dt><dd>${preparedSession.translated_line_count}</dd>
-      <dt>Mode</dt><dd>${preparedSession.used_translation ? "Local translation" : "Matched target subtitle"}</dd>
-    </dl>
-  `;
+  const summary = createElement("dl");
+  const rows = [
+    ["Title", preparedSession.title],
+    ["Source File", preparedSession.source_file_name],
+    ["Target File", preparedSession.target_file_name || "Generated via translation"],
+    [
+      "Resolved Source",
+      `${preparedSession.resolved_source_language}${preparedSession.source_language_mode !== "exact" ? " (fallback)" : ""}`,
+    ],
+    ["Source Lines", preparedSession.source_line_count],
+    ["Translated Lines", preparedSession.translated_line_count],
+    ["Mode", preparedSession.used_translation ? "Local translation" : "Matched target subtitle"],
+  ];
+  for (const [term, description] of rows) {
+    summary.append(createElement("dt", { text: term }));
+    summary.append(createElement("dd", { text: description }));
+  }
+  dom.preparedSession.replaceChildren(summary);
 }
 
 function render() {

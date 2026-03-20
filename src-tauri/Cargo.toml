@@ -15,6 +15,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 tokio = { version = "1", features = ["time"] }
 windows = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation"] }
 url = "2"
+toml = "0.8"
 
 [features]
 default = []

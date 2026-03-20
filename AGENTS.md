@@ -7,12 +7,12 @@
 
 ## Runtime Map
 - Backend server: `python -m meocosub2.cli serve`
-- Studio route: [src/meocosub2/overlay/server.py](/d:/Repos/Meowcal-Sub2/src/meocosub2/overlay/server.py)
-- Live studio page: [src/meocosub2/overlay/static/index.html](/d:/Repos/Meowcal-Sub2/src/meocosub2/overlay/static/index.html)
-- Shared studio logic: [src/meocosub2/overlay/static/app.js](/d:/Repos/Meowcal-Sub2/src/meocosub2/overlay/static/app.js)
-- Shared studio styles: [src/meocosub2/overlay/static/app.css](/d:/Repos/Meowcal-Sub2/src/meocosub2/overlay/static/app.css)
-- Tauri shell startup: [src-tauri/src/main.rs](/d:/Repos/Meowcal-Sub2/src-tauri/src/main.rs)
-- Tauri window config: [src-tauri/tauri.conf.json](/d:/Repos/Meowcal-Sub2/src-tauri/tauri.conf.json)
+- Studio route: [src/meocosub2/overlay/server.py](src/meocosub2/overlay/server.py)
+- Live studio page: [src/meocosub2/overlay/static/index.html](src/meocosub2/overlay/static/index.html)
+- Shared studio logic: [src/meocosub2/overlay/static/app.js](src/meocosub2/overlay/static/app.js)
+- Shared studio styles: [src/meocosub2/overlay/static/app.css](src/meocosub2/overlay/static/app.css)
+- Tauri shell startup: [src-tauri/src/main.rs](src-tauri/src/main.rs)
+- Tauri window config: [src-tauri/tauri.conf.json](src-tauri/tauri.conf.json)
 
 ## Source Of Truth
 - Treat the server-backed `/` route as the real desktop runtime path.

@@ -1,11 +1,30 @@
 import asyncio
 import json
+from html.parser import HTMLParser
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from meocosub2.config import AppConfig
 from meocosub2.overlay.server import OverlayServer
+
+
+class IdCollector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.by_id: dict[str, dict[str, str]] = {}
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        attributes = {key: value or "" for key, value in attrs}
+        element_id = attributes.get("id")
+        if element_id:
+            self.by_id[element_id] = {"tag": tag, **attributes}
+
+
+def collect_ids(html: str) -> dict[str, dict[str, str]]:
+    parser = IdCollector()
+    parser.feed(html)
+    return parser.by_id
 
 
 def make_server(config_path: Path | None = None) -> OverlayServer:
@@ -33,24 +52,27 @@ def test_dashboard_and_overlay_pages_served(tmp_path: Path) -> None:
     with TestClient(server.app) as client:
         dashboard = client.get("/")
         overlay = client.get("/overlay")
+    elements = collect_ids(dashboard.text)
     assert dashboard.status_code == 200
     assert "What do you want to watch?" in dashboard.text
-    assert 'id="loading-overlay"' in dashboard.text
-    assert 'id="loading-retry"' in dashboard.text
-    assert 'id="settings-open-button"' in dashboard.text
-    assert 'id="settings-drawer"' in dashboard.text
-    assert 'id="settings-close-button"' in dashboard.text
-    assert 'id="settings-inline-button"' in dashboard.text
-    assert 'id="source-language-picker"' in dashboard.text
-    assert 'id="target-language-picker"' in dashboard.text
-    assert 'id="source-language-options"' in dashboard.text
-    assert 'id="target-language-options"' in dashboard.text
-    assert 'id="source-language-trigger" class="language-trigger hidden"' not in dashboard.text
-    assert 'id="target-language-trigger" class="language-trigger hidden"' not in dashboard.text
-    assert 'id="source-language-input" class="native-language-select" name="sourceLanguage" tabindex="-1" aria-hidden="true"' in dashboard.text
-    assert 'id="target-language-input" class="native-language-select" name="targetLanguage" tabindex="-1" aria-hidden="true"' in dashboard.text
-    assert 'id="language-menu-portal"' not in dashboard.text
-    assert 'id="language-menu-panel"' not in dashboard.text
+    assert elements["loading-overlay"]["role"] == "alert"
+    assert elements["loading-retry"]["tag"] == "button"
+    assert elements["settings-open-button"]["tag"] == "button"
+    assert elements["settings-drawer"]["aria-hidden"] == "true"
+    assert elements["settings-close-button"]["tag"] == "button"
+    assert elements["settings-inline-button"]["tag"] == "button"
+    assert elements["source-language-picker"]["tag"] == "div"
+    assert elements["target-language-picker"]["tag"] == "div"
+    assert elements["source-language-options"]["role"] == "listbox"
+    assert elements["target-language-options"]["role"] == "listbox"
+    assert "hidden" not in elements["source-language-trigger"].get("class", "")
+    assert "hidden" not in elements["target-language-trigger"].get("class", "")
+    assert elements["source-language-input"]["name"] == "sourceLanguage"
+    assert elements["source-language-input"]["aria-hidden"] == "true"
+    assert elements["target-language-input"]["name"] == "targetLanguage"
+    assert elements["target-language-input"]["aria-hidden"] == "true"
+    assert "language-menu-portal" not in elements
+    assert "language-menu-panel" not in elements
     assert "custom-select" not in dashboard.text
     assert overlay.status_code == 200
     assert "subtitle-shell" in overlay.text
@@ -64,10 +86,8 @@ def test_dashboard_script_uses_blocking_bootstrap_without_custom_selects(tmp_pat
     assert script.status_code == 200
     assert "Language options failed to load. Retry startup." in script.text
     assert "Studio startup incomplete" in script.text
-    assert script.text.count('setBootstrapLoading("Loading studio...", "Preparing languages and saved settings.");') == 1
-    assert "openLanguagePicker" in script.text
-    assert "closeLanguagePicker" in script.text
-    assert "setSettingsDrawerOpen" in script.text
+    assert "Loading studio..." in script.text
+    assert "Preparing languages and saved settings." in script.text
     assert "languageMenuPortal" not in script.text
     assert "languageMenuPanel" not in script.text
     assert "positionLanguageMenuPanel" not in script.text

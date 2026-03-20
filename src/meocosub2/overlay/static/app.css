@@ -1004,14 +1004,16 @@ select:disabled,
     width: min(100vw - 20px, 1360px);
   }
 
+  .status-strip {
+    grid-template-columns: 1fr;
+  }
+
   .studio-topbar,
   .hero-submit-row,
-  .status-strip,
   .status-meta-row,
   .panel-header,
   .drawer-header,
   .drawer-actions {
-    grid-template-columns: 1fr;
     flex-direction: column;
     align-items: stretch;
   }

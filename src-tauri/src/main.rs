@@ -2,6 +2,7 @@
 
 use reqwest::blocking::Client;
 use serde::Serialize;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,7 +21,6 @@ use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
-const API_BASE: &str = "http://127.0.0.1:8765";
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Clone)]
@@ -88,12 +88,37 @@ fn python_executable() -> PathBuf {
     repo_root().join(".venv").join("Scripts").join("python.exe")
 }
 
+fn config_path() -> PathBuf {
+    let appdata = std::env::var("APPDATA").unwrap_or_else(|_| String::from("."));
+    PathBuf::from(appdata).join("meowcal-sub-2").join("config.toml")
+}
+
+fn overlay_port() -> u16 {
+    let Ok(raw) = fs::read_to_string(config_path()) else {
+        return 8765;
+    };
+    let Ok(value) = raw.parse::<toml::Value>() else {
+        return 8765;
+    };
+    value
+        .get("overlay")
+        .and_then(|overlay| overlay.get("port"))
+        .and_then(|port| port.as_integer())
+        .and_then(|port| u16::try_from(port).ok())
+        .unwrap_or(8765)
+}
+
+fn api_base() -> String {
+    format!("http://127.0.0.1:{}", overlay_port())
+}
+
 fn backend_ready() -> bool {
+    let api_base = api_base();
     Client::builder()
         .timeout(Duration::from_secs(2))
         .build()
         .ok()
-        .and_then(|client| client.get(format!("{API_BASE}/api/state")).send().ok())
+        .and_then(|client| client.get(format!("{api_base}/api/state")).send().ok())
         .map(|response| response.status().is_success())
         .unwrap_or(false)
 }
@@ -134,12 +159,13 @@ fn ensure_backend_running(process: &BackendProcess) {
 }
 
 fn post_json(path: &str, body: serde_json::Value) -> Result<(), String> {
+    let api_base = api_base();
     let client = Client::builder()
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|error| error.to_string())?;
     let response = client
-        .post(format!("{API_BASE}{path}"))
+        .post(format!("{api_base}{path}"))
         .json(&body)
         .send()
         .map_err(|error| error.to_string())?;
@@ -151,12 +177,13 @@ fn post_json(path: &str, body: serde_json::Value) -> Result<(), String> {
 }
 
 fn fetch_capture_region_from_backend() -> Option<CaptureRegionState> {
+    let api_base = api_base();
     let client = Client::builder()
         .timeout(Duration::from_secs(5))
         .build()
         .ok()?;
     let payload: serde_json::Value = client
-        .get(format!("{API_BASE}/api/config"))
+        .get(format!("{api_base}/api/config"))
         .send()
         .ok()?
         .error_for_status()
@@ -329,8 +356,9 @@ fn set_capture_region(
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|error| error.to_string())?;
+    let api_base = api_base();
     let mut payload: serde_json::Value = client
-        .get(format!("{API_BASE}/api/config"))
+        .get(format!("{api_base}/api/config"))
         .send()
         .and_then(|response| response.error_for_status())
         .map_err(|error| error.to_string())?
@@ -339,7 +367,7 @@ fn set_capture_region(
     payload["capture"]["region"] = serde_json::json!(region);
 
     client
-        .put(format!("{API_BASE}/api/config"))
+        .put(format!("{api_base}/api/config"))
         .json(&payload)
         .send()
         .and_then(|response| response.error_for_status())
@@ -406,7 +434,7 @@ fn main() {
         .setup(move |app| {
             ensure_backend_running(app.state::<BackendProcess>().inner());
             if let Some(main) = app.get_webview_window("main") {
-                let _ = main.navigate(Url::parse(API_BASE).map_err(|error| error.to_string())?);
+                let _ = main.navigate(Url::parse(&api_base()).map_err(|error| error.to_string())?);
             }
 
             let show_item = MenuItem::with_id(app, "show", "Open App", true, None::<&str>)?;
