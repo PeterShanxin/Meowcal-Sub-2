@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable
 from time import monotonic
 
 from meocosub2.capture import capture_region, ocr_image
 from meocosub2.config import AppConfig
 from meocosub2.matcher import SubtitleMatcher
-from meocosub2.models import SubtitlePair
+from meocosub2.models import SubtitleLine, SubtitlePair
 from meocosub2.textnorm import clean_cjk_text
 from meocosub2.translator import open_translation_client, translate_text
 
@@ -51,12 +51,12 @@ async def run_sync_loop(
 
 
 async def run_ocr_fallback_loop(
-    target_lines,
+    target_lines: list[SubtitleLine],
     config: AppConfig,
     broadcast: Callable[[str], Awaitable[None]],
 ) -> None:
     matcher = SubtitleMatcher(target_lines, config.fuzzy_threshold, config.match_window_size) if target_lines else None
-    translation_context: list[str] = []
+    translation_context: deque[str] = deque(maxlen=3)
     translation_cache: OrderedDict[str, str] = OrderedDict()
     last_ocr_key = ""
     last_displayed = ""
@@ -85,7 +85,7 @@ async def run_ocr_fallback_loop(
                     translation = await translate_text(
                         ocr_text,
                         config,
-                        context_lines=translation_context[-3:],
+                        context_lines=list(translation_context),
                         client=client,
                         model=model,
                     )

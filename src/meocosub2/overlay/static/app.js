@@ -915,10 +915,7 @@ function renderTargetResults(container, results, selectedId, sourceSelectionMode
         sourceSelectionMode === "ocr_fallback"
           ? "Prepare the session by translating live OCR text directly into the target language."
           : "Prepare the session by translating the selected source subtitle locally.",
-      footText:
-        sourceSelectionMode === "ocr_fallback"
-          ? "Best when no matching target subtitle looks trustworthy."
-          : "Best when no matching target subtitle looks trustworthy.",
+      footText: "Best when no matching target subtitle looks trustworthy.",
     }),
     ...results.map((result, index) =>
       buildResultCard({
