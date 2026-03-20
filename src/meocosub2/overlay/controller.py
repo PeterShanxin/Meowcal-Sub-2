@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
-from dataclasses import asdict
 import subprocess
+import tempfile
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -15,14 +17,14 @@ logger = logging.getLogger(__name__)
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 from meocosub2.config import AppConfig, config_to_payload, overlay_style_payload, save_config
-from meocosub2.capture import resolve_ocr_language
+from meocosub2.capture import available_ocr_languages, resolve_ocr_language
 from meocosub2.errors import TranslationError
 from meocosub2.foundry import foundry_status, make_foundry_ready
-from meocosub2.languages import expand_search_languages, language_label, source_language_mode
-from meocosub2.models import AppProgress, AppStateSnapshot, PreparedSession, SearchRequest, SubtitlePair
+from meocosub2.languages import expand_search_languages, language_label, normalize_ocr_language, source_language_mode
+from meocosub2.models import AppProgress, AppStateSnapshot, PreparedRuntime, PreparedSession, SearchRequest
 from meocosub2.opensubtitles.client import OpenSubtitlesClient
 from meocosub2.subtitles import align_subtitles, assign_target_translations, load_subtitle_file
-from meocosub2.sync import run_sync_loop
+from meocosub2.sync import run_ocr_fallback_loop, run_sync_loop
 from meocosub2.translator import translate_lines
 
 
@@ -36,6 +38,8 @@ def search_result_payload(result: Any) -> dict[str, object]:
         "season": result.season,
         "episode": result.episode,
         "parentTitle": getattr(result, "parent_title", None),
+        "parentFeatureId": getattr(result, "parent_feature_id", None),
+        "featureId": getattr(result, "feature_id", None),
         "language": result.language,
         "downloadCount": result.download_count,
         "fileId": result.file_id,
@@ -44,6 +48,35 @@ def search_result_payload(result: Any) -> dict[str, object]:
         "displayLabel": result.display_label(),
         "languageLabel": language_label(result.language),
     }
+
+
+def search_match_payload(match: Any) -> dict[str, object]:
+    return {
+        "id": match.id,
+        "title": match.title,
+        "year": match.year,
+        "imdbId": match.imdb_id,
+        "tmdbId": getattr(match, "tmdb_id", None),
+        "mediaType": match.media_type,
+        "season": match.season,
+        "episode": match.episode,
+        "parentTitle": getattr(match, "parent_title", None),
+        "subtitlesCount": getattr(match, "subtitles_count", 0),
+        "matchScore": getattr(match, "match_score", 0.0),
+        "displayLabel": match.display_label(),
+    }
+
+
+OCR_CAPABILITY_TAGS: dict[str, tuple[str, ...]] = {
+    "en-US": ("en-US",),
+    "zh-CN": ("zh-CN", "zh-Hans", "zh-Hans-CN"),
+    "zh-TW": ("zh-TW", "zh-Hant", "zh-Hant-TW"),
+    "ja-JP": ("ja-JP", "ja"),
+    "ko-KR": ("ko-KR", "ko"),
+    "es-ES": ("es-ES", "es"),
+    "fr-FR": ("fr-FR", "fr"),
+    "de-DE": ("de-DE", "de"),
+}
 
 
 class GuiController:
@@ -60,7 +93,7 @@ class GuiController:
         self._config_path = config_path
         self._lock = asyncio.Lock()
         self._sync_task: asyncio.Task[None] | None = None
-        self._prepared_pair: SubtitlePair | None = None
+        self._prepared_runtime: PreparedRuntime | None = None
         self._runtime_port = config.overlay_port
         self._state = AppStateSnapshot(
             source_language=config.source_language,
@@ -93,22 +126,41 @@ class GuiController:
         return asdict(status)
 
     async def install_ocr_language(self, language_tag: str) -> dict[str, object]:
-        capability_tag = {
-            "en-US": "en-US",
-            "zh-TW": "zh-Hant",
-            "zh-CN": "zh-Hans",
-            "ja-JP": "ja",
-            "ko-KR": "ko",
-        }.get(language_tag)
-        if capability_tag is None:
+        normalized = normalize_ocr_language(language_tag)
+        capability_tags = OCR_CAPABILITY_TAGS.get(normalized)
+        if capability_tags is None:
             raise ValueError(f"Unsupported OCR language: {language_tag}")
 
+        before_languages = {normalize_ocr_language(code) for code in available_ocr_languages()}
+        result_path = Path(tempfile.gettempdir()) / f"meowcal-sub2-ocr-install-{uuid4().hex}.json"
+        pattern_list = ", ".join(f"'{tag}'" for tag in capability_tags)
+        escaped_result_path = str(result_path).replace("'", "''")
+        escaped_label = normalized.replace("'", "''")
         inner_script = (
-            f"Write-Host 'Installing OCR language pack: {capability_tag}...' -ForegroundColor Cyan; "
-            f"$cap = Get-WindowsCapability -Online | Where-Object {{ $_.Name -Like 'Language.OCR*{capability_tag}*' -and $_.State -ne 'Installed' }}; "
-            "if ($cap) { $cap | Add-WindowsCapability -Online; Write-Host 'Done!' -ForegroundColor Green } "
-            "else { Write-Host 'Language pack is already installed or not available.' -ForegroundColor Yellow }; "
-            "Start-Sleep -Seconds 3"
+            f"$patterns = @({pattern_list}); "
+            f"Write-Host 'Installing OCR language pack: {escaped_label}...' -ForegroundColor Cyan; "
+            "$caps = @(); "
+            "foreach ($pattern in $patterns) { "
+            "  $caps += Get-WindowsCapability -Online | Where-Object { $_.Name -Like \"Language.OCR*$pattern*\" }; "
+            "} "
+            "$caps = @($caps | Sort-Object Name -Unique); "
+            "$supported = ($caps.Count -gt 0); "
+            "if ($supported) { "
+            "  $pending = @($caps | Where-Object { $_.State -ne 'Installed' }); "
+            "  if ($pending.Count -gt 0) { $pending | Add-WindowsCapability -Online | Out-Null }; "
+            "  $caps = @(); "
+            "  foreach ($pattern in $patterns) { "
+            "    $caps += Get-WindowsCapability -Online | Where-Object { $_.Name -Like \"Language.OCR*$pattern*\" }; "
+            "  } "
+            "  $caps = @($caps | Sort-Object Name -Unique); "
+            "  $installed = (@($caps | Where-Object { $_.State -eq 'Installed' }).Count -gt 0); "
+            "  $message = if ($installed) { 'OCR language pack is installed.' } else { 'OCR capability install completed, but Windows still does not report it as installed.' }; "
+            "} else { "
+            "  $installed = $false; "
+            "  $message = 'OCR language pack is not available on this system.'; "
+            "} "
+            "$payload = @{ supported = $supported; installed = $installed; message = $message; capabilities = @($caps | ForEach-Object { @{ name = $_.Name; state = $_.State } }) }; "
+            f"$payload | ConvertTo-Json -Compress | Set-Content -LiteralPath '{escaped_result_path}';"
         )
 
         outer_args = [
@@ -126,7 +178,31 @@ class GuiController:
             check=False,
             creationflags=CREATE_NO_WINDOW,
         )
-        return {"launched": True, "requiresRefresh": True}
+        payload: dict[str, object] = {
+            "requested": normalized,
+            "supported": False,
+            "installed": False,
+            "message": f"{normalized} OCR pack is not available on this system.",
+            "capabilities": [],
+        }
+        try:
+            if result_path.exists():
+                payload.update(json.loads(result_path.read_text(encoding="utf-8")))
+        finally:
+            result_path.unlink(missing_ok=True)
+
+        after_languages = {normalize_ocr_language(code) for code in available_ocr_languages()}
+        payload["availableLanguages"] = sorted(after_languages)
+        payload["installed"] = normalized in after_languages
+        payload["changed"] = normalized not in before_languages and payload["installed"]
+        if payload["installed"]:
+            payload["message"] = "OCR language pack is installed."
+        elif payload.get("supported"):
+            payload["message"] = (
+                "Windows finished the install flow, but the OCR language still is not available. "
+                "Restart Windows or install the full language pack, or switch the source language."
+            )
+        return payload
 
     async def save_config_payload(self, payload: dict[str, object]) -> dict[str, object]:
         logger.info("Saving config")
@@ -142,7 +218,7 @@ class GuiController:
         await self._emit_overlay_event("style", {"style": overlay_style_payload(self.config)})
         return config_to_payload(self.config)
 
-    async def search(self, request: SearchRequest) -> list[dict[str, object]]:
+    async def search(self, request: SearchRequest) -> dict[str, object]:
         logger.info("Search: title=%r source=%s target=%s", request.title, request.source_language, request.target_language)
         async with self._lock:
             self._state.status = "searching"
@@ -165,7 +241,7 @@ class GuiController:
                 api_key=api_key,
                 enable_org_fallback=self.config.opensubtitles_enable_org_fallback,
             ) as client:
-                results = await client.search(
+                catalog = await client.search_catalog(
                     request.title,
                     languages=expand_search_languages(request.source_language, request.target_language),
                 )
@@ -173,32 +249,63 @@ class GuiController:
             await self._set_error(str(exc))
             raise
 
-        payload = [search_result_payload(result) for result in results]
+        payload = [search_result_payload(result) for result in catalog.results]
+        matches = [search_match_payload(match) for match in catalog.matches]
         async with self._lock:
             self._state.status = "idle"
             self._state.search_results = payload
+            self._state.search_matches = matches
+            self._state.selected_feature_id = matches[0]["id"] if matches else None
             self._state.selected_source_file_id = None
             self._state.selected_target_file_id = None
             self._state.prepared_session = None
             self._state.progress = AppProgress()
+            self._prepared_runtime = None
         await self._emit_app_state()
-        return payload
+        return {"results": payload, "matches": matches}
 
-    async def prepare_session(self, source_file_id: int, target_file_id: int | None = None) -> dict[str, object]:
-        logger.info("Prepare session: source_file_id=%s target_file_id=%s", source_file_id, target_file_id)
+    async def prepare_session(
+        self,
+        mode: str,
+        feature_id: int | None = None,
+        source_file_id: int | None = None,
+        target_file_id: int | None = None,
+    ) -> dict[str, object]:
+        logger.info(
+            "Prepare session: mode=%s feature_id=%s source_file_id=%s target_file_id=%s",
+            mode,
+            feature_id,
+            source_file_id,
+            target_file_id,
+        )
         if self._sync_task and not self._sync_task.done():
             await self._set_error("Stop the active session before preparing another one.")
             raise RuntimeError("A session is already running.")
+        if mode not in {"subtitle_pair", "ocr_fallback"}:
+            raise ValueError(f"Unsupported session mode: {mode}")
+        if mode == "ocr_fallback":
+            return await self._prepare_ocr_fallback_session(feature_id or self._state.selected_feature_id, target_file_id)
+        if source_file_id is None:
+            raise ValueError("Select a source subtitle before preparing a subtitle-pair session.")
+        return await self._prepare_subtitle_pair_session(feature_id, source_file_id, target_file_id)
 
+    async def _prepare_subtitle_pair_session(
+        self,
+        feature_id: int | None,
+        source_file_id: int,
+        target_file_id: int | None,
+    ) -> dict[str, object]:
         source_result = self._find_search_result(source_file_id)
         if source_result is None:
             raise ValueError("Selected source subtitle was not found in the current search results.")
         target_result = self._find_search_result(target_file_id) if target_file_id else None
         if target_file_id is not None and target_result is None:
             raise ValueError("Selected target subtitle was not found in the current search results.")
+        effective_feature_id = feature_id or self._feature_id_for_result(source_result)
 
         async with self._lock:
             self._state.status = "preparing"
+            self._state.selected_feature_id = effective_feature_id
             self._state.selected_source_file_id = source_file_id
             self._state.selected_target_file_id = target_file_id
             self._state.error_message = ""
@@ -259,6 +366,9 @@ class GuiController:
                 self._state.source_language,
                 str(source_result.get("language") or self._state.source_language),
             ),
+            session_mode="subtitle_pair",
+            target_match_mode="subtitle_file" if target_lines else "local_translation",
+            feature_id=effective_feature_id,
             source_file_id=source_file_id,
             source_file_name=str(source_result.get("fileName") or ""),
             source_path=str(source_path),
@@ -272,7 +382,12 @@ class GuiController:
         )
 
         async with self._lock:
-            self._prepared_pair = pair
+            self._prepared_runtime = PreparedRuntime(
+                session_mode="subtitle_pair",
+                pair=pair,
+                target_lines=target_lines,
+                feature_id=effective_feature_id,
+            )
             self._state.prepared_session = session
             self._state.status = "idle"
             self._state.progress = AppProgress(stage="ready", message="Session prepared.", current=1, total=1)
@@ -282,9 +397,90 @@ class GuiController:
         await self._emit_app_progress()
         return asdict(session)
 
+    async def _prepare_ocr_fallback_session(
+        self,
+        feature_id: int | None,
+        target_file_id: int | None,
+    ) -> dict[str, object]:
+        if feature_id is None:
+            raise ValueError("Select a matched title before preparing an OCR fallback session.")
+        feature = self._find_search_match(feature_id)
+        if feature is None:
+            raise ValueError("Selected title was not found in the current search matches.")
+
+        target_result = self._find_search_result(target_file_id) if target_file_id else None
+        if target_file_id is not None and target_result is None:
+            raise ValueError("Selected target subtitle was not found in the current search results.")
+        if target_result is not None and not self._result_matches_feature(target_result, feature_id):
+            raise ValueError("Selected target subtitle does not belong to the chosen title.")
+
+        async with self._lock:
+            self._state.status = "preparing"
+            self._state.selected_feature_id = feature_id
+            self._state.selected_source_file_id = None
+            self._state.selected_target_file_id = target_file_id
+            self._state.error_message = ""
+            self._state.warning_message = ""
+            self._state.progress = AppProgress(stage="prepare", message="Preparing OCR fallback session...", current=0, total=1)
+        await self._emit_app_state()
+        await self._emit_app_progress()
+
+        try:
+            warm_status = await asyncio.to_thread(make_foundry_ready, self.config)
+            if warm_status.phase != "ready":
+                raise TranslationError(warm_status.notes)
+
+            target_path: Path | None = None
+            target_lines = []
+            if target_result is not None:
+                async with OpenSubtitlesClient(api_key=self.config.opensubtitles_api_key) as client:
+                    target_path = await client.download(
+                        int(target_result["fileId"]),
+                        str(target_result.get("fileName") or f"{target_result['fileId']}.srt"),
+                    )
+                target_lines = load_subtitle_file(target_path)
+        except Exception as exc:
+            await self._set_error(str(exc))
+            raise
+
+        title = str(feature.get("displayLabel") or feature.get("title") or self._state.title)
+        session = PreparedSession(
+            session_id=uuid4().hex[:8],
+            title=title,
+            source_language=self._state.source_language,
+            target_language=self._state.target_language,
+            resolved_source_language=self._state.source_language,
+            source_language_mode="exact",
+            session_mode="ocr_fallback",
+            target_match_mode="target_subtitle_match" if target_lines else "direct_translation",
+            feature_id=feature_id,
+            target_file_id=int(target_result["fileId"]) if target_result is not None else None,
+            target_file_name=str(target_result.get("fileName") or "") if target_result is not None else None,
+            target_path=str(target_path) if target_path is not None else None,
+            target_line_count=len(target_lines),
+            used_translation=True,
+        )
+
+        async with self._lock:
+            self._prepared_runtime = PreparedRuntime(
+                session_mode="ocr_fallback",
+                pair=None,
+                target_lines=target_lines,
+                feature_id=feature_id,
+            )
+            self._state.prepared_session = session
+            self._state.status = "idle"
+            self._state.progress = AppProgress(stage="ready", message="OCR fallback session prepared.", current=1, total=1)
+            self._state.warning_message = (
+                "No source subtitle matched the requested language. The session will use OCR plus live AI translation."
+            )
+        await self._emit_app_state()
+        await self._emit_app_progress()
+        return asdict(session)
+
     async def start_session(self, session_id: str | None = None) -> dict[str, object]:
         logger.info("Start session: session_id=%s", session_id)
-        if self._prepared_pair is None or self._state.prepared_session is None:
+        if self._prepared_runtime is None or self._state.prepared_session is None:
             raise ValueError("Prepare a session before starting sync.")
         if session_id and session_id != self._state.prepared_session.session_id:
             raise ValueError("Prepared session does not match the requested session ID.")
@@ -298,11 +494,16 @@ class GuiController:
             self._state.status = "running"
             self._state.error_message = ""
             self._state.warning_message = resolution.warning_message
-            self._state.progress = AppProgress(stage="sync", message="Sync loop is running.", current=1, total=1)
+            message = (
+                "Sync loop is running."
+                if self._prepared_runtime.session_mode == "subtitle_pair"
+                else "OCR fallback loop is running."
+            )
+            self._state.progress = AppProgress(stage="sync", message=message, current=1, total=1)
         await self._emit_app_state()
         await self._emit_app_progress()
 
-        self._sync_task = asyncio.create_task(self._run_sync_loop(self._prepared_pair, self.config))
+        self._sync_task = asyncio.create_task(self._run_sync_loop(self._prepared_runtime, self.config))
         return {"status": self._state.status}
 
     async def stop_session(self) -> dict[str, object]:
@@ -358,9 +559,14 @@ class GuiController:
             except asyncio.CancelledError:
                 pass
 
-    async def _run_sync_loop(self, pair: SubtitlePair, config: AppConfig) -> None:
+    async def _run_sync_loop(self, runtime: PreparedRuntime, config: AppConfig) -> None:
         try:
-            await run_sync_loop(pair, config, self.broadcast_overlay_subtitle)
+            if runtime.session_mode == "subtitle_pair":
+                if runtime.pair is None:
+                    raise RuntimeError("Prepared subtitle-pair runtime is missing source data.")
+                await run_sync_loop(runtime.pair, config, self.broadcast_overlay_subtitle)
+            else:
+                await run_ocr_fallback_loop(runtime.target_lines, config, self.broadcast_overlay_subtitle)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # pragma: no cover - defensive safety
@@ -376,6 +582,32 @@ class GuiController:
             if int(item.get("fileId", -1)) == file_id:
                 return item
         return None
+
+    def _find_search_match(self, feature_id: int | None) -> dict[str, object] | None:
+        if feature_id is None:
+            return None
+        for item in self._state.search_matches:
+            if int(item.get("id", -1)) == feature_id:
+                return item
+        return None
+
+    def _feature_id_for_result(self, result: dict[str, object]) -> int | None:
+        for key in ("parentFeatureId", "featureId"):
+            value = result.get(key)
+            try:
+                if value not in {None, ""}:
+                    return int(value)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    def _result_matches_feature(self, result: dict[str, object], feature_id: int) -> bool:
+        return feature_id in {
+            value
+            for key in ("parentFeatureId", "featureId")
+            for value in [result.get(key)]
+            if isinstance(value, int)
+        }
 
     async def _set_progress(self, stage: str, message: str, current: int, total: int) -> None:
         async with self._lock:

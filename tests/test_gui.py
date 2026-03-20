@@ -18,6 +18,8 @@ def test_state_route_returns_snapshot(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert response.json()["status"] == "idle"
     assert response.json()["overlay_url"].endswith("/overlay")
+    assert response.json()["search_matches"] == []
+    assert response.json()["selected_feature_id"] is None
 
 
 def test_search_route_delegates_to_controller(tmp_path: Path, mocker) -> None:
@@ -25,7 +27,12 @@ def test_search_route_delegates_to_controller(tmp_path: Path, mocker) -> None:
     search = mocker.patch.object(
         server.controller,
         "search",
-        new=mocker.AsyncMock(return_value=[{"fileId": 42, "language": "en"}]),
+        new=mocker.AsyncMock(
+            return_value={
+                "results": [{"fileId": 42, "language": "en"}],
+                "matches": [{"id": 7, "title": "Inception"}],
+            }
+        ),
     )
     with TestClient(server.app) as client:
         response = client.post(
@@ -34,7 +41,10 @@ def test_search_route_delegates_to_controller(tmp_path: Path, mocker) -> None:
         )
 
     assert response.status_code == 200
-    assert response.json() == {"results": [{"fileId": 42, "language": "en"}]}
+    assert response.json() == {
+        "results": [{"fileId": 42, "language": "en"}],
+        "matches": [{"id": 7, "title": "Inception"}],
+    }
     request = search.await_args.args[0]
     assert request.title == "Inception"
     assert request.source_language == "en"
@@ -46,7 +56,7 @@ def test_prepare_start_and_stop_routes_delegate_to_controller(tmp_path: Path, mo
     prepare = mocker.patch.object(
         server.controller,
         "prepare_session",
-        new=mocker.AsyncMock(return_value={"session_id": "abc123"}),
+        new=mocker.AsyncMock(return_value={"session_id": "abc123", "session_mode": "subtitle_pair"}),
     )
     start = mocker.patch.object(
         server.controller,
@@ -60,17 +70,50 @@ def test_prepare_start_and_stop_routes_delegate_to_controller(tmp_path: Path, mo
     )
 
     with TestClient(server.app) as client:
-        prepare_response = client.post("/api/session/prepare", json={"sourceFileId": 1, "targetFileId": 2})
+        prepare_response = client.post(
+            "/api/session/prepare",
+            json={"mode": "subtitle_pair", "featureId": 99, "sourceFileId": 1, "targetFileId": 2},
+        )
         start_response = client.post("/api/session/start", json={"sessionId": "abc123"})
         stop_response = client.post("/api/session/stop")
 
     assert prepare_response.status_code == 200
     assert prepare_response.json()["session"]["session_id"] == "abc123"
+    assert prepare_response.json()["session"]["session_mode"] == "subtitle_pair"
     assert start_response.json()["status"] == "running"
     assert stop_response.json()["status"] == "idle"
-    prepare.assert_awaited_once_with(source_file_id=1, target_file_id=2)
+    prepare.assert_awaited_once_with(
+        mode="subtitle_pair",
+        feature_id=99,
+        source_file_id=1,
+        target_file_id=2,
+    )
     start.assert_awaited_once_with("abc123")
     stop.assert_awaited_once_with()
+
+
+def test_prepare_route_supports_ocr_fallback_mode(tmp_path: Path, mocker) -> None:
+    server = make_server(tmp_path / "config.toml")
+    prepare = mocker.patch.object(
+        server.controller,
+        "prepare_session",
+        new=mocker.AsyncMock(return_value={"session_id": "fallback01", "session_mode": "ocr_fallback"}),
+    )
+
+    with TestClient(server.app) as client:
+        response = client.post(
+            "/api/session/prepare",
+            json={"mode": "ocr_fallback", "featureId": 2239923, "targetFileId": 200},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["session"]["session_mode"] == "ocr_fallback"
+    prepare.assert_awaited_once_with(
+        mode="ocr_fallback",
+        feature_id=2239923,
+        source_file_id=None,
+        target_file_id=200,
+    )
 
 
 def test_start_route_returns_conflict_on_runtime_error(tmp_path: Path, mocker) -> None:
@@ -148,7 +191,7 @@ def test_prepare_route_returns_bad_gateway_on_translation_error(tmp_path: Path, 
         new=mocker.AsyncMock(side_effect=TranslationError("Foundry Local translation request failed")),
     )
     with TestClient(server.app) as client:
-        response = client.post("/api/session/prepare", json={"sourceFileId": 1})
+        response = client.post("/api/session/prepare", json={"mode": "subtitle_pair", "sourceFileId": 1})
 
     assert response.status_code == 502
     assert "Foundry Local" in response.json()["detail"]

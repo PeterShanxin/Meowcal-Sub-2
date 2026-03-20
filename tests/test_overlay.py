@@ -71,6 +71,9 @@ def test_dashboard_and_overlay_pages_served(tmp_path: Path) -> None:
     assert elements["source-language-input"]["aria-hidden"] == "true"
     assert elements["target-language-input"]["name"] == "targetLanguage"
     assert elements["target-language-input"]["aria-hidden"] == "true"
+    assert elements["title-match-strip"]["tag"] == "section"
+    assert elements["title-match-results"]["tag"] == "div"
+    assert elements["search-result-summary"]["tag"] == "p"
     assert "language-menu-portal" not in elements
     assert "language-menu-panel" not in elements
     assert "custom-select" not in dashboard.text
@@ -95,6 +98,9 @@ def test_dashboard_script_uses_blocking_bootstrap_without_custom_selects(tmp_pat
     assert "languageMenuDialog" not in script.text
     assert "wrapSelect(" not in script.text
     assert "custom-select" not in script.text
+    assert "title-match-results" in script.text
+    assert "ocr_fallback" in script.text
+    assert "search-result-summary" in script.text
 
 
 def test_dashboard_styles_use_inline_language_picker_layout(tmp_path: Path) -> None:
@@ -107,6 +113,10 @@ def test_dashboard_styles_use_inline_language_picker_layout(tmp_path: Path) -> N
     assert ".language-picker-options {" in styles.text
     assert ".language-picker-option" in styles.text
     assert ".language-field.is-open .language-trigger" in styles.text
+    assert "position: absolute;" in styles.text
+    assert ".progress-fill.is-indeterminate" in styles.text
+    assert ".title-match-strip" in styles.text
+    assert '.result-card[data-kind="ocr-fallback"]' in styles.text
     assert "clip-path: inset(50%)" in styles.text
     assert ".hero-shell {" in styles.text
     assert ".settings-drawer {" in styles.text

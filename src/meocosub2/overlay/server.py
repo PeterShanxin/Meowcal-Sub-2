@@ -30,7 +30,9 @@ class SearchBody(BaseModel):
 
 
 class PrepareSessionBody(BaseModel):
-    sourceFileId: int
+    mode: str
+    featureId: int | None = None
+    sourceFileId: int | None = None
     targetFileId: int | None = None
 
 
@@ -107,7 +109,7 @@ class OverlayServer:
         @self.app.post("/api/search")
         async def api_search(body: SearchBody) -> dict[str, object]:
             try:
-                results = await self.controller.search(
+                return await self.controller.search(
                     SearchRequest(
                         title=body.title,
                         source_language=body.sourceLanguage or self.config.source_language,
@@ -120,12 +122,13 @@ class OverlayServer:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             except OpenSubtitlesError as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
-            return {"results": results}
 
         @self.app.post("/api/session/prepare")
         async def api_prepare_session(body: PrepareSessionBody) -> dict[str, object]:
             try:
                 session = await self.controller.prepare_session(
+                    mode=body.mode,
+                    feature_id=body.featureId,
                     source_file_id=body.sourceFileId,
                     target_file_id=body.targetFileId,
                 )

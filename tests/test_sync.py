@@ -5,7 +5,7 @@ import pytest
 
 from meocosub2.config import AppConfig
 from meocosub2.models import SubtitleLine, SubtitlePair
-from meocosub2.sync import run_sync_loop
+from meocosub2.sync import run_ocr_fallback_loop, run_sync_loop
 
 
 def make_pair() -> SubtitlePair:
@@ -65,3 +65,44 @@ async def test_sync_loop_uses_default_region_and_sleeps_remaining_interval(mocke
         await run_sync_loop(pair, config, broadcast=AsyncMock())
     capture.assert_called_once_with((0, 800, 1920, 200))
     sleep.assert_awaited_once_with(1.0)
+
+
+@pytest.mark.asyncio
+async def test_ocr_fallback_loop_matches_target_subtitle_and_dedupes_repeated_frames(mocker) -> None:
+    config = AppConfig(capture_interval_ms=50)
+    target_lines = [SubtitleLine(index=0, start_ms=0, end_ms=3000, text="hello target")]
+    broadcasts: list[str] = []
+    sleep = mocker.patch("meocosub2.sync.asyncio.sleep", new=AsyncMock(side_effect=[None, asyncio.CancelledError()]))
+    fake_client = type("FakeClient", (), {"close": AsyncMock()})()
+    mocker.patch("meocosub2.sync.open_translation_client", new=AsyncMock(return_value=(fake_client, "model")))
+    mocker.patch("meocosub2.sync.capture_region", return_value=MagicMock())
+    mocker.patch("meocosub2.sync.ocr_image", new=AsyncMock(side_effect=["原文字幕", "原文字幕"]))
+    translate = mocker.patch("meocosub2.sync.translate_text", new=AsyncMock(return_value="hello target"))
+
+    async def record(text: str) -> None:
+        broadcasts.append(text)
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_ocr_fallback_loop(target_lines, config, broadcast=record)
+
+    assert broadcasts == ["hello target"]
+    translate.assert_awaited_once()
+    assert sleep.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_ocr_fallback_loop_falls_back_to_live_translation_when_no_target_match(mocker) -> None:
+    config = AppConfig(capture_interval_ms=50)
+    target_lines = [SubtitleLine(index=0, start_ms=0, end_ms=3000, text="subtitle text")]
+    fake_client = type("FakeClient", (), {"close": AsyncMock()})()
+    mocker.patch("meocosub2.sync.open_translation_client", new=AsyncMock(return_value=(fake_client, "model")))
+    mocker.patch("meocosub2.sync.capture_region", return_value=MagicMock())
+    mocker.patch("meocosub2.sync.ocr_image", new=AsyncMock(return_value="原文字幕"))
+    mocker.patch("meocosub2.sync.translate_text", new=AsyncMock(return_value="instant translation"))
+
+    async def stop_after_one(text: str) -> None:
+        assert text == "instant translation"
+        raise asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_ocr_fallback_loop(target_lines, config, broadcast=stop_after_one)

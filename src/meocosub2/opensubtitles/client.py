@@ -15,7 +15,7 @@ import httpx
 from rapidfuzz import fuzz
 
 from meocosub2.errors import OpenSubtitlesError
-from meocosub2.opensubtitles.types import FeatureCandidate, SearchResult
+from meocosub2.opensubtitles.types import FeatureCandidate, SearchCatalog, SearchResult
 
 BASE_URL = "https://api.opensubtitles.com/api/v1"
 MAX_RETRIES = 3
@@ -122,9 +122,17 @@ class OpenSubtitlesClient:
         languages: str,
         media_type: str | None = None,
     ) -> list[SearchResult]:
+        return (await self.search_catalog(query, languages, media_type=media_type)).results
+
+    async def search_catalog(
+        self,
+        query: str,
+        languages: str,
+        media_type: str | None = None,
+    ) -> SearchCatalog:
         intent = self._build_search_intent(query, media_type)
         normalized_languages = self._normalize_languages(languages)
-        results = await self._search_with_queries(intent, normalized_languages, list(intent.aliases))
+        results, matches = await self._search_with_queries(intent, normalized_languages, list(intent.aliases))
 
         if self.enable_org_fallback and not self._has_strong_results(results):
             org_aliases = await self._search_org_aliases(intent.query)
@@ -132,7 +140,7 @@ class OpenSubtitlesClient:
                 [alias for alias in org_aliases if alias.casefold() not in {item.casefold() for item in intent.aliases}]
             )
             for extra_query in extra_queries:
-                extra_results = await self._search_with_queries(
+                extra_results, extra_matches = await self._search_with_queries(
                     intent,
                     normalized_languages,
                     [extra_query],
@@ -151,14 +159,17 @@ class OpenSubtitlesClient:
                     )
                     result.match_score += alias_bonus
                 results = self._merge_results(results, extra_results)
+                matches = self._merge_features(matches, extra_matches)
 
         slash_variant = self._maybe_slash_variant(intent.query)
         if slash_variant and slash_variant.casefold() not in {alias.casefold() for alias in intent.aliases} and not results:
-            slash_results = await self._search_with_queries(intent, normalized_languages, [slash_variant])
+            slash_results, slash_matches = await self._search_with_queries(intent, normalized_languages, [slash_variant])
+            if slash_matches:
+                matches = self._merge_features(matches, slash_matches)
             if self._has_strong_title_results(intent, slash_results):
                 results = self._merge_results(results, slash_results)
 
-        return self._sort_results(results)
+        return SearchCatalog(results=self._sort_results(results), matches=self._sort_features(matches))
 
     async def get_download_link(self, file_id: int) -> tuple[str, int]:
         response = await self._request("POST", "/download", json={"file_id": file_id})
@@ -190,9 +201,12 @@ class OpenSubtitlesClient:
         languages: str,
         queries: list[str],
         feature_hint_alias: str | None = None,
-    ) -> list[SearchResult]:
+    ) -> tuple[list[SearchResult], list[FeatureCandidate]]:
         collected: dict[str, SearchResult] = {}
+        matched_features: dict[int, FeatureCandidate] = {}
         ranked_features = await self._collect_ranked_features(intent, queries, feature_hint_alias=feature_hint_alias)
+        for feature in ranked_features:
+            matched_features[feature.id] = feature
 
         for feature in ranked_features[:MAX_FEATURES_TO_RESOLVE]:
             feature_results = await self._fetch_feature_subtitles(feature, languages, intent)
@@ -208,7 +222,7 @@ class OpenSubtitlesClient:
                     result.match_score = max(result.match_score, self._score_search_result(intent, result) + query_bonus)
                     self._store_result(collected, result)
 
-        return list(collected.values())
+        return list(collected.values()), list(matched_features.values())
 
     async def _collect_ranked_features(
         self,
@@ -552,10 +566,25 @@ class OpenSubtitlesClient:
             self._store_result(merged, result)
         return list(merged.values())
 
+    def _merge_features(self, left: list[FeatureCandidate], right: list[FeatureCandidate]) -> list[FeatureCandidate]:
+        merged: dict[int, FeatureCandidate] = {}
+        for feature in [*left, *right]:
+            current = merged.get(feature.id)
+            if current is None or (feature.match_score, feature.subtitles_count) > (current.match_score, current.subtitles_count):
+                merged[feature.id] = feature
+        return list(merged.values())
+
     def _sort_results(self, results: list[SearchResult]) -> list[SearchResult]:
         return sorted(
             results,
             key=lambda result: (result.match_score, result.download_count, result.file_id),
+            reverse=True,
+        )[:MAX_SEARCH_RESULTS]
+
+    def _sort_features(self, matches: list[FeatureCandidate]) -> list[FeatureCandidate]:
+        return sorted(
+            matches,
+            key=lambda feature: (feature.match_score, feature.subtitles_count, feature.id),
             reverse=True,
         )[:MAX_SEARCH_RESULTS]
 

@@ -79,7 +79,7 @@
             </div>
           </div>
           <div class="hero-submit-row">
-            <button type="submit" class="action-button primary hero-submit">Find Subtitles</button>
+            <button id="search-submit-button" type="submit" class="action-button primary hero-submit">Find Subtitles</button>
             <p class="hero-note">If no target subtitle fits, you can prepare the session with local translation later.</p>
           </div>
         </form>
@@ -119,6 +119,16 @@
             </div>
             <p class="panel-summary">Pick a source subtitle first. Then choose a target subtitle or use local translation.</p>
           </div>
+
+          <section id="title-match-strip" class="title-match-strip">
+            <div class="column-header">
+              <h3>Matched Titles</h3>
+              <span id="title-match-count" class="muted-count">0 titles</span>
+            </div>
+            <div id="title-match-results" class="title-match-results empty-state">Search to load matched shows and movies.</div>
+          </section>
+
+          <p id="search-result-summary" class="search-result-summary">Pick a matched title first, then choose subtitles or OCR fallback.</p>
 
           <div class="selection-grid">
             <section class="result-column">

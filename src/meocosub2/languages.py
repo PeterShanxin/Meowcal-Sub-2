@@ -28,6 +28,9 @@ OCR_OPTIONS = (
     LanguageOption("zh-TW", "Chinese (Traditional)"),
     LanguageOption("ja-JP", "Japanese"),
     LanguageOption("ko-KR", "Korean"),
+    LanguageOption("es-ES", "Spanish"),
+    LanguageOption("fr-FR", "French"),
+    LanguageOption("de-DE", "German"),
 )
 
 _LANGUAGE_LABELS = {option.code: option.label for option in SOURCE_TARGET_OPTIONS}
