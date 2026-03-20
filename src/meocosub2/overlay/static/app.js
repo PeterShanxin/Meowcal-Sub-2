@@ -375,10 +375,16 @@ function syncCustomLanguageInput(selectEl, customInput) {
 function populateLanguageSelect(selectEl, customInput, options, currentValue) {
   const normalized = normalizeLanguageCode(currentValue);
   const known = options.some((option) => option.code === normalized);
-  selectEl.innerHTML = options
-    .map((option) => `<option value="${option.code}">${option.label}</option>`)
-    .join("");
-  selectEl.insertAdjacentHTML("beforeend", `<option value="${CUSTOM_LANGUAGE}">Custom…</option>`);
+  const optionNodes = options.map((option) => {
+    const optionEl = document.createElement("option");
+    optionEl.value = option.code;
+    optionEl.textContent = option.label;
+    return optionEl;
+  });
+  const customOption = document.createElement("option");
+  customOption.value = CUSTOM_LANGUAGE;
+  customOption.textContent = "Custom…";
+  selectEl.replaceChildren(...optionNodes, customOption);
   if (known) {
     selectEl.value = normalized;
     customInput.value = "";
