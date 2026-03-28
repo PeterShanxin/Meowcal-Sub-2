@@ -1620,10 +1620,6 @@ dom.searchForm.addEventListener("submit", async (event) => {
   }
 });
 
-dom.resultsPrepareButton?.addEventListener("click", () => {
-  dom.prepareButton.click();
-});
-
 dom.prepareButton.addEventListener("click", async () => {
   if (!state.bootstrap.ready) {
     return;
