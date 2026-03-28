@@ -522,6 +522,18 @@ function currentSourceSelectionMode(snapshot, sourceResults, featureId) {
   return "subtitle";
 }
 
+function effectiveSourceResultId(snapshot, sourceResults, featureId, sourceSelectionMode = null) {
+  const explicitSelection = selectedSourceResultId(snapshot);
+  if (explicitSelection) {
+    return explicitSelection;
+  }
+  const mode = sourceSelectionMode || currentSourceSelectionMode(snapshot, sourceResults, featureId);
+  if (mode === "ocr_fallback") {
+    return null;
+  }
+  return sourceResults.length ? resultSelectionId(sourceResults[0]) : null;
+}
+
 function syncCustomLanguageInput(selectEl, customInput) {
   customInput.classList.toggle("hidden", selectEl.value !== CUSTOM_LANGUAGE);
 }
@@ -1342,9 +1354,9 @@ function render() {
   );
   const progress = snapshot.progress || {};
   const progressRatio = progress.total ? Math.min(progress.current / progress.total, 1) : 0;
-  const selectedSource = selectedSourceResultId(snapshot);
-  const selectedTarget = selectedTargetResultId(snapshot);
   const sourceSelectionMode = currentSourceSelectionMode(snapshot, sourceResults, selectedFeatureId);
+  const selectedSource = effectiveSourceResultId(snapshot, sourceResults, selectedFeatureId, sourceSelectionMode);
+  const selectedTarget = selectedTargetResultId(snapshot);
   const fallbackSelected = sourceSelectionMode === "ocr_fallback" && !selectedSource;
   const progressIndeterminate = snapshot.status === "searching" || (progress.total === 0 && !!progress.message);
   const canPrepare = Boolean(selectedFeatureId) && (Boolean(selectedSource) || fallbackSelected);
@@ -1634,8 +1646,8 @@ dom.prepareButton.addEventListener("click", async () => {
     }
     return isChineseFamily(sourceLanguage) && isChineseFamily(result.language);
   });
-  const sourceFileId = selectedSourceResultId(state.snapshot);
   const sourceSelectionMode = currentSourceSelectionMode(state.snapshot, sourceResults, featureId);
+  const sourceFileId = effectiveSourceResultId(state.snapshot, sourceResults, featureId, sourceSelectionMode);
   const mode = sourceFileId ? "subtitle_pair" : sourceSelectionMode === "ocr_fallback" ? "ocr_fallback" : "";
   if (!featureId) {
     setSaveState("Select a matched title first", "error");

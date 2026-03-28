@@ -131,6 +131,7 @@ def test_dashboard_script_uses_blocking_bootstrap_without_custom_selects(tmp_pat
     assert 'document.querySelectorAll("[data-view-target]")' in script.text
     assert 'TAURI.core.invoke("toggle_main_window_maximize")' in script.text
     assert "state.ui.manualView" in script.text
+    assert "effectiveSourceResultId" in script.text
     assert "subtitleSources" in script.text
     assert "sourceResultId" in script.text
     assert "matchId" in script.text
