@@ -1,8 +1,16 @@
-[opensubtitles]
+[subtitle_sources.opensubtitles]
+enabled = true
 api_key = "YOUR_API_KEY_HERE"
 username = ""
 password = ""
 enable_org_fallback = false
+
+[subtitle_sources.subdl]
+enabled = true
+
+[subtitle_sources.assrt]
+enabled = false
+token = ""
 
 [languages]
 source = "en"

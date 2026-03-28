@@ -10,59 +10,64 @@ import subprocess
 import tempfile
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
-from meocosub2.config import AppConfig, config_to_payload, overlay_style_payload, save_config
 from meocosub2.capture import available_ocr_languages, resolve_ocr_language
-from meocosub2.errors import TranslationError
+from meocosub2.config import AppConfig, config_to_payload, overlay_style_payload, save_config
+from meocosub2.errors import SubtitleSourceError, TranslationError
 from meocosub2.foundry import foundry_status, make_foundry_ready
-from meocosub2.languages import expand_search_languages, language_label, normalize_ocr_language, source_language_mode
+from meocosub2.languages import language_label, normalize_ocr_language, source_language_mode
 from meocosub2.models import AppProgress, AppStateSnapshot, PreparedRuntime, PreparedSession, SearchRequest
-from meocosub2.opensubtitles.client import OpenSubtitlesClient
+from meocosub2.subtitle_sources import AggregatedSearchCatalog, AggregatedSubtitleResult, AggregatedTitleMatch, SubtitleSearchAggregator
 from meocosub2.subtitles import align_subtitles, assign_target_translations, load_subtitle_file
 from meocosub2.sync import run_ocr_fallback_loop, run_sync_loop
 from meocosub2.translator import translate_lines
 
 
-def search_result_payload(result: Any) -> dict[str, object]:
+def search_result_payload(result: AggregatedSubtitleResult) -> dict[str, object]:
     return {
-        "id": result.id,
+        "id": result.result_id,
+        "resultId": result.result_id,
+        "matchId": result.match_id,
+        "provider": result.provider,
+        "providerLabel": result.provider_label,
         "title": result.title,
         "year": result.year,
         "imdbId": result.imdb_id,
         "mediaType": result.media_type,
         "season": result.season,
         "episode": result.episode,
-        "parentTitle": getattr(result, "parent_title", None),
-        "parentFeatureId": getattr(result, "parent_feature_id", None),
-        "featureId": getattr(result, "feature_id", None),
+        "parentTitle": result.parent_title,
         "language": result.language,
         "downloadCount": result.download_count,
-        "fileId": result.file_id,
         "fileName": result.file_name,
-        "matchScore": getattr(result, "match_score", 0.0),
+        "matchScore": result.match_score,
+        "providerRank": result.provider_rank,
         "displayLabel": result.display_label(),
         "languageLabel": language_label(result.language),
     }
 
 
-def search_match_payload(match: Any) -> dict[str, object]:
+def search_match_payload(match: AggregatedTitleMatch) -> dict[str, object]:
     return {
         "id": match.id,
+        "matchId": match.id,
         "title": match.title,
         "year": match.year,
         "imdbId": match.imdb_id,
-        "tmdbId": getattr(match, "tmdb_id", None),
+        "tmdbId": match.tmdb_id,
         "mediaType": match.media_type,
         "season": match.season,
         "episode": match.episode,
-        "parentTitle": getattr(match, "parent_title", None),
-        "subtitlesCount": getattr(match, "subtitles_count", 0),
-        "matchScore": getattr(match, "match_score", 0.0),
+        "parentTitle": match.parent_title,
+        "subtitlesCount": match.subtitles_count,
+        "matchScore": match.match_score,
+        "providerCount": match.provider_count,
+        "providers": list(match.providers),
+        "providerLabels": list(match.provider_labels),
         "displayLabel": match.display_label(),
     }
 
@@ -95,6 +100,8 @@ class GuiController:
         self._sync_task: asyncio.Task[None] | None = None
         self._prepared_runtime: PreparedRuntime | None = None
         self._runtime_port = config.overlay_port
+        self._aggregator = SubtitleSearchAggregator(config)
+        self._search_catalog: AggregatedSearchCatalog | None = None
         self._state = AppStateSnapshot(
             source_language=config.source_language,
             target_language=config.target_language,
@@ -211,6 +218,8 @@ class GuiController:
         new_config = config_from_payload(payload, fallback=self.config)
         save_config(new_config, self._config_path)
         self.config = new_config
+        self._aggregator = SubtitleSearchAggregator(new_config)
+        self._search_catalog = None
         self._state.source_language = new_config.source_language
         self._state.target_language = new_config.target_language
         await self._emit_app_state()
@@ -227,24 +236,13 @@ class GuiController:
             self._state.target_language = request.target_language
             self._state.error_message = ""
             self._state.warning_message = ""
-            self._state.progress = AppProgress(stage="search", message="Searching OpenSubtitles...")
+            self._state.progress = AppProgress(stage="search", message="Searching subtitle sources...")
         await self._emit_app_state()
         await self._emit_app_progress()
 
-        api_key = self.config.opensubtitles_api_key
-        if not api_key:
-            await self._set_error("OpenSubtitles API key is not configured.")
-            raise ValueError("OpenSubtitles API key is not configured.")
-
+        languages = _expand_search_languages(request.source_language, request.target_language)
         try:
-            async with OpenSubtitlesClient(
-                api_key=api_key,
-                enable_org_fallback=self.config.opensubtitles_enable_org_fallback,
-            ) as client:
-                catalog = await client.search_catalog(
-                    request.title,
-                    languages=expand_search_languages(request.source_language, request.target_language),
-                )
+            catalog = await self._aggregator.search_catalog(request.title, languages)
         except Exception as exc:
             await self._set_error(str(exc))
             raise
@@ -252,6 +250,7 @@ class GuiController:
         payload = [search_result_payload(result) for result in catalog.results]
         matches = [search_match_payload(match) for match in catalog.matches]
         async with self._lock:
+            self._search_catalog = catalog
             self._state.status = "idle"
             self._state.search_results = payload
             self._state.search_matches = matches
@@ -260,16 +259,17 @@ class GuiController:
             self._state.selected_target_file_id = None
             self._state.prepared_session = None
             self._state.progress = AppProgress()
+            self._state.warning_message = "; ".join(catalog.warnings[:3]) if catalog.warnings else ""
             self._prepared_runtime = None
         await self._emit_app_state()
-        return {"results": payload, "matches": matches}
+        return {"results": payload, "matches": matches, "warnings": catalog.warnings}
 
     async def prepare_session(
         self,
         mode: str,
-        feature_id: int | None = None,
-        source_file_id: int | None = None,
-        target_file_id: int | None = None,
+        feature_id: str | None = None,
+        source_file_id: str | None = None,
+        target_file_id: str | None = None,
     ) -> dict[str, object]:
         logger.info(
             "Prepare session: mode=%s feature_id=%s source_file_id=%s target_file_id=%s",
@@ -291,9 +291,9 @@ class GuiController:
 
     async def _prepare_subtitle_pair_session(
         self,
-        feature_id: int | None,
-        source_file_id: int,
-        target_file_id: int | None,
+        feature_id: str | None,
+        source_file_id: str,
+        target_file_id: str | None,
     ) -> dict[str, object]:
         source_result = self._find_search_result(source_file_id)
         if source_result is None:
@@ -314,20 +314,18 @@ class GuiController:
         await self._emit_app_state()
         await self._emit_app_progress()
 
+        source_entry = self._catalog_result(source_file_id)
+        if source_entry is None:
+            raise ValueError("Selected source subtitle could not be resolved.")
+        target_entry = self._catalog_result(target_file_id) if target_file_id else None
+
         try:
-            async with OpenSubtitlesClient(api_key=self.config.opensubtitles_api_key) as client:
-                source_path = await client.download(
-                    source_file_id,
-                    str(source_result.get("fileName") or f"{source_file_id}.srt"),
-                )
-                await self._set_progress("download", "Downloaded source subtitles.", 1, 2)
-                target_path: Path | None = None
-                if target_result is not None:
-                    target_path = await client.download(
-                        int(target_result["fileId"]),
-                        str(target_result.get("fileName") or f"{target_result['fileId']}.srt"),
-                    )
-                await self._set_progress("download", "Downloaded subtitle files.", 2, 2)
+            source_path = await self._aggregator.download(source_entry)
+            await self._set_progress("download", "Downloaded source subtitles.", 1, 2)
+            target_path: Path | None = None
+            if target_entry is not None:
+                target_path = await self._aggregator.download(target_entry)
+            await self._set_progress("download", "Downloaded subtitle files.", 2, 2)
 
             source_lines = load_subtitle_file(source_path)
             target_lines = load_subtitle_file(target_path) if target_path else []
@@ -344,12 +342,7 @@ class GuiController:
                 await translate_lines(
                     source_lines,
                     self.config,
-                    progress_callback=lambda done, total: self._set_progress(
-                        "translation",
-                        "Translating subtitles...",
-                        done,
-                        total,
-                    ),
+                    progress_callback=lambda done, total: self._set_progress("translation", "Translating subtitles...", done, total),
                 )
         except Exception as exc:
             await self._set_error(str(exc))
@@ -371,10 +364,12 @@ class GuiController:
             feature_id=effective_feature_id,
             source_file_id=source_file_id,
             source_file_name=str(source_result.get("fileName") or ""),
+            source_provider=str(source_result.get("providerLabel") or source_result.get("provider") or ""),
             source_path=str(source_path),
             source_line_count=len(source_lines),
-            target_file_id=int(target_result["fileId"]) if target_result is not None else None,
+            target_file_id=str(target_result.get("resultId") or target_file_id) if target_result is not None else None,
             target_file_name=str(target_result.get("fileName") or "") if target_result is not None else None,
+            target_provider=str(target_result.get("providerLabel") or target_result.get("provider") or "") if target_result is not None else None,
             target_path=str(target_path) if target_path is not None else None,
             target_line_count=len(target_lines),
             translated_line_count=sum(1 for line in source_lines if line.translated),
@@ -399,8 +394,8 @@ class GuiController:
 
     async def _prepare_ocr_fallback_session(
         self,
-        feature_id: int | None,
-        target_file_id: int | None,
+        feature_id: str | None,
+        target_file_id: str | None,
     ) -> dict[str, object]:
         if feature_id is None:
             raise ValueError("Select a matched title before preparing an OCR fallback session.")
@@ -432,12 +427,9 @@ class GuiController:
 
             target_path: Path | None = None
             target_lines = []
-            if target_result is not None:
-                async with OpenSubtitlesClient(api_key=self.config.opensubtitles_api_key) as client:
-                    target_path = await client.download(
-                        int(target_result["fileId"]),
-                        str(target_result.get("fileName") or f"{target_result['fileId']}.srt"),
-                    )
+            target_entry = self._catalog_result(target_file_id) if target_file_id else None
+            if target_entry is not None:
+                target_path = await self._aggregator.download(target_entry)
                 target_lines = load_subtitle_file(target_path)
         except Exception as exc:
             await self._set_error(str(exc))
@@ -454,8 +446,9 @@ class GuiController:
             session_mode="ocr_fallback",
             target_match_mode="target_subtitle_match" if target_lines else "direct_translation",
             feature_id=feature_id,
-            target_file_id=int(target_result["fileId"]) if target_result is not None else None,
+            target_file_id=str(target_result.get("resultId") or target_file_id) if target_result is not None else None,
             target_file_name=str(target_result.get("fileName") or "") if target_result is not None else None,
+            target_provider=str(target_result.get("providerLabel") or target_result.get("provider") or "") if target_result is not None else None,
             target_path=str(target_path) if target_path is not None else None,
             target_line_count=len(target_lines),
             used_translation=True,
@@ -575,39 +568,31 @@ class GuiController:
             if self._sync_task is asyncio.current_task():
                 self._sync_task = None
 
-    def _find_search_result(self, file_id: int | None) -> dict[str, object] | None:
+    def _catalog_result(self, result_id: str | None) -> AggregatedSubtitleResult | None:
+        return self._search_catalog.find_result(result_id) if self._search_catalog else None
+
+    def _find_search_result(self, file_id: str | None) -> dict[str, object] | None:
         if file_id is None:
             return None
         for item in self._state.search_results:
-            if int(item.get("fileId", -1)) == file_id:
+            if str(item.get("resultId") or item.get("id") or "") == str(file_id):
                 return item
         return None
 
-    def _find_search_match(self, feature_id: int | None) -> dict[str, object] | None:
+    def _find_search_match(self, feature_id: str | None) -> dict[str, object] | None:
         if feature_id is None:
             return None
         for item in self._state.search_matches:
-            if int(item.get("id", -1)) == feature_id:
+            if str(item.get("matchId") or item.get("id") or "") == str(feature_id):
                 return item
         return None
 
-    def _feature_id_for_result(self, result: dict[str, object]) -> int | None:
-        for key in ("parentFeatureId", "featureId"):
-            value = result.get(key)
-            try:
-                if value not in {None, ""}:
-                    return int(value)
-            except (TypeError, ValueError):
-                continue
-        return None
+    def _feature_id_for_result(self, result: dict[str, object]) -> str | None:
+        value = result.get("matchId") or result.get("id")
+        return str(value) if value not in {None, ""} else None
 
-    def _result_matches_feature(self, result: dict[str, object], feature_id: int) -> bool:
-        return feature_id in {
-            value
-            for key in ("parentFeatureId", "featureId")
-            for value in [result.get(key)]
-            if isinstance(value, int)
-        }
+    def _result_matches_feature(self, result: dict[str, object], feature_id: str) -> bool:
+        return str(result.get("matchId") or "") == str(feature_id)
 
     async def _set_progress(self, stage: str, message: str, current: int, total: int) -> None:
         async with self._lock:
@@ -628,3 +613,11 @@ class GuiController:
 
     async def _emit_app_progress(self) -> None:
         await self._emit_app_event("progress", {"progress": asdict(self._state.progress)})
+
+
+def _expand_search_languages(source_language: str, target_language: str) -> str:
+    requested = {source_language, target_language}
+    normalized = {code.strip().lower() for code in requested if code}
+    if "zh" in normalized or "zht" in normalized or any(code.startswith("zh") for code in normalized):
+        normalized.update({"zh", "zht"})
+    return ",".join(sorted(normalized))

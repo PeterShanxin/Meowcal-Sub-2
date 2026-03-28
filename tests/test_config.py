@@ -55,7 +55,8 @@ def test_load_invalid_toml_returns_defaults(tmp_path: Path) -> None:
 
 def test_config_example_contains_all_sections() -> None:
     payload = tomllib.loads(Path("config.example.toml").read_text(encoding="utf-8"))
-    assert set(payload) == {"opensubtitles", "languages", "capture", "matching", "translation", "overlay"}
+    assert set(payload) == {"subtitle_sources", "languages", "capture", "matching", "translation", "overlay"}
+    assert set(payload["subtitle_sources"]) == {"opensubtitles", "subdl", "assrt"}
 
 
 def test_config_to_payload_uses_nested_camel_case_sections() -> None:
@@ -64,10 +65,14 @@ def test_config_to_payload_uses_nested_camel_case_sections() -> None:
             overlay_radius_px=36,
             capture_region=[1, 2, 3, 4],
             opensubtitles_enable_org_fallback=True,
+            assrt_enabled=True,
+            assrt_token="token",
         )
     )
     assert payload["capture"]["region"] == [1, 2, 3, 4]
     assert payload["capture"]["ocrLanguage"] == "en-US"
+    assert payload["subtitleSources"]["opensubtitles"]["enableOrgFallback"] is True
+    assert payload["subtitleSources"]["assrt"]["token"] == "token"
     assert payload["opensubtitles"]["enableOrgFallback"] is True
     assert payload["overlay"]["radiusPx"] == 36
     assert payload["overlay"]["theme"] == "glass-cinematic"
@@ -75,12 +80,19 @@ def test_config_to_payload_uses_nested_camel_case_sections() -> None:
 
 def test_config_from_payload_merges_with_fallback() -> None:
     payload = {
-        "opensubtitles": {"enableOrgFallback": "true"},
+        "subtitleSources": {
+            "opensubtitles": {"enableOrgFallback": "true"},
+            "subdl": {"enabled": False},
+            "assrt": {"enabled": True, "token": "abc"},
+        },
         "languages": {"source": "it"},
         "overlay": {"fontSize": 40, "maxWidthVw": 72},
     }
     loaded = config_from_payload(payload, fallback=AppConfig(target_language="fr", overlay_blur_px=12))
     assert loaded.opensubtitles_enable_org_fallback is True
+    assert loaded.subdl_enabled is False
+    assert loaded.assrt_enabled is True
+    assert loaded.assrt_token == "abc"
     assert loaded.source_language == "it"
     assert loaded.target_language == "fr"
     assert loaded.overlay_font_size == 40
@@ -91,3 +103,24 @@ def test_config_from_payload_merges_with_fallback() -> None:
 def test_config_ocr_language_follows_source_language() -> None:
     loaded = config_from_payload({"languages": {"source": "zht"}}, fallback=AppConfig())
     assert loaded.ocr_language == "zh-TW"
+
+
+def test_load_config_preserves_legacy_opensubtitles_section(tmp_path: Path) -> None:
+    config_file = tmp_path / "legacy.toml"
+    config_file.write_text(
+        """
+[opensubtitles]
+enabled = true
+api_key = "legacy-key"
+enable_org_fallback = true
+
+[languages]
+source = "en"
+target = "zht"
+""".strip(),
+        encoding="utf-8",
+    )
+    loaded = load_config(config_file)
+    assert loaded.opensubtitles_enabled is True
+    assert loaded.opensubtitles_api_key == "legacy-key"
+    assert loaded.opensubtitles_enable_org_fallback is True

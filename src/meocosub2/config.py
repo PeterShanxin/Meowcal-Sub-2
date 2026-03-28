@@ -15,10 +15,14 @@ from meocosub2.languages import derive_ocr_language, normalize_source_language, 
 
 @dataclass
 class AppConfig:
+    opensubtitles_enabled: bool = True
     opensubtitles_api_key: str = ""
     opensubtitles_username: str = ""
     opensubtitles_password: str = ""
     opensubtitles_enable_org_fallback: bool = False
+    subdl_enabled: bool = True
+    assrt_enabled: bool = False
+    assrt_token: str = ""
     source_language: str = "en"
     target_language: str = "zh"
     capture_region: list[int] = field(default_factory=list)
@@ -61,15 +65,42 @@ def load_config(path: Path | None = None) -> AppConfig:
     except tomllib.TOMLDecodeError:
         return AppConfig()
 
+    subtitle_sources = data.get("subtitle_sources", {})
+    if not isinstance(subtitle_sources, dict):
+        subtitle_sources = {}
+
+    opensubtitles = subtitle_sources.get("opensubtitles", {})
+    legacy_opensubtitles = data.get("opensubtitles", {})
+    subdl = subtitle_sources.get("subdl", {})
+    assrt = subtitle_sources.get("assrt", {})
+    if not isinstance(opensubtitles, dict):
+        opensubtitles = {}
+    if not isinstance(legacy_opensubtitles, dict):
+        legacy_opensubtitles = {}
+    if not isinstance(subdl, dict):
+        subdl = {}
+    if not isinstance(assrt, dict):
+        assrt = {}
+
     source_language = normalize_source_language(data.get("languages", {}).get("source", "en"))
     target_language = normalize_target_language(data.get("languages", {}).get("target", "zh"))
     ocr_language = str(data.get("capture", {}).get("ocr_language", "")) or derive_ocr_language(source_language)
 
     return AppConfig(
-        opensubtitles_api_key=data.get("opensubtitles", {}).get("api_key", ""),
-        opensubtitles_username=data.get("opensubtitles", {}).get("username", ""),
-        opensubtitles_password=data.get("opensubtitles", {}).get("password", ""),
-        opensubtitles_enable_org_fallback=bool(data.get("opensubtitles", {}).get("enable_org_fallback", False)),
+        opensubtitles_enabled=_coerce_bool(
+            opensubtitles.get("enabled", legacy_opensubtitles.get("enabled", True)),
+            True,
+        ),
+        opensubtitles_api_key=str(opensubtitles.get("api_key", legacy_opensubtitles.get("api_key", ""))),
+        opensubtitles_username=str(opensubtitles.get("username", legacy_opensubtitles.get("username", ""))),
+        opensubtitles_password=str(opensubtitles.get("password", legacy_opensubtitles.get("password", ""))),
+        opensubtitles_enable_org_fallback=_coerce_bool(
+            opensubtitles.get("enable_org_fallback", legacy_opensubtitles.get("enable_org_fallback", False)),
+            False,
+        ),
+        subdl_enabled=_coerce_bool(subdl.get("enabled", True), True),
+        assrt_enabled=_coerce_bool(assrt.get("enabled", False), False),
+        assrt_token=str(assrt.get("token", "")),
         source_language=source_language,
         target_language=target_language,
         capture_region=data.get("capture", {}).get("region", []),
@@ -102,7 +133,25 @@ def save_config(config: AppConfig, path: Path | None = None) -> None:
     config_path = path or default_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
+        "subtitle_sources": {
+            "opensubtitles": {
+                "enabled": config.opensubtitles_enabled,
+                "api_key": config.opensubtitles_api_key,
+                "username": config.opensubtitles_username,
+                "password": config.opensubtitles_password,
+                "enable_org_fallback": config.opensubtitles_enable_org_fallback,
+            },
+            "subdl": {
+                "enabled": config.subdl_enabled,
+            },
+            "assrt": {
+                "enabled": config.assrt_enabled,
+                "token": config.assrt_token,
+            },
+        },
+        # Keep the legacy mirror for one release to preserve older tooling.
         "opensubtitles": {
+            "enabled": config.opensubtitles_enabled,
             "api_key": config.opensubtitles_api_key,
             "username": config.opensubtitles_username,
             "password": config.opensubtitles_password,
@@ -168,7 +217,24 @@ def overlay_style_payload(config: AppConfig) -> dict[str, object]:
 
 def config_to_payload(config: AppConfig) -> dict[str, object]:
     return {
+        "subtitleSources": {
+            "opensubtitles": {
+                "enabled": config.opensubtitles_enabled,
+                "apiKey": config.opensubtitles_api_key,
+                "username": config.opensubtitles_username,
+                "password": config.opensubtitles_password,
+                "enableOrgFallback": config.opensubtitles_enable_org_fallback,
+            },
+            "subdl": {
+                "enabled": config.subdl_enabled,
+            },
+            "assrt": {
+                "enabled": config.assrt_enabled,
+                "token": config.assrt_token,
+            },
+        },
         "opensubtitles": {
+            "enabled": config.opensubtitles_enabled,
             "apiKey": config.opensubtitles_api_key,
             "username": config.opensubtitles_username,
             "password": config.opensubtitles_password,
@@ -242,15 +308,18 @@ def _coerce_bool(value: Any, fallback: bool) -> bool:
 
 def config_from_payload(payload: dict[str, object], fallback: AppConfig | None = None) -> AppConfig:
     base = fallback or AppConfig()
-    opensubtitles = payload.get("opensubtitles", {})
+    subtitle_sources = payload.get("subtitleSources", {})
+    opensubtitles_legacy = payload.get("opensubtitles", {})
     languages = payload.get("languages", {})
     capture = payload.get("capture", {})
     matching = payload.get("matching", {})
     translation = payload.get("translation", {})
     overlay = payload.get("overlay", {})
 
-    if not isinstance(opensubtitles, dict):
-        opensubtitles = {}
+    if not isinstance(subtitle_sources, dict):
+        subtitle_sources = {}
+    if not isinstance(opensubtitles_legacy, dict):
+        opensubtitles_legacy = {}
     if not isinstance(languages, dict):
         languages = {}
     if not isinstance(capture, dict):
@@ -262,14 +331,31 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
     if not isinstance(overlay, dict):
         overlay = {}
 
+    opensubtitles = subtitle_sources.get("opensubtitles", {})
+    subdl = subtitle_sources.get("subdl", {})
+    assrt = subtitle_sources.get("assrt", {})
+    if not isinstance(opensubtitles, dict):
+        opensubtitles = {}
+    if not isinstance(subdl, dict):
+        subdl = {}
+    if not isinstance(assrt, dict):
+        assrt = {}
+
     return AppConfig(
-        opensubtitles_api_key=str(opensubtitles.get("apiKey", base.opensubtitles_api_key)),
-        opensubtitles_username=str(opensubtitles.get("username", base.opensubtitles_username)),
-        opensubtitles_password=str(opensubtitles.get("password", base.opensubtitles_password)),
+        opensubtitles_enabled=_coerce_bool(
+            opensubtitles.get("enabled", opensubtitles_legacy.get("enabled", base.opensubtitles_enabled)),
+            base.opensubtitles_enabled,
+        ),
+        opensubtitles_api_key=str(opensubtitles.get("apiKey", opensubtitles_legacy.get("apiKey", base.opensubtitles_api_key))),
+        opensubtitles_username=str(opensubtitles.get("username", opensubtitles_legacy.get("username", base.opensubtitles_username))),
+        opensubtitles_password=str(opensubtitles.get("password", opensubtitles_legacy.get("password", base.opensubtitles_password))),
         opensubtitles_enable_org_fallback=_coerce_bool(
-            opensubtitles.get("enableOrgFallback", base.opensubtitles_enable_org_fallback),
+            opensubtitles.get("enableOrgFallback", opensubtitles_legacy.get("enableOrgFallback", base.opensubtitles_enable_org_fallback)),
             base.opensubtitles_enable_org_fallback,
         ),
+        subdl_enabled=_coerce_bool(subdl.get("enabled", base.subdl_enabled), base.subdl_enabled),
+        assrt_enabled=_coerce_bool(assrt.get("enabled", base.assrt_enabled), base.assrt_enabled),
+        assrt_token=str(assrt.get("token", base.assrt_token)),
         source_language=normalize_source_language(str(languages.get("source", base.source_language))),
         target_language=normalize_target_language(str(languages.get("target", base.target_language))),
         capture_region=_coerce_int_list(capture.get("region", base.capture_region), base.capture_region),
@@ -300,8 +386,5 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
             base.overlay_shadow_strength,
         ),
         overlay_offset_pct=_coerce_int(overlay.get("offsetPct", base.overlay_offset_pct), base.overlay_offset_pct),
-        overlay_animation_ms=_coerce_int(
-            overlay.get("animationMs", base.overlay_animation_ms),
-            base.overlay_animation_ms,
-        ),
+        overlay_animation_ms=_coerce_int(overlay.get("animationMs", base.overlay_animation_ms), base.overlay_animation_ms),
     )

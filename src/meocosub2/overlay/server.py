@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from meocosub2.config import AppConfig, overlay_style_payload
 from meocosub2.capture import available_ocr_languages
-from meocosub2.errors import OpenSubtitlesError, TranslationError
+from meocosub2.errors import SubtitleSourceError, TranslationError
 from meocosub2.languages import languages_payload
 from meocosub2.models import SearchRequest
 from meocosub2.overlay.controller import GuiController
@@ -31,9 +31,12 @@ class SearchBody(BaseModel):
 
 class PrepareSessionBody(BaseModel):
     mode: str
-    featureId: int | None = None
-    sourceFileId: int | None = None
-    targetFileId: int | None = None
+    matchId: str | int | None = None
+    featureId: str | int | None = None
+    sourceResultId: str | int | None = None
+    sourceFileId: str | int | None = None
+    targetResultId: str | int | None = None
+    targetFileId: str | int | None = None
 
 
 class StartSessionBody(BaseModel):
@@ -120,7 +123,7 @@ class OverlayServer:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             except RuntimeError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
-            except OpenSubtitlesError as exc:
+            except SubtitleSourceError as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
 
         @self.app.post("/api/session/prepare")
@@ -128,15 +131,15 @@ class OverlayServer:
             try:
                 session = await self.controller.prepare_session(
                     mode=body.mode,
-                    feature_id=body.featureId,
-                    source_file_id=body.sourceFileId,
-                    target_file_id=body.targetFileId,
+                    feature_id=body.matchId if body.matchId is not None else body.featureId,
+                    source_file_id=body.sourceResultId if body.sourceResultId is not None else body.sourceFileId,
+                    target_file_id=body.targetResultId if body.targetResultId is not None else body.targetFileId,
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             except RuntimeError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
-            except OpenSubtitlesError as exc:
+            except SubtitleSourceError as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
             except TranslationError as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc

@@ -43,6 +43,12 @@ const dom = {
   searchForm: document.getElementById("search-form"),
   searchSubmitButton: document.getElementById("search-submit-button"),
   configForm: document.getElementById("config-form"),
+  opensubtitlesEnabledInput: document.getElementById("source-opensubtitles-enabled-input"),
+  opensubtitlesApiKeyInput: document.getElementById("source-opensubtitles-api-key-input"),
+  opensubtitlesOrgFallbackInput: document.getElementById("source-opensubtitles-org-fallback-input"),
+  subdlEnabledInput: document.getElementById("source-subdl-enabled-input"),
+  assrtEnabledInput: document.getElementById("source-assrt-enabled-input"),
+  assrtTokenInput: document.getElementById("source-assrt-token-input"),
   foundryStatusChip: document.getElementById("foundry-status-chip"),
   foundryStatusNote: document.getElementById("foundry-status-note"),
   ocrLanguageDisplay: document.getElementById("ocr-language-display"),
@@ -375,15 +381,104 @@ function currentLanguageValue(selectEl, customInput) {
   return selectEl.value.trim();
 }
 
+function providerConfig(config) {
+  const subtitleSources = config?.subtitleSources || {};
+  const legacyOpenSubtitles = config?.opensubtitles || {};
+  return {
+    opensubtitles: {
+      enabled: subtitleSources.opensubtitles?.enabled ?? legacyOpenSubtitles.enabled ?? true,
+      apiKey: subtitleSources.opensubtitles?.apiKey ?? legacyOpenSubtitles.apiKey ?? "",
+      enableOrgFallback:
+        subtitleSources.opensubtitles?.enableOrgFallback ?? legacyOpenSubtitles.enableOrgFallback ?? false,
+    },
+    subdl: {
+      enabled: subtitleSources.subdl?.enabled ?? true,
+    },
+    assrt: {
+      enabled: subtitleSources.assrt?.enabled ?? false,
+      token: subtitleSources.assrt?.token ?? "",
+    },
+  };
+}
+
+function selectionValue(value) {
+  if (value == null || value === "") {
+    return null;
+  }
+  return String(value);
+}
+
+function sameSelectionValue(left, right) {
+  return selectionValue(left) === selectionValue(right);
+}
+
+function numericSelectionValue(value) {
+  const normalized = selectionValue(value);
+  return normalized && /^\d+$/.test(normalized) ? Number(normalized) : null;
+}
+
+function matchSelectionId(match) {
+  if (!match) {
+    return null;
+  }
+  return selectionValue(match.matchId ?? match.id);
+}
+
+function resultSelectionId(result) {
+  if (!result) {
+    return null;
+  }
+  return selectionValue(result.resultId ?? result.fileId ?? result.id);
+}
+
+function providerLabelText(entry) {
+  return entry?.providerLabel || entry?.provider_label || entry?.provider || "";
+}
+
+function providerLabelsForMatch(match) {
+  if (Array.isArray(match?.providerLabels) && match.providerLabels.length) {
+    return match.providerLabels;
+  }
+  if (Array.isArray(match?.providers) && match.providers.length) {
+    return match.providers;
+  }
+  return match?.providerLabel ? [match.providerLabel] : [];
+}
+
 function resultMatchesFeature(result, featureId) {
-  if (!featureId) {
+  const numericFeatureId = numericSelectionValue(featureId);
+  if (numericFeatureId == null) {
     return true;
   }
-  return [result.parentFeatureId, result.featureId].some((value) => Number(value) === Number(featureId));
+  return [result.parentFeatureId, result.featureId].some((value) => Number(value) === numericFeatureId);
+}
+
+function resultMatchesSelectedMatch(result, matchId) {
+  if (!matchId) {
+    return true;
+  }
+  if (result.matchId != null) {
+    return sameSelectionValue(result.matchId, matchId);
+  }
+  return resultMatchesFeature(result, matchId);
 }
 
 function currentFeatureId(snapshot) {
-  return state.selectedFeatureId ?? snapshot?.selected_feature_id ?? snapshot?.search_matches?.[0]?.id ?? null;
+  return (
+    state.selectedFeatureId ??
+    selectionValue(snapshot?.selected_match_id) ??
+    selectionValue(snapshot?.selected_feature_id) ??
+    matchSelectionId(snapshot?.search_matches?.[0]) ??
+    null
+  );
+}
+
+function selectedSourceResultId(snapshot) {
+  return state.selectedSourceFileId ?? selectionValue(snapshot?.selected_source_result_id) ?? selectionValue(snapshot?.selected_source_file_id);
+}
+
+function selectedTargetResultId(snapshot) {
+  return state.selectedTargetFileId ?? selectionValue(snapshot?.selected_target_result_id) ?? selectionValue(snapshot?.selected_target_file_id);
 }
 
 function currentSourceSelectionMode(snapshot, sourceResults, featureId) {
@@ -488,7 +583,7 @@ function statusLabel(status) {
 
 function sessionHeadline(snapshot, selectedSource, selectedTarget) {
   if (snapshot.status === "searching") {
-    return snapshot.title ? `Finding subtitles for ${snapshot.title}` : "Finding subtitle matches";
+    return snapshot.title ? `Finding subtitle sources for ${snapshot.title}` : "Finding subtitle matches";
   }
   if (snapshot.status === "preparing") {
     return "Preparing your subtitle session";
@@ -514,7 +609,7 @@ function sessionHeadline(snapshot, selectedSource, selectedTarget) {
     return "Source selected. Keep local translation or choose a target subtitle.";
   }
   if ((snapshot.search_matches || []).length) {
-    return "Choose a matched title, then pick subtitles or OCR fallback.";
+    return "Choose a matched title, then pick subtitles from the merged source list or use OCR fallback.";
   }
   if ((snapshot.search_results || []).length) {
     return "Choose the subtitle pair for this session.";
@@ -543,10 +638,10 @@ function sessionMessage(snapshot, selectedSource, selectedTarget) {
     return "No target subtitle is selected yet. You can still prepare with local translation.";
   }
   if ((snapshot.search_matches || []).length) {
-    return "Review the matched titles below. If no source subtitle exists, OCR fallback can still continue.";
+    return "Review the matched titles below. Provider badges show where each subtitle came from, and OCR fallback remains available.";
   }
   if ((snapshot.search_results || []).length) {
-    return "Review the results below. The source subtitle choice drives the rest of the flow.";
+    return "Review the merged results below. The source subtitle choice drives the rest of the flow.";
   }
   return "Ready for a title search.";
 }
@@ -564,7 +659,7 @@ function progressSummary(snapshot, selectedSource) {
     return "Prepare the session once the subtitle choice looks right.";
   }
   if ((snapshot.search_matches || []).length) {
-    return "Pick a title first, then choose source subtitles or OCR fallback.";
+    return "Pick a title first, then choose source subtitles from the merged source list or OCR fallback.";
   }
   if ((snapshot.search_results || []).length) {
     return "Select a source subtitle and confirm the target side.";
@@ -604,8 +699,14 @@ function applyStylePreview(overlay) {
 }
 
 function fillConfigForm(config) {
-  const { opensubtitles, capture, translation, overlay } = config;
-  document.getElementById("api-key-input").value = opensubtitles.apiKey || "";
+  const { capture, translation, overlay } = config;
+  const subtitleSources = providerConfig(config);
+  dom.opensubtitlesEnabledInput.checked = subtitleSources.opensubtitles.enabled !== false;
+  dom.opensubtitlesApiKeyInput.value = subtitleSources.opensubtitles.apiKey || "";
+  dom.opensubtitlesOrgFallbackInput.checked = subtitleSources.opensubtitles.enableOrgFallback === true;
+  dom.subdlEnabledInput.checked = subtitleSources.subdl.enabled !== false;
+  dom.assrtEnabledInput.checked = subtitleSources.assrt.enabled === true;
+  dom.assrtTokenInput.value = subtitleSources.assrt.token || "";
   document.getElementById("translation-endpoint-input").value = translation.endpoint || "";
   document.getElementById("translation-model-input").value = translation.model || "";
   document.getElementById("capture-interval-input").value = capture.intervalMs ?? 1500;
@@ -648,10 +749,23 @@ function currentOverlayConfigFromForm() {
 function buildConfigPayload() {
   const sourceLanguage = currentLanguageValue(dom.sourceLanguageInput, dom.sourceLanguageCustomInput) || "en";
   const targetLanguage = currentLanguageValue(dom.targetLanguageInput, dom.targetLanguageCustomInput) || "zh";
+  const opensubtitles = {
+    enabled: dom.opensubtitlesEnabledInput.checked,
+    apiKey: dom.opensubtitlesApiKeyInput.value.trim(),
+    enableOrgFallback: dom.opensubtitlesOrgFallbackInput.checked,
+  };
   return {
-    opensubtitles: {
-      apiKey: document.getElementById("api-key-input").value,
+    subtitleSources: {
+      opensubtitles,
+      subdl: {
+        enabled: dom.subdlEnabledInput.checked,
+      },
+      assrt: {
+        enabled: dom.assrtEnabledInput.checked,
+        token: dom.assrtTokenInput.value.trim(),
+      },
     },
+    opensubtitles,
     languages: {
       source: sourceLanguage,
       target: targetLanguage,
@@ -751,8 +865,13 @@ function appendBadge(container, text, className = "result-badge") {
   container.append(createElement("span", { className, text }));
 }
 
+function providerBadgeClass(provider) {
+  const normalized = (provider || "source").toString().trim().toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return `result-badge provider-badge provider-${normalized}`;
+}
+
 function buildResultCard({
-  fileId = "",
+  resultId = "",
   selected = false,
   kind = "",
   title,
@@ -768,7 +887,7 @@ function buildResultCard({
   const card = createElement("button", {
     className: classes.join(" "),
     attrs: { type: "button" },
-    dataset: { fileId, kind: kind || undefined },
+    dataset: { resultId, kind: kind || undefined },
   });
 
   const top = createElement("div", { className: "result-card-top" });
@@ -781,7 +900,11 @@ function buildResultCard({
   if (badges.length) {
     const meta = createElement("div", { className: "result-card-meta" });
     for (const badge of badges) {
-      appendBadge(meta, badge);
+      if (typeof badge === "string") {
+        appendBadge(meta, badge);
+      } else if (badge && typeof badge === "object") {
+        appendBadge(meta, badge.text, badge.className || "result-badge");
+      }
     }
     card.append(meta);
   }
@@ -799,7 +922,7 @@ function buildTitleMatchCard(match, selected = false) {
   const card = createElement("button", {
     className: classes.join(" "),
     attrs: { type: "button" },
-    dataset: { featureId: match.id },
+    dataset: { matchId: matchSelectionId(match) || match.id || "" },
   });
   const top = createElement("div", { className: "result-card-top" });
   top.append(createElement("h4", { className: "result-card-title", text: match.displayLabel || match.title }));
@@ -810,8 +933,14 @@ function buildTitleMatchCard(match, selected = false) {
   const meta = createElement("div", { className: "result-card-meta" });
   appendBadge(meta, match.mediaType || "title");
   appendBadge(meta, `${(match.subtitlesCount || 0).toLocaleString()} subtitle files`);
+  if (match.providerCount || providerLabelsForMatch(match).length) {
+    appendBadge(meta, `${(match.providerCount || providerLabelsForMatch(match).length).toLocaleString()} sources`);
+  }
+  for (const label of providerLabelsForMatch(match).slice(0, 3)) {
+    appendBadge(meta, label, providerBadgeClass(label));
+  }
   card.append(meta);
-  card.append(createElement("p", { className: "result-card-foot", text: "Use this title to scope source/target subtitle choices." }));
+  card.append(createElement("p", { className: "result-card-foot", text: "Use this title to scope source and target subtitle choices across enabled sources." }));
   return card;
 }
 
@@ -826,7 +955,7 @@ function renderTitleMatches(matches, selectedFeatureId) {
   dom.titleMatchCount.textContent = `${matches.length} titles`;
   dom.titleMatchResults.className = "title-match-results";
   dom.titleMatchResults.replaceChildren(
-    ...matches.map((match) => buildTitleMatchCard(match, Number(match.id) === Number(selectedFeatureId))),
+    ...matches.map((match) => buildTitleMatchCard(match, sameSelectionValue(matchSelectionId(match), selectedFeatureId))),
   );
 }
 
@@ -844,7 +973,7 @@ function buildSearchResultSummary(selectedMatch, sourceResults, targetResults, s
     return `${selectedMatch.displayLabel || selectedMatch.title} has no ${languageLabel(sourceLanguage)} source subtitle. Select OCR fallback to continue.`;
   }
   if (!targetResults.length) {
-    return `${selectedMatch.displayLabel || selectedMatch.title} has ${sourceResults.length} source subtitle choices. Target can fall back to local translation.`;
+    return `${selectedMatch.displayLabel || selectedMatch.title} has ${sourceResults.length} source subtitle choices across enabled sources. Target can fall back to local translation.`;
   }
   return `${selectedMatch.displayLabel || selectedMatch.title}: ${sourceResults.length} source matches and ${targetResults.length} target matches ready.`;
 }
@@ -855,6 +984,7 @@ function renderSourceResults(container, results, selectedId, requestedSourceLang
     container.className = "result-list";
     container.replaceChildren(
       buildResultCard({
+        resultId: "",
         kind: "ocr-fallback",
         selected: sourceSelectionMode === "ocr_fallback",
         title: "Use OCR source language",
@@ -876,7 +1006,10 @@ function renderSourceResults(container, results, selectedId, requestedSourceLang
   container.className = "result-list";
   container.replaceChildren(
     ...results.map((result, index) => {
-      const badges = [languageLabel(result.language)];
+      const providerLabel = providerLabelText(result);
+      const badges = providerLabel
+        ? [{ text: providerLabel, className: providerBadgeClass(result.providerLabel || result.provider) }, languageLabel(result.language)]
+        : [languageLabel(result.language)];
       if (normalizeLanguageCode(result.language) === normalizeLanguageCode(requestedSourceLanguage)) {
         badges.push("Exact language");
       }
@@ -889,13 +1022,13 @@ function renderSourceResults(container, results, selectedId, requestedSourceLang
         badges.push("Chinese-family fallback");
       }
       return buildResultCard({
-        fileId: result.fileId,
-        selected: result.fileId === selectedId && sourceSelectionMode !== "ocr_fallback",
-        title: result.displayLabel,
+        resultId: resultSelectionId(result),
+        selected: sameSelectionValue(resultSelectionId(result), selectedId) && sourceSelectionMode !== "ocr_fallback",
+        title: result.displayLabel || result.title,
         tag: index === 0 ? "Recommended" : "",
         badges,
         fileText: result.fileName,
-        footText: `${result.downloadCount.toLocaleString()} downloads`,
+        footText: `${result.downloadCount.toLocaleString()} downloads${providerLabel ? ` via ${providerLabel}` : ""}`,
       });
     }),
   );
@@ -905,7 +1038,7 @@ function renderTargetResults(container, results, selectedId, sourceSelectionMode
   container.className = "result-list";
   container.replaceChildren(
     buildResultCard({
-      fileId: "",
+      resultId: "",
       kind: "local",
       selected: selectedId == null,
       title: "Use local translation",
@@ -918,15 +1051,20 @@ function renderTargetResults(container, results, selectedId, sourceSelectionMode
       footText: "Best when no matching target subtitle looks trustworthy.",
     }),
     ...results.map((result, index) =>
-      buildResultCard({
-        fileId: result.fileId,
-        selected: result.fileId === selectedId,
-        title: result.displayLabel,
-        tag: index === 0 ? "Best match" : "",
-        badges: [languageLabel(result.language)],
-        fileText: result.fileName,
-        footText: `${result.downloadCount.toLocaleString()} downloads`,
-      }),
+      (() => {
+        const providerLabel = providerLabelText(result);
+        return buildResultCard({
+          resultId: resultSelectionId(result),
+          selected: sameSelectionValue(resultSelectionId(result), selectedId),
+          title: result.displayLabel || result.title,
+          tag: index === 0 ? "Best match" : "",
+          badges: providerLabel
+            ? [{ text: providerLabel, className: providerBadgeClass(result.providerLabel || result.provider) }, languageLabel(result.language)]
+            : [languageLabel(result.language)],
+          fileText: result.fileName,
+          footText: `${result.downloadCount.toLocaleString()} downloads${providerLabel ? ` via ${providerLabel}` : ""}`,
+        });
+      })(),
     ),
   );
 }
@@ -951,7 +1089,15 @@ function renderSessionSummary(preparedSession) {
   const rows = [
     ["Title", preparedSession.title],
     ["Session Mode", preparedSession.session_mode === "ocr_fallback" ? "OCR fallback" : "Subtitle pair"],
+    [
+      "Source Provider",
+      preparedSession.source_provider_label || preparedSession.sourceProviderLabel || "OCR source language",
+    ],
     ["Source File", preparedSession.source_file_name || "OCR source language"],
+    [
+      "Target Provider",
+      preparedSession.target_provider_label || preparedSession.targetProviderLabel || "Local translation",
+    ],
     ["Target File", preparedSession.target_file_name || "Generated via translation"],
     [
       "Resolved Source",
@@ -981,8 +1127,8 @@ function render() {
   const searchResults = snapshot.search_results || [];
   const searchMatches = snapshot.search_matches || [];
   const selectedFeatureId = currentFeatureId(snapshot);
-  const selectedMatch = searchMatches.find((match) => Number(match.id) === Number(selectedFeatureId)) || null;
-  const filteredResults = searchResults.filter((result) => resultMatchesFeature(result, selectedFeatureId));
+  const selectedMatch = searchMatches.find((match) => sameSelectionValue(matchSelectionId(match), selectedFeatureId)) || null;
+  const filteredResults = searchResults.filter((result) => resultMatchesSelectedMatch(result, selectedFeatureId));
   const sourceResults = filteredResults
     .filter((result) => {
       if (normalizeLanguageCode(result.language) === normalizeLanguageCode(sourceLanguage)) {
@@ -1000,8 +1146,8 @@ function render() {
   );
   const progress = snapshot.progress || {};
   const progressRatio = progress.total ? Math.min(progress.current / progress.total, 1) : 0;
-  const selectedSource = state.selectedSourceFileId ?? snapshot.selected_source_file_id;
-  const selectedTarget = state.selectedTargetFileId ?? snapshot.selected_target_file_id;
+  const selectedSource = selectedSourceResultId(snapshot);
+  const selectedTarget = selectedTargetResultId(snapshot);
   const sourceSelectionMode = currentSourceSelectionMode(snapshot, sourceResults, selectedFeatureId);
   const fallbackSelected = sourceSelectionMode === "ocr_fallback" && !selectedSource;
   const progressIndeterminate = snapshot.status === "searching" || (progress.total === 0 && !!progress.message);
@@ -1043,11 +1189,11 @@ function render() {
 
 function bindResultSelection() {
   dom.titleMatchResults.addEventListener("click", (event) => {
-    const card = event.target.closest("[data-feature-id]");
+    const card = event.target.closest("[data-match-id], [data-feature-id]");
     if (!card) {
       return;
     }
-    state.selectedFeatureId = Number(card.dataset.featureId);
+    state.selectedFeatureId = selectionValue(card.dataset.matchId || card.dataset.featureId);
     state.selectedSourceFileId = null;
     state.selectedTargetFileId = null;
     state.sourceSelectionMode = null;
@@ -1055,7 +1201,7 @@ function bindResultSelection() {
   });
 
   dom.sourceResults.addEventListener("click", (event) => {
-    const card = event.target.closest("[data-kind], [data-file-id]");
+    const card = event.target.closest("[data-kind], [data-result-id], [data-file-id]");
     if (!card) {
       return;
     }
@@ -1065,17 +1211,17 @@ function bindResultSelection() {
       scheduleRender();
       return;
     }
-    state.selectedSourceFileId = Number(card.dataset.fileId);
+    state.selectedSourceFileId = selectionValue(card.dataset.resultId || card.dataset.fileId);
     state.sourceSelectionMode = "subtitle";
     scheduleRender();
   });
 
   dom.targetResults.addEventListener("click", (event) => {
-    const card = event.target.closest("[data-file-id]");
+    const card = event.target.closest("[data-result-id], [data-file-id]");
     if (!card) {
       return;
     }
-    state.selectedTargetFileId = card.dataset.fileId ? Number(card.dataset.fileId) : null;
+    state.selectedTargetFileId = selectionValue(card.dataset.resultId || card.dataset.fileId);
     scheduleRender();
   });
 }
@@ -1090,9 +1236,9 @@ function connectSocket() {
     if (message.type === "state") {
       state.snapshot = message.state;
       const matches = message.state.search_matches || [];
-      const localFeatureStillValid = matches.some((match) => Number(match.id) === Number(state.selectedFeatureId));
+      const localFeatureStillValid = matches.some((match) => sameSelectionValue(matchSelectionId(match), state.selectedFeatureId));
       if (!localFeatureStillValid) {
-        state.selectedFeatureId = message.state.selected_feature_id ?? matches[0]?.id ?? null;
+        state.selectedFeatureId = currentFeatureId(message.state) ?? matchSelectionId(matches[0]) ?? null;
       }
     }
     if (message.type === "progress" && state.snapshot) {
@@ -1206,7 +1352,7 @@ dom.searchForm.addEventListener("submit", async (event) => {
   const targetLanguage = currentLanguageValue(dom.targetLanguageInput, dom.targetLanguageCustomInput) || "zh";
   if (state.snapshot) {
     state.snapshot.status = "searching";
-    state.snapshot.progress = { stage: "search", message: "Searching OpenSubtitles...", current: 0, total: 0 };
+    state.snapshot.progress = { stage: "search", message: "Searching subtitle sources...", current: 0, total: 0 };
     scheduleRender();
   }
   try {
@@ -1224,10 +1370,11 @@ dom.searchForm.addEventListener("submit", async (event) => {
       state.snapshot.title = dom.titleInput.value.trim();
       state.snapshot.source_language = sourceLanguage;
       state.snapshot.target_language = targetLanguage;
-      state.snapshot.selected_feature_id = payload.matches?.[0]?.id ?? null;
+      state.snapshot.selected_match_id = matchSelectionId(payload.matches?.[0]);
+      state.snapshot.selected_feature_id = numericSelectionValue(matchSelectionId(payload.matches?.[0]));
       state.snapshot.prepared_session = null;
     }
-    state.selectedFeatureId = payload.matches?.[0]?.id ?? null;
+    state.selectedFeatureId = matchSelectionId(payload.matches?.[0]);
     state.selectedSourceFileId = null;
     state.selectedTargetFileId = null;
     state.sourceSelectionMode = null;
@@ -1243,7 +1390,7 @@ dom.prepareButton.addEventListener("click", async () => {
     return;
   }
   const featureId = currentFeatureId(state.snapshot);
-  const snapshotResults = (state.snapshot?.search_results || []).filter((result) => resultMatchesFeature(result, featureId));
+  const snapshotResults = (state.snapshot?.search_results || []).filter((result) => resultMatchesSelectedMatch(result, featureId));
   const sourceLanguage =
     state.snapshot?.source_language || currentLanguageValue(dom.sourceLanguageInput, dom.sourceLanguageCustomInput) || "en";
   const sourceResults = snapshotResults.filter((result) => {
@@ -1252,7 +1399,7 @@ dom.prepareButton.addEventListener("click", async () => {
     }
     return isChineseFamily(sourceLanguage) && isChineseFamily(result.language);
   });
-  const sourceFileId = state.selectedSourceFileId ?? state.snapshot?.selected_source_file_id;
+  const sourceFileId = selectedSourceResultId(state.snapshot);
   const sourceSelectionMode = currentSourceSelectionMode(state.snapshot, sourceResults, featureId);
   const mode = sourceFileId ? "subtitle_pair" : sourceSelectionMode === "ocr_fallback" ? "ocr_fallback" : "";
   if (!featureId) {
@@ -1270,16 +1417,22 @@ dom.prepareButton.addEventListener("click", async () => {
       method: "POST",
       body: JSON.stringify({
         mode,
-        featureId,
-        sourceFileId,
-        targetFileId: state.selectedTargetFileId,
+        matchId: featureId,
+        featureId: numericSelectionValue(featureId),
+        sourceResultId: sourceFileId,
+        sourceFileId: numericSelectionValue(sourceFileId),
+        targetResultId: selectedTargetResultId(state.snapshot),
+        targetFileId: numericSelectionValue(selectedTargetResultId(state.snapshot)),
       }),
     });
     if (state.snapshot) {
       state.snapshot.prepared_session = payload.session;
-      state.snapshot.selected_feature_id = featureId;
-      state.snapshot.selected_source_file_id = sourceFileId;
-      state.snapshot.selected_target_file_id = state.selectedTargetFileId;
+      state.snapshot.selected_match_id = featureId;
+      state.snapshot.selected_feature_id = numericSelectionValue(featureId);
+      state.snapshot.selected_source_result_id = sourceFileId;
+      state.snapshot.selected_source_file_id = numericSelectionValue(sourceFileId);
+      state.snapshot.selected_target_result_id = selectedTargetResultId(state.snapshot);
+      state.snapshot.selected_target_file_id = numericSelectionValue(selectedTargetResultId(state.snapshot));
     }
     setSaveState("Session prepared", "success");
     scheduleRender();

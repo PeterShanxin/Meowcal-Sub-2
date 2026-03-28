@@ -30,6 +30,12 @@ def collect_ids(html: str) -> dict[str, dict[str, str]]:
 def make_server(config_path: Path | None = None) -> OverlayServer:
     return OverlayServer(
         AppConfig(
+            opensubtitles_enabled=True,
+            opensubtitles_api_key="test-key",
+            opensubtitles_enable_org_fallback=True,
+            subdl_enabled=True,
+            assrt_enabled=True,
+            assrt_token="assrt-token",
             overlay_font_size=32,
             overlay_font_family="Test Font",
             overlay_text_color="#123456",
@@ -74,9 +80,16 @@ def test_dashboard_and_overlay_pages_served(tmp_path: Path) -> None:
     assert elements["title-match-strip"]["tag"] == "section"
     assert elements["title-match-results"]["tag"] == "div"
     assert elements["search-result-summary"]["tag"] == "p"
+    assert elements["source-opensubtitles-enabled-input"]["tag"] == "input"
+    assert elements["source-opensubtitles-api-key-input"]["tag"] == "input"
+    assert elements["source-opensubtitles-org-fallback-input"]["tag"] == "input"
+    assert elements["source-subdl-enabled-input"]["tag"] == "input"
+    assert elements["source-assrt-enabled-input"]["tag"] == "input"
+    assert elements["source-assrt-token-input"]["tag"] == "input"
     assert "language-menu-portal" not in elements
     assert "language-menu-panel" not in elements
     assert "custom-select" not in dashboard.text
+    assert "Subtitle Sources" in dashboard.text
     assert overlay.status_code == 200
     assert "subtitle-shell" in overlay.text
 
@@ -101,6 +114,11 @@ def test_dashboard_script_uses_blocking_bootstrap_without_custom_selects(tmp_pat
     assert "title-match-results" in script.text
     assert "ocr_fallback" in script.text
     assert "search-result-summary" in script.text
+    assert "Searching subtitle sources..." in script.text
+    assert "subtitleSources" in script.text
+    assert "sourceResultId" in script.text
+    assert "matchId" in script.text
+    assert "Searching OpenSubtitles..." not in script.text
 
 
 def test_dashboard_styles_use_inline_language_picker_layout(tmp_path: Path) -> None:
@@ -121,6 +139,9 @@ def test_dashboard_styles_use_inline_language_picker_layout(tmp_path: Path) -> N
     assert ".hero-shell {" in styles.text
     assert ".settings-drawer {" in styles.text
     assert ".result-card.selected {" in styles.text
+    assert ".source-provider-card {" in styles.text
+    assert ".checkbox-line {" in styles.text
+    assert ".provider-badge" in styles.text
     assert ".language-trigger,\n.language-picker {" not in styles.text
     assert ".language-menu-portal" not in styles.text
     assert ".language-menu-panel" not in styles.text
@@ -148,6 +169,8 @@ def test_config_routes_return_compat_and_nested_payload(tmp_path: Path) -> None:
         "animationMs": 180,
     }
     assert api_payload.json()["overlay"]["radiusPx"] == 30
+    assert api_payload.json()["subtitleSources"]["subdl"]["enabled"] is True
+    assert api_payload.json()["subtitleSources"]["assrt"]["token"] == "assrt-token"
 
 
 def test_put_config_updates_api_payload_and_persists_style(tmp_path: Path) -> None:
@@ -159,7 +182,11 @@ def test_put_config_updates_api_payload_and_persists_style(tmp_path: Path) -> No
             response = client.put(
                 "/api/config",
                 json={
-                    "opensubtitles": {"apiKey": "key"},
+                    "subtitleSources": {
+                        "opensubtitles": {"enabled": True, "apiKey": "key", "enableOrgFallback": False},
+                        "subdl": {"enabled": False},
+                        "assrt": {"enabled": True, "token": "fresh-assrt-token"},
+                    },
                     "languages": {"source": "en", "target": "zht"},
                     "capture": {"region": [0, 1, 2, 3], "intervalMs": 500, "ocrLanguage": "en"},
                     "matching": {"fuzzyThreshold": 70, "windowSize": 20},
@@ -188,9 +215,12 @@ def test_put_config_updates_api_payload_and_persists_style(tmp_path: Path) -> No
 
     assert initial["type"] == "style"
     assert response.json()["overlay"]["fontSize"] == 44
+    assert response.json()["subtitleSources"]["subdl"]["enabled"] is False
+    assert response.json()["subtitleSources"]["assrt"]["token"] == "fresh-assrt-token"
     assert style_update["type"] == "style"
     assert style_update["style"]["fontFamily"] == "Studio Font"
     assert api_payload.json()["overlay"]["radiusPx"] == 36
+    assert api_payload.json()["subtitleSources"]["opensubtitles"]["apiKey"] == "key"
     assert config_path.exists()
 
 

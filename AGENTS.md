@@ -8,6 +8,7 @@
 ## Runtime Map
 - Backend server: `python -m meocosub2.cli serve`
 - Studio route: [src/meocosub2/overlay/server.py](src/meocosub2/overlay/server.py)
+- Subtitle source aggregator: [src/meocosub2/subtitle_sources](src/meocosub2/subtitle_sources)
 - Live studio page: [src/meocosub2/overlay/static/index.html](src/meocosub2/overlay/static/index.html)
 - Shared studio logic: [src/meocosub2/overlay/static/app.js](src/meocosub2/overlay/static/app.js)
 - Shared studio styles: [src/meocosub2/overlay/static/app.css](src/meocosub2/overlay/static/app.css)
@@ -32,6 +33,7 @@
 ## Working Notes
 - The repo may contain local generated or user-authored changes. Do not revert unrelated work.
 - When changing the shared studio markup, keep tests in `tests/test_overlay.py` aligned with the served contract.
+- Studio subtitle search is provider-neutral now; the main API/UI flow uses opaque `matchId` and `resultId` values instead of provider file ids.
 - When debugging startup issues, separate three layers:
   - served page correctness
   - launcher/process correctness
@@ -59,3 +61,4 @@
 - For real desktop UI inspection, a window-level screenshot helper is more trustworthy than browser-only automation against the served page.
 - Tauri will create duplicate tray icons on Windows if the shell uses both `app.trayIcon` in `tauri.conf.json` and a manual `TrayIconBuilder` in Rust. Keep only one creation path.
 - Windows OCR capability lookup for this app should use exact BCP-47 tags such as `zh-TW` in the `Language.OCR*<tag>*` query, and the UI should treat post-install re-enumeration as the success signal instead of assuming the installer succeeded.
+- `SubDL` is currently integrated from public structured page data, while `ASSRT` is more reliable through its token-based API than raw page scraping.

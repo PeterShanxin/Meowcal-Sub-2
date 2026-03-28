@@ -5,7 +5,11 @@ class MeoCoSubError(Exception):
     """Base exception for the app."""
 
 
-class OpenSubtitlesError(MeoCoSubError):
+class SubtitleSourceError(MeoCoSubError):
+    """Provider-neutral subtitle source error."""
+
+
+class OpenSubtitlesError(SubtitleSourceError):
     """OpenSubtitles API error."""
 
 

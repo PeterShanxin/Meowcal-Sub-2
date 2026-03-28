@@ -52,13 +52,15 @@ class PreparedSession:
     source_language_mode: Literal["exact", "family_fallback"]
     session_mode: Literal["subtitle_pair", "ocr_fallback"] = "subtitle_pair"
     target_match_mode: Literal["subtitle_file", "local_translation", "target_subtitle_match", "direct_translation"] = "subtitle_file"
-    feature_id: int | None = None
-    source_file_id: int | None = None
+    feature_id: str | None = None
+    source_file_id: str | None = None
     source_file_name: str | None = None
+    source_provider: str | None = None
     source_path: str | None = None
     source_line_count: int = 0
-    target_file_id: int | None = None
+    target_file_id: str | None = None
     target_file_name: str | None = None
+    target_provider: str | None = None
     target_path: str | None = None
     target_line_count: int = 0
     translated_line_count: int = 0
@@ -73,9 +75,9 @@ class AppStateSnapshot:
     target_language: str = "zh"
     search_results: list[dict[str, object]] = field(default_factory=list)
     search_matches: list[dict[str, object]] = field(default_factory=list)
-    selected_feature_id: int | None = None
-    selected_source_file_id: int | None = None
-    selected_target_file_id: int | None = None
+    selected_feature_id: str | None = None
+    selected_source_file_id: str | None = None
+    selected_target_file_id: str | None = None
     prepared_session: PreparedSession | None = None
     progress: AppProgress = field(default_factory=AppProgress)
     last_subtitle: str = ""
@@ -95,4 +97,4 @@ class PreparedRuntime:
     session_mode: Literal["subtitle_pair", "ocr_fallback"]
     pair: SubtitlePair | None = None
     target_lines: list[SubtitleLine] = field(default_factory=list)
-    feature_id: int | None = None
+    feature_id: str | None = None

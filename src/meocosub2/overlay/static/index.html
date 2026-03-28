@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Meowcal-Sub-2 Studio</title>
   <link rel="stylesheet" href="/static/theme.css">
-  <link rel="stylesheet" href="/static/app.css?v=20260320-title-first-studio">
+  <link rel="stylesheet" href="/static/app.css?v=20260328-multi-source-studio">
 </head>
 <body class="studio-body">
   <div id="loading-overlay" class="loading-overlay" role="alert" aria-live="assertive">
@@ -117,7 +117,7 @@
               <p class="eyebrow">Choose Subtitles</p>
               <h2>Search Results</h2>
             </div>
-            <p class="panel-summary">Pick a source subtitle first. Then choose a target subtitle or use local translation.</p>
+            <p class="panel-summary">Pick a source subtitle first. Then choose a target subtitle or keep local translation.</p>
           </div>
 
           <section id="title-match-strip" class="title-match-strip">
@@ -172,7 +172,7 @@
         <div class="drawer-header">
           <div>
             <p class="eyebrow">Advanced Setup</p>
-            <h2>Connection, Capture & Overlay</h2>
+            <h2>Subtitle Sources, Capture & Overlay</h2>
           </div>
           <div class="drawer-actions">
             <span id="save-state" class="save-state" data-state="neutral" role="status" aria-live="polite">Unsaved changes</span>
@@ -180,7 +180,7 @@
           </div>
         </div>
 
-        <p class="drawer-copy">Fine-tune OpenSubtitles access, local translation, OCR capture, and subtitle appearance without disrupting the main session flow.</p>
+        <p class="drawer-copy">Fine-tune subtitle sources, local translation, OCR capture, and subtitle appearance without disrupting the main session flow.</p>
 
         <section class="preview-stage">
           <div class="preview-chrome">
@@ -193,11 +193,63 @@
 
         <form id="config-form" class="config-form">
           <div class="field-group">
-            <h3>Connection</h3>
-            <label>
-              <span>OpenSubtitles API key</span>
-              <input id="api-key-input" name="apiKey" type="password" placeholder="Required for search">
-            </label>
+            <h3>Subtitle Sources</h3>
+            <div class="source-provider-list">
+              <section class="source-provider-card">
+                <div class="source-provider-head">
+                  <div>
+                    <h4>OpenSubtitles</h4>
+                    <p class="setting-hint">Best as a wide fallback catalog. API key required.</p>
+                  </div>
+                  <label class="checkbox-line">
+                    <input id="source-opensubtitles-enabled-input" name="opensubtitlesEnabled" type="checkbox">
+                    <span>Enabled</span>
+                  </label>
+                </div>
+                <label>
+                  <span>OpenSubtitles API key</span>
+                  <input id="source-opensubtitles-api-key-input" name="opensubtitlesApiKey" type="password" placeholder="Required for search">
+                </label>
+                <label class="checkbox-line compact-checkbox">
+                  <input id="source-opensubtitles-org-fallback-input" name="opensubtitlesOrgFallback" type="checkbox">
+                  <span>Use legacy org alias fallback when ranking is weak</span>
+                </label>
+              </section>
+
+              <section class="source-provider-card">
+                <div class="source-provider-head">
+                  <div>
+                    <h4>SubDL</h4>
+                    <p class="setting-hint">Strong multilingual coverage with no local secret required.</p>
+                  </div>
+                  <label class="checkbox-line">
+                    <input id="source-subdl-enabled-input" name="subdlEnabled" type="checkbox">
+                    <span>Enabled</span>
+                  </label>
+                </div>
+              </section>
+
+              <section class="source-provider-card">
+                <div class="source-provider-head">
+                  <div>
+                    <h4>ASSRT</h4>
+                    <p class="setting-hint">Chinese-friendly source. Enable it when you have an API token.</p>
+                  </div>
+                  <label class="checkbox-line">
+                    <input id="source-assrt-enabled-input" name="assrtEnabled" type="checkbox">
+                    <span>Enabled</span>
+                  </label>
+                </div>
+                <label>
+                  <span>ASSRT token</span>
+                  <input id="source-assrt-token-input" name="assrtToken" type="password" placeholder="Optional until enabled">
+                </label>
+              </section>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <h3>Translation</h3>
             <label>
               <span>Translation endpoint</span>
               <input id="translation-endpoint-input" name="translationEndpoint" type="text">
@@ -303,6 +355,6 @@
     </aside>
   </main>
 
-  <script src="/static/app.js?v=20260320-title-first-studio" type="module"></script>
+  <script src="/static/app.js?v=20260328-multi-source-studio" type="module"></script>
 </body>
 </html>
