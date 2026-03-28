@@ -60,9 +60,17 @@ def test_dashboard_and_overlay_pages_served(tmp_path: Path) -> None:
         overlay = client.get("/overlay")
     elements = collect_ids(dashboard.text)
     assert dashboard.status_code == 200
-    assert "What do you want to watch?" in dashboard.text
+    assert elements["hero-title-main"]["tag"] == "span"
+    assert elements["hero-title-accent"]["tag"] == "em"
+    assert elements["app-shell"]["tag"] == "main"
     assert elements["loading-overlay"]["role"] == "alert"
     assert elements["loading-retry"]["tag"] == "button"
+    assert elements["window-minimize-button"]["tag"] == "button"
+    assert elements["window-maximize-button"]["tag"] == "button"
+    assert elements["window-close-button"]["tag"] == "button"
+    assert elements["nav-dashboard"]["tag"] == "button"
+    assert elements["nav-results"]["tag"] == "button"
+    assert elements["nav-session"]["tag"] == "button"
     assert elements["settings-open-button"]["tag"] == "button"
     assert elements["settings-drawer"]["aria-hidden"] == "true"
     assert elements["settings-close-button"]["tag"] == "button"
@@ -80,6 +88,9 @@ def test_dashboard_and_overlay_pages_served(tmp_path: Path) -> None:
     assert elements["title-match-strip"]["tag"] == "section"
     assert elements["title-match-results"]["tag"] == "div"
     assert elements["search-result-summary"]["tag"] == "p"
+    assert elements["results-prepare-button"]["tag"] == "button"
+    assert elements["session-view-title"]["tag"] == "h2"
+    assert elements["footer-session-status"]["tag"] == "span"
     assert elements["source-opensubtitles-enabled-input"]["tag"] == "input"
     assert elements["source-opensubtitles-api-key-input"]["tag"] == "input"
     assert elements["source-opensubtitles-org-fallback-input"]["tag"] == "input"
@@ -115,6 +126,11 @@ def test_dashboard_script_uses_blocking_bootstrap_without_custom_selects(tmp_pat
     assert "ocr_fallback" in script.text
     assert "search-result-summary" in script.text
     assert "Searching subtitle sources..." in script.text
+    assert 'document.getElementById("window-minimize-button")' in script.text
+    assert 'document.getElementById("results-prepare-button")' in script.text
+    assert 'document.querySelectorAll("[data-view-target]")' in script.text
+    assert 'TAURI.core.invoke("toggle_main_window_maximize")' in script.text
+    assert "state.ui.manualView" in script.text
     assert "subtitleSources" in script.text
     assert "sourceResultId" in script.text
     assert "matchId" in script.text
@@ -136,10 +152,13 @@ def test_dashboard_styles_use_inline_language_picker_layout(tmp_path: Path) -> N
     assert ".title-match-strip" in styles.text
     assert '.result-card[data-kind="ocr-fallback"]' in styles.text
     assert "clip-path: inset(50%)" in styles.text
-    assert ".hero-shell {" in styles.text
+    assert ".window-chrome {" in styles.text
+    assert ".sidebar-rail {" in styles.text
+    assert ".dashboard-hero {" in styles.text
+    assert ".session-grid {" in styles.text
     assert ".settings-drawer {" in styles.text
-    assert ".result-card.selected {" in styles.text
-    assert ".source-provider-card {" in styles.text
+    assert ".result-card.selected" in styles.text
+    assert ".source-provider-card" in styles.text
     assert ".checkbox-line {" in styles.text
     assert ".provider-badge" in styles.text
     assert ".language-trigger,\n.language-picker {" not in styles.text

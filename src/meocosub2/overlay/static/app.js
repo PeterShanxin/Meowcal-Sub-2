@@ -1,4 +1,5 @@
 const dom = {
+  appShell: document.getElementById("app-shell"),
   commandBar: document.getElementById("command-bar"),
   statusStrip: document.getElementById("status-strip"),
   settingsOpenButton: document.getElementById("settings-open-button"),
@@ -35,9 +36,34 @@ const dom = {
   preparedSession: document.getElementById("prepared-session"),
   sessionBadge: document.getElementById("session-badge"),
   currentSubtitle: document.getElementById("current-subtitle"),
+  heroEyebrow: document.getElementById("hero-eyebrow"),
+  heroTitleMain: document.getElementById("hero-title-main"),
+  heroTitleAccent: document.getElementById("hero-title-accent"),
+  heroSubcopy: document.getElementById("hero-subcopy"),
+  dashboardSummaryMatches: document.getElementById("dashboard-summary-matches"),
+  dashboardSummaryResults: document.getElementById("dashboard-summary-results"),
+  dashboardSummarySession: document.getElementById("dashboard-summary-session"),
+  resultsViewTitle: document.getElementById("results-view-title"),
+  resultsViewCopy: document.getElementById("results-view-copy"),
+  resultsProviderPill: document.getElementById("results-provider-pill"),
+  resultsPrepareButton: document.getElementById("results-prepare-button"),
+  sessionViewTitle: document.getElementById("session-view-title"),
+  sessionViewCopy: document.getElementById("session-view-copy"),
+  sessionPreviewLabel: document.getElementById("session-preview-label"),
+  sessionFoundryState: document.getElementById("session-foundry-state"),
+  sessionFoundryNote: document.getElementById("session-foundry-note"),
+  sessionOcrState: document.getElementById("session-ocr-state"),
+  sessionOcrNote: document.getElementById("session-ocr-note"),
+  sessionCaptureState: document.getElementById("session-capture-state"),
+  footerSessionStatus: document.getElementById("footer-session-status"),
+  footerBackendStatus: document.getElementById("footer-backend-status"),
+  footerOcrStatus: document.getElementById("footer-ocr-status"),
   prepareButton: document.getElementById("prepare-button"),
   startButton: document.getElementById("start-button"),
   stopButton: document.getElementById("stop-button"),
+  windowMinimizeButton: document.getElementById("window-minimize-button"),
+  windowMaximizeButton: document.getElementById("window-maximize-button"),
+  windowCloseButton: document.getElementById("window-close-button"),
   saveState: document.getElementById("save-state"),
   overlayLink: document.getElementById("overlay-link"),
   searchForm: document.getElementById("search-form"),
@@ -75,6 +101,7 @@ const state = {
   activeLanguagePicker: null,
   ui: {
     settingsOpen: false,
+    manualView: null,
   },
   bootstrap: {
     ready: false,
@@ -206,6 +233,7 @@ function setSettingsDrawerOpen(open) {
   dom.settingsDrawer?.setAttribute("aria-hidden", String(!open));
   dom.settingsBackdrop?.classList.toggle("hidden", !open);
   document.body.classList.toggle("drawer-open", open);
+  scheduleRender();
 }
 
 function openSettingsDrawer() {
@@ -532,6 +560,7 @@ function renderFoundryStatus(status) {
     dom.foundryStatusChip.textContent = "Unknown";
     dom.foundryStatusChip.className = "status-chip error";
     dom.foundryStatusNote.textContent = "Could not load Foundry Local status.";
+    scheduleRender();
     return;
   }
 
@@ -558,6 +587,7 @@ function renderFoundryStatus(status) {
   dom.foundryStatusChip.textContent = labelMap[phase] || "Unknown";
   dom.foundryStatusChip.className = `status-chip ${classMap[phase] || "error"}`;
   dom.foundryStatusNote.textContent = status.notes || "Foundry Local status loaded.";
+  scheduleRender();
 }
 
 function languageLabel(code) {
@@ -667,6 +697,106 @@ function progressSummary(snapshot, selectedSource) {
   return "Search and choose subtitle files to begin.";
 }
 
+function navButtons() {
+  return Array.from(document.querySelectorAll("[data-view-target]"));
+}
+
+function availableShellView(snapshot) {
+  if (state.ui.settingsOpen) {
+    return "settings";
+  }
+  if (snapshot.status === "running" || snapshot.status === "preparing" || snapshot.status === "stopping" || snapshot.prepared_session) {
+    return "session";
+  }
+  if ((snapshot.search_matches || []).length || (snapshot.search_results || []).length) {
+    return "results";
+  }
+  return "dashboard";
+}
+
+function currentShellView(snapshot) {
+  if (state.ui.settingsOpen) {
+    return "settings";
+  }
+
+  const preferred = state.ui.manualView;
+  if (preferred === "dashboard") {
+    return "dashboard";
+  }
+  if (preferred === "results" && ((snapshot.search_matches || []).length || (snapshot.search_results || []).length)) {
+    return "results";
+  }
+  if (preferred === "session" && (snapshot.prepared_session || snapshot.status === "running" || snapshot.status === "preparing" || snapshot.status === "stopping")) {
+    return "session";
+  }
+  return availableShellView(snapshot);
+}
+
+function renderShellChrome(view, snapshot, selectedMatch, sourceLanguage, targetLanguage) {
+  dom.appShell?.setAttribute("data-view", view);
+  document.body?.setAttribute("data-view", view);
+  document.body.dataset.view = view;
+
+  for (const button of navButtons()) {
+    const target = button.dataset.viewTarget;
+    const active = target === view;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+
+  const resultsReady = Boolean((snapshot.search_matches || []).length || (snapshot.search_results || []).length);
+  const sessionReady = Boolean(snapshot.prepared_session || snapshot.status === "running" || snapshot.status === "preparing" || snapshot.status === "stopping");
+  for (const button of navButtons()) {
+    const target = button.dataset.viewTarget;
+    if (target === "results") {
+      button.disabled = !resultsReady && view !== "results";
+    } else if (target === "session") {
+      button.disabled = !sessionReady && view !== "session";
+    } else {
+      button.disabled = false;
+    }
+  }
+
+  if (view === "results") {
+    dom.heroEyebrow.textContent = "Search Results For";
+    dom.heroTitleMain.textContent = selectedMatch?.displayLabel || snapshot.title || "Search results ";
+    dom.heroTitleAccent.textContent = "ready";
+    dom.heroSubcopy.textContent = "Select source and target files to begin your synchronization session.";
+  } else if (view === "session") {
+    dom.heroEyebrow.textContent = "Session Status";
+    dom.heroTitleMain.textContent = "Session ";
+    dom.heroTitleAccent.textContent = snapshot.status === "running" ? "live" : "ready";
+    dom.heroSubcopy.textContent = sessionMessage(snapshot, selectedSourceResultId(snapshot), selectedTargetResultId(snapshot));
+  } else {
+    dom.heroEyebrow.textContent = "Console Mode";
+    dom.heroTitleMain.textContent = "What do you want to ";
+    dom.heroTitleAccent.textContent = "watch?";
+    dom.heroSubcopy.textContent = "Search by title first, pick the best subtitle pair, then prepare a session before starting live sync.";
+  }
+
+  dom.dashboardSummaryMatches.textContent = String((snapshot.search_matches || []).length);
+  dom.dashboardSummaryResults.textContent = String((snapshot.search_results || []).length);
+  dom.dashboardSummarySession.textContent = statusLabel(snapshot.status || "idle");
+
+  dom.resultsViewTitle.textContent = selectedMatch?.displayLabel || snapshot.title || "Search Results";
+  dom.resultsViewCopy.textContent =
+    dom.searchResultSummary?.textContent || "Select source and target files to begin your synchronization session.";
+  dom.resultsProviderPill.textContent = `${(selectedMatch?.providerCount || providerLabelsForMatch(selectedMatch).length || 0).toLocaleString()} providers ready`;
+
+  dom.sessionViewTitle.textContent = snapshot.status === "running" ? "Session Live" : "Session Ready";
+  dom.sessionViewCopy.textContent = sessionMessage(snapshot, selectedSourceResultId(snapshot), selectedTargetResultId(snapshot));
+  dom.sessionPreviewLabel.textContent = snapshot.prepared_session?.session_mode === "ocr_fallback" ? "OCR Fallback" : "Subtitle Pair";
+  dom.sessionFoundryState.textContent = dom.foundryStatusChip?.textContent || "Unchecked";
+  dom.sessionFoundryNote.textContent = dom.foundryStatusNote?.textContent || "Waiting for status probe.";
+  dom.sessionOcrState.textContent = dom.ocrLanguageDisplay?.textContent || "Follows source language";
+  dom.sessionOcrNote.textContent = dom.ocrLanguageNote?.textContent || "Capture language follows the selected source language.";
+  dom.sessionCaptureState.textContent = document.getElementById("capture-region-input")?.value?.trim() || "Not set";
+
+  dom.footerSessionStatus.textContent = `Session: ${statusLabel(snapshot.status || "idle")}`;
+  dom.footerBackendStatus.textContent = `Backend: ${state.bootstrap.ready ? "Connected" : "Starting"}`;
+  dom.footerOcrStatus.textContent = `OCR: ${dom.ocrLanguageDisplay?.textContent || "Follows source language"}`;
+}
+
 function regionToString(region) {
   return Array.isArray(region) ? region.join(",") : "";
 }
@@ -696,6 +826,12 @@ function applyStylePreview(overlay) {
   root.style.setProperty("--overlay-max-width", `${overlay.maxWidthVw}vw`);
   root.style.setProperty("--overlay-blur", `${overlay.blurPx}px`);
   root.style.setProperty("--overlay-shadow-strength", overlay.shadowStrength);
+  root.style.setProperty("--overlay-offset", `${overlay.offsetPct}%`);
+  root.style.setProperty("--overlay-animation-ms", `${overlay.animationMs}ms`);
+  const previewShell = document.getElementById("preview-shell");
+  if (previewShell) {
+    previewShell.dataset.position = overlay.position || "bottom";
+  }
 }
 
 function fillConfigForm(config) {
@@ -802,6 +938,7 @@ function updateDerivedOcrDisplay(ocrLanguage) {
     dom.ocrLanguageNote.textContent = "OCR follows the selected source language automatically.";
     dom.ocrInstallButton.classList.add("hidden");
     dom.ocrInstallButton.dataset.languageTag = "";
+    scheduleRender();
     return;
   }
 
@@ -812,12 +949,18 @@ function updateDerivedOcrDisplay(ocrLanguage) {
     : `${resolved} is not installed. Install the OCR pack or switch the source language.`;
   dom.ocrInstallButton.classList.remove("hidden");
   dom.ocrInstallButton.dataset.languageTag = resolved;
+  scheduleRender();
 }
 
 function setupTauriBridge() {
   if (!TAURI) {
+    dom.windowMinimizeButton?.classList.add("hidden");
+    dom.windowMaximizeButton?.classList.add("hidden");
+    dom.windowCloseButton?.classList.add("hidden");
     return;
   }
+
+  document.body.classList.add("tauri-shell");
   dom.selectRegionButton.classList.remove("hidden");
   dom.selectRegionButton.addEventListener("click", async () => {
     try {
@@ -833,6 +976,32 @@ function setupTauriBridge() {
     }
     document.getElementById("capture-region-input").value = `${region.x},${region.y},${region.width},${region.height}`;
     setSaveState("Capture area selected", "success");
+    renderShellChrome(currentShellView(state.snapshot || {}), state.snapshot || {}, null, currentLanguageValue(dom.sourceLanguageInput, dom.sourceLanguageCustomInput) || "en", currentLanguageValue(dom.targetLanguageInput, dom.targetLanguageCustomInput) || "zh");
+  });
+
+  dom.windowMinimizeButton?.addEventListener("click", async () => {
+    try {
+      await TAURI.core.invoke("minimize_main_window");
+    } catch (error) {
+      setSaveState(String(error), "error");
+    }
+  });
+
+  dom.windowMaximizeButton?.addEventListener("click", async () => {
+    try {
+      const maximized = await TAURI.core.invoke("toggle_main_window_maximize");
+      dom.windowMaximizeButton.dataset.maximized = String(Boolean(maximized));
+    } catch (error) {
+      setSaveState(String(error), "error");
+    }
+  });
+
+  dom.windowCloseButton?.addEventListener("click", async () => {
+    try {
+      await TAURI.core.invoke("close_main_window");
+    } catch (error) {
+      setSaveState(String(error), "error");
+    }
   });
 }
 
@@ -1079,7 +1248,33 @@ function renderSessionSummary(preparedSession) {
 
   dom.sessionBadge.textContent = preparedSession.session_id;
   dom.preparedSession.className = "session-summary";
-  const summary = createElement("dl");
+  const summary = createElement("div", { className: "session-summary-stack" });
+  const hero = createElement("div", { className: "session-summary-hero" });
+  hero.append(createElement("p", { className: "session-summary-label", text: preparedSession.title }));
+  hero.append(
+    createElement("h3", {
+      className: "session-summary-title",
+      text: preparedSession.session_mode === "ocr_fallback" ? "OCR Fallback Session" : "Subtitle Pair Ready",
+    }),
+  );
+  hero.append(
+    createElement("p", {
+      className: "session-summary-copy",
+      text:
+        preparedSession.session_mode === "ocr_fallback"
+          ? "Live OCR will translate on-screen text and align against a target file when possible."
+          : "The selected subtitle files are calibrated and ready for the next viewing run.",
+    }),
+  );
+  summary.append(hero);
+
+  const chips = createElement("div", { className: "session-summary-chip-row" });
+  chips.append(createElement("span", { className: "session-summary-chip", text: preparedSession.source_provider_label || preparedSession.sourceProviderLabel || "OCR source" }));
+  chips.append(createElement("span", { className: "session-summary-chip", text: preparedSession.target_provider_label || preparedSession.targetProviderLabel || "Local translation" }));
+  chips.append(createElement("span", { className: "session-summary-chip", text: preparedSession.session_id }));
+  summary.append(chips);
+
+  const grid = createElement("dl");
   const modeLabelMap = {
     subtitle_file: "Matched target subtitle",
     local_translation: "Local translation",
@@ -1108,9 +1303,10 @@ function renderSessionSummary(preparedSession) {
     ["Mode", modeLabelMap[preparedSession.target_match_mode] || "Matched target subtitle"],
   ];
   for (const [term, description] of rows) {
-    summary.append(createElement("dt", { text: term }));
-    summary.append(createElement("dd", { text: description }));
+    grid.append(createElement("dt", { text: term }));
+    grid.append(createElement("dd", { text: description }));
   }
+  summary.append(grid);
   dom.preparedSession.replaceChildren(summary);
 }
 
@@ -1152,6 +1348,9 @@ function render() {
   const fallbackSelected = sourceSelectionMode === "ocr_fallback" && !selectedSource;
   const progressIndeterminate = snapshot.status === "searching" || (progress.total === 0 && !!progress.message);
   const canPrepare = Boolean(selectedFeatureId) && (Boolean(selectedSource) || fallbackSelected);
+  const shellView = currentShellView(snapshot);
+
+  renderShellChrome(shellView, snapshot, selectedMatch, sourceLanguage, targetLanguage);
 
   dom.statusChip.textContent = statusLabel(snapshot.status || "idle");
   dom.statusChip.className = `status-chip ${snapshot.status || "idle"}`;
@@ -1171,6 +1370,7 @@ function render() {
     sourceSelectionMode,
     sourceLanguage,
   );
+  dom.resultsViewCopy.textContent = dom.searchResultSummary.textContent;
   dom.sourceResultCount.textContent = `${sourceResults.length} results`;
   dom.targetResultCount.textContent = `${targetResults.length} results`;
   renderSourceResults(dom.sourceResults, sourceResults, selectedSource, sourceLanguage, {
@@ -1184,6 +1384,10 @@ function render() {
   dom.startButton.disabled = !state.bootstrap.ready || !(snapshot.prepared_session && snapshot.status !== "running");
   dom.stopButton.disabled = !state.bootstrap.ready || (snapshot.status !== "running" && snapshot.status !== "stopping");
   dom.prepareButton.textContent = snapshot.prepared_session ? "Prepare Again" : fallbackSelected ? "Prepare OCR Fallback" : "Prepare Session";
+  if (dom.resultsPrepareButton) {
+    dom.resultsPrepareButton.disabled = dom.prepareButton.disabled;
+    dom.resultsPrepareButton.textContent = dom.prepareButton.textContent;
+  }
   dom.overlayLink.href = snapshot.overlay_url || apiUrl("/overlay");
 }
 
@@ -1341,6 +1545,34 @@ for (const button of [dom.settingsOpenButton, dom.settingsInlineButton]) {
 
 dom.settingsCloseButton?.addEventListener("click", closeSettingsDrawer);
 dom.settingsBackdrop?.addEventListener("click", closeSettingsDrawer);
+for (const button of navButtons()) {
+  button.addEventListener("click", () => {
+    if (!state.bootstrap.ready) {
+      return;
+    }
+    state.ui.manualView = button.dataset.viewTarget || null;
+    scheduleRender();
+  });
+}
+
+dom.resultsPrepareButton?.addEventListener("click", () => {
+  dom.prepareButton.click();
+});
+
+for (const button of navButtons()) {
+  button.addEventListener("click", () => {
+    const target = button.dataset.viewTarget;
+    if (!target) {
+      return;
+    }
+    if (target === "settings") {
+      openSettingsDrawer();
+      return;
+    }
+    state.ui.manualView = target;
+    scheduleRender();
+  });
+}
 
 dom.searchForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -1365,6 +1597,8 @@ dom.searchForm.addEventListener("submit", async (event) => {
       }),
     });
     if (state.snapshot) {
+      state.snapshot.status = "idle";
+      state.snapshot.progress = { stage: "", message: "", current: 0, total: 0 };
       state.snapshot.search_results = payload.results;
       state.snapshot.search_matches = payload.matches;
       state.snapshot.title = dom.titleInput.value.trim();
@@ -1378,11 +1612,16 @@ dom.searchForm.addEventListener("submit", async (event) => {
     state.selectedSourceFileId = null;
     state.selectedTargetFileId = null;
     state.sourceSelectionMode = null;
+    state.ui.manualView = "results";
     setSaveState("Results ready", "success");
     scheduleRender();
   } catch (error) {
     setSaveState(error.message, "error");
   }
+});
+
+dom.resultsPrepareButton?.addEventListener("click", () => {
+  dom.prepareButton.click();
 });
 
 dom.prepareButton.addEventListener("click", async () => {
@@ -1426,6 +1665,8 @@ dom.prepareButton.addEventListener("click", async () => {
       }),
     });
     if (state.snapshot) {
+      state.snapshot.status = "idle";
+      state.snapshot.progress = { stage: "", message: "", current: 0, total: 0 };
       state.snapshot.prepared_session = payload.session;
       state.snapshot.selected_match_id = featureId;
       state.snapshot.selected_feature_id = numericSelectionValue(featureId);
@@ -1434,6 +1675,7 @@ dom.prepareButton.addEventListener("click", async () => {
       state.snapshot.selected_target_result_id = selectedTargetResultId(state.snapshot);
       state.snapshot.selected_target_file_id = numericSelectionValue(selectedTargetResultId(state.snapshot));
     }
+    state.ui.manualView = "session";
     setSaveState("Session prepared", "success");
     scheduleRender();
   } catch (error) {
@@ -1464,6 +1706,7 @@ dom.startButton.addEventListener("click", async () => {
       await TAURI.core.invoke("show_capture_hud");
       await TAURI.core.invoke("hide_main_window");
     }
+    state.ui.manualView = "session";
     setSaveState("Sync running", "success");
   } catch (error) {
     setSaveState(error.message, "error");
@@ -1477,6 +1720,7 @@ dom.stopButton.addEventListener("click", async () => {
   try {
     setSaveState("Stopping session...", "busy");
     await fetchJson("/api/session/stop", { method: "POST" });
+    state.ui.manualView = "session";
     setSaveState("Session stopped", "success");
   } catch (error) {
     setSaveState(error.message, "error");

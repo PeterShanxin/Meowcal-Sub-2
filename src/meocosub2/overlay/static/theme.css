@@ -6,32 +6,23 @@
   color-scheme: dark;
   --display-font: "Aptos Display", "Segoe UI Variable Display", "Segoe UI", sans-serif;
   --body-font: "Aptos", "Segoe UI Variable Text", "Segoe UI", sans-serif;
-  --panel-bg: rgba(18, 25, 38, 0.58);
-  --panel-edge: rgba(255, 255, 255, 0.18);
-  --panel-shadow: 0 28px 80px rgba(0, 0, 0, 0.38);
-  --copy-main: #f7f5ef;
-  --copy-muted: rgba(247, 245, 239, 0.72);
-  --copy-subtle: rgba(247, 245, 239, 0.5);
-  --accent: #f2c78f;
-  --accent-cool: #85d4ff;
-  --success: #9ce0c0;
-  --danger: #ff8d91;
-  --bg-0: #070b12;
-  --bg-1: #0d1725;
-  --bg-2: #1a2231;
-  --field-bg: rgba(255, 255, 255, 0.06);
-  --field-border: rgba(255, 255, 255, 0.12);
-  --field-focus: rgba(242, 199, 143, 0.62);
+  --copy-main: #f6f1e8;
+  --copy-muted: rgba(246, 241, 232, 0.74);
+  --copy-subtle: rgba(246, 241, 232, 0.54);
+  --accent: #ffb743;
+  --accent-cool: #7faeff;
+  --success: #7ef2ad;
+  --danger: #ff9b9b;
 
   --overlay-font-size: 28px;
   --overlay-font-family: "Aptos", "Segoe UI Variable Text", "Segoe UI", sans-serif;
   --overlay-text-color: #ffffff;
-  --overlay-bg-color: rgba(12, 18, 29, 0.64);
-  --overlay-radius: 28px;
-  --overlay-padding: 20px;
+  --overlay-bg-color: rgba(8, 8, 12, 0.78);
+  --overlay-radius: 24px;
+  --overlay-padding: 18px;
   --overlay-max-width: 78vw;
-  --overlay-blur: 20px;
-  --overlay-shadow-strength: 0.45;
+  --overlay-blur: 18px;
+  --overlay-shadow-strength: 0.52;
   --overlay-offset: 10%;
   --overlay-animation-ms: 220ms;
 }
@@ -46,10 +37,6 @@ body {
 
 body {
   position: relative;
-  background:
-    radial-gradient(circle at top left, rgba(133, 212, 255, 0.12), transparent 28%),
-    radial-gradient(circle at 80% 18%, rgba(242, 199, 143, 0.16), transparent 26%),
-    linear-gradient(145deg, var(--bg-0), var(--bg-1) 48%, var(--bg-2));
 }
 
 button,

@@ -240,6 +240,15 @@ fn compute_hud_region(region: CaptureRegionState) -> HudRegionPayload {
     }
 }
 
+fn main_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
+    app.get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())
+}
+
+fn hide_window_to_tray(window: &tauri::WebviewWindow) -> Result<(), String> {
+    window.hide().map_err(|error| error.to_string())
+}
+
 fn configure_capture_hud(app: &AppHandle, shell: &ShellState) -> Result<(), String> {
     let region = *shell.capture_region.lock().map_err(|_| "capture region lock poisoned")?;
     let window = app
@@ -290,16 +299,38 @@ fn close_area_selector(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn hide_main_window(app: AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or("Main window not found")?;
-    window.hide().map_err(|error| error.to_string())
+    let window = main_window(&app)?;
+    hide_window_to_tray(&window)
 }
 
 #[tauri::command]
 fn show_main_window(app: AppHandle) -> Result<(), String> {
     show_main(&app);
     Ok(())
+}
+
+#[tauri::command]
+fn minimize_main_window(app: AppHandle) -> Result<(), String> {
+    let window = main_window(&app)?;
+    window.minimize().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn toggle_main_window_maximize(app: AppHandle) -> Result<bool, String> {
+    let window = main_window(&app)?;
+    let is_maximized = window.is_maximized().map_err(|error| error.to_string())?;
+    if is_maximized {
+        window.unmaximize().map_err(|error| error.to_string())?;
+    } else {
+        window.maximize().map_err(|error| error.to_string())?;
+    }
+    window.set_focus().map_err(|error| error.to_string())?;
+    Ok(!is_maximized)
+}
+
+#[tauri::command]
+fn close_main_window(app: AppHandle) -> Result<(), String> {
+    hide_main_window(app)
 }
 
 #[tauri::command]
@@ -410,7 +441,8 @@ fn set_capture_region(
 }
 
 fn show_main(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
+    if let Ok(window) = main_window(app) {
+        let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
     }
@@ -432,6 +464,9 @@ fn main() {
             close_area_selector,
             hide_main_window,
             show_main_window,
+            minimize_main_window,
+            toggle_main_window_maximize,
+            close_main_window,
             show_capture_hud,
             get_api_base,
             stop_translation,
@@ -501,8 +536,8 @@ fn main() {
                 main.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         api.prevent_close();
-                        if let Some(window) = app_handle.get_webview_window("main") {
-                            let _ = window.hide();
+                        if let Ok(window) = main_window(&app_handle) {
+                            let _ = hide_window_to_tray(&window);
                         }
                     }
                 });

@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Meowcal Sub 2</title>
   <link rel="stylesheet" href="theme.css">
-  <link rel="stylesheet" href="app.css?v=20260328-multi-source-studio">
+  <link rel="stylesheet" href="app.css?v=20260328-console-shell">
 </head>
-<body class="studio-body">
+<body class="studio-body" data-view="dashboard">
   <div id="loading-overlay" class="loading-overlay" role="alert" aria-live="assertive">
     <div class="loading-panel">
       <div id="loading-spinner" class="loading-spinner"></div>
@@ -16,163 +16,254 @@
       <button id="loading-retry" type="button" class="action-button primary hidden">Retry startup</button>
     </div>
   </div>
-  <div class="aurora aurora-one"></div>
-  <div class="aurora aurora-two"></div>
-  <div class="grain"></div>
+  <div class="ambient ambient-orbit"></div>
+  <div class="ambient ambient-fog"></div>
+  <div class="ambient ambient-grid"></div>
 
-  <main class="app-shell desktop-shell">
-    <div class="studio-frame">
-      <header class="studio-topbar">
-        <div class="brand-block compact">
-          <div class="brand-row">
-            <div class="brand-mark" aria-hidden="true">
-              <img src="shadow-cat-mark.svg" alt="">
-            </div>
-            <div class="brand-meta">
-              <p class="eyebrow">Guided Subtitle Studio</p>
-              <p class="brand-kicker">Meowcal Sub 2</p>
-            </div>
+  <main id="app-shell" class="app-shell">
+    <header class="window-chrome" data-tauri-drag-region>
+      <div class="window-brand">
+        <p class="window-kicker">Meowcal Sub 2</p>
+      </div>
+      <div class="window-tools">
+        <a id="overlay-link" class="panel-link chrome-link" href="/overlay" target="_blank" rel="noreferrer">Open Overlay</a>
+        <button id="window-minimize-button" type="button" class="window-button" aria-label="Minimize window"></button>
+        <button id="window-maximize-button" type="button" class="window-button" aria-label="Maximize or restore window"></button>
+        <button id="window-close-button" type="button" class="window-button window-button-close" aria-label="Close window"></button>
+      </div>
+    </header>
+
+    <section class="workspace-shell">
+      <aside class="sidebar-rail">
+        <div class="sidebar-brand">
+          <div class="sidebar-brand-mark" aria-hidden="true">
+            <img src="shadow-cat-mark.svg" alt="">
+          </div>
+          <div class="sidebar-brand-copy">
+            <p class="sidebar-brand-title">Meowcal</p>
+            <p class="sidebar-brand-subtitle">Studio</p>
           </div>
         </div>
-        <div class="topbar-actions">
-          <a id="overlay-link" class="panel-link topbar-link" href="/overlay" target="_blank" rel="noreferrer">Open Overlay</a>
-          <button id="settings-open-button" type="button" class="action-button subtle">Settings</button>
-        </div>
-      </header>
 
-      <section id="command-bar" class="hero-shell glass-panel">
-        <div class="hero-copy">
-          <p class="eyebrow">Start Here</p>
-          <h1>What do you want to watch?</h1>
-          <p class="subcopy">Search by title first, pick the best subtitle pair, then prepare a session before starting live sync. Advanced capture and overlay controls stay tucked away until you need them.</p>
-        </div>
+        <nav class="sidebar-nav" aria-label="Workspace">
+          <button id="nav-dashboard" type="button" class="nav-button" data-view-target="dashboard">
+            <span class="nav-icon nav-grid" aria-hidden="true"></span>
+            <span>Dashboard</span>
+          </button>
+          <button id="nav-results" type="button" class="nav-button" data-view-target="results">
+            <span class="nav-icon nav-history" aria-hidden="true"></span>
+            <span>Results</span>
+          </button>
+          <button id="nav-session" type="button" class="nav-button" data-view-target="session">
+            <span class="nav-icon nav-session" aria-hidden="true"></span>
+            <span>Session</span>
+          </button>
+          <button id="settings-open-button" type="button" class="nav-button nav-button-settings">
+            <span class="nav-icon nav-cog" aria-hidden="true"></span>
+            <span>Settings</span>
+          </button>
+        </nav>
+      </aside>
 
-        <form id="search-form" class="search-strip">
-          <label class="search-title-field">
-            <span>Show or movie</span>
-            <input id="title-input" name="title" type="text" placeholder="Enter show or movie title" required>
-          </label>
-          <div class="hero-language-row">
-            <div id="source-language-field" class="compact language-field">
-              <span>Source</span>
-              <button id="source-language-trigger" class="language-trigger" type="button" aria-haspopup="listbox" aria-controls="source-language-picker" aria-expanded="false">
-                <span class="language-trigger-text">Select source</span>
-              </button>
-              <div id="source-language-picker" class="language-picker hidden">
-                <p class="language-picker-label">Source language</p>
-                <div id="source-language-options" class="language-picker-options" role="listbox" aria-label="Source language options"></div>
+      <section class="workspace-main">
+        <div class="workspace-stage">
+          <section id="command-bar" class="view-panel dashboard-view">
+            <div class="section-header">
+              <p id="hero-eyebrow" class="eyebrow">Console Mode</p>
+            </div>
+
+            <div class="dashboard-hero">
+              <div class="hero-copy">
+                <h1><span id="hero-title-main">What do you want to </span><em id="hero-title-accent">watch?</em></h1>
+                <p id="hero-subcopy" class="subcopy">Search your title, match the best subtitle sources, and move straight into a broadcast-ready sync workspace without leaving the desktop shell.</p>
               </div>
-              <select id="source-language-input" class="native-language-select" name="sourceLanguage" tabindex="-1" aria-hidden="true"></select>
-              <input id="source-language-custom" name="sourceLanguageCustom" type="text" class="custom-language-input hidden" placeholder="Custom source code">
-            </div>
-            <div id="target-language-field" class="compact language-field">
-              <span>Target</span>
-              <button id="target-language-trigger" class="language-trigger" type="button" aria-haspopup="listbox" aria-controls="target-language-picker" aria-expanded="false">
-                <span class="language-trigger-text">Select target</span>
-              </button>
-              <div id="target-language-picker" class="language-picker hidden">
-                <p class="language-picker-label">Target language</p>
-                <div id="target-language-options" class="language-picker-options" role="listbox" aria-label="Target language options"></div>
-              </div>
-              <select id="target-language-input" class="native-language-select" name="targetLanguage" tabindex="-1" aria-hidden="true"></select>
-              <input id="target-language-custom" name="targetLanguageCustom" type="text" class="custom-language-input hidden" placeholder="Custom target code">
-            </div>
-          </div>
-          <div class="hero-submit-row">
-            <button id="search-submit-button" type="submit" class="action-button primary hero-submit">Find Subtitles</button>
-            <p class="hero-note">If no target subtitle fits, you can prepare the session with local translation later.</p>
-          </div>
-        </form>
-      </section>
 
-      <section id="status-strip" class="status-strip glass-panel">
-        <div class="status-main">
-          <div class="status-heading">
-            <p class="eyebrow">Session Bar</p>
-            <span id="status-chip" class="status-chip idle">Idle</span>
-          </div>
-          <div class="status-copy">
-            <strong id="progress-stage">Search for a title to begin</strong>
-            <span id="status-message" class="status-message">Ready for a title search.</span>
-          </div>
-          <div class="progress-track">
-            <div id="progress-fill" class="progress-fill"></div>
-          </div>
-          <div class="status-meta-row">
-            <span id="progress-meta" class="progress-meta">Search and choose subtitle files to begin.</span>
-            <button id="settings-inline-button" type="button" class="action-button ghost compact-action">Adjust Settings</button>
-          </div>
-        </div>
-        <div class="status-actions">
-          <button id="prepare-button" type="button" class="action-button">Prepare Session</button>
-          <button id="start-button" type="button" class="action-button primary">Start Sync</button>
-          <button id="stop-button" type="button" class="action-button ghost">Stop</button>
-        </div>
-      </section>
+              <form id="search-form" class="search-console">
+                <label class="search-title-field">
+                  <span>Search Database</span>
+                  <input id="title-input" name="title" type="text" placeholder="Enter movie or TV series title..." required>
+                </label>
 
-      <section class="main-grid">
-        <section class="workflow-panel glass-panel">
-          <div class="panel-header">
-            <div>
-              <p class="eyebrow">Choose Subtitles</p>
-              <h2>Search Results</h2>
-            </div>
-            <p class="panel-summary">Pick a source subtitle first. Then choose a target subtitle or keep local translation.</p>
-          </div>
+                <div class="hero-language-row">
+                  <div id="source-language-field" class="compact language-field">
+                    <span>Source language</span>
+                    <button id="source-language-trigger" class="language-trigger" type="button" aria-haspopup="listbox" aria-controls="source-language-picker" aria-expanded="false">
+                      <span class="language-trigger-text">Select source</span>
+                    </button>
+                    <div id="source-language-picker" class="language-picker hidden">
+                      <p class="language-picker-label">Source language</p>
+                      <div id="source-language-options" class="language-picker-options" role="listbox" aria-label="Source language options"></div>
+                    </div>
+                    <select id="source-language-input" class="native-language-select" name="sourceLanguage" tabindex="-1" aria-hidden="true"></select>
+                    <input id="source-language-custom" name="sourceLanguageCustom" type="text" class="custom-language-input hidden" placeholder="Custom source code">
+                  </div>
 
-          <section id="title-match-strip" class="title-match-strip">
-            <div class="column-header">
-              <h3>Matched Titles</h3>
-              <span id="title-match-count" class="muted-count">0 titles</span>
+                  <div id="target-language-field" class="compact language-field">
+                    <span>Target language</span>
+                    <button id="target-language-trigger" class="language-trigger" type="button" aria-haspopup="listbox" aria-controls="target-language-picker" aria-expanded="false">
+                      <span class="language-trigger-text">Select target</span>
+                    </button>
+                    <div id="target-language-picker" class="language-picker hidden">
+                      <p class="language-picker-label">Target language</p>
+                      <div id="target-language-options" class="language-picker-options" role="listbox" aria-label="Target language options"></div>
+                    </div>
+                    <select id="target-language-input" class="native-language-select" name="targetLanguage" tabindex="-1" aria-hidden="true"></select>
+                    <input id="target-language-custom" name="targetLanguageCustom" type="text" class="custom-language-input hidden" placeholder="Custom target code">
+                  </div>
+                </div>
+
+                <div class="hero-submit-row">
+                  <button id="search-submit-button" type="submit" class="action-button primary hero-submit">Find Subtitles</button>
+                  <p class="hero-note">If no target subtitle fits, you can still prepare the session with local translation or OCR fallback.</p>
+                </div>
+              </form>
             </div>
-            <div id="title-match-results" class="title-match-results empty-state">Search to load matched shows and movies.</div>
+
+            <div class="dashboard-stat-grid">
+              <article class="summary-card">
+                <p class="summary-label">Matched titles</p>
+                <p id="dashboard-summary-matches" class="summary-value">0</p>
+                <p class="summary-foot">Ready to scope across enabled providers.</p>
+              </article>
+              <article class="summary-card">
+                <p class="summary-label">Source results</p>
+                <p id="dashboard-summary-results" class="summary-value">0</p>
+                <p class="summary-foot">Merged subtitle candidates for the active title.</p>
+              </article>
+              <article class="summary-card">
+                <p class="summary-label">Session state</p>
+                <p id="dashboard-summary-session" class="summary-value summary-value-inline">Idle</p>
+                <p class="summary-foot">Preparing the workspace for your next sync run.</p>
+              </article>
+            </div>
           </section>
 
-          <p id="search-result-summary" class="search-result-summary">Pick a matched title first, then choose subtitles or OCR fallback.</p>
-
-          <div class="selection-grid">
-            <section class="result-column">
-              <div class="column-header">
-                <h3>Source Subtitle</h3>
-                <span id="source-result-count" class="muted-count">0 results</span>
+          <section id="status-strip" class="status-strip">
+            <div class="status-main">
+              <div class="status-heading">
+                <p class="eyebrow">Session Bar</p>
+                <span id="status-chip" class="status-chip idle">Idle</span>
               </div>
-              <div id="source-results" class="result-list empty-state">Search to load source subtitle candidates.</div>
-            </section>
-
-            <section class="result-column">
-              <div class="column-header">
-                <h3>Target Subtitle</h3>
-                <span id="target-result-count" class="muted-count">0 results</span>
+              <div class="status-copy">
+                <strong id="progress-stage">Search for a title to begin</strong>
+                <span id="status-message" class="status-message">Ready for a title search.</span>
               </div>
-              <div id="target-results" class="result-list empty-state">Choose a translated subtitle or leave it blank to use local translation.</div>
-            </section>
-          </div>
-        </section>
-
-        <section class="run-panel glass-panel">
-          <div class="panel-header">
-            <div>
-              <p class="eyebrow">Prepared Run</p>
-              <h2>Session Snapshot</h2>
+              <div class="progress-track">
+                <div id="progress-fill" class="progress-fill"></div>
+              </div>
             </div>
-            <span id="session-badge" class="muted-count">None</span>
-          </div>
-          <div id="prepared-session" class="session-summary empty-state">No session has been prepared yet.</div>
-          <div class="current-subtitle-block">
-            <p class="eyebrow">Latest Overlay Subtitle</p>
-            <p id="current-subtitle">No subtitle broadcast yet.</p>
-          </div>
-        </section>
+            <div class="status-side">
+              <span id="progress-meta" class="progress-meta">Search and choose subtitle files to begin.</span>
+              <button id="settings-inline-button" type="button" class="action-button ghost compact-action">Adjust Settings</button>
+            </div>
+          </section>
+
+          <section class="view-panel results-view">
+            <div class="view-hero">
+              <div>
+                <p class="eyebrow">Search Results</p>
+                <h2 id="results-view-title">Search Results</h2>
+                <p id="results-view-copy" class="view-copy">Select source and target files to begin your synchronization session.</p>
+              </div>
+              <div class="view-hero-actions">
+                <span id="results-provider-pill" class="info-pill">Provider-ready</span>
+                <button id="results-prepare-button" type="button" class="action-button primary action-button-quiet">Prepare Session</button>
+              </div>
+            </div>
+
+            <section id="title-match-strip" class="title-match-strip">
+              <div class="column-header">
+                <h3>Matched Titles</h3>
+                <span id="title-match-count" class="muted-count">0 titles</span>
+              </div>
+              <div id="title-match-results" class="title-match-results empty-state">Search to load matched shows and movies.</div>
+            </section>
+
+            <p id="search-result-summary" class="search-result-summary">Pick a matched title first, then choose subtitles or OCR fallback.</p>
+
+            <div class="selection-grid">
+              <section class="result-column">
+                <div class="column-header">
+                  <h3>Source Subtitles</h3>
+                  <span id="source-result-count" class="muted-count">0 results</span>
+                </div>
+                <div id="source-results" class="result-list empty-state">Search to load source subtitle candidates.</div>
+              </section>
+
+              <section class="result-column">
+                <div class="column-header">
+                  <h3>Target Subtitles</h3>
+                  <span id="target-result-count" class="muted-count">0 results</span>
+                </div>
+                <div id="target-results" class="result-list empty-state">Choose a translated subtitle or leave it blank to use local translation.</div>
+              </section>
+            </div>
+          </section>
+
+          <section class="view-panel session-view">
+            <div class="view-hero">
+              <div>
+                <p class="eyebrow">Live Workspace</p>
+                <h2 id="session-view-title">Session Ready</h2>
+                <p id="session-view-copy" class="view-copy">Everything is calibrated. Your workspace is optimized for real-time synchronization.</p>
+              </div>
+              <span id="session-badge" class="session-id-badge">None</span>
+            </div>
+
+            <div class="session-grid">
+              <section class="session-preview-panel">
+                <div class="panel-header">
+                  <div>
+                    <p class="eyebrow">Session Snapshot</p>
+                    <h3>Live Preview</h3>
+                  </div>
+                  <span id="session-preview-label" class="muted-count">Preview</span>
+                </div>
+
+                <div class="session-screen">
+                  <div class="session-screen-sheen"></div>
+                  <div class="session-screen-caption" id="current-subtitle">No subtitle broadcast yet.</div>
+                </div>
+
+                <div id="prepared-session" class="session-summary empty-state">No session has been prepared yet.</div>
+              </section>
+
+              <aside class="session-control-panel">
+                <button id="prepare-button" type="button" class="action-button secondary session-action">Prepare Session</button>
+                <button id="start-button" type="button" class="action-button primary session-action">Start Sync</button>
+                <button id="stop-button" type="button" class="action-button ghost session-action">Stop Session</button>
+
+                <div class="session-readiness">
+                  <article class="readiness-card">
+                    <p class="summary-label">Foundry Local</p>
+                    <p id="session-foundry-state" class="readiness-value">Unchecked</p>
+                    <p id="session-foundry-note" class="readiness-foot">Waiting for status probe.</p>
+                  </article>
+                  <article class="readiness-card">
+                    <p class="summary-label">OCR Engine</p>
+                    <p id="session-ocr-state" class="readiness-value">Follows source language</p>
+                    <p id="session-ocr-note" class="readiness-foot">Capture language follows the selected source language.</p>
+                  </article>
+                  <article class="readiness-card">
+                    <p class="summary-label">Capture Region</p>
+                    <p id="session-capture-state" class="readiness-value">Not set</p>
+                    <p class="readiness-foot">Select a capture region in settings or through the Tauri selector.</p>
+                  </article>
+                </div>
+              </aside>
+            </div>
+          </section>
+        </div>
       </section>
-    </div>
+    </section>
 
     <div id="settings-backdrop" class="settings-backdrop hidden"></div>
     <aside id="settings-drawer" class="settings-drawer" aria-hidden="true">
-      <div class="settings-drawer-panel glass-panel">
+      <div class="settings-drawer-panel">
         <div class="drawer-header">
           <div>
-            <p class="eyebrow">Advanced Setup</p>
-            <h2>Subtitle Sources, Capture & Overlay</h2>
+            <p class="eyebrow">Configuration</p>
+            <h2>Advanced Settings</h2>
           </div>
           <div class="drawer-actions">
             <span id="save-state" class="save-state" data-state="neutral" role="status" aria-live="polite">Unsaved changes</span>
@@ -266,7 +357,7 @@
           </div>
 
           <div class="field-group">
-            <h3>Capture</h3>
+            <h3>Capture & OCR</h3>
             <div class="field-grid">
               <div class="derived-field">
                 <span>OCR language</span>
@@ -349,12 +440,24 @@
             </div>
           </div>
 
-          <button type="submit" class="action-button primary full-width">Save Config</button>
+          <button type="submit" class="action-button primary full-width">Save Changes</button>
         </form>
       </div>
     </aside>
   </main>
 
-  <script src="app.js?v=20260328-multi-source-studio" type="module"></script>
+  <footer class="studio-footer">
+    <div class="footer-statuses">
+      <span id="footer-session-status" class="footer-status">Session: Idle</span>
+      <span id="footer-backend-status" class="footer-status">Backend: Connected</span>
+      <span id="footer-ocr-status" class="footer-status">OCR: Follows source language</span>
+    </div>
+    <div class="footer-links">
+      <span>Documentation</span>
+      <span>API Status</span>
+    </div>
+  </footer>
+
+  <script src="app.js?v=20260328-console-shell" type="module"></script>
 </body>
 </html>
