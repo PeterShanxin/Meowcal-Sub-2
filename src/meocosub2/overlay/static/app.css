@@ -1,5 +1,8 @@
 .studio-body {
   min-height: 100vh;
+  height: 100vh;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   overflow: hidden;
   background:
     radial-gradient(circle at top left, rgba(255, 183, 77, 0.18), transparent 24%),
@@ -46,9 +49,10 @@
 .app-shell {
   position: relative;
   z-index: 1;
-  min-height: calc(100vh - 54px);
+  min-height: 0;
+  height: 100%;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .window-chrome {
@@ -144,6 +148,7 @@
 
 .workspace-shell {
   min-height: 0;
+  height: 100%;
   display: grid;
   grid-template-columns: 128px minmax(0, 1fr);
 }
@@ -324,13 +329,15 @@
   min-width: 0;
   min-height: 0;
   padding: 26px 28px 20px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .workspace-stage {
   display: grid;
   gap: 22px;
   max-width: 1320px;
+  padding-bottom: 16px;
 }
 
 .section-header,

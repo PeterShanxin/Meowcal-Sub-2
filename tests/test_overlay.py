@@ -90,6 +90,7 @@ def test_dashboard_and_overlay_pages_served(tmp_path: Path) -> None:
     assert elements["search-result-summary"]["tag"] == "p"
     assert elements["results-prepare-button"]["tag"] == "button"
     assert elements["session-view-title"]["tag"] == "h2"
+    assert elements["session-select-region-button"]["tag"] == "button"
     assert elements["footer-session-status"]["tag"] == "span"
     assert elements["source-opensubtitles-enabled-input"]["tag"] == "input"
     assert elements["source-opensubtitles-api-key-input"]["tag"] == "input"
@@ -132,6 +133,8 @@ def test_dashboard_script_uses_blocking_bootstrap_without_custom_selects(tmp_pat
     assert 'TAURI.core.invoke("toggle_main_window_maximize")' in script.text
     assert "state.ui.manualView" in script.text
     assert "effectiveSourceResultId" in script.text
+    assert "currentTargetSelectionMode" in script.text
+    assert "openCaptureRegionSelector" in script.text
     assert "subtitleSources" in script.text
     assert "sourceResultId" in script.text
     assert "matchId" in script.text

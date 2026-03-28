@@ -55,6 +55,7 @@ const dom = {
   sessionOcrState: document.getElementById("session-ocr-state"),
   sessionOcrNote: document.getElementById("session-ocr-note"),
   sessionCaptureState: document.getElementById("session-capture-state"),
+  sessionSelectRegionButton: document.getElementById("session-select-region-button"),
   footerSessionStatus: document.getElementById("footer-session-status"),
   footerBackendStatus: document.getElementById("footer-backend-status"),
   footerOcrStatus: document.getElementById("footer-ocr-status"),
@@ -97,6 +98,7 @@ const state = {
   selectedSourceFileId: null,
   selectedTargetFileId: null,
   sourceSelectionMode: null,
+  targetSelectionMode: null,
   overlayWindow: null,
   activeLanguagePicker: null,
   ui: {
@@ -534,6 +536,33 @@ function effectiveSourceResultId(snapshot, sourceResults, featureId, sourceSelec
   return sourceResults.length ? resultSelectionId(sourceResults[0]) : null;
 }
 
+function currentTargetSelectionMode(snapshot) {
+  if (state.targetSelectionMode) {
+    return state.targetSelectionMode;
+  }
+  if (selectedTargetResultId(snapshot)) {
+    return "file";
+  }
+  if (snapshot?.prepared_session) {
+    return snapshot.prepared_session.target_match_mode === "subtitle_file" ? "file" : "local";
+  }
+  return null;
+}
+
+function hasCaptureRegion() {
+  const region = parseRegion(document.getElementById("capture-region-input")?.value || "");
+  return region.length === 4 && region[2] > 0 && region[3] > 0;
+}
+
+async function openCaptureRegionSelector() {
+  if (!TAURI) {
+    openSettingsDrawer();
+    document.getElementById("capture-region-input")?.focus();
+    return;
+  }
+  await TAURI.core.invoke("open_area_selector");
+}
+
 function syncCustomLanguageInput(selectEl, customInput) {
   customInput.classList.toggle("hidden", selectEl.value !== CUSTOM_LANGUAGE);
 }
@@ -624,6 +653,7 @@ function statusLabel(status) {
 }
 
 function sessionHeadline(snapshot, selectedSource, selectedTarget) {
+  const targetSelectionMode = currentTargetSelectionMode(snapshot);
   if (snapshot.status === "searching") {
     return snapshot.title ? `Finding subtitle sources for ${snapshot.title}` : "Finding subtitle matches";
   }
@@ -644,6 +674,9 @@ function sessionHeadline(snapshot, selectedSource, selectedTarget) {
       ? "OCR fallback session prepared. Start sync when playback begins."
       : "Session prepared. Start sync when the video is ready.";
   }
+  if (selectedSource && !targetSelectionMode) {
+    return "Choose a target subtitle or confirm local translation";
+  }
   if (selectedSource && selectedTarget != null) {
     return "Subtitle pair selected. Prepare the session next.";
   }
@@ -660,6 +693,7 @@ function sessionHeadline(snapshot, selectedSource, selectedTarget) {
 }
 
 function sessionMessage(snapshot, selectedSource, selectedTarget) {
+  const targetSelectionMode = currentTargetSelectionMode(snapshot);
   if (snapshot.error_message) {
     return snapshot.error_message;
   }
@@ -676,8 +710,8 @@ function sessionMessage(snapshot, selectedSource, selectedTarget) {
       ? "Foundry-backed OCR fallback is ready. Open the overlay and start sync when playback begins."
       : "Your subtitle files are ready. Open the overlay and start sync when playback begins.";
   }
-  if (selectedSource && selectedTarget == null) {
-    return "No target subtitle is selected yet. You can still prepare with local translation.";
+  if (selectedSource && !targetSelectionMode) {
+    return "Choose a target subtitle or click local translation to confirm the target step.";
   }
   if ((snapshot.search_matches || []).length) {
     return "Review the matched titles below. Provider badges show where each subtitle came from, and OCR fallback remains available.";
@@ -689,6 +723,7 @@ function sessionMessage(snapshot, selectedSource, selectedTarget) {
 }
 
 function progressSummary(snapshot, selectedSource) {
+  const targetSelectionMode = currentTargetSelectionMode(snapshot);
   if (snapshot.progress?.message) {
     return snapshot.progress.message;
   }
@@ -696,6 +731,9 @@ function progressSummary(snapshot, selectedSource) {
     return snapshot.prepared_session.session_mode === "ocr_fallback"
       ? "Prepared OCR fallback session will translate live OCR and optionally align against target subtitles."
       : "Prepared session is ready for the next viewing run.";
+  }
+  if (selectedSource && !targetSelectionMode) {
+    return "Confirm the target side before preparing the session.";
   }
   if (selectedSource) {
     return "Prepare the session once the subtitle choice looks right.";
@@ -796,7 +834,10 @@ function renderShellChrome(view, snapshot, selectedMatch, sourceLanguage, target
   dom.resultsProviderPill.textContent = `${(selectedMatch?.providerCount || providerLabelsForMatch(selectedMatch).length || 0).toLocaleString()} providers ready`;
 
   dom.sessionViewTitle.textContent = snapshot.status === "running" ? "Session Live" : "Session Ready";
-  dom.sessionViewCopy.textContent = sessionMessage(snapshot, selectedSourceResultId(snapshot), selectedTargetResultId(snapshot));
+  dom.sessionViewCopy.textContent =
+    snapshot.prepared_session && !hasCaptureRegion()
+      ? "Session prepared. Select the subtitle capture area next, then start sync."
+      : sessionMessage(snapshot, selectedSourceResultId(snapshot), selectedTargetResultId(snapshot));
   dom.sessionPreviewLabel.textContent = snapshot.prepared_session?.session_mode === "ocr_fallback" ? "OCR Fallback" : "Subtitle Pair";
   dom.sessionFoundryState.textContent = dom.foundryStatusChip?.textContent || "Unchecked";
   dom.sessionFoundryNote.textContent = dom.foundryStatusNote?.textContent || "Waiting for status probe.";
@@ -987,8 +1028,11 @@ function setupTauriBridge() {
       return;
     }
     document.getElementById("capture-region-input").value = `${region.x},${region.y},${region.width},${region.height}`;
-    setSaveState("Capture area selected", "success");
-    renderShellChrome(currentShellView(state.snapshot || {}), state.snapshot || {}, null, currentLanguageValue(dom.sourceLanguageInput, dom.sourceLanguageCustomInput) || "en", currentLanguageValue(dom.targetLanguageInput, dom.targetLanguageCustomInput) || "zh");
+    setSaveState(
+      state.snapshot?.prepared_session ? "Capture area selected. You can start sync now." : "Capture area selected",
+      "success",
+    );
+    scheduleRender();
   });
 
   dom.windowMinimizeButton?.addEventListener("click", async () => {
@@ -1141,6 +1185,7 @@ function renderTitleMatches(matches, selectedFeatureId) {
 }
 
 function buildSearchResultSummary(selectedMatch, sourceResults, targetResults, sourceSelectionMode, sourceLanguage) {
+  const targetSelectionMode = currentTargetSelectionMode(state.snapshot);
   if (!selectedMatch) {
     return "Pick a matched title first, then choose subtitles or OCR fallback.";
   }
@@ -1152,6 +1197,9 @@ function buildSearchResultSummary(selectedMatch, sourceResults, targetResults, s
   }
   if (!sourceResults.length) {
     return `${selectedMatch.displayLabel || selectedMatch.title} has no ${languageLabel(sourceLanguage)} source subtitle. Select OCR fallback to continue.`;
+  }
+  if (!targetSelectionMode) {
+    return `${selectedMatch.displayLabel || selectedMatch.title} is ready on the source side. Pick a target subtitle or click local translation to confirm the target step.`;
   }
   if (!targetResults.length) {
     return `${selectedMatch.displayLabel || selectedMatch.title} has ${sourceResults.length} source subtitle choices across enabled sources. Target can fall back to local translation.`;
@@ -1215,30 +1263,30 @@ function renderSourceResults(container, results, selectedId, requestedSourceLang
   );
 }
 
-function renderTargetResults(container, results, selectedId, sourceSelectionMode = "subtitle") {
+function renderTargetResults(container, results, selectedId, sourceSelectionMode = "subtitle", targetSelectionMode = null) {
   container.className = "result-list";
   container.replaceChildren(
     buildResultCard({
       resultId: "",
       kind: "local",
-      selected: selectedId == null,
+      selected: targetSelectionMode === "local",
       title: "Use local translation",
-      tag: "Fallback",
+      tag: targetSelectionMode === "local" ? "Confirmed" : "Fallback",
       badges: ["No target file"],
       fileText:
         sourceSelectionMode === "ocr_fallback"
           ? "Prepare the session by translating live OCR text directly into the target language."
           : "Prepare the session by translating the selected source subtitle locally.",
-      footText: "Best when no matching target subtitle looks trustworthy.",
+      footText: targetSelectionMode === "local" ? "Local translation confirmed for this session." : "Click to confirm local translation when no matching target subtitle looks trustworthy.",
     }),
     ...results.map((result, index) =>
       (() => {
         const providerLabel = providerLabelText(result);
         return buildResultCard({
           resultId: resultSelectionId(result),
-          selected: sameSelectionValue(resultSelectionId(result), selectedId),
+          selected: sameSelectionValue(resultSelectionId(result), selectedId) && targetSelectionMode === "file",
           title: result.displayLabel || result.title,
-          tag: index === 0 ? "Best match" : "",
+          tag: sameSelectionValue(resultSelectionId(result), selectedId) && targetSelectionMode === "file" ? "Selected" : index === 0 ? "Best match" : "",
           badges: providerLabel
             ? [{ text: providerLabel, className: providerBadgeClass(result.providerLabel || result.provider) }, languageLabel(result.language)]
             : [languageLabel(result.language)],
@@ -1357,9 +1405,12 @@ function render() {
   const sourceSelectionMode = currentSourceSelectionMode(snapshot, sourceResults, selectedFeatureId);
   const selectedSource = effectiveSourceResultId(snapshot, sourceResults, selectedFeatureId, sourceSelectionMode);
   const selectedTarget = selectedTargetResultId(snapshot);
+  const targetSelectionMode = currentTargetSelectionMode(snapshot);
   const fallbackSelected = sourceSelectionMode === "ocr_fallback" && !selectedSource;
   const progressIndeterminate = snapshot.status === "searching" || (progress.total === 0 && !!progress.message);
-  const canPrepare = Boolean(selectedFeatureId) && (Boolean(selectedSource) || fallbackSelected);
+  const targetConfirmed = Boolean(targetSelectionMode);
+  const captureRegionReady = hasCaptureRegion();
+  const canPrepare = Boolean(selectedFeatureId) && (Boolean(selectedSource) || fallbackSelected) && targetConfirmed;
   const shellView = currentShellView(snapshot);
 
   renderShellChrome(shellView, snapshot, selectedMatch, sourceLanguage, targetLanguage);
@@ -1389,16 +1440,20 @@ function render() {
     selectedMatch,
     sourceSelectionMode,
   });
-  renderTargetResults(dom.targetResults, targetResults, selectedTarget, sourceSelectionMode);
+  renderTargetResults(dom.targetResults, targetResults, selectedTarget, sourceSelectionMode, targetSelectionMode);
   renderSessionSummary(snapshot.prepared_session);
   dom.currentSubtitle.textContent = snapshot.last_subtitle || "No subtitle broadcast yet.";
   dom.prepareButton.disabled = !state.bootstrap.ready || !canPrepare;
-  dom.startButton.disabled = !state.bootstrap.ready || !(snapshot.prepared_session && snapshot.status !== "running");
+  dom.startButton.disabled = !state.bootstrap.ready || !captureRegionReady || !(snapshot.prepared_session && snapshot.status !== "running");
   dom.stopButton.disabled = !state.bootstrap.ready || (snapshot.status !== "running" && snapshot.status !== "stopping");
   dom.prepareButton.textContent = snapshot.prepared_session ? "Prepare Again" : fallbackSelected ? "Prepare OCR Fallback" : "Prepare Session";
   if (dom.resultsPrepareButton) {
     dom.resultsPrepareButton.disabled = dom.prepareButton.disabled;
     dom.resultsPrepareButton.textContent = dom.prepareButton.textContent;
+  }
+  if (dom.sessionSelectRegionButton) {
+    dom.sessionSelectRegionButton.classList.toggle("hidden", !TAURI && captureRegionReady);
+    dom.sessionSelectRegionButton.textContent = captureRegionReady ? "Update Capture Area" : "Select Capture Area";
   }
   dom.overlayLink.href = snapshot.overlay_url || apiUrl("/overlay");
 }
@@ -1413,6 +1468,7 @@ function bindResultSelection() {
     state.selectedSourceFileId = null;
     state.selectedTargetFileId = null;
     state.sourceSelectionMode = null;
+    state.targetSelectionMode = null;
     scheduleRender();
   });
 
@@ -1433,11 +1489,18 @@ function bindResultSelection() {
   });
 
   dom.targetResults.addEventListener("click", (event) => {
-    const card = event.target.closest("[data-result-id], [data-file-id]");
+    const card = event.target.closest("[data-kind], [data-result-id], [data-file-id]");
     if (!card) {
       return;
     }
+    if (card.dataset.kind === "local") {
+      state.selectedTargetFileId = null;
+      state.targetSelectionMode = "local";
+      scheduleRender();
+      return;
+    }
     state.selectedTargetFileId = selectionValue(card.dataset.resultId || card.dataset.fileId);
+    state.targetSelectionMode = "file";
     scheduleRender();
   });
 }
@@ -1455,6 +1518,10 @@ function connectSocket() {
       const localFeatureStillValid = matches.some((match) => sameSelectionValue(matchSelectionId(match), state.selectedFeatureId));
       if (!localFeatureStillValid) {
         state.selectedFeatureId = currentFeatureId(message.state) ?? matchSelectionId(matches[0]) ?? null;
+        state.selectedSourceFileId = null;
+        state.selectedTargetFileId = null;
+        state.sourceSelectionMode = null;
+        state.targetSelectionMode = null;
       }
     }
     if (message.type === "progress" && state.snapshot) {
@@ -1557,18 +1624,21 @@ for (const button of [dom.settingsOpenButton, dom.settingsInlineButton]) {
 
 dom.settingsCloseButton?.addEventListener("click", closeSettingsDrawer);
 dom.settingsBackdrop?.addEventListener("click", closeSettingsDrawer);
-for (const button of navButtons()) {
-  button.addEventListener("click", () => {
-    if (!state.bootstrap.ready) {
-      return;
-    }
-    state.ui.manualView = button.dataset.viewTarget || null;
-    scheduleRender();
-  });
-}
 
 dom.resultsPrepareButton?.addEventListener("click", () => {
   dom.prepareButton.click();
+});
+
+dom.sessionSelectRegionButton?.addEventListener("click", async () => {
+  if (!state.bootstrap.ready) {
+    return;
+  }
+  try {
+    setSaveState("Open the selector and drag around the subtitle band.", "busy");
+    await openCaptureRegionSelector();
+  } catch (error) {
+    setSaveState(String(error), "error");
+  }
 });
 
 for (const button of navButtons()) {
@@ -1624,6 +1694,7 @@ dom.searchForm.addEventListener("submit", async (event) => {
     state.selectedSourceFileId = null;
     state.selectedTargetFileId = null;
     state.sourceSelectionMode = null;
+    state.targetSelectionMode = null;
     state.ui.manualView = "results";
     setSaveState("Results ready", "success");
     scheduleRender();
@@ -1651,6 +1722,10 @@ dom.prepareButton.addEventListener("click", async () => {
   const mode = sourceFileId ? "subtitle_pair" : sourceSelectionMode === "ocr_fallback" ? "ocr_fallback" : "";
   if (!featureId) {
     setSaveState("Select a matched title first", "error");
+    return;
+  }
+  if (!currentTargetSelectionMode(state.snapshot)) {
+    setSaveState("Choose a target subtitle or confirm local translation first", "error");
     return;
   }
   if (!mode) {
@@ -1684,7 +1759,16 @@ dom.prepareButton.addEventListener("click", async () => {
       state.snapshot.selected_target_file_id = numericSelectionValue(selectedTargetResultId(state.snapshot));
     }
     state.ui.manualView = "session";
-    setSaveState("Session prepared", "success");
+    if (!hasCaptureRegion()) {
+      setSaveState("Session prepared. Select the capture area next.", "busy");
+      try {
+        await openCaptureRegionSelector();
+      } catch (selectorError) {
+        setSaveState(`Session prepared. ${String(selectorError)}`, "error");
+      }
+    } else {
+      setSaveState("Session prepared", "success");
+    }
     scheduleRender();
   } catch (error) {
     setSaveState(error.message, "error");
@@ -1698,6 +1782,10 @@ dom.startButton.addEventListener("click", async () => {
   const sessionId = state.snapshot?.prepared_session?.session_id;
   if (!sessionId) {
     setSaveState("Prepare a session before starting", "error");
+    return;
+  }
+  if (!hasCaptureRegion()) {
+    setSaveState("Select the capture area before starting sync", "error");
     return;
   }
 
