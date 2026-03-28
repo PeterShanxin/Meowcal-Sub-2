@@ -89,6 +89,8 @@ def test_dashboard_and_overlay_pages_served(tmp_path: Path) -> None:
     assert elements["title-match-results"]["tag"] == "div"
     assert elements["search-result-summary"]["tag"] == "p"
     assert elements["results-prepare-button"]["tag"] == "button"
+    assert elements["results-back-button"]["tag"] == "button"
+    assert elements["results-step-pill"]["tag"] == "span"
     assert elements["session-view-title"]["tag"] == "h2"
     assert elements["session-select-region-button"]["tag"] == "button"
     assert elements["footer-session-status"]["tag"] == "span"
@@ -132,9 +134,9 @@ def test_dashboard_script_uses_blocking_bootstrap_without_custom_selects(tmp_pat
     assert 'document.querySelectorAll("[data-view-target]")' in script.text
     assert 'TAURI.core.invoke("toggle_main_window_maximize")' in script.text
     assert "state.ui.manualView" in script.text
-    assert "effectiveSourceResultId" in script.text
     assert "currentTargetSelectionMode" in script.text
     assert "openCaptureRegionSelector" in script.text
+    assert "currentResultsStep" in script.text
     assert "subtitleSources" in script.text
     assert "sourceResultId" in script.text
     assert "matchId" in script.text
@@ -160,6 +162,8 @@ def test_dashboard_styles_use_inline_language_picker_layout(tmp_path: Path) -> N
     assert ".sidebar-rail {" in styles.text
     assert ".dashboard-hero {" in styles.text
     assert ".session-grid {" in styles.text
+    assert ".results-stage-shell" in styles.text
+    assert '#title-match-strip' in styles.text
     assert ".settings-drawer {" in styles.text
     assert ".result-card.selected" in styles.text
     assert ".source-provider-card" in styles.text

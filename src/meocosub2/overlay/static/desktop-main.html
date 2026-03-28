@@ -161,6 +161,10 @@
           <section class="view-panel results-view">
             <div class="view-hero">
               <div>
+                <div class="results-toolbar">
+                  <button id="results-back-button" type="button" class="action-button ghost compact-action hidden">Back</button>
+                  <span id="results-step-pill" class="info-pill">Step 1 · Match title</span>
+                </div>
                 <p class="eyebrow">Search Results</p>
                 <h2 id="results-view-title">Search Results</h2>
                 <p id="results-view-copy" class="view-copy">Select source and target files to begin your synchronization session.</p>
@@ -171,18 +175,18 @@
               </div>
             </div>
 
-            <section id="title-match-strip" class="title-match-strip">
-              <div class="column-header">
-                <h3>Matched Titles</h3>
-                <span id="title-match-count" class="muted-count">0 titles</span>
-              </div>
-              <div id="title-match-results" class="title-match-results empty-state">Search to load matched shows and movies.</div>
-            </section>
-
             <p id="search-result-summary" class="search-result-summary">Pick a matched title first, then choose subtitles or OCR fallback.</p>
 
-            <div class="selection-grid">
-              <section class="result-column">
+            <div class="results-stage-shell">
+              <section id="title-match-strip" class="title-match-strip results-stage-card">
+                <div class="column-header">
+                  <h3>Matched Titles</h3>
+                  <span id="title-match-count" class="muted-count">0 titles</span>
+                </div>
+                <div id="title-match-results" class="title-match-results empty-state">Search to load matched shows and movies.</div>
+              </section>
+
+              <section id="source-stage" class="result-column results-stage-card">
                 <div class="column-header">
                   <h3>Source Subtitles</h3>
                   <span id="source-result-count" class="muted-count">0 results</span>
@@ -190,7 +194,7 @@
                 <div id="source-results" class="result-list empty-state">Search to load source subtitle candidates.</div>
               </section>
 
-              <section class="result-column">
+              <section id="target-stage" class="result-column results-stage-card">
                 <div class="column-header">
                   <h3>Target Subtitles</h3>
                   <span id="target-result-count" class="muted-count">0 results</span>

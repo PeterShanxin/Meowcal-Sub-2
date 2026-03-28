@@ -329,15 +329,19 @@
   min-width: 0;
   min-height: 0;
   padding: 26px 28px 20px;
-  overflow-x: hidden;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .workspace-stage {
-  display: grid;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   gap: 22px;
   max-width: 1320px;
-  padding-bottom: 16px;
+  padding-bottom: 8px;
 }
 
 .section-header,
@@ -375,13 +379,13 @@
 .dashboard-view,
 .results-view,
 .session-view {
-  padding: 28px;
+  padding: 24px;
 }
 
 .dashboard-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.08fr) minmax(380px, 0.92fr);
-  gap: 28px;
+  gap: 22px;
   align-items: start;
 }
 
@@ -397,7 +401,7 @@
 
 .hero-copy h1 {
   max-width: 9ch;
-  font-size: clamp(3.4rem, 6vw, 5.8rem);
+  font-size: clamp(3rem, 5.2vw, 5rem);
   line-height: 0.94;
 }
 
@@ -430,7 +434,7 @@
 .search-console {
   display: grid;
   gap: 18px;
-  padding: 28px;
+  padding: 24px;
   border-radius: 28px;
   background: rgba(27, 25, 25, 0.9);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
@@ -480,12 +484,12 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 18px;
-  margin-top: 22px;
+  margin-top: 18px;
 }
 
 .summary-card,
 .readiness-card {
-  padding: 22px;
+  padding: 18px;
   border-radius: 24px;
   background: rgba(45, 41, 40, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -751,7 +755,7 @@ select:focus,
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 22px;
-  padding: 22px 26px;
+  padding: 18px 22px;
 }
 
 .status-main {
@@ -851,14 +855,36 @@ select:focus,
 .studio-body[data-view="dashboard"] .dashboard-view,
 .studio-body[data-view="results"] .results-view,
 .studio-body[data-view="session"] .session-view,
+.studio-body[data-view="settings"] .settings-drawer,
 .app-shell[data-view="dashboard"] .dashboard-view,
 .app-shell[data-view="results"] .results-view,
 .app-shell[data-view="session"] .session-view {
   display: block;
 }
 
+.results-view,
+.session-view {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.results-view {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.session-view {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.studio-body[data-view="results"] .results-view,
+.studio-body[data-view="session"] .session-view,
+.app-shell[data-view="results"] .results-view,
+.app-shell[data-view="session"] .session-view {
+  display: grid;
+}
+
 .view-hero {
-  margin-bottom: 22px;
+  margin-bottom: 16px;
 }
 
 .view-hero h2 {
@@ -872,6 +898,13 @@ select:focus,
   flex-wrap: wrap;
 }
 
+.results-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
 .info-pill {
   display: inline-flex;
   align-items: center;
@@ -883,27 +916,45 @@ select:focus,
   font-weight: 700;
 }
 
-.title-match-strip {
-  display: grid;
-  gap: 14px;
-  margin-bottom: 18px;
-}
-
-.selection-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 22px;
-}
-
+.results-stage-shell,
+.title-match-strip,
 .result-column {
+  min-height: 0;
+}
+
+.results-stage-shell {
   display: grid;
+  min-height: 0;
+}
+
+.results-stage-card {
+  display: none;
+  min-height: 0;
   gap: 12px;
+}
+
+.studio-body[data-results-step="title"] #title-match-strip,
+.app-shell[data-results-step="title"] #title-match-strip {
+  display: grid;
+}
+
+.studio-body[data-results-step="source"] #source-stage,
+.app-shell[data-results-step="source"] #source-stage {
+  display: grid;
+}
+
+.studio-body[data-results-step="target"] #target-stage,
+.app-shell[data-results-step="target"] #target-stage {
+  display: grid;
 }
 
 .result-list,
 .title-match-results {
   display: grid;
   gap: 14px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .empty-state {
@@ -1047,17 +1098,19 @@ select:focus,
   display: grid;
   grid-template-columns: minmax(0, 1.3fr) minmax(300px, 0.72fr);
   gap: 22px;
+  min-height: 0;
 }
 
 .session-preview-panel,
 .session-control-panel {
   display: grid;
   gap: 16px;
+  min-height: 0;
 }
 
 .session-screen {
   position: relative;
-  min-height: 320px;
+  min-height: 240px;
   overflow: hidden;
   border-radius: 28px;
   background:
@@ -1177,12 +1230,12 @@ select:focus,
 }
 
 .session-action {
-  min-height: 60px;
+  min-height: 54px;
 }
 
 .session-readiness {
   display: grid;
-  gap: 14px;
+  gap: 10px;
 }
 
 .settings-backdrop {
@@ -1207,6 +1260,21 @@ select:focus,
 
 .settings-drawer.is-open {
   transform: translateX(0);
+}
+
+.studio-body[data-view="settings"] .settings-backdrop,
+.app-shell[data-view="settings"] .settings-backdrop {
+  display: none !important;
+}
+
+.studio-body[data-view="settings"] .settings-drawer,
+.app-shell[data-view="settings"] .settings-drawer {
+  left: calc(128px + 28px);
+  right: 28px;
+  bottom: 54px;
+  width: auto;
+  padding: 0;
+  transform: none;
 }
 
 .settings-drawer-panel {

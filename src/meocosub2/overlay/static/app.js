@@ -45,8 +45,12 @@ const dom = {
   dashboardSummarySession: document.getElementById("dashboard-summary-session"),
   resultsViewTitle: document.getElementById("results-view-title"),
   resultsViewCopy: document.getElementById("results-view-copy"),
+  resultsBackButton: document.getElementById("results-back-button"),
+  resultsStepPill: document.getElementById("results-step-pill"),
   resultsProviderPill: document.getElementById("results-provider-pill"),
   resultsPrepareButton: document.getElementById("results-prepare-button"),
+  sourceStage: document.getElementById("source-stage"),
+  targetStage: document.getElementById("target-stage"),
   sessionViewTitle: document.getElementById("session-view-title"),
   sessionViewCopy: document.getElementById("session-view-copy"),
   sessionPreviewLabel: document.getElementById("session-preview-label"),
@@ -498,7 +502,6 @@ function currentFeatureId(snapshot) {
     state.selectedFeatureId ??
     selectionValue(snapshot?.selected_match_id) ??
     selectionValue(snapshot?.selected_feature_id) ??
-    matchSelectionId(snapshot?.search_matches?.[0]) ??
     null
   );
 }
@@ -518,22 +521,17 @@ function currentSourceSelectionMode(snapshot, sourceResults, featureId) {
   if (snapshot?.prepared_session?.session_mode) {
     return snapshot.prepared_session.session_mode === "ocr_fallback" ? "ocr_fallback" : "subtitle";
   }
-  if (featureId && sourceResults.length === 0 && (snapshot?.search_matches || []).length) {
-    return "ocr_fallback";
-  }
   return "subtitle";
 }
 
-function effectiveSourceResultId(snapshot, sourceResults, featureId, sourceSelectionMode = null) {
-  const explicitSelection = selectedSourceResultId(snapshot);
-  if (explicitSelection) {
-    return explicitSelection;
+function currentResultsStep(snapshot) {
+  if (!currentFeatureId(snapshot)) {
+    return "title";
   }
-  const mode = sourceSelectionMode || currentSourceSelectionMode(snapshot, sourceResults, featureId);
-  if (mode === "ocr_fallback") {
-    return null;
+  if (!selectedSourceResultId(snapshot) && currentSourceSelectionMode(snapshot, [], currentFeatureId(snapshot)) !== "ocr_fallback") {
+    return "source";
   }
-  return sourceResults.length ? resultSelectionId(sourceResults[0]) : null;
+  return "target";
 }
 
 function currentTargetSelectionMode(snapshot) {
@@ -827,11 +825,6 @@ function renderShellChrome(view, snapshot, selectedMatch, sourceLanguage, target
   dom.dashboardSummaryMatches.textContent = String((snapshot.search_matches || []).length);
   dom.dashboardSummaryResults.textContent = String((snapshot.search_results || []).length);
   dom.dashboardSummarySession.textContent = statusLabel(snapshot.status || "idle");
-
-  dom.resultsViewTitle.textContent = selectedMatch?.displayLabel || snapshot.title || "Search Results";
-  dom.resultsViewCopy.textContent =
-    dom.searchResultSummary?.textContent || "Select source and target files to begin your synchronization session.";
-  dom.resultsProviderPill.textContent = `${(selectedMatch?.providerCount || providerLabelsForMatch(selectedMatch).length || 0).toLocaleString()} providers ready`;
 
   dom.sessionViewTitle.textContent = snapshot.status === "running" ? "Session Live" : "Session Ready";
   dom.sessionViewCopy.textContent =
@@ -1403,17 +1396,20 @@ function render() {
   const progress = snapshot.progress || {};
   const progressRatio = progress.total ? Math.min(progress.current / progress.total, 1) : 0;
   const sourceSelectionMode = currentSourceSelectionMode(snapshot, sourceResults, selectedFeatureId);
-  const selectedSource = effectiveSourceResultId(snapshot, sourceResults, selectedFeatureId, sourceSelectionMode);
+  const selectedSource = selectedSourceResultId(snapshot);
   const selectedTarget = selectedTargetResultId(snapshot);
   const targetSelectionMode = currentTargetSelectionMode(snapshot);
   const fallbackSelected = sourceSelectionMode === "ocr_fallback" && !selectedSource;
   const progressIndeterminate = snapshot.status === "searching" || (progress.total === 0 && !!progress.message);
   const targetConfirmed = Boolean(targetSelectionMode);
   const captureRegionReady = hasCaptureRegion();
+  const resultsStep = currentResultsStep(snapshot);
   const canPrepare = Boolean(selectedFeatureId) && (Boolean(selectedSource) || fallbackSelected) && targetConfirmed;
   const shellView = currentShellView(snapshot);
 
   renderShellChrome(shellView, snapshot, selectedMatch, sourceLanguage, targetLanguage);
+  document.body.dataset.resultsStep = resultsStep;
+  dom.appShell?.setAttribute("data-results-step", resultsStep);
 
   dom.statusChip.textContent = statusLabel(snapshot.status || "idle");
   dom.statusChip.className = `status-chip ${snapshot.status || "idle"}`;
@@ -1433,7 +1429,30 @@ function render() {
     sourceSelectionMode,
     sourceLanguage,
   );
-  dom.resultsViewCopy.textContent = dom.searchResultSummary.textContent;
+  if (resultsStep === "title") {
+    dom.resultsViewTitle.textContent = snapshot.title ? `Matches For ${snapshot.title}` : "Choose a matched title";
+    dom.resultsViewCopy.textContent = "Pick the right title match first. After that the list will switch to source selection.";
+    dom.resultsProviderPill.textContent = `${searchMatches.length} title matches`;
+  } else if (resultsStep === "source") {
+    dom.resultsViewTitle.textContent = selectedMatch?.displayLabel || "Choose source subtitle";
+    dom.resultsViewCopy.textContent = "Select the source subtitle you want to sync against. If none fits, click OCR fallback.";
+    dom.resultsProviderPill.textContent = `${sourceResults.length} source choices`;
+  } else {
+    dom.resultsViewTitle.textContent = selectedMatch?.displayLabel || "Choose target subtitle";
+    dom.resultsViewCopy.textContent = "Choose a target subtitle, or click local translation to confirm that fallback and continue.";
+    dom.resultsProviderPill.textContent = `${Math.max(targetResults.length, 1)} target choices`;
+  }
+  if (dom.resultsStepPill) {
+    dom.resultsStepPill.textContent =
+      resultsStep === "title" ? "Step 1 · Match title" : resultsStep === "source" ? "Step 2 · Choose source" : "Step 3 · Choose target";
+  }
+  if (dom.resultsBackButton) {
+    dom.resultsBackButton.classList.toggle("hidden", resultsStep === "title");
+    dom.resultsBackButton.textContent = resultsStep === "target" ? "Back to source" : "Back to titles";
+  }
+  if (dom.resultsPrepareButton) {
+    dom.resultsPrepareButton.classList.toggle("hidden", resultsStep !== "target");
+  }
   dom.sourceResultCount.textContent = `${sourceResults.length} results`;
   dom.targetResultCount.textContent = `${targetResults.length} results`;
   renderSourceResults(dom.sourceResults, sourceResults, selectedSource, sourceLanguage, {
@@ -1465,6 +1484,10 @@ function bindResultSelection() {
       return;
     }
     state.selectedFeatureId = selectionValue(card.dataset.matchId || card.dataset.featureId);
+    if (state.snapshot) {
+      state.snapshot.selected_match_id = state.selectedFeatureId;
+      state.snapshot.selected_feature_id = numericSelectionValue(state.selectedFeatureId);
+    }
     state.selectedSourceFileId = null;
     state.selectedTargetFileId = null;
     state.sourceSelectionMode = null;
@@ -1480,11 +1503,15 @@ function bindResultSelection() {
     if (card.dataset.kind === "ocr-fallback") {
       state.selectedSourceFileId = null;
       state.sourceSelectionMode = "ocr_fallback";
+      state.selectedTargetFileId = null;
+      state.targetSelectionMode = null;
       scheduleRender();
       return;
     }
     state.selectedSourceFileId = selectionValue(card.dataset.resultId || card.dataset.fileId);
     state.sourceSelectionMode = "subtitle";
+    state.selectedTargetFileId = null;
+    state.targetSelectionMode = null;
     scheduleRender();
   });
 
@@ -1517,7 +1544,7 @@ function connectSocket() {
       const matches = message.state.search_matches || [];
       const localFeatureStillValid = matches.some((match) => sameSelectionValue(matchSelectionId(match), state.selectedFeatureId));
       if (!localFeatureStillValid) {
-        state.selectedFeatureId = currentFeatureId(message.state) ?? matchSelectionId(matches[0]) ?? null;
+        state.selectedFeatureId = currentFeatureId(message.state);
         state.selectedSourceFileId = null;
         state.selectedTargetFileId = null;
         state.sourceSelectionMode = null;
@@ -1629,6 +1656,28 @@ dom.resultsPrepareButton?.addEventListener("click", () => {
   dom.prepareButton.click();
 });
 
+dom.resultsBackButton?.addEventListener("click", () => {
+  if (!state.bootstrap.ready) {
+    return;
+  }
+  const step = currentResultsStep(state.snapshot || {});
+  if (step === "target") {
+    state.selectedTargetFileId = null;
+    state.targetSelectionMode = null;
+  } else {
+    state.selectedFeatureId = null;
+    if (state.snapshot) {
+      state.snapshot.selected_match_id = null;
+      state.snapshot.selected_feature_id = null;
+    }
+    state.selectedSourceFileId = null;
+    state.selectedTargetFileId = null;
+    state.sourceSelectionMode = null;
+    state.targetSelectionMode = null;
+  }
+  scheduleRender();
+});
+
 dom.sessionSelectRegionButton?.addEventListener("click", async () => {
   if (!state.bootstrap.ready) {
     return;
@@ -1686,11 +1735,11 @@ dom.searchForm.addEventListener("submit", async (event) => {
       state.snapshot.title = dom.titleInput.value.trim();
       state.snapshot.source_language = sourceLanguage;
       state.snapshot.target_language = targetLanguage;
-      state.snapshot.selected_match_id = matchSelectionId(payload.matches?.[0]);
-      state.snapshot.selected_feature_id = numericSelectionValue(matchSelectionId(payload.matches?.[0]));
+      state.snapshot.selected_match_id = null;
+      state.snapshot.selected_feature_id = null;
       state.snapshot.prepared_session = null;
     }
-    state.selectedFeatureId = matchSelectionId(payload.matches?.[0]);
+    state.selectedFeatureId = null;
     state.selectedSourceFileId = null;
     state.selectedTargetFileId = null;
     state.sourceSelectionMode = null;
@@ -1718,7 +1767,7 @@ dom.prepareButton.addEventListener("click", async () => {
     return isChineseFamily(sourceLanguage) && isChineseFamily(result.language);
   });
   const sourceSelectionMode = currentSourceSelectionMode(state.snapshot, sourceResults, featureId);
-  const sourceFileId = effectiveSourceResultId(state.snapshot, sourceResults, featureId, sourceSelectionMode);
+  const sourceFileId = selectedSourceResultId(state.snapshot);
   const mode = sourceFileId ? "subtitle_pair" : sourceSelectionMode === "ocr_fallback" ? "ocr_fallback" : "";
   if (!featureId) {
     setSaveState("Select a matched title first", "error");
