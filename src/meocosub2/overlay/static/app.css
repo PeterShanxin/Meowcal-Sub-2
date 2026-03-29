@@ -942,9 +942,9 @@ select:focus,
 }
 
 .results-summary-panel {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-  gap: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   padding: 22px;
 }
 
@@ -962,10 +962,9 @@ select:focus,
 
 .results-selection-summary {
   display: grid;
-  gap: 16px;
-  min-height: 0;
-  overflow: auto;
-  padding-right: 4px;
+  gap: 12px;
+  overflow: visible;
+  padding-right: 0;
   align-content: start;
 }
 
@@ -985,8 +984,8 @@ select:focus,
 
 .results-summary-keyline {
   display: grid;
-  gap: 10px;
-  padding: 18px;
+  gap: 8px;
+  padding: 14px 16px;
   border-radius: 22px;
   border: 1px solid rgba(255, 255, 255, 0.06);
   background: rgba(33, 30, 30, 0.72);
@@ -1019,6 +1018,7 @@ select:focus,
 
 .results-summary-actions {
   display: flex;
+  margin-top: auto;
 }
 
 .results-summary-actions .action-button {
@@ -1129,6 +1129,8 @@ select:focus,
   border-radius: 22px;
   cursor: default;
   pointer-events: none;
+  gap: 8px;
+  padding: 14px 16px;
 }
 
 .summary-preview-card * {
@@ -1137,6 +1139,10 @@ select:focus,
 
 .summary-preview-card-muted {
   opacity: 0.92;
+}
+
+.summary-preview-card .result-card-foot {
+  display: none;
 }
 
 .results-active-panel .result-list,

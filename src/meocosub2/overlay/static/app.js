@@ -109,6 +109,7 @@ const state = {
   ui: {
     settingsOpen: false,
     manualView: null,
+    resultsStepOverride: null,
   },
   bootstrap: {
     ready: false,
@@ -533,6 +534,17 @@ function currentResultsStep(snapshot) {
     return "source";
   }
   return "target";
+}
+
+function currentVisibleResultsStep(snapshot) {
+  const forcedStep = state.ui.resultsStepOverride;
+  if (forcedStep === "source" && currentFeatureId(snapshot)) {
+    return "source";
+  }
+  if (forcedStep === "title") {
+    return "title";
+  }
+  return currentResultsStep(snapshot);
 }
 
 function currentTargetSelectionMode(snapshot) {
@@ -1443,29 +1455,20 @@ function renderResultsSelectionSummary({
   }
 
   const sections = [];
-  let focusBadges;
-  let focusCopy;
-  if (resultsStep === "title") {
-    focusBadges = [`${searchMatches.length} title matches`, `${filteredResults.length} subtitle files`];
-    focusCopy = selectedMatch
-      ? "The right pane stays dedicated to scanning title matches. Confirm one there to scope the subtitle lists."
-      : "Scan the right pane for the best title match, then the workflow will switch into subtitle selection.";
-  } else if (resultsStep === "source") {
-    focusBadges = [`${sourceResults.length} source choices`, `${Math.max(targetResults.length, 1)} target choices`];
-    focusCopy = "Keep the left rail for context and use the right pane to compare source subtitle options without losing your place.";
-  } else {
-    focusBadges = [`${sourceResults.length} source choices`, `${Math.max(targetResults.length, 1)} target choices`];
-    focusCopy = "The target step stays list-first on the right while the left rail keeps the chosen title and source pairing visible.";
-  }
+  const overviewBadges =
+    resultsStep === "title"
+      ? [`${searchMatches.length} title matches`, `${filteredResults.length} subtitle files`]
+      : [`${sourceResults.length} source choices`, `${Math.max(targetResults.length, 1)} target choices`];
 
   sections.push(
-    buildResultsSummarySection(
-      "Search Focus",
-      buildResultsSummaryKeyline(
-        snapshot.title ? `Results for ${snapshot.title}` : "Subtitle workflow",
-        focusCopy,
-        focusBadges,
-      ),
+    buildResultsSummaryKeyline(
+      snapshot.title ? `Results for ${snapshot.title}` : "Subtitle workflow",
+      resultsStep === "title"
+        ? "Choose the best title on the right, then the workflow will move into subtitle selection."
+        : resultsStep === "source"
+          ? "Use the right pane to compare source subtitle files while this rail keeps the active context visible."
+          : "Review the target options on the right while the left rail keeps the selected title and source pairing in view.",
+      overviewBadges,
     ),
   );
 
@@ -1647,7 +1650,7 @@ function render() {
   const progressIndeterminate = snapshot.status === "searching" || (progress.total === 0 && !!progress.message);
   const targetConfirmed = Boolean(targetSelectionMode);
   const captureRegionReady = hasCaptureRegion();
-  const resultsStep = currentResultsStep(snapshot);
+  const resultsStep = currentVisibleResultsStep(snapshot);
   const canPrepare = Boolean(selectedFeatureId) && (Boolean(selectedSource) || fallbackSelected) && targetConfirmed;
   const shellView = currentShellView(snapshot);
 
@@ -1742,6 +1745,7 @@ function bindResultSelection() {
     if (!card) {
       return;
     }
+    state.ui.resultsStepOverride = null;
     state.selectedFeatureId = selectionValue(card.dataset.matchId || card.dataset.featureId);
     if (state.snapshot) {
       state.snapshot.selected_match_id = state.selectedFeatureId;
@@ -1759,6 +1763,7 @@ function bindResultSelection() {
     if (!card) {
       return;
     }
+    state.ui.resultsStepOverride = null;
     if (card.dataset.kind === "ocr-fallback") {
       state.selectedSourceFileId = null;
       state.sourceSelectionMode = "ocr_fallback";
@@ -1779,6 +1784,7 @@ function bindResultSelection() {
     if (!card) {
       return;
     }
+    state.ui.resultsStepOverride = null;
     if (card.dataset.kind === "local") {
       state.selectedTargetFileId = null;
       state.targetSelectionMode = "local";
@@ -1808,6 +1814,7 @@ function connectSocket() {
         state.selectedTargetFileId = null;
         state.sourceSelectionMode = null;
         state.targetSelectionMode = null;
+        state.ui.resultsStepOverride = null;
       }
     }
     if (message.type === "progress" && state.snapshot) {
@@ -1919,12 +1926,18 @@ dom.resultsBackButton?.addEventListener("click", () => {
   if (!state.bootstrap.ready) {
     return;
   }
-  const step = currentResultsStep(state.snapshot || {});
+  const step = currentVisibleResultsStep(state.snapshot || {});
   if (step === "target") {
     state.selectedTargetFileId = null;
     state.targetSelectionMode = null;
+    state.ui.resultsStepOverride = "source";
+    if (state.snapshot) {
+      state.snapshot.selected_target_result_id = null;
+      state.snapshot.selected_target_file_id = null;
+    }
   } else {
     state.selectedFeatureId = null;
+    state.ui.resultsStepOverride = null;
     if (state.snapshot) {
       state.snapshot.selected_match_id = null;
       state.snapshot.selected_feature_id = null;
@@ -2003,6 +2016,7 @@ dom.searchForm.addEventListener("submit", async (event) => {
     state.selectedTargetFileId = null;
     state.sourceSelectionMode = null;
     state.targetSelectionMode = null;
+    state.ui.resultsStepOverride = null;
     state.ui.manualView = "results";
     setSaveState("Results ready", "success");
     scheduleRender();
