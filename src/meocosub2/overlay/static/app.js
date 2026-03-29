@@ -29,6 +29,7 @@ const dom = {
   titleMatchResults: document.getElementById("title-match-results"),
   titleMatchCount: document.getElementById("title-match-count"),
   searchResultSummary: document.getElementById("search-result-summary"),
+  resultsSelectionSummary: document.getElementById("results-selection-summary"),
   sourceResults: document.getElementById("source-results"),
   targetResults: document.getElementById("target-results"),
   sourceResultCount: document.getElementById("source-result-count"),
@@ -1097,15 +1098,29 @@ function buildResultCard({
   badges = [],
   fileText,
   footText,
+  tagName = "button",
+  className = "",
+  attrs = {},
+  dataset = {},
 }) {
   const classes = ["result-card"];
+  if (className) {
+    classes.push(className);
+  }
+  if (tagName !== "button") {
+    classes.push("result-card-static");
+  }
   if (selected) {
     classes.push("selected");
   }
-  const card = createElement("button", {
+  const cardAttrs = { ...attrs };
+  if (tagName === "button") {
+    cardAttrs.type = cardAttrs.type || "button";
+  }
+  const card = createElement(tagName, {
     className: classes.join(" "),
-    attrs: { type: "button" },
-    dataset: { resultId, kind: kind || undefined },
+    attrs: cardAttrs,
+    dataset: { resultId, kind: kind || undefined, ...dataset },
   });
 
   const top = createElement("div", { className: "result-card-top" });
@@ -1127,20 +1142,35 @@ function buildResultCard({
     card.append(meta);
   }
 
-  card.append(createElement("p", { className: "result-card-file", text: fileText }));
-  card.append(createElement("p", { className: "result-card-foot", text: footText }));
+  if (fileText) {
+    card.append(createElement("p", { className: "result-card-file", text: fileText }));
+  }
+  if (footText) {
+    card.append(createElement("p", { className: "result-card-foot", text: footText }));
+  }
   return card;
 }
 
-function buildTitleMatchCard(match, selected = false) {
+function buildTitleMatchCard(match, selected = false, options = {}) {
+  const { tagName = "button", className = "", attrs = {}, dataset = {} } = options;
   const classes = ["title-match-card"];
+  if (className) {
+    classes.push(className);
+  }
+  if (tagName !== "button") {
+    classes.push("result-card-static");
+  }
   if (selected) {
     classes.push("selected");
   }
-  const card = createElement("button", {
+  const cardAttrs = { ...attrs };
+  if (tagName === "button") {
+    cardAttrs.type = cardAttrs.type || "button";
+  }
+  const card = createElement(tagName, {
     className: classes.join(" "),
-    attrs: { type: "button" },
-    dataset: { matchId: matchSelectionId(match) || match.id || "" },
+    attrs: cardAttrs,
+    dataset: { matchId: matchSelectionId(match) || match.id || "", ...dataset },
   });
   const top = createElement("div", { className: "result-card-top" });
   top.append(createElement("h4", { className: "result-card-title", text: match.displayLabel || match.title }));
@@ -1160,6 +1190,37 @@ function buildTitleMatchCard(match, selected = false) {
   card.append(meta);
   card.append(createElement("p", { className: "result-card-foot", text: "Use this title to scope source and target subtitle choices across enabled sources." }));
   return card;
+}
+
+function resultDownloadFootText(result) {
+  const providerLabel = providerLabelText(result);
+  return `${result.downloadCount.toLocaleString()} downloads${providerLabel ? ` via ${providerLabel}` : ""}`;
+}
+
+function sourceResultBadges(result, requestedSourceLanguage = "") {
+  const providerLabel = providerLabelText(result);
+  const badges = providerLabel
+    ? [{ text: providerLabel, className: providerBadgeClass(result.providerLabel || result.provider) }, languageLabel(result.language)]
+    : [languageLabel(result.language)];
+  if (normalizeLanguageCode(result.language) === normalizeLanguageCode(requestedSourceLanguage)) {
+    badges.push("Exact language");
+  }
+  if (
+    requestedSourceLanguage &&
+    normalizeLanguageCode(result.language) !== normalizeLanguageCode(requestedSourceLanguage) &&
+    isChineseFamily(requestedSourceLanguage) &&
+    isChineseFamily(result.language)
+  ) {
+    badges.push("Chinese-family fallback");
+  }
+  return badges;
+}
+
+function targetResultBadges(result) {
+  const providerLabel = providerLabelText(result);
+  return providerLabel
+    ? [{ text: providerLabel, className: providerBadgeClass(result.providerLabel || result.provider) }, languageLabel(result.language)]
+    : [languageLabel(result.language)];
 }
 
 function renderTitleMatches(matches, selectedFeatureId) {
@@ -1228,29 +1289,14 @@ function renderSourceResults(container, results, selectedId, requestedSourceLang
   container.className = "result-list";
   container.replaceChildren(
     ...results.map((result, index) => {
-      const providerLabel = providerLabelText(result);
-      const badges = providerLabel
-        ? [{ text: providerLabel, className: providerBadgeClass(result.providerLabel || result.provider) }, languageLabel(result.language)]
-        : [languageLabel(result.language)];
-      if (normalizeLanguageCode(result.language) === normalizeLanguageCode(requestedSourceLanguage)) {
-        badges.push("Exact language");
-      }
-      if (
-        requestedSourceLanguage &&
-        normalizeLanguageCode(result.language) !== normalizeLanguageCode(requestedSourceLanguage) &&
-        isChineseFamily(requestedSourceLanguage) &&
-        isChineseFamily(result.language)
-      ) {
-        badges.push("Chinese-family fallback");
-      }
       return buildResultCard({
         resultId: resultSelectionId(result),
         selected: sameSelectionValue(resultSelectionId(result), selectedId) && sourceSelectionMode !== "ocr_fallback",
         title: result.displayLabel || result.title,
         tag: index === 0 ? "Recommended" : "",
-        badges,
+        badges: sourceResultBadges(result, requestedSourceLanguage),
         fileText: result.fileName,
-        footText: `${result.downloadCount.toLocaleString()} downloads${providerLabel ? ` via ${providerLabel}` : ""}`,
+        footText: resultDownloadFootText(result),
       });
     }),
   );
@@ -1274,21 +1320,217 @@ function renderTargetResults(container, results, selectedId, sourceSelectionMode
     }),
     ...results.map((result, index) =>
       (() => {
-        const providerLabel = providerLabelText(result);
         return buildResultCard({
           resultId: resultSelectionId(result),
           selected: sameSelectionValue(resultSelectionId(result), selectedId) && targetSelectionMode === "file",
           title: result.displayLabel || result.title,
           tag: sameSelectionValue(resultSelectionId(result), selectedId) && targetSelectionMode === "file" ? "Selected" : index === 0 ? "Best match" : "",
-          badges: providerLabel
-            ? [{ text: providerLabel, className: providerBadgeClass(result.providerLabel || result.provider) }, languageLabel(result.language)]
-            : [languageLabel(result.language)],
+          badges: targetResultBadges(result),
           fileText: result.fileName,
-          footText: `${result.downloadCount.toLocaleString()} downloads${providerLabel ? ` via ${providerLabel}` : ""}`,
+          footText: resultDownloadFootText(result),
         });
       })(),
     ),
   );
+}
+
+function buildResultsSummarySection(label, ...children) {
+  const section = createElement("section", { className: "results-summary-section" });
+  section.append(createElement("p", { className: "results-summary-label", text: label }));
+  section.append(...children.filter(Boolean));
+  return section;
+}
+
+function buildResultsSummaryKeyline(title, copy, badges = []) {
+  const wrapper = createElement("div", { className: "results-summary-keyline" });
+  wrapper.append(createElement("h3", { className: "results-summary-keyline-title", text: title }));
+  wrapper.append(createElement("p", { className: "results-summary-keyline-copy", text: copy }));
+  if (badges.length) {
+    const badgeRow = createElement("div", { className: "results-summary-badges" });
+    for (const badge of badges) {
+      appendBadge(badgeRow, badge, "result-badge results-summary-badge");
+    }
+    wrapper.append(badgeRow);
+  }
+  return wrapper;
+}
+
+function buildPendingSelectionCard(title, fileText, footText, badges = []) {
+  return buildResultCard({
+    tagName: "article",
+    className: "summary-preview-card summary-preview-card-muted",
+    title,
+    tag: "Pending",
+    badges,
+    fileText,
+    footText,
+  });
+}
+
+function buildStaticTitleMatchPreview(match) {
+  return buildTitleMatchCard(match, true, {
+    tagName: "article",
+    className: "summary-preview-card",
+  });
+}
+
+function buildStaticSourcePreview(result, requestedSourceLanguage) {
+  return buildResultCard({
+    tagName: "article",
+    className: "summary-preview-card",
+    resultId: resultSelectionId(result),
+    selected: true,
+    title: result.displayLabel || result.title,
+    tag: "Selected",
+    badges: sourceResultBadges(result, requestedSourceLanguage),
+    fileText: result.fileName,
+    footText: resultDownloadFootText(result),
+  });
+}
+
+function buildStaticTargetPreview(result) {
+  return buildResultCard({
+    tagName: "article",
+    className: "summary-preview-card",
+    resultId: resultSelectionId(result),
+    selected: true,
+    title: result.displayLabel || result.title,
+    tag: "Selected",
+    badges: targetResultBadges(result),
+    fileText: result.fileName,
+    footText: resultDownloadFootText(result),
+  });
+}
+
+function buildStaticFallbackPreview(title, tag, badges, fileText, footText, kind = "") {
+  return buildResultCard({
+    tagName: "article",
+    className: "summary-preview-card",
+    selected: true,
+    kind,
+    title,
+    tag,
+    badges,
+    fileText,
+    footText,
+  });
+}
+
+function renderResultsSelectionSummary({
+  snapshot,
+  resultsStep,
+  selectedMatch,
+  selectedSourceResult,
+  selectedTargetResult,
+  searchMatches,
+  filteredResults,
+  sourceResults,
+  targetResults,
+  sourceSelectionMode,
+  targetSelectionMode,
+  sourceLanguage,
+  targetLanguage,
+}) {
+  if (!dom.resultsSelectionSummary) {
+    return;
+  }
+
+  const hasSearchState = Boolean(snapshot.title || searchMatches.length || filteredResults.length);
+  if (!hasSearchState) {
+    dom.resultsSelectionSummary.className = "results-selection-summary empty-state";
+    dom.resultsSelectionSummary.textContent = "Search to review the active title and subtitle choices.";
+    return;
+  }
+
+  const sections = [];
+  let focusBadges;
+  let focusCopy;
+  if (resultsStep === "title") {
+    focusBadges = [`${searchMatches.length} title matches`, `${filteredResults.length} subtitle files`];
+    focusCopy = selectedMatch
+      ? "The right pane stays dedicated to scanning title matches. Confirm one there to scope the subtitle lists."
+      : "Scan the right pane for the best title match, then the workflow will switch into subtitle selection.";
+  } else if (resultsStep === "source") {
+    focusBadges = [`${sourceResults.length} source choices`, `${Math.max(targetResults.length, 1)} target choices`];
+    focusCopy = "Keep the left rail for context and use the right pane to compare source subtitle options without losing your place.";
+  } else {
+    focusBadges = [`${sourceResults.length} source choices`, `${Math.max(targetResults.length, 1)} target choices`];
+    focusCopy = "The target step stays list-first on the right while the left rail keeps the chosen title and source pairing visible.";
+  }
+
+  sections.push(
+    buildResultsSummarySection(
+      "Search Focus",
+      buildResultsSummaryKeyline(
+        snapshot.title ? `Results for ${snapshot.title}` : "Subtitle workflow",
+        focusCopy,
+        focusBadges,
+      ),
+    ),
+  );
+
+  sections.push(
+    buildResultsSummarySection(
+      "Selected Title",
+      selectedMatch
+        ? buildStaticTitleMatchPreview(selectedMatch)
+        : buildPendingSelectionCard(
+            "Pick a matched title",
+            searchMatches.length
+              ? "Choose the best title on the right to scope the source and target subtitle lists."
+              : "Run a title search from the dashboard to load matched titles here.",
+            "Once a title is selected, the results view will switch to source subtitle selection.",
+            [searchMatches.length ? `${searchMatches.length} options ready` : "No matches yet"],
+          ),
+    ),
+  );
+
+  if (resultsStep !== "title") {
+    const sourcePreview = selectedSourceResult
+      ? buildStaticSourcePreview(selectedSourceResult, sourceLanguage)
+      : sourceSelectionMode === "ocr_fallback"
+        ? buildStaticFallbackPreview(
+            "OCR source fallback",
+            "Fallback",
+            [languageLabel(sourceLanguage), "No source file"],
+            "Live OCR will feed the source side for this session because no subtitle file is selected.",
+            "You can still align the session against a target subtitle or use local translation next.",
+            "ocr-fallback",
+          )
+        : buildPendingSelectionCard(
+            "Choose a source subtitle",
+            "Use the right pane to compare source subtitle files, or switch to OCR fallback if none fits.",
+            "The current title stays pinned here so you can keep scanning the list without losing context.",
+            [languageLabel(sourceLanguage)],
+          );
+    sections.push(buildResultsSummarySection("Source Choice", sourcePreview));
+  }
+
+  if (resultsStep === "target") {
+    const targetPreview = selectedTargetResult
+      ? buildStaticTargetPreview(selectedTargetResult)
+      : targetSelectionMode === "local"
+        ? buildStaticFallbackPreview(
+            "Local translation",
+            "Confirmed",
+            [languageLabel(targetLanguage), "No target file"],
+            sourceSelectionMode === "ocr_fallback"
+              ? "Live OCR text will translate directly into the target language during the session."
+              : "The selected source subtitle will be translated locally for the target side.",
+            "You can prepare the session now or keep reviewing target subtitle files on the right.",
+            "local",
+          )
+        : buildPendingSelectionCard(
+            "Choose a target subtitle",
+            "Compare translated subtitle files on the right, or confirm local translation if you want the fallback path.",
+            "The prepare action will unlock after the target side is confirmed.",
+            [languageLabel(targetLanguage)],
+          );
+    sections.push(buildResultsSummarySection("Target Choice", targetPreview));
+  }
+
+  dom.resultsSelectionSummary.className = "results-selection-summary";
+  dom.resultsSelectionSummary.replaceChildren(...sections);
 }
 
 function renderSessionSummary(preparedSession) {
@@ -1399,6 +1641,8 @@ function render() {
   const selectedSource = selectedSourceResultId(snapshot);
   const selectedTarget = selectedTargetResultId(snapshot);
   const targetSelectionMode = currentTargetSelectionMode(snapshot);
+  const selectedSourceResult = filteredResults.find((result) => sameSelectionValue(resultSelectionId(result), selectedSource)) || null;
+  const selectedTargetResult = filteredResults.find((result) => sameSelectionValue(resultSelectionId(result), selectedTarget)) || null;
   const fallbackSelected = sourceSelectionMode === "ocr_fallback" && !selectedSource;
   const progressIndeterminate = snapshot.status === "searching" || (progress.total === 0 && !!progress.message);
   const targetConfirmed = Boolean(targetSelectionMode);
@@ -1453,6 +1697,21 @@ function render() {
   if (dom.resultsPrepareButton) {
     dom.resultsPrepareButton.classList.toggle("hidden", resultsStep !== "target");
   }
+  renderResultsSelectionSummary({
+    snapshot,
+    resultsStep,
+    selectedMatch,
+    selectedSourceResult,
+    selectedTargetResult,
+    searchMatches,
+    filteredResults,
+    sourceResults,
+    targetResults,
+    sourceSelectionMode,
+    targetSelectionMode,
+    sourceLanguage,
+    targetLanguage,
+  });
   dom.sourceResultCount.textContent = `${sourceResults.length} results`;
   dom.targetResultCount.textContent = `${targetResults.length} results`;
   renderSourceResults(dom.sourceResults, sourceResults, selectedSource, sourceLanguage, {

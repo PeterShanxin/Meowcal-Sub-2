@@ -159,47 +159,59 @@
           </section>
 
           <section class="view-panel results-view">
-            <div class="view-hero">
-              <div>
-                <div class="results-toolbar">
-                  <button id="results-back-button" type="button" class="action-button ghost compact-action hidden">Back</button>
-                  <span id="results-step-pill" class="info-pill">Step 1 · Match title</span>
+            <div class="results-split-layout">
+              <aside class="results-summary-panel">
+                <div class="view-hero results-summary-hero">
+                  <div>
+                    <p class="eyebrow">Search Results</p>
+                    <h2 id="results-view-title">Search Results</h2>
+                    <p id="results-view-copy" class="view-copy">Select source and target files to begin your synchronization session.</p>
+                  </div>
                 </div>
-                <p class="eyebrow">Search Results</p>
-                <h2 id="results-view-title">Search Results</h2>
-                <p id="results-view-copy" class="view-copy">Select source and target files to begin your synchronization session.</p>
-              </div>
-              <div class="view-hero-actions">
-                <span id="results-provider-pill" class="info-pill">Provider-ready</span>
-                <button id="results-prepare-button" type="button" class="action-button primary action-button-quiet">Prepare Session</button>
-              </div>
-            </div>
 
-            <p id="search-result-summary" class="search-result-summary">Pick a matched title first, then choose subtitles or OCR fallback.</p>
+                <p id="search-result-summary" class="search-result-summary">Pick a matched title first, then choose subtitles or OCR fallback.</p>
 
-            <div class="results-stage-shell">
-              <section id="title-match-strip" class="title-match-strip results-stage-card">
-                <div class="column-header">
-                  <h3>Matched Titles</h3>
-                  <span id="title-match-count" class="muted-count">0 titles</span>
+                <div id="results-selection-summary" class="results-selection-summary empty-state">Search to review the active title and subtitle choices.</div>
+
+                <div class="results-summary-actions">
+                  <button id="results-prepare-button" type="button" class="action-button primary action-button-quiet">Prepare Session</button>
                 </div>
-                <div id="title-match-results" class="title-match-results empty-state">Search to load matched shows and movies.</div>
-              </section>
+              </aside>
 
-              <section id="source-stage" class="result-column results-stage-card">
-                <div class="column-header">
-                  <h3>Source Subtitles</h3>
-                  <span id="source-result-count" class="muted-count">0 results</span>
+              <section class="results-active-panel">
+                <div class="results-active-header">
+                  <div class="results-toolbar">
+                    <button id="results-back-button" type="button" class="action-button ghost compact-action hidden">Back</button>
+                    <span id="results-step-pill" class="info-pill">Step 1 · Match title</span>
+                  </div>
+                  <span id="results-provider-pill" class="info-pill">Provider-ready</span>
                 </div>
-                <div id="source-results" class="result-list empty-state">Search to load source subtitle candidates.</div>
-              </section>
 
-              <section id="target-stage" class="result-column results-stage-card">
-                <div class="column-header">
-                  <h3>Target Subtitles</h3>
-                  <span id="target-result-count" class="muted-count">0 results</span>
+                <div class="results-stage-shell">
+                  <section id="title-match-strip" class="title-match-strip results-stage-card">
+                    <div class="column-header">
+                      <h3>Matched Titles</h3>
+                      <span id="title-match-count" class="muted-count">0 titles</span>
+                    </div>
+                    <div id="title-match-results" class="title-match-results empty-state">Search to load matched shows and movies.</div>
+                  </section>
+
+                  <section id="source-stage" class="result-column results-stage-card">
+                    <div class="column-header">
+                      <h3>Source Subtitles</h3>
+                      <span id="source-result-count" class="muted-count">0 results</span>
+                    </div>
+                    <div id="source-results" class="result-list empty-state">Search to load source subtitle candidates.</div>
+                  </section>
+
+                  <section id="target-stage" class="result-column results-stage-card">
+                    <div class="column-header">
+                      <h3>Target Subtitles</h3>
+                      <span id="target-result-count" class="muted-count">0 results</span>
+                    </div>
+                    <div id="target-results" class="result-list empty-state">Choose a translated subtitle or leave it blank to use local translation.</div>
+                  </section>
                 </div>
-                <div id="target-results" class="result-list empty-state">Choose a translated subtitle or leave it blank to use local translation.</div>
               </section>
             </div>
           </section>

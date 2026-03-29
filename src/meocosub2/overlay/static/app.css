@@ -869,7 +869,8 @@ select:focus,
 }
 
 .results-view {
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
 }
 
 .session-view {
@@ -902,7 +903,6 @@ select:focus,
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 10px;
 }
 
 .info-pill {
@@ -916,19 +916,140 @@ select:focus,
   font-weight: 700;
 }
 
+.results-split-layout,
 .results-stage-shell,
 .title-match-strip,
 .result-column {
   min-height: 0;
 }
 
+.results-split-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  gap: 22px;
+  min-height: 0;
+  height: 100%;
+}
+
+.results-summary-panel,
+.results-active-panel {
+  min-height: 0;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 24%),
+    rgba(18, 16, 16, 0.78);
+}
+
+.results-summary-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 16px;
+  padding: 22px;
+}
+
+.results-summary-hero {
+  margin-bottom: 0;
+}
+
+.results-summary-panel .view-copy {
+  max-width: none;
+}
+
+.results-summary-panel .view-hero h2 {
+  font-size: clamp(2rem, 3vw, 3.05rem);
+}
+
+.results-selection-summary {
+  display: grid;
+  gap: 16px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 4px;
+  align-content: start;
+}
+
+.results-summary-section {
+  display: grid;
+  gap: 10px;
+}
+
+.results-summary-label {
+  margin: 0;
+  color: rgba(244, 239, 230, 0.6);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.results-summary-keyline {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(33, 30, 30, 0.72);
+}
+
+.results-summary-keyline-title,
+.results-summary-keyline-copy {
+  margin: 0;
+}
+
+.results-summary-keyline-title {
+  color: #f6f1e8;
+  font-size: 1.06rem;
+}
+
+.results-summary-keyline-copy {
+  color: rgba(244, 239, 230, 0.72);
+  line-height: 1.55;
+}
+
+.results-summary-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.results-summary-badge {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.results-summary-actions {
+  display: flex;
+}
+
+.results-summary-actions .action-button {
+  width: 100%;
+}
+
+.results-active-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 16px;
+  padding: 22px;
+  overflow: hidden;
+}
+
+.results-active-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
 .results-stage-shell {
   display: grid;
   min-height: 0;
+  overflow: hidden;
 }
 
 .results-stage-card {
   display: none;
+  grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
   gap: 12px;
 }
@@ -955,6 +1076,15 @@ select:focus,
   min-height: 0;
   overflow: auto;
   padding-right: 4px;
+}
+
+.result-card-static {
+  cursor: default;
+}
+
+.result-card-static:hover {
+  border-color: rgba(255, 255, 255, 0.08);
+  transform: none;
 }
 
 .empty-state {
@@ -993,6 +1123,36 @@ select:focus,
 .title-match-card.selected {
   border-color: rgba(255, 183, 67, 0.9);
   box-shadow: 0 0 0 1px rgba(255, 183, 67, 0.2), 0 16px 34px rgba(0, 0, 0, 0.22);
+}
+
+.summary-preview-card {
+  border-radius: 22px;
+  cursor: default;
+  pointer-events: none;
+}
+
+.summary-preview-card * {
+  cursor: default;
+}
+
+.summary-preview-card-muted {
+  opacity: 0.92;
+}
+
+.results-active-panel .result-list,
+.results-active-panel .title-match-results {
+  gap: 12px;
+}
+
+.results-active-panel .result-card,
+.results-active-panel .title-match-card {
+  gap: 10px;
+  padding: 18px 20px;
+  border-radius: 20px;
+}
+
+.results-active-panel .result-card-title {
+  font-size: 1.04rem;
 }
 
 .result-card[data-kind="ocr-fallback"],
@@ -1469,6 +1629,15 @@ select:disabled,
   .session-grid,
   .selection-grid {
     grid-template-columns: 1fr;
+  }
+
+  .results-split-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .results-selection-summary {
+    overflow: visible;
+    padding-right: 0;
   }
 
   .status-strip {

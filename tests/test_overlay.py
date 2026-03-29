@@ -88,6 +88,7 @@ def test_dashboard_and_overlay_pages_served(tmp_path: Path) -> None:
     assert elements["title-match-strip"]["tag"] == "section"
     assert elements["title-match-results"]["tag"] == "div"
     assert elements["search-result-summary"]["tag"] == "p"
+    assert elements["results-selection-summary"]["tag"] == "div"
     assert elements["results-prepare-button"]["tag"] == "button"
     assert elements["results-back-button"]["tag"] == "button"
     assert elements["results-step-pill"]["tag"] == "span"
@@ -103,6 +104,9 @@ def test_dashboard_and_overlay_pages_served(tmp_path: Path) -> None:
     assert "language-menu-portal" not in elements
     assert "language-menu-panel" not in elements
     assert "custom-select" not in dashboard.text
+    assert "results-split-layout" in dashboard.text
+    assert "results-summary-panel" in dashboard.text
+    assert "results-active-panel" in dashboard.text
     assert "Subtitle Sources" in dashboard.text
     assert overlay.status_code == 200
     assert "subtitle-shell" in overlay.text
@@ -128,6 +132,8 @@ def test_dashboard_script_uses_blocking_bootstrap_without_custom_selects(tmp_pat
     assert "title-match-results" in script.text
     assert "ocr_fallback" in script.text
     assert "search-result-summary" in script.text
+    assert "results-selection-summary" in script.text
+    assert "renderResultsSelectionSummary" in script.text
     assert "Searching subtitle sources..." in script.text
     assert 'document.getElementById("window-minimize-button")' in script.text
     assert 'document.getElementById("results-prepare-button")' in script.text
@@ -163,6 +169,10 @@ def test_dashboard_styles_use_inline_language_picker_layout(tmp_path: Path) -> N
     assert ".dashboard-hero {" in styles.text
     assert ".session-grid {" in styles.text
     assert ".results-stage-shell" in styles.text
+    assert ".results-split-layout" in styles.text
+    assert ".results-summary-panel" in styles.text
+    assert ".results-active-panel" in styles.text
+    assert ".results-selection-summary" in styles.text
     assert '#title-match-strip' in styles.text
     assert ".settings-drawer {" in styles.text
     assert ".result-card.selected" in styles.text
