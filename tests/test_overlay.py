@@ -88,6 +88,7 @@ def test_dashboard_and_overlay_pages_served(tmp_path: Path) -> None:
     assert elements["title-match-strip"]["tag"] == "section"
     assert elements["title-match-results"]["tag"] == "div"
     assert elements["search-result-summary"]["tag"] == "p"
+    assert elements["results-flow"]["tag"] == "div"
     assert elements["results-selection-summary"]["tag"] == "div"
     assert elements["results-prepare-button"]["tag"] == "button"
     assert elements["results-back-button"]["tag"] == "button"
@@ -133,6 +134,7 @@ def test_dashboard_script_uses_blocking_bootstrap_without_custom_selects(tmp_pat
     assert "ocr_fallback" in script.text
     assert "search-result-summary" in script.text
     assert "results-selection-summary" in script.text
+    assert "renderResultsFlow" in script.text
     assert "renderResultsSelectionSummary" in script.text
     assert "Searching subtitle sources..." in script.text
     assert 'document.getElementById("window-minimize-button")' in script.text
@@ -172,6 +174,7 @@ def test_dashboard_styles_use_inline_language_picker_layout(tmp_path: Path) -> N
     assert ".results-split-layout" in styles.text
     assert ".results-summary-panel" in styles.text
     assert ".results-active-panel" in styles.text
+    assert ".results-flow" in styles.text
     assert ".results-selection-summary" in styles.text
     assert '#title-match-strip' in styles.text
     assert ".settings-drawer {" in styles.text

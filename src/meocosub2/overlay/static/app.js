@@ -46,6 +46,7 @@ const dom = {
   dashboardSummarySession: document.getElementById("dashboard-summary-session"),
   resultsViewTitle: document.getElementById("results-view-title"),
   resultsViewCopy: document.getElementById("results-view-copy"),
+  resultsFlow: document.getElementById("results-flow"),
   resultsBackButton: document.getElementById("results-back-button"),
   resultsStepPill: document.getElementById("results-step-pill"),
   resultsProviderPill: document.getElementById("results-provider-pill"),
@@ -1346,86 +1347,60 @@ function renderTargetResults(container, results, selectedId, sourceSelectionMode
   );
 }
 
-function buildResultsSummarySection(label, ...children) {
-  const section = createElement("section", { className: "results-summary-section" });
-  section.append(createElement("p", { className: "results-summary-label", text: label }));
-  section.append(...children.filter(Boolean));
-  return section;
-}
-
-function buildResultsSummaryKeyline(title, copy, badges = []) {
-  const wrapper = createElement("div", { className: "results-summary-keyline" });
-  wrapper.append(createElement("h3", { className: "results-summary-keyline-title", text: title }));
-  wrapper.append(createElement("p", { className: "results-summary-keyline-copy", text: copy }));
+function buildResultsSummaryRow({ label, value, meta = "", status = "", statusKind = "pending", badges = [] }) {
+  const row = createElement("section", { className: `results-summary-row is-${statusKind}` });
+  const top = createElement("div", { className: "results-summary-row-top" });
+  top.append(createElement("p", { className: "results-summary-row-label", text: label }));
+  if (status) {
+    top.append(createElement("span", { className: `results-summary-row-status is-${statusKind}`, text: status }));
+  }
+  row.append(top);
+  row.append(createElement("p", { className: "results-summary-row-value", text: value }));
+  if (meta) {
+    row.append(createElement("p", { className: "results-summary-row-meta", text: meta }));
+  }
   if (badges.length) {
     const badgeRow = createElement("div", { className: "results-summary-badges" });
     for (const badge of badges) {
-      appendBadge(badgeRow, badge, "result-badge results-summary-badge");
+      if (typeof badge === "string") {
+        appendBadge(badgeRow, badge, "result-badge results-summary-badge");
+      } else if (badge?.text) {
+        appendBadge(badgeRow, badge.text, badge.className || "result-badge results-summary-badge");
+      }
     }
-    wrapper.append(badgeRow);
+    row.append(badgeRow);
   }
-  return wrapper;
+  return row;
 }
 
-function buildPendingSelectionCard(title, fileText, footText, badges = []) {
-  return buildResultCard({
-    tagName: "article",
-    className: "summary-preview-card summary-preview-card-muted",
-    title,
-    tag: "Pending",
-    badges,
-    fileText,
-    footText,
-  });
-}
+function renderResultsFlow(resultsStep, sourceSelectionMode, targetSelectionMode) {
+  if (!dom.resultsFlow) {
+    return;
+  }
 
-function buildStaticTitleMatchPreview(match) {
-  return buildTitleMatchCard(match, true, {
-    tagName: "article",
-    className: "summary-preview-card",
-  });
-}
+  const steps = Array.from(dom.resultsFlow.querySelectorAll("[data-flow-step]"));
+  const completed = {
+    title: resultsStep !== "title",
+    source: resultsStep === "target" || sourceSelectionMode === "ocr_fallback",
+    target: Boolean(targetSelectionMode),
+  };
 
-function buildStaticSourcePreview(result, requestedSourceLanguage) {
-  return buildResultCard({
-    tagName: "article",
-    className: "summary-preview-card",
-    resultId: resultSelectionId(result),
-    selected: true,
-    title: result.displayLabel || result.title,
-    tag: "Selected",
-    badges: sourceResultBadges(result, requestedSourceLanguage),
-    fileText: result.fileName,
-    footText: resultDownloadFootText(result),
-  });
-}
+  for (const step of steps) {
+    const stepKey = step.dataset.flowStep;
+    const isCurrent = stepKey === resultsStep;
+    const isComplete = completed[stepKey] && !isCurrent;
+    step.classList.toggle("is-current", isCurrent);
+    step.classList.toggle("is-complete", isComplete);
+    step.classList.toggle("is-pending", !isCurrent && !isComplete);
+  }
 
-function buildStaticTargetPreview(result) {
-  return buildResultCard({
-    tagName: "article",
-    className: "summary-preview-card",
-    resultId: resultSelectionId(result),
-    selected: true,
-    title: result.displayLabel || result.title,
-    tag: "Selected",
-    badges: targetResultBadges(result),
-    fileText: result.fileName,
-    footText: resultDownloadFootText(result),
-  });
-}
-
-function buildStaticFallbackPreview(title, tag, badges, fileText, footText, kind = "") {
-  return buildResultCard({
-    tagName: "article",
-    className: "summary-preview-card",
-    selected: true,
-    kind,
-    title,
-    tag,
-    badges,
-    fileText,
-    footText,
-  });
+  const dividers = Array.from(dom.resultsFlow.querySelectorAll(".results-flow-divider"));
+  if (dividers[0]) {
+    dividers[0].classList.toggle("is-complete", completed.title);
+  }
+  if (dividers[1]) {
+    dividers[1].classList.toggle("is-complete", completed.source);
+  }
 }
 
 function renderResultsSelectionSummary({
@@ -1455,82 +1430,85 @@ function renderResultsSelectionSummary({
   }
 
   const sections = [];
-  const overviewBadges =
-    resultsStep === "title"
-      ? [`${searchMatches.length} title matches`, `${filteredResults.length} subtitle files`]
-      : [`${sourceResults.length} source choices`, `${Math.max(targetResults.length, 1)} target choices`];
-
-  sections.push(
-    buildResultsSummaryKeyline(
-      snapshot.title ? `Results for ${snapshot.title}` : "Subtitle workflow",
-      resultsStep === "title"
-        ? "Choose the best title on the right, then the workflow will move into subtitle selection."
-        : resultsStep === "source"
-          ? "Use the right pane to compare source subtitle files while this rail keeps the active context visible."
-          : "Review the target options on the right while the left rail keeps the selected title and source pairing in view.",
-      overviewBadges,
-    ),
-  );
-
-  sections.push(
-    buildResultsSummarySection(
-      "Selected Title",
-      selectedMatch
-        ? buildStaticTitleMatchPreview(selectedMatch)
-        : buildPendingSelectionCard(
-            "Pick a matched title",
-            searchMatches.length
-              ? "Choose the best title on the right to scope the source and target subtitle lists."
-              : "Run a title search from the dashboard to load matched titles here.",
-            "Once a title is selected, the results view will switch to source subtitle selection.",
-            [searchMatches.length ? `${searchMatches.length} options ready` : "No matches yet"],
-          ),
-    ),
-  );
-
-  if (resultsStep !== "title") {
-    const sourcePreview = selectedSourceResult
-      ? buildStaticSourcePreview(selectedSourceResult, sourceLanguage)
-      : sourceSelectionMode === "ocr_fallback"
-        ? buildStaticFallbackPreview(
-            "OCR source fallback",
-            "Fallback",
-            [languageLabel(sourceLanguage), "No source file"],
-            "Live OCR will feed the source side for this session because no subtitle file is selected.",
-            "You can still align the session against a target subtitle or use local translation next.",
-            "ocr-fallback",
-          )
-        : buildPendingSelectionCard(
-            "Choose a source subtitle",
-            "Use the right pane to compare source subtitle files, or switch to OCR fallback if none fits.",
-            "The current title stays pinned here so you can keep scanning the list without losing context.",
-            [languageLabel(sourceLanguage)],
-          );
-    sections.push(buildResultsSummarySection("Source Choice", sourcePreview));
+  const titleBadges = [];
+  if (selectedMatch) {
+    titleBadges.push(selectedMatch.mediaType || "title");
+    titleBadges.push(`${(selectedMatch.subtitlesCount || 0).toLocaleString()} subtitle files`);
+    if (selectedMatch.providerCount || providerLabelsForMatch(selectedMatch).length) {
+      titleBadges.push(`${(selectedMatch.providerCount || providerLabelsForMatch(selectedMatch).length).toLocaleString()} sources`);
+    }
+  } else if (searchMatches.length) {
+    titleBadges.push(`${searchMatches.length} matches ready`);
   }
 
-  if (resultsStep === "target") {
-    const targetPreview = selectedTargetResult
-      ? buildStaticTargetPreview(selectedTargetResult)
-      : targetSelectionMode === "local"
-        ? buildStaticFallbackPreview(
-            "Local translation",
-            "Confirmed",
-            [languageLabel(targetLanguage), "No target file"],
-            sourceSelectionMode === "ocr_fallback"
-              ? "Live OCR text will translate directly into the target language during the session."
-              : "The selected source subtitle will be translated locally for the target side.",
-            "You can prepare the session now or keep reviewing target subtitle files on the right.",
-            "local",
-          )
-        : buildPendingSelectionCard(
-            "Choose a target subtitle",
-            "Compare translated subtitle files on the right, or confirm local translation if you want the fallback path.",
-            "The prepare action will unlock after the target side is confirmed.",
-            [languageLabel(targetLanguage)],
-          );
-    sections.push(buildResultsSummarySection("Target Choice", targetPreview));
+  sections.push(
+    buildResultsSummaryRow({
+      label: "Title",
+      value: selectedMatch?.displayLabel || selectedMatch?.title || "Pick a matched title",
+      meta: selectedMatch
+        ? snapshot.title && selectedMatch.displayLabel !== snapshot.title
+          ? `Search: ${snapshot.title}`
+          : "Matched title selected"
+        : searchMatches.length
+          ? "Choose the best title from the right pane to continue."
+          : "Run a search to load matched titles.",
+      status: selectedMatch ? "Selected" : "Pending",
+      statusKind: selectedMatch ? "selected" : "pending",
+      badges: titleBadges.slice(0, 3),
+    }),
+  );
+
+  const sourceBadges = [];
+  if (selectedSourceResult) {
+    sourceBadges.push(...sourceResultBadges(selectedSourceResult, sourceLanguage).slice(0, 2));
+  } else {
+    sourceBadges.push(languageLabel(sourceLanguage));
   }
+
+  sections.push(
+    buildResultsSummaryRow({
+      label: "Source",
+      value: selectedSourceResult
+        ? selectedSourceResult.displayLabel || selectedSourceResult.title
+        : sourceSelectionMode === "ocr_fallback"
+          ? "OCR source fallback"
+          : "Choose a source subtitle",
+      meta: selectedSourceResult
+        ? selectedSourceResult.fileName
+        : sourceSelectionMode === "ocr_fallback"
+          ? "Live OCR will feed the source side."
+          : "Select a source subtitle from the right pane.",
+      status: selectedSourceResult ? "Selected" : sourceSelectionMode === "ocr_fallback" ? "Fallback" : "Pending",
+      statusKind: selectedSourceResult ? "selected" : sourceSelectionMode === "ocr_fallback" ? "fallback" : "pending",
+      badges: sourceBadges,
+    }),
+  );
+
+  const targetBadges = [];
+  if (selectedTargetResult) {
+    targetBadges.push(...targetResultBadges(selectedTargetResult).slice(0, 2));
+  } else {
+    targetBadges.push(languageLabel(targetLanguage));
+  }
+
+  sections.push(
+    buildResultsSummaryRow({
+      label: "Target",
+      value: selectedTargetResult
+        ? selectedTargetResult.displayLabel || selectedTargetResult.title
+        : targetSelectionMode === "local"
+          ? "Local translation"
+          : "Choose a target subtitle",
+      meta: selectedTargetResult
+        ? selectedTargetResult.fileName
+        : targetSelectionMode === "local"
+          ? "Translate locally when no target file is selected."
+          : "Confirm the target side to enable session prep.",
+      status: selectedTargetResult ? "Selected" : targetSelectionMode === "local" ? "Confirmed" : "Pending",
+      statusKind: selectedTargetResult ? "selected" : targetSelectionMode === "local" ? "confirmed" : "pending",
+      badges: targetBadges,
+    }),
+  );
 
   dom.resultsSelectionSummary.className = "results-selection-summary";
   dom.resultsSelectionSummary.replaceChildren(...sections);
@@ -1676,18 +1654,22 @@ function render() {
     sourceSelectionMode,
     sourceLanguage,
   );
+  renderResultsFlow(resultsStep, sourceSelectionMode, targetSelectionMode);
   if (resultsStep === "title") {
     dom.resultsViewTitle.textContent = snapshot.title ? `Matches For ${snapshot.title}` : "Choose a matched title";
-    dom.resultsViewCopy.textContent = "Pick the right title match first. After that the list will switch to source selection.";
+    dom.resultsViewCopy.textContent = "Choose the right title from the list.";
     dom.resultsProviderPill.textContent = `${searchMatches.length} title matches`;
+    dom.searchResultSummary.textContent = "Step 1 of 3. Pick a matched title first.";
   } else if (resultsStep === "source") {
     dom.resultsViewTitle.textContent = selectedMatch?.displayLabel || "Choose source subtitle";
-    dom.resultsViewCopy.textContent = "Select the source subtitle you want to sync against. If none fits, click OCR fallback.";
+    dom.resultsViewCopy.textContent = "Select the source subtitle you want to sync against.";
     dom.resultsProviderPill.textContent = `${sourceResults.length} source choices`;
+    dom.searchResultSummary.textContent = "Step 2 of 3. If nothing fits, you can still use OCR fallback.";
   } else {
     dom.resultsViewTitle.textContent = selectedMatch?.displayLabel || "Choose target subtitle";
-    dom.resultsViewCopy.textContent = "Choose a target subtitle, or click local translation to confirm that fallback and continue.";
+    dom.resultsViewCopy.textContent = "Choose a target subtitle or confirm local translation.";
     dom.resultsProviderPill.textContent = `${Math.max(targetResults.length, 1)} target choices`;
+    dom.searchResultSummary.textContent = "Step 3 of 3. You can still go back and change the source side.";
   }
   if (dom.resultsStepPill) {
     dom.resultsStepPill.textContent =
