@@ -29,9 +29,12 @@
   - `MATCH miss:` — threshold and normalized OCR text that failed to match
   - `MATCH skip:` — OCR text too short to attempt match
   - `SYNC #N` — per-iteration summary: OCR text, match outcome, broadcast decision
+  - `OS /features query=` — OpenSubtitles feature search: query string and hit count
+  - `OS /subtitles params=` — OpenSubtitles subtitle search: params (including language codes) and result count
 - Miss rate diagnosis: count `MATCH miss` vs `MATCH hit` over a run window.
 - If OCR text in logs looks correct but misses dominate → lower `fuzzy_threshold` (try 55).
 - If OCR text looks garbled → wrong capture region or OCR language; check `capture.region` in config.
+- If subtitle search returns 0 results → grep `OS /subtitles params=` to confirm language codes (`zhs` for Simplified Chinese) and `parent_feature_id` are present.
 - Live debug panel: set `[debug] mode = true` in config.toml, open dashboard at `http://127.0.0.1:8765/` while session is running; panel appears bottom-right showing last 20 iterations.
 
 ## Verification
@@ -77,3 +80,4 @@
 - Tauri will create duplicate tray icons on Windows if the shell uses both `app.trayIcon` in `tauri.conf.json` and a manual `TrayIconBuilder` in Rust. Keep only one creation path.
 - Windows OCR capability lookup for this app should use exact BCP-47 tags such as `zh-TW` in the `Language.OCR*<tag>*` query, and the UI should treat post-install re-enumeration as the success signal instead of assuming the installer succeeded.
 - `SubDL` is currently integrated from public structured page data, while `ASSRT` is more reliable through its token-based API than raw page scraping.
+- `SubDL` language buckets can arrive as encoding-style keys like `big_5_code` or `gb_code`; normalize separator variants before mapping them to `zht` / `zh` or Chinese results may disappear from the studio search UI.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import logging
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -15,14 +16,18 @@ import httpx
 from rapidfuzz import fuzz
 
 from meocosub2.errors import OpenSubtitlesError
+from meocosub2.languages import normalize_source_language
 from meocosub2.opensubtitles.types import FeatureCandidate, SearchCatalog, SearchResult
+
+logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.opensubtitles.com/api/v1"
 MAX_RETRIES = 3
 MAX_QUERY_VARIANTS = 6
-MAX_FEATURES_PER_QUERY = 10
-MAX_FEATURES_TO_RESOLVE = 6
+MAX_FEATURES_PER_QUERY = 25
+MAX_FEATURES_TO_RESOLVE = 15
 MAX_SUBTITLE_RESULTS_PER_QUERY = 25
+MAX_PARALLEL_SUBTITLE_FETCHES = 5
 MAX_SEARCH_RESULTS = 50
 STRONG_MATCH_THRESHOLD = 185.0
 ORG_SEARCH_URL = "https://www.opensubtitles.org/en/search2/moviename-{query}/sublanguageid-all"
@@ -208,8 +213,15 @@ class OpenSubtitlesClient:
         for feature in ranked_features:
             matched_features[feature.id] = feature
 
-        for feature in ranked_features[:MAX_FEATURES_TO_RESOLVE]:
-            feature_results = await self._fetch_feature_subtitles(feature, languages, intent)
+        sem = asyncio.Semaphore(MAX_PARALLEL_SUBTITLE_FETCHES)
+
+        async def _fetch_guarded(feature: FeatureCandidate) -> list[SearchResult]:
+            async with sem:
+                return await self._fetch_feature_subtitles(feature, languages, intent)
+
+        candidates = ranked_features[:MAX_FEATURES_TO_RESOLVE]
+        all_feature_results = await asyncio.gather(*[_fetch_guarded(f) for f in candidates])
+        for feature, feature_results in zip(candidates, all_feature_results):
             for result in feature_results:
                 result.match_score = max(result.match_score, feature.match_score + self._score_search_result(intent, result))
                 self._store_result(collected, result)
@@ -245,6 +257,7 @@ class OpenSubtitlesClient:
                 raise OpenSubtitlesError(f"OpenSubtitles feature search failed: {response.status_code}")
 
             payload = response.json()
+            logger.debug("OS /features query=%r → %d features", query_variant, len(payload.get("data", [])))
             for item in payload.get("data", [])[:MAX_FEATURES_PER_QUERY]:
                 feature = self._parse_feature(item)
                 score = self._score_feature(intent, feature, query_index)
@@ -270,7 +283,7 @@ class OpenSubtitlesClient:
         languages: str,
         intent: SearchIntent,
     ) -> list[SearchResult]:
-        params: dict[str, str] = {"languages": languages}
+        params: dict[str, str] = {"languages": self._to_api_languages(languages)}
         subtitle_type = self._subtitle_type_filter(intent.media_type or feature.media_type)
         if subtitle_type:
             params["type"] = subtitle_type
@@ -281,7 +294,21 @@ class OpenSubtitlesClient:
                 params["season_number"] = str(intent.season)
             if intent.episode is not None:
                 params["episode_number"] = str(intent.episode)
-            return await self._search_subtitles_by_params(params)
+            results = await self._search_subtitles_by_params(params)
+            if results:
+                return results
+            for id_key, id_val in [("imdb_id", feature.imdb_id), ("tmdb_id", feature.tmdb_id)]:
+                if not id_val:
+                    continue
+                fallback: dict[str, str] = {"languages": params["languages"], id_key: id_val, "type": "episode"}
+                if intent.season is not None:
+                    fallback["season_number"] = str(intent.season)
+                if intent.episode is not None:
+                    fallback["episode_number"] = str(intent.episode)
+                results = await self._search_subtitles_by_params(fallback)
+                if results:
+                    return results
+            return []
 
         params["id"] = str(feature.id)
         results = await self._search_subtitles_by_params(params)
@@ -289,15 +316,16 @@ class OpenSubtitlesClient:
             return results
 
         fallback_params: list[dict[str, str]] = []
+        api_languages = self._to_api_languages(languages)
         if feature.imdb_id:
-            fallback = {"imdb_id": feature.imdb_id, "languages": languages}
+            fallback = {"imdb_id": feature.imdb_id, "languages": api_languages}
             if subtitle_type:
                 fallback["type"] = subtitle_type
             if intent.year is not None:
                 fallback["year"] = str(intent.year)
             fallback_params.append(fallback)
         if feature.tmdb_id:
-            fallback = {"tmdb_id": feature.tmdb_id, "languages": languages}
+            fallback = {"tmdb_id": feature.tmdb_id, "languages": api_languages}
             if subtitle_type:
                 fallback["type"] = subtitle_type
             if intent.year is not None:
@@ -316,7 +344,7 @@ class OpenSubtitlesClient:
         languages: str,
         query: str,
     ) -> list[SearchResult]:
-        params: dict[str, str] = {"query": query, "languages": languages}
+        params: dict[str, str] = {"query": query, "languages": self._to_api_languages(languages)}
         subtitle_type = self._subtitle_type_filter(intent.media_type)
         if subtitle_type:
             params["type"] = subtitle_type
@@ -334,7 +362,10 @@ class OpenSubtitlesClient:
             raise OpenSubtitlesError(f"OpenSubtitles search failed: {response.status_code}")
 
         payload = response.json()
-        return [self._parse_result(item) for item in payload.get("data", [])[:MAX_SUBTITLE_RESULTS_PER_QUERY]]
+        results = [self._parse_result(item) for item in payload.get("data", [])[:MAX_SUBTITLE_RESULTS_PER_QUERY]]
+        lang_summary = ",".join(sorted({r.language for r in results})) if results else "none"
+        logger.debug("OS /subtitles params=%s → %d results [langs: %s]", params, len(results), lang_summary)
+        return results
 
     async def _search_org_aliases(self, query: str) -> list[str]:
         slug = quote_plus(" ".join(query.split()))
@@ -429,6 +460,13 @@ class OpenSubtitlesClient:
     def _normalize_languages(self, languages: str) -> str:
         codes = sorted({part.strip() for part in languages.split(",") if part.strip()})
         return ",".join(codes)
+
+    # OpenSubtitles uses "zhs" for Simplified Chinese; our internal code is "zh".
+    _INTERNAL_TO_OS_LANG: dict[str, str] = {"zh": "zhs"}
+
+    def _to_api_languages(self, languages: str) -> str:
+        codes = [c.strip() for c in languages.split(",") if c.strip()]
+        return ",".join(self._INTERNAL_TO_OS_LANG.get(c, c) for c in codes)
 
     def _score_feature(self, intent: SearchIntent, feature: FeatureCandidate, query_index: int) -> float:
         title_score = self._score_title_values(
@@ -652,7 +690,7 @@ class OpenSubtitlesClient:
             media_type=media_type,
             season=self._coerce_optional_int(feature_details.get("season_number")),
             episode=self._coerce_optional_int(feature_details.get("episode_number")),
-            language=str(attributes.get("language", "")),
+            language=normalize_source_language(str(attributes.get("language", ""))),
             download_count=self._coerce_int(attributes.get("download_count")),
             file_id=self._coerce_int(file_info.get("file_id")),
             file_name=str(file_info.get("file_name", "")),

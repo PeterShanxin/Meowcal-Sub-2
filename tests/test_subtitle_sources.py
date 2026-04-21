@@ -3,7 +3,9 @@ import pytest
 from meocosub2.config import AppConfig
 from meocosub2.errors import SubtitleSourceError
 from meocosub2.subtitle_sources.aggregator import SubtitleSearchAggregator
+from meocosub2.subtitle_sources.subdl import SubdlProvider
 from meocosub2.subtitle_sources.types import ProviderSearchCatalog, ProviderSubtitleMatch, ProviderSubtitleResult
+from meocosub2.subtitle_sources.utils import map_subdl_language
 
 
 class FakeProvider:
@@ -20,6 +22,50 @@ class FakeProvider:
 
     async def download(self, result: ProviderSubtitleResult):
         return result.file_name
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("farsi_persian", "fa"),
+        ("big_5_code", "zht"),
+        ("big-5-code", "zht"),
+        ("gb_code", "zh"),
+        ("chinese-bg-code", "zht"),
+        ("chinese_gb_code", "zh"),
+    ],
+)
+def test_map_subdl_language_normalizes_separator_variants(value: str, expected: str) -> None:
+    assert map_subdl_language(value) == expected
+
+
+def test_subdl_parse_page_subtitles_keeps_big_5_code_results_for_chinese_requests() -> None:
+    provider = SubdlProvider(AppConfig())
+
+    results = provider._parse_page_subtitles(
+        title="Overlord",
+        year=2015,
+        match_id="subdl-match-sd1300064",
+        requested_languages={"en", "zh", "zht"},
+        page_props={
+            "groupedSubtitles": {
+                "big_5_code": [
+                    {
+                        "id": 3309711,
+                        "title": "[Crazy-SoL]OverlordIIIEp01-13",
+                        "season": 0,
+                        "episode": 0,
+                        "downloads": 31,
+                        "link": "3309711-3332811.zip",
+                    }
+                ]
+            }
+        },
+    )
+
+    assert len(results) == 1
+    assert results[0].language == "zht"
+    assert results[0].file_name == "[Crazy-SoL]OverlordIIIEp01-13"
 
 
 @pytest.mark.asyncio

@@ -93,7 +93,7 @@ class SubdlProvider:
 
         if media_type == "tvshow" and movie_info.get("seasons"):
             seasons = movie_info.get("seasons") or []
-            for season in seasons[:3]:
+            for season in seasons[:6]:
                 if not isinstance(season, dict):
                     continue
                 season_slug = str(season.get("number") or "")

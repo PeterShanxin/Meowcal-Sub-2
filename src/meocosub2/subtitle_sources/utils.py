@@ -33,9 +33,15 @@ SUBDL_LANGUAGE_MAP = {
     "italian": "it",
     "brazillian portuguese": "pt-br",
     "brazilian portuguese": "pt-br",
-    "farsi_persian": "fa",
+    "farsi persian": "fa",
     "chinese bg code": "zht",
     "chinese gb code": "zh",
+    "big 5": "zht",
+    "big 5 code": "zht",
+    "big5": "zht",
+    "big5 code": "zht",
+    "gb": "zh",
+    "gb code": "zh",
     "traditional chinese": "zht",
     "simplified chinese": "zh",
 }
@@ -134,13 +140,24 @@ def language_priority(language: str, requested_languages: set[str]) -> int:
     return 2
 
 
+def _normalize_subdl_language_key(value: str) -> tuple[str, str]:
+    normalized = re.sub(r"[_-]+", " ", value.strip().casefold())
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized, normalized.replace(" ", "")
+
+
 def map_subdl_language(value: str) -> str:
-    lowered = value.strip().casefold()
-    if lowered in SUBDL_LANGUAGE_MAP:
-        return SUBDL_LANGUAGE_MAP[lowered]
-    if "chinese" in lowered and ("traditional" in lowered or "bg" in lowered or "big5" in lowered):
+    normalized, compact = _normalize_subdl_language_key(value)
+    if normalized in SUBDL_LANGUAGE_MAP:
+        return SUBDL_LANGUAGE_MAP[normalized]
+    # SubDL sometimes emits bare encoding buckets like "big_5_code" / "gb_code".
+    if compact in {"big5", "big5code"}:
         return "zht"
-    if "chinese" in lowered:
+    if compact in {"gb", "gbcode"}:
+        return "zh"
+    if "chinese" in normalized and ("traditional" in normalized or compact.endswith("bgcode") or "big5" in compact):
+        return "zht"
+    if "chinese" in normalized:
         return "zh"
     return normalize_source_language(value)
 
