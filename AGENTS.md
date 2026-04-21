@@ -1,4 +1,4 @@
-# AGENTS.md
+# AGENTS.md - Actively maintain and update this file
 
 ## Repo Overview
 - Meowcal Sub 2 is a desktop subtitle studio with a Python backend and a Tauri shell.
