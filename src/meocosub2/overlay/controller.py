@@ -20,7 +20,7 @@ from meocosub2.capture import available_ocr_languages, resolve_ocr_language
 from meocosub2.config import AppConfig, config_to_payload, overlay_style_payload, save_config
 from meocosub2.errors import SubtitleSourceError, TranslationError
 from meocosub2.foundry import foundry_status, make_foundry_ready
-from meocosub2.languages import language_label, normalize_ocr_language, source_language_mode
+from meocosub2.languages import is_chinese_family, language_label, normalize_ocr_language, source_language_mode
 from meocosub2.models import AppProgress, AppStateSnapshot, PreparedRuntime, PreparedSession, SearchRequest
 from meocosub2.subtitle_sources import AggregatedSearchCatalog, AggregatedSubtitleResult, AggregatedTitleMatch, SubtitleSearchAggregator
 from meocosub2.subtitles import align_subtitles, assign_target_translations, load_subtitle_file
@@ -260,7 +260,7 @@ class GuiController:
             self._state.selected_target_file_id = None
             self._state.prepared_session = None
             self._state.progress = AppProgress()
-            self._state.warning_message = "; ".join(catalog.warnings[:3]) if catalog.warnings else ""
+            self._state.warning_message = _search_warning_message(request, catalog.warnings)
             self._prepared_runtime = None
         await self._emit_app_state()
         return {"results": payload, "matches": matches, "warnings": catalog.warnings}
@@ -628,3 +628,21 @@ def _expand_search_languages(source_language: str, target_language: str) -> str:
     if "zh" in normalized or "zht" in normalized or any(code.startswith("zh") for code in normalized):
         normalized.update({"zh", "zht"})
     return ",".join(sorted(normalized))
+
+
+def _search_warning_message(request: SearchRequest, warnings: list[str]) -> str:
+    normalized_warnings = [warning.strip() for warning in warnings if warning and warning.strip()]
+    if not normalized_warnings:
+        return ""
+    if not is_chinese_family(request.source_language):
+        return "; ".join(normalized_warnings[:3])
+
+    rewritten: list[str] = []
+    for warning in normalized_warnings[:3]:
+        if warning == "ASSRT is disabled.":
+            rewritten.append("ASSRT is disabled, so Chinese subtitle coverage may be thin.")
+        elif warning == "ASSRT token is not configured.":
+            rewritten.append("ASSRT is not configured, so Chinese subtitle coverage may be thin.")
+        else:
+            rewritten.append(warning)
+    return "; ".join(rewritten)

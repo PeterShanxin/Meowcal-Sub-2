@@ -438,6 +438,19 @@ function providerConfig(config) {
   };
 }
 
+function assrtCoverageHint(sourceLanguage) {
+  if (!sourceLanguage || !isChineseFamily(sourceLanguage)) {
+    return "";
+  }
+  const assrt = providerConfig(state.config).assrt;
+  if (assrt.enabled && (assrt.token || "").trim()) {
+    return "";
+  }
+  return assrt.enabled
+    ? "ASSRT is not configured, so Chinese subtitle coverage may be thin."
+    : "ASSRT is disabled, so Chinese subtitle coverage may be thin.";
+}
+
 function selectionValue(value) {
   if (value == null || value === "") {
     return null;
@@ -1253,20 +1266,21 @@ function renderTitleMatches(matches, selectedFeatureId) {
 
 function buildSearchResultSummary(selectedMatch, sourceResults, targetResults, sourceSelectionMode, sourceLanguage) {
   const targetSelectionMode = currentTargetSelectionMode(state.snapshot);
+  const coverageHint = assrtCoverageHint(sourceLanguage);
   if (!selectedMatch) {
     return "Pick a matched title first, then choose subtitles or OCR fallback.";
   }
   if (!sourceResults.length && !targetResults.length) {
-    return `${selectedMatch.displayLabel || selectedMatch.title} matched, but no subtitle files fit the selected languages. OCR fallback is available.`;
+    return `${selectedMatch.displayLabel || selectedMatch.title} matched, but no subtitle files fit the selected languages. OCR fallback is available.${coverageHint ? ` ${coverageHint}` : ""}`;
   }
   if (!sourceResults.length && sourceSelectionMode === "ocr_fallback") {
-    return `${selectedMatch.displayLabel || selectedMatch.title} has no ${languageLabel(sourceLanguage)} source subtitle. OCR fallback is selected${targetResults.length ? " and can still align against target subtitles." : "."}`;
+    return `${selectedMatch.displayLabel || selectedMatch.title} has no ${languageLabel(sourceLanguage)} source subtitle. OCR fallback is selected${targetResults.length ? " and can still align against target subtitles." : "."}${coverageHint ? ` ${coverageHint}` : ""}`;
   }
   if (!sourceResults.length) {
-    return `${selectedMatch.displayLabel || selectedMatch.title} has no ${languageLabel(sourceLanguage)} source subtitle. Select OCR fallback to continue.`;
+    return `${selectedMatch.displayLabel || selectedMatch.title} has no ${languageLabel(sourceLanguage)} source subtitle. Select OCR fallback to continue.${coverageHint ? ` ${coverageHint}` : ""}`;
   }
   if (!targetSelectionMode) {
-    return `${selectedMatch.displayLabel || selectedMatch.title} is ready on the source side. Pick a target subtitle or click local translation to confirm the target step.`;
+    return `${selectedMatch.displayLabel || selectedMatch.title} is ready on the source side. Pick a target subtitle or click local translation to confirm the target step.${coverageHint ? ` ${coverageHint}` : ""}`;
   }
   if (!targetResults.length) {
     return `${selectedMatch.displayLabel || selectedMatch.title} has ${sourceResults.length} source subtitle choices across enabled sources. Target can fall back to local translation.`;
@@ -1277,6 +1291,7 @@ function buildSearchResultSummary(selectedMatch, sourceResults, targetResults, s
 function renderSourceResults(container, results, selectedId, requestedSourceLanguage = "", options = {}) {
   const { selectedMatch = null, sourceSelectionMode = "subtitle" } = options;
   if (!results.length && selectedMatch) {
+    const coverageHint = assrtCoverageHint(requestedSourceLanguage);
     container.className = "result-list";
     container.replaceChildren(
       buildResultCard({
@@ -1286,7 +1301,7 @@ function renderSourceResults(container, results, selectedId, requestedSourceLang
         title: "Use OCR source language",
         tag: "Fallback",
         badges: [languageLabel(requestedSourceLanguage), "No source file"],
-        fileText: "No source subtitle file matches this title and language. Use OCR plus live AI translation instead.",
+        fileText: `No source subtitle file matches this title and language.${coverageHint ? ` ${coverageHint}` : ""} Use OCR plus live AI translation instead.`,
         footText: "If a target subtitle is selected, the live translation will try to align against it.",
       }),
     );
@@ -1613,6 +1628,7 @@ function render() {
   const resultsStep = currentVisibleResultsStep(snapshot);
   const canPrepare = Boolean(selectedFeatureId) && (Boolean(selectedSource) || fallbackSelected) && targetConfirmed;
   const shellView = currentShellView(snapshot);
+  const sourceCoverageHint = assrtCoverageHint(sourceLanguage);
 
   renderShellChrome(shellView, snapshot, selectedMatch, sourceLanguage, targetLanguage);
   document.body.dataset.resultsStep = resultsStep;
@@ -1644,9 +1660,13 @@ function render() {
     dom.searchResultSummary.textContent = "Step 1 of 3. Pick a matched title first.";
   } else if (resultsStep === "source") {
     dom.resultsViewTitle.textContent = selectedMatch?.displayLabel || "Choose source subtitle";
-    dom.resultsViewCopy.textContent = "Select the source subtitle you want to sync against.";
+    dom.resultsViewCopy.textContent = sourceCoverageHint
+      ? `Select the source subtitle you want to sync against. ${sourceCoverageHint}`
+      : "Select the source subtitle you want to sync against.";
     dom.resultsProviderPill.textContent = `${sourceResults.length} source choices`;
-    dom.searchResultSummary.textContent = "Step 2 of 3. If nothing fits, you can still use OCR fallback.";
+    dom.searchResultSummary.textContent = sourceCoverageHint
+      ? `Step 2 of 3. If nothing fits, you can still use OCR fallback. ${sourceCoverageHint}`
+      : "Step 2 of 3. If nothing fits, you can still use OCR fallback.";
   } else {
     dom.resultsViewTitle.textContent = selectedMatch?.displayLabel || "Choose target subtitle";
     dom.resultsViewCopy.textContent = "Choose a target subtitle or confirm local translation.";

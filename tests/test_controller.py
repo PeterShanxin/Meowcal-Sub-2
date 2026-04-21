@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from meocosub2.config import AppConfig
+from meocosub2.models import SearchRequest
 from meocosub2.overlay.controller import GuiController
 from meocosub2.subtitle_sources.types import AggregatedSearchCatalog, AggregatedSubtitleResult, AggregatedTitleMatch
 
@@ -146,3 +147,39 @@ async def test_prepare_session_downloads_non_opensubtitles_result(tmp_path: Path
     assert payload["source_file_id"] == "result-1"
     assert payload["target_file_id"] == "result-2"
     assert download.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_search_warning_message_highlights_thin_chinese_coverage_when_assrt_disabled(tmp_path: Path, mocker) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+    mocker.patch.object(
+        controller._aggregator,
+        "search_catalog",
+        return_value=AggregatedSearchCatalog(
+            matches=[],
+            results=[],
+            warnings=["ASSRT is disabled."],
+        ),
+    )
+
+    await controller.search(SearchRequest(title="Overlord", source_language="zh", target_language="en"))
+
+    assert controller.state_snapshot()["warning_message"] == "ASSRT is disabled, so Chinese subtitle coverage may be thin."
+
+
+@pytest.mark.asyncio
+async def test_search_warning_message_keeps_generic_assrt_disabled_warning_for_non_chinese_search(tmp_path: Path, mocker) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+    mocker.patch.object(
+        controller._aggregator,
+        "search_catalog",
+        return_value=AggregatedSearchCatalog(
+            matches=[],
+            results=[],
+            warnings=["ASSRT is disabled."],
+        ),
+    )
+
+    await controller.search(SearchRequest(title="Overlord", source_language="en", target_language="fr"))
+
+    assert controller.state_snapshot()["warning_message"] == "ASSRT is disabled."
