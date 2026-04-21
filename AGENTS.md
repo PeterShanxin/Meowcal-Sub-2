@@ -20,7 +20,22 @@
 - Make desktop studio UI fixes in `index.html`, `app.js`, and `app.css` first.
 - Keep `desktop-main.html` in sync when markup changes, but do not treat it as the primary runtime path.
 
+## Log Inspection
+
+- Log file: `%APPDATA%\meowcal-sub-2\logs\meowcal-sub-2.log` (always DEBUG level).
+- Key patterns to grep:
+  - `OCR pass=` — which pass won, score, recognized text, duration
+  - `MATCH hit:` — matched subtitle index, score, source snippet
+  - `MATCH miss:` — threshold and normalized OCR text that failed to match
+  - `MATCH skip:` — OCR text too short to attempt match
+  - `SYNC #N` — per-iteration summary: OCR text, match outcome, broadcast decision
+- Miss rate diagnosis: count `MATCH miss` vs `MATCH hit` over a run window.
+- If OCR text in logs looks correct but misses dominate → lower `fuzzy_threshold` (try 55).
+- If OCR text looks garbled → wrong capture region or OCR language; check `capture.region` in config.
+- Live debug panel: set `[debug] mode = true` in config.toml, open dashboard at `http://127.0.0.1:8765/` while session is running; panel appears bottom-right showing last 20 iterations.
+
 ## Verification
+
 - Run `pytest -q` after Python or server changes.
 - Run `node --check src\meocosub2\overlay\static\app.js` after frontend JS changes.
 - Run `cargo check --manifest-path src-tauri\Cargo.toml` after shell changes.
