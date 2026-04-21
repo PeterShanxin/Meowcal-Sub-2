@@ -116,6 +116,11 @@ const state = {
     ready: false,
     loading: false,
   },
+  languagePersistence: {
+    saving: false,
+    pendingKey: null,
+    lastSavedKey: null,
+  },
 };
 
 let socket;
@@ -416,6 +421,106 @@ function currentLanguageValue(selectEl, customInput) {
     return customInput.value.trim();
   }
   return selectEl.value.trim();
+}
+
+function currentLanguagePreferences() {
+  const source = currentLanguageValue(dom.sourceLanguageInput, dom.sourceLanguageCustomInput);
+  const target = currentLanguageValue(dom.targetLanguageInput, dom.targetLanguageCustomInput);
+  if (!source || !target) {
+    return null;
+  }
+  return { source, target };
+}
+
+function languagePreferenceKey(languages) {
+  if (!languages?.source || !languages?.target) {
+    return null;
+  }
+  return `${languages.source}::${languages.target}`;
+}
+
+function buildLanguagePreferencePayload() {
+  const languages = currentLanguagePreferences();
+  if (!languages || !state.config) {
+    return null;
+  }
+  return {
+    ...state.config,
+    languages: {
+      ...(state.config.languages || {}),
+      source: languages.source,
+      target: languages.target,
+    },
+    capture: {
+      ...(state.config.capture || {}),
+      ocrLanguage: deriveOcrLanguage(languages.source),
+    },
+  };
+}
+
+async function flushLanguagePreferenceSave() {
+  if (state.languagePersistence.saving) {
+    return;
+  }
+  state.languagePersistence.saving = true;
+  try {
+    while (state.languagePersistence.pendingKey) {
+      const payload = buildLanguagePreferencePayload();
+      if (!payload) {
+        state.languagePersistence.pendingKey = null;
+        break;
+      }
+      const currentKey = languagePreferenceKey(payload.languages);
+      state.languagePersistence.pendingKey = null;
+      if (
+        state.config?.languages?.source === payload.languages.source &&
+        state.config?.languages?.target === payload.languages.target
+      ) {
+        state.languagePersistence.lastSavedKey = currentKey;
+        continue;
+      }
+      setSaveState("Saving language preference...", "busy");
+      const config = await fetchJson("/api/config", {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+      state.config = config;
+      state.languagePersistence.lastSavedKey = languagePreferenceKey(config.languages);
+      setSaveState("Language preference saved", "success");
+      scheduleRender();
+    }
+  } catch (error) {
+    setSaveState(error.message, "error");
+  } finally {
+    state.languagePersistence.saving = false;
+    if (
+      state.languagePersistence.pendingKey &&
+      state.languagePersistence.pendingKey !== state.languagePersistence.lastSavedKey
+    ) {
+      void flushLanguagePreferenceSave();
+    }
+  }
+}
+
+function persistLanguagePreferences() {
+  if (!state.bootstrap.ready || !state.config) {
+    return;
+  }
+  const languages = currentLanguagePreferences();
+  const nextKey = languagePreferenceKey(languages);
+  if (!nextKey) {
+    return;
+  }
+  if (
+    !state.languagePersistence.saving &&
+    state.config?.languages?.source === languages.source &&
+    state.config?.languages?.target === languages.target
+  ) {
+    state.languagePersistence.lastSavedKey = nextKey;
+    return;
+  }
+  state.languagePersistence.pendingKey = nextKey;
+  void flushLanguagePreferenceSave();
 }
 
 function providerConfig(config) {
@@ -1841,6 +1946,7 @@ async function loadInitialState() {
   ensureLanguageCatalog(catalog);
   state.languageCatalog = catalog;
   state.config = config;
+  state.languagePersistence.lastSavedKey = languagePreferenceKey(config.languages);
   state.snapshot = snapshot;
   fillConfigForm(config);
   populateLanguageSelect(dom.sourceLanguageInput, dom.sourceLanguageCustomInput, catalog.sourceTarget, config.languages.source);
@@ -2151,7 +2257,7 @@ for (const [selectEl, customInput] of [
     syncCustomLanguageInput(selectEl, customInput);
     updateLanguageTrigger(selectEl);
     updateDerivedOcrDisplay(deriveOcrLanguage(currentLanguageValue(dom.sourceLanguageInput, dom.sourceLanguageCustomInput)));
-    setSaveState("Unsaved changes", "neutral");
+    persistLanguagePreferences();
     scheduleRender();
   });
   customInput.addEventListener("input", () => {
@@ -2160,7 +2266,15 @@ for (const [selectEl, customInput] of [
     }
     updateLanguageTrigger(selectEl);
     updateDerivedOcrDisplay(deriveOcrLanguage(currentLanguageValue(dom.sourceLanguageInput, dom.sourceLanguageCustomInput)));
-    setSaveState("Unsaved changes", "neutral");
+    scheduleRender();
+  });
+  customInput.addEventListener("change", () => {
+    if (!state.bootstrap.ready) {
+      return;
+    }
+    updateLanguageTrigger(selectEl);
+    updateDerivedOcrDisplay(deriveOcrLanguage(currentLanguageValue(dom.sourceLanguageInput, dom.sourceLanguageCustomInput)));
+    persistLanguagePreferences();
     scheduleRender();
   });
 }
@@ -2200,6 +2314,7 @@ dom.configForm.addEventListener("submit", async (event) => {
       body: JSON.stringify(buildConfigPayload()),
     });
     state.config = config;
+    state.languagePersistence.lastSavedKey = languagePreferenceKey(config.languages);
     fillConfigForm(config);
     renderFoundryStatus(await fetchJson("/api/foundry/status"));
     setSaveState("Config saved", "success");

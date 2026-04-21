@@ -264,6 +264,35 @@ def test_put_config_updates_api_payload_and_persists_style(tmp_path: Path) -> No
     assert config_path.exists()
 
 
+def test_put_config_with_language_only_merge_persists_languages_without_resetting_other_settings(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.toml"
+    server = make_server(config_path)
+    with TestClient(server.app) as client:
+        initial_payload = client.get("/api/config").json()
+        response = client.put(
+            "/api/config",
+            json={
+                **initial_payload,
+                "languages": {"source": "ja", "target": "fr"},
+                "capture": {
+                    **initial_payload["capture"],
+                    "ocrLanguage": "ja-JP",
+                },
+            },
+        )
+        api_payload = client.get("/api/config")
+
+    saved = response.json()
+    assert saved["languages"] == {"source": "ja", "target": "fr"}
+    assert saved["capture"]["ocrLanguage"] == "ja-JP"
+    assert saved["subtitleSources"]["opensubtitles"]["apiKey"] == "test-key"
+    assert saved["overlay"]["fontFamily"] == "Test Font"
+    assert api_payload.json()["languages"] == {"source": "ja", "target": "fr"}
+    assert config_path.exists()
+    assert 'source = "ja"' in config_path.read_text(encoding="utf-8")
+    assert 'target = "fr"' in config_path.read_text(encoding="utf-8")
+
+
 def test_app_websocket_receives_initial_state_and_subtitle_events(tmp_path: Path) -> None:
     server = make_server(tmp_path / "config.toml")
     with TestClient(server.app) as client:

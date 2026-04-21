@@ -183,3 +183,48 @@ async def test_search_warning_message_keeps_generic_assrt_disabled_warning_for_n
     await controller.search(SearchRequest(title="Overlord", source_language="en", target_language="fr"))
 
     assert controller.state_snapshot()["warning_message"] == "ASSRT is disabled."
+
+
+@pytest.mark.asyncio
+async def test_save_config_payload_updates_state_languages_and_persists_file(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.toml"
+    controller = make_controller(config_path)
+
+    payload = await controller.save_config_payload(
+        {
+            "subtitleSources": {
+                "opensubtitles": {"enabled": True, "apiKey": "", "username": "", "password": "", "enableOrgFallback": False},
+                "subdl": {"enabled": True},
+                "assrt": {"enabled": False, "token": ""},
+            },
+            "languages": {"source": "ja", "target": "fr"},
+            "capture": {"region": [], "intervalMs": 1500, "ocrLanguage": "ja-JP"},
+            "matching": {"fuzzyThreshold": 65, "windowSize": 30},
+            "translation": {"endpoint": "http://127.0.0.1:5273/v1", "model": "manual-model", "timeoutS": 30, "batchSize": 5},
+            "overlay": {
+                "port": 8765,
+                "theme": "glass-cinematic",
+                "fontSize": 28,
+                "fontFamily": "Aptos",
+                "textColor": "#FFFFFF",
+                "bgColor": "rgba(0,0,0,0.75)",
+                "position": "bottom",
+                "radiusPx": 28,
+                "paddingPx": 20,
+                "maxWidthVw": 78,
+                "blurPx": 20,
+                "shadowStrength": 0.45,
+                "offsetPct": 10,
+                "animationMs": 220,
+            },
+            "debug": {"mode": False},
+        }
+    )
+
+    assert payload["languages"] == {"source": "ja", "target": "fr"}
+    assert controller.state_snapshot()["source_language"] == "ja"
+    assert controller.state_snapshot()["target_language"] == "fr"
+    assert config_path.exists()
+    saved_text = config_path.read_text(encoding="utf-8")
+    assert 'source = "ja"' in saved_text
+    assert 'target = "fr"' in saved_text
