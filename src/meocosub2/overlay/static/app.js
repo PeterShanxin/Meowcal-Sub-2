@@ -1429,44 +1429,32 @@ function renderResultsSelectionSummary({
     return;
   }
 
-  const sections = [];
-  const titleBadges = [];
-  if (selectedMatch) {
-    titleBadges.push(selectedMatch.mediaType || "title");
-    titleBadges.push(`${(selectedMatch.subtitlesCount || 0).toLocaleString()} subtitle files`);
-    if (selectedMatch.providerCount || providerLabelsForMatch(selectedMatch).length) {
-      titleBadges.push(`${(selectedMatch.providerCount || providerLabelsForMatch(selectedMatch).length).toLocaleString()} sources`);
-    }
-  } else if (searchMatches.length) {
-    titleBadges.push(`${searchMatches.length} matches ready`);
-  }
-
-  sections.push(
-    buildResultsSummaryRow({
+  let summaryRow;
+  if (resultsStep === "title") {
+    const titleBadges = selectedMatch
+      ? [
+          selectedMatch.mediaType || "title",
+          `${(selectedMatch.subtitlesCount || 0).toLocaleString()} subtitle files`,
+          `${(selectedMatch.providerCount || providerLabelsForMatch(selectedMatch).length).toLocaleString()} sources`,
+        ].filter(Boolean)
+      : [`${searchMatches.length} matches ready`];
+    summaryRow = buildResultsSummaryRow({
       label: "Title",
       value: selectedMatch?.displayLabel || selectedMatch?.title || "Pick a matched title",
       meta: selectedMatch
         ? snapshot.title && selectedMatch.displayLabel !== snapshot.title
           ? `Search: ${snapshot.title}`
           : "Matched title selected"
-        : searchMatches.length
-          ? "Choose the best title from the right pane to continue."
-          : "Run a search to load matched titles.",
+        : "Choose the best title from the right pane to continue.",
       status: selectedMatch ? "Selected" : "Pending",
       statusKind: selectedMatch ? "selected" : "pending",
       badges: titleBadges.slice(0, 3),
-    }),
-  );
-
-  const sourceBadges = [];
-  if (selectedSourceResult) {
-    sourceBadges.push(...sourceResultBadges(selectedSourceResult, sourceLanguage).slice(0, 2));
-  } else {
-    sourceBadges.push(languageLabel(sourceLanguage));
-  }
-
-  sections.push(
-    buildResultsSummaryRow({
+    });
+  } else if (resultsStep === "source") {
+    const sourceBadges = selectedSourceResult
+      ? sourceResultBadges(selectedSourceResult, sourceLanguage).slice(0, 2)
+      : [languageLabel(sourceLanguage)];
+    summaryRow = buildResultsSummaryRow({
       label: "Source",
       value: selectedSourceResult
         ? selectedSourceResult.displayLabel || selectedSourceResult.title
@@ -1474,44 +1462,38 @@ function renderResultsSelectionSummary({
           ? "OCR source fallback"
           : "Choose a source subtitle",
       meta: selectedSourceResult
-        ? selectedSourceResult.fileName
+        ? `Title: ${selectedMatch?.displayLabel || selectedMatch?.title || snapshot.title || "Selected match"}`
         : sourceSelectionMode === "ocr_fallback"
-          ? "Live OCR will feed the source side."
+          ? `Title: ${selectedMatch?.displayLabel || selectedMatch?.title || snapshot.title || "Selected match"}`
           : "Select a source subtitle from the right pane.",
       status: selectedSourceResult ? "Selected" : sourceSelectionMode === "ocr_fallback" ? "Fallback" : "Pending",
       statusKind: selectedSourceResult ? "selected" : sourceSelectionMode === "ocr_fallback" ? "fallback" : "pending",
       badges: sourceBadges,
-    }),
-  );
-
-  const targetBadges = [];
-  if (selectedTargetResult) {
-    targetBadges.push(...targetResultBadges(selectedTargetResult).slice(0, 2));
+    });
   } else {
-    targetBadges.push(languageLabel(targetLanguage));
-  }
-
-  sections.push(
-    buildResultsSummaryRow({
+    const targetBadges = selectedTargetResult
+      ? targetResultBadges(selectedTargetResult).slice(0, 2)
+      : [languageLabel(targetLanguage)];
+    summaryRow = buildResultsSummaryRow({
       label: "Target",
       value: selectedTargetResult
         ? selectedTargetResult.displayLabel || selectedTargetResult.title
         : targetSelectionMode === "local"
           ? "Local translation"
           : "Choose a target subtitle",
-      meta: selectedTargetResult
-        ? selectedTargetResult.fileName
-        : targetSelectionMode === "local"
-          ? "Translate locally when no target file is selected."
+      meta: selectedSourceResult
+        ? `Source: ${selectedSourceResult.displayLabel || selectedSourceResult.title}`
+        : sourceSelectionMode === "ocr_fallback"
+          ? "Source: OCR fallback"
           : "Confirm the target side to enable session prep.",
       status: selectedTargetResult ? "Selected" : targetSelectionMode === "local" ? "Confirmed" : "Pending",
       statusKind: selectedTargetResult ? "selected" : targetSelectionMode === "local" ? "confirmed" : "pending",
       badges: targetBadges,
-    }),
-  );
+    });
+  }
 
   dom.resultsSelectionSummary.className = "results-selection-summary";
-  dom.resultsSelectionSummary.replaceChildren(...sections);
+  dom.resultsSelectionSummary.replaceChildren(summaryRow);
 }
 
 function renderSessionSummary(preparedSession) {
@@ -1813,6 +1795,9 @@ function connectSocket() {
     }
     if (message.type === "error") {
       dom.statusMessage.textContent = message.message;
+    }
+    if (message.type === "debug") {
+      appendDebugEntry(message.data);
     }
     scheduleRender();
   };
@@ -2266,5 +2251,73 @@ async function bootstrapApp() {
 dom.loadingRetry.addEventListener("click", () => {
   bootstrapApp();
 });
+
+// ---- Debug Panel ----
+
+const debugLog = [];
+const DEBUG_MAX = 20;
+
+function escapeHtml(str) {
+  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function appendDebugEntry(data) {
+  debugLog.unshift(data);
+  if (debugLog.length > DEBUG_MAX) debugLog.length = DEBUG_MAX;
+  renderDebugPanel();
+}
+
+function renderDebugPanel() {
+  let panel = document.getElementById("debug-panel");
+  if (!panel) {
+    panel = document.createElement("div");
+    panel.id = "debug-panel";
+    panel.style.cssText = [
+      "position:fixed", "bottom:8px", "right:8px", "width:500px",
+      "max-height:440px", "overflow-y:auto",
+      "background:rgba(15,23,42,0.93)", "color:#e2e8f0",
+      "font-family:ui-monospace,monospace", "font-size:11px",
+      "border-radius:10px", "padding:10px",
+      "box-shadow:0 4px 24px rgba(0,0,0,.5)",
+      "z-index:99999", "pointer-events:auto",
+    ].join(";");
+    const hdr = document.createElement("div");
+    hdr.style.cssText = "display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.06em";
+    hdr.innerHTML = '<span>OCR Debug</span><button id="debug-panel-close" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:16px;line-height:1;padding:0">&times;</button>';
+    panel.appendChild(hdr);
+    const summary = document.createElement("div");
+    summary.id = "debug-panel-summary";
+    panel.appendChild(summary);
+    const body = document.createElement("div");
+    body.id = "debug-panel-body";
+    panel.appendChild(body);
+    document.body.appendChild(panel);
+    document.getElementById("debug-panel-close").addEventListener("click", () => panel.remove());
+  }
+
+  const summary = document.getElementById("debug-panel-summary");
+  const body = document.getElementById("debug-panel-body");
+  if (!summary || !body) return;
+
+  const misses = debugLog.filter((e) => e.matchIdx === null).length;
+  const avgMs = debugLog.length ? Math.round(debugLog.reduce((s, e) => s + (e.elapsedMs || 0), 0) / debugLog.length) : 0;
+  summary.style.cssText = "margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid #1e293b;color:#94a3b8;font-size:10px";
+  summary.textContent = `Last ${debugLog.length} — Misses: ${misses}/${debugLog.length} — Avg: ${avgMs}ms`;
+
+  body.innerHTML = "";
+  for (const entry of debugLog) {
+    const hit = entry.matchIdx !== null;
+    const row = document.createElement("div");
+    row.style.cssText = `margin-bottom:3px;padding:3px 5px;border-radius:4px;background:${hit ? "rgba(34,197,94,.07)" : "rgba(239,68,68,.07)"}`;
+    row.innerHTML = [
+      `<span style="color:${hit ? "#4ade80" : "#f87171"};font-weight:bold">${hit ? "HIT" : "MISS"}</span>`,
+      hit ? ` <span style="color:#94a3b8">idx=</span><b>${entry.matchIdx}</b> <span style="color:#94a3b8">score=</span><b>${entry.matchScore}</b>` : "",
+      ` <span style="color:#475569">(${entry.elapsedMs}ms)</span>`,
+      `<br><span style="color:#64748b">${escapeHtml(entry.ocrText || "(empty)")}</span>`,
+      hit && entry.matchSrc ? `<br><span style="color:#475569">→ ${escapeHtml(entry.matchSrc)}</span>` : "",
+    ].join("");
+    body.appendChild(row);
+  }
+}
 
 bootstrapApp();

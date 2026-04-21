@@ -48,6 +48,7 @@ class AppConfig:
     overlay_shadow_strength: float = 0.45
     overlay_offset_pct: int = 10
     overlay_animation_ms: int = 220
+    debug_mode: bool = False
 
 
 def default_config_path() -> Path:
@@ -126,6 +127,7 @@ def load_config(path: Path | None = None) -> AppConfig:
         overlay_shadow_strength=data.get("overlay", {}).get("shadow_strength", 0.45),
         overlay_offset_pct=data.get("overlay", {}).get("offset_pct", 10),
         overlay_animation_ms=data.get("overlay", {}).get("animation_ms", 220),
+        debug_mode=_coerce_bool(data.get("debug", {}).get("mode", False), False),
     )
 
 
@@ -191,6 +193,9 @@ def save_config(config: AppConfig, path: Path | None = None) -> None:
             "shadow_strength": config.overlay_shadow_strength,
             "offset_pct": config.overlay_offset_pct,
             "animation_ms": config.overlay_animation_ms,
+        },
+        "debug": {
+            "mode": config.debug_mode,
         },
     }
     with config_path.open("wb") as handle:
@@ -262,6 +267,9 @@ def config_to_payload(config: AppConfig) -> dict[str, object]:
         "overlay": {
             "port": config.overlay_port,
             **overlay_style_payload(config),
+        },
+        "debug": {
+            "mode": config.debug_mode,
         },
     }
 
@@ -387,4 +395,5 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
         ),
         overlay_offset_pct=_coerce_int(overlay.get("offsetPct", base.overlay_offset_pct), base.overlay_offset_pct),
         overlay_animation_ms=_coerce_int(overlay.get("animationMs", base.overlay_animation_ms), base.overlay_animation_ms),
+        debug_mode=_coerce_bool(payload.get("debug", {}).get("mode", base.debug_mode), base.debug_mode),
     )

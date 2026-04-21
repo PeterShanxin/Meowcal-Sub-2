@@ -8,6 +8,7 @@ import logging
 import os
 import subprocess
 import tempfile
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from pathlib import Path
 from uuid import uuid4
@@ -537,6 +538,11 @@ class GuiController:
         await self._emit_overlay_event("subtitle", {"text": ""})
         return {"status": self._state.status}
 
+    def _make_debug_broadcast(self) -> Callable[[dict[str, object]], Awaitable[None]]:
+        async def cb(data: dict[str, object]) -> None:
+            await self._emit_app_event("debug", {"data": data})
+        return cb
+
     async def broadcast_overlay_subtitle(self, subtitle_text: str) -> None:
         async with self._lock:
             self._state.last_subtitle = subtitle_text
@@ -553,13 +559,14 @@ class GuiController:
                 pass
 
     async def _run_sync_loop(self, runtime: PreparedRuntime, config: AppConfig) -> None:
+        debug_cb = self._make_debug_broadcast() if config.debug_mode else None
         try:
             if runtime.session_mode == "subtitle_pair":
                 if runtime.pair is None:
                     raise RuntimeError("Prepared subtitle-pair runtime is missing source data.")
-                await run_sync_loop(runtime.pair, config, self.broadcast_overlay_subtitle)
+                await run_sync_loop(runtime.pair, config, self.broadcast_overlay_subtitle, debug_broadcast=debug_cb)
             else:
-                await run_ocr_fallback_loop(runtime.target_lines, config, self.broadcast_overlay_subtitle)
+                await run_ocr_fallback_loop(runtime.target_lines, config, self.broadcast_overlay_subtitle, debug_broadcast=debug_cb)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # pragma: no cover - defensive safety
