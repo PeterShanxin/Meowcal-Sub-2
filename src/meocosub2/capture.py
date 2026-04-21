@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
+from time import monotonic
 
 import mss
 from PIL import Image, ImageOps
 from winocr import OcrEngine
+
+logger = logging.getLogger(__name__)
 
 from meocosub2.languages import normalize_ocr_language
 from meocosub2.textnorm import clean_cjk_text, is_cjk_char
@@ -96,16 +100,27 @@ async def _run_ocr(image: Image.Image, language: str) -> str:
 
 async def ocr_image(image: Image.Image, language: str) -> str:
     resolution = resolve_ocr_language(language)
-    passes = [image, preprocess_for_ocr(image)] if _should_try_raw_first(resolution.resolved_language) else [preprocess_for_ocr(image), image]
+    raw_first = _should_try_raw_first(resolution.resolved_language)
+    passes = [image, preprocess_for_ocr(image)] if raw_first else [preprocess_for_ocr(image), image]
+    pass_names = ["raw", "preprocessed"] if raw_first else ["preprocessed", "raw"]
     best_text = ""
     best_score = (0, 0)
-    for candidate in passes:
+    best_pass = "none"
+    t0 = monotonic()
+    for pass_name, candidate in zip(pass_names, passes):
         try:
             text = await _run_ocr(candidate, resolution.resolved_language)
-        except Exception:
+        except Exception as exc:
+            logger.debug("OCR pass=%s failed: %s", pass_name, exc)
             text = ""
         score = _ocr_score(text)
         if score > best_score:
             best_score = score
             best_text = text
+            best_pass = pass_name
+    elapsed_ms = int((monotonic() - t0) * 1000)
+    logger.debug(
+        "OCR pass=%s score=%s len=%d text=%r duration_ms=%d",
+        best_pass, best_score, len(best_text), best_text[:80], elapsed_ms,
+    )
     return best_text

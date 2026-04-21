@@ -22,31 +22,61 @@ async def run_sync_loop(
     pair: SubtitlePair,
     config: AppConfig,
     broadcast: Callable[[str], Awaitable[None]],
+    debug_broadcast: Callable[[dict[str, object]], Awaitable[None]] | None = None,
 ) -> None:
     for source_line, target_line in zip(pair.source_lines, pair.target_lines):
         if not source_line.translated:
             source_line.translated = target_line.text
 
-    matcher = SubtitleMatcher(pair.source_lines, config.fuzzy_threshold, config.match_window_size)
+    matcher = SubtitleMatcher(
+        pair.source_lines,
+        config.fuzzy_threshold,
+        config.match_window_size,
+        target_language=config.target_language,
+    )
     last_displayed_index = -1
+    if not config.capture_region:
+        logger.warning("No capture region configured — using default (0, 800, 1920, 200). Set capture.region in config for your screen.")
     region = tuple(config.capture_region) if config.capture_region else (0, 800, 1920, 200)
     interval_s = config.capture_interval_ms / 1000
+    iteration = 0
 
     while True:
+        iteration += 1
         loop_start = monotonic()
+        ocr_text = ""
+        result = None
         try:
             image = capture_region(region)
             ocr_text = await ocr_image(image, config.ocr_language)
             result = matcher.match(ocr_text)
             if result is not None and result.line_index != last_displayed_index:
+                logger.debug("SYNC #%d broadcast idx=%d score=%.1f text=%r", iteration, result.line_index, result.score, result.target_text[:60])
                 await broadcast(result.target_text)
                 last_displayed_index = result.line_index
+            else:
+                logger.debug(
+                    "SYNC #%d ocr=%r match=%s",
+                    iteration,
+                    ocr_text[:60],
+                    f"idx={result.line_index} (same)" if result else "miss",
+                )
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception("Sync loop iteration failed")
+            logger.exception("Sync loop #%d failed (ocr=%r)", iteration, ocr_text[:60])
 
         elapsed = monotonic() - loop_start
+        if debug_broadcast is not None:
+            await debug_broadcast({
+                "iteration": iteration,
+                "ocrText": ocr_text[:120],
+                "matchIdx": result.line_index if result else None,
+                "matchScore": round(result.score, 1) if result else None,
+                "matchSrc": result.source_text[:60] if result else None,
+                "elapsedMs": int(elapsed * 1000),
+            })
+            elapsed = monotonic() - loop_start
         await asyncio.sleep(max(0, interval_s - elapsed))
 
 
@@ -54,8 +84,9 @@ async def run_ocr_fallback_loop(
     target_lines: list[SubtitleLine],
     config: AppConfig,
     broadcast: Callable[[str], Awaitable[None]],
+    debug_broadcast: Callable[[dict[str, object]], Awaitable[None]] | None = None,
 ) -> None:
-    matcher = SubtitleMatcher(target_lines, config.fuzzy_threshold, config.match_window_size) if target_lines else None
+    matcher = SubtitleMatcher(target_lines, config.fuzzy_threshold, config.match_window_size, target_language=config.target_language) if target_lines else None
     translation_context: deque[str] = deque(maxlen=3)
     translation_cache: OrderedDict[str, str] = OrderedDict()
     last_ocr_key = ""
@@ -70,6 +101,8 @@ async def run_ocr_fallback_loop(
 
         while True:
             loop_start = monotonic()
+            ocr_key = ""
+            display_text = ""
             try:
                 image = capture_region(region)
                 ocr_text = await ocr_image(image, config.ocr_language)
@@ -112,6 +145,16 @@ async def run_ocr_fallback_loop(
                 logger.exception("OCR fallback loop iteration failed")
 
             elapsed = monotonic() - loop_start
+            if debug_broadcast is not None:
+                await debug_broadcast({
+                    "ocrText": ocr_key[:120],
+                    "matchIdx": None,
+                    "matchScore": None,
+                    "matchSrc": None,
+                    "translation": (display_text or "")[:60],
+                    "elapsedMs": int(elapsed * 1000),
+                })
+                elapsed = monotonic() - loop_start
             await asyncio.sleep(max(0, interval_s - elapsed))
     finally:
         if client is not None:

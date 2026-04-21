@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 
 from rapidfuzz import fuzz, process
 
 from meocosub2.models import MatchResult, SubtitleLine
 from meocosub2.textnorm import clean_cjk_text, is_cjk_compactable_char, to_simplified
+
+logger = logging.getLogger(__name__)
 
 
 class SubtitleMatcher:
@@ -18,6 +21,7 @@ class SubtitleMatcher:
         fuzzy_threshold: int = 65,
         window_forward: int = 30,
         window_backward: int = 5,
+        target_language: str = "",
     ) -> None:
         self.subtitles = subtitles
         self.fuzzy_threshold = fuzzy_threshold
@@ -26,6 +30,7 @@ class SubtitleMatcher:
         self._last_match_position: int | None = None
         self._last_frame_hash: str | None = None
         self._contains_cjk = any(any(is_cjk_compactable_char(ch) for ch in line.text) for line in subtitles)
+        self._use_simplified = self._contains_cjk and target_language != "zht"
         self._normalized = [self._normalize_for_match(line.text) for line in subtitles]
 
     @staticmethod
@@ -39,7 +44,8 @@ class SubtitleMatcher:
     def _normalize_for_match(self, text: str) -> str:
         normalized = self.normalize_text(text)
         if self._contains_cjk or any(is_cjk_compactable_char(ch) for ch in normalized):
-            return to_simplified(clean_cjk_text(normalized))
+            cleaned = clean_cjk_text(normalized)
+            return to_simplified(cleaned) if self._use_simplified else cleaned
         return normalized
 
     def _hash_text(self, text: str) -> str:
@@ -70,6 +76,7 @@ class SubtitleMatcher:
     def match(self, ocr_text: str) -> MatchResult | None:
         normalized_ocr = self._normalize_for_match(ocr_text)
         if len(normalized_ocr) < 3:
+            logger.debug("MATCH skip: normalized too short (%d chars) for %r", len(normalized_ocr), ocr_text[:40])
             return None
 
         current_hash = self._hash_text(normalized_ocr)
@@ -77,15 +84,22 @@ class SubtitleMatcher:
             return None
         self._last_frame_hash = current_hash
 
-        best = self._extract_best(normalized_ocr, self._search_indices())
+        window = self._search_indices()
+        best = self._extract_best(normalized_ocr, window)
+        in_window = best is not None
         if best is None:
             best = self._extract_best(normalized_ocr, range(len(self.subtitles)))
         if best is None:
+            logger.debug("MATCH miss: threshold=%d ocr=%r", self.fuzzy_threshold, normalized_ocr[:60])
             return None
 
         position, score = best
         self._last_match_position = position
         line = self.subtitles[position]
+        logger.debug(
+            "MATCH hit: idx=%d score=%.1f window=%s src=%r ocr=%r",
+            position, score, in_window, line.text[:40], normalized_ocr[:40],
+        )
         return MatchResult(
             line_index=line.index,
             score=score,
