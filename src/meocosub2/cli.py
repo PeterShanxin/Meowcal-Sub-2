@@ -51,16 +51,16 @@ def _setup_logging(verbose: bool = True) -> None:
         encoding="utf-8",
     )
     file_handler.setFormatter(logging.Formatter(log_format))
-    file_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
+    file_handler.setLevel(logging.DEBUG)
     root.addHandler(file_handler)
 
-    if verbose and _has_console():
+    if _has_console():
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(logging.Formatter(log_format))
-        console_handler.setLevel(logging.DEBUG)
+        console_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
         root.addHandler(console_handler)
 
-    root.setLevel(logging.DEBUG if verbose else logging.INFO)
+    root.setLevel(logging.DEBUG)
 
     # Keep noisy third-party loggers quiet even in verbose mode
     for noisy in ("httpx", "httpcore", "asyncio", "watchfiles"):
