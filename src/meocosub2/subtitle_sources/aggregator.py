@@ -206,6 +206,47 @@ class SubtitleSearchAggregator:
                 )
             )
 
+        assrt_orphans = [
+            item
+            for item in aggregated_results
+            if item.provider == "assrt" and item.year is None and item.season is None and item.episode is None
+        ]
+        for item in assrt_orphans:
+            current_group_id = item.match_id
+            canonical_title = match_group_key(
+                item.title,
+                item.media_type,
+                item.year,
+                item.season,
+                item.episode,
+                item.parent_title,
+            )[0]
+            candidate_group_ids = [
+                group_id
+                for key, group_id in group_order.items()
+                if group_id != current_group_id and key[0] == canonical_title
+            ]
+            if not candidate_group_ids:
+                continue
+            winning_group_id = max(candidate_group_ids, key=lambda group_id: float(groups[group_id]["match_score"]))
+            source_group = groups.get(current_group_id)
+            winning_group = groups[winning_group_id]
+            item.match_id = winning_group_id
+            winning_group["subtitles_count"] = int(winning_group["subtitles_count"]) + 1
+            winning_group["match_score"] = max(float(winning_group["match_score"]), item.match_score)
+            winning_group["providers"].add(item.provider)
+            winning_group["provider_labels"].add(item.provider_label)
+            if source_group is not None:
+                source_group["subtitles_count"] = max(0, int(source_group["subtitles_count"]) - 1)
+
+        referenced_group_ids = {item.match_id for item in aggregated_results}
+        empty_group_ids = set(groups) - referenced_group_ids
+        for group_id in empty_group_ids:
+            groups.pop(group_id, None)
+        for key, group_id in list(group_order.items()):
+            if group_id in empty_group_ids:
+                group_order.pop(key, None)
+
         matches: list[AggregatedTitleMatch] = []
         for group_id, group in groups.items():
             year_value = group["year"] if isinstance(group["year"], int) else None
