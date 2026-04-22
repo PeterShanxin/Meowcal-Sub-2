@@ -17,6 +17,22 @@ SUBTITLE_EXTENSIONS = (".srt", ".ass", ".ssa", ".vtt")
 EPISODE_PATTERN = re.compile(r"\bS(?P<season>\d{1,2})E(?P<episode>\d{1,3})\b", re.IGNORECASE)
 YEAR_PATTERN = re.compile(r"\b(?P<year>19\d{2}|20\d{2}|21\d{2})\b")
 SEPARATOR_PATTERN = re.compile(r"[|]+")
+QUERY_PAREN_YEAR_PATTERN = re.compile(r"^(?P<title>.+?)\s*\((?P<year>19\d{2}|20\d{2}|21\d{2})\)\s*$")
+QUERY_TRAILING_YEAR_PATTERN = re.compile(r"^(?P<title>.+?)\s+(?P<year>19\d{2}|20\d{2}|21\d{2})\s*$")
+
+
+def split_query_year(query: str) -> tuple[str, int | None]:
+    """Extract a trailing 4-digit year from a user query. Returns (clean_title, year_or_none)."""
+    if not query:
+        return "", None
+    text = query.strip()
+    for pattern in (QUERY_PAREN_YEAR_PATTERN, QUERY_TRAILING_YEAR_PATTERN):
+        match = pattern.match(text)
+        if match:
+            title = re.sub(r"\s+", " ", match.group("title")).strip(" -_:/")
+            year = int(match.group("year"))
+            return title, year
+    return text, None
 
 SUBDL_LANGUAGE_MAP = {
     "english": "en",

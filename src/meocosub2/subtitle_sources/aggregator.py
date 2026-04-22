@@ -21,7 +21,13 @@ from meocosub2.subtitle_sources.types import (
     ProviderSubtitleResult,
     SubtitleSourceProvider,
 )
-from meocosub2.subtitle_sources.utils import PROVIDER_RANK, language_priority, match_group_key
+from meocosub2.subtitle_sources.utils import PROVIDER_RANK, language_priority, match_group_key, split_query_year
+
+
+YEAR_EXACT_BONUS = 20.0
+YEAR_NEAR_PENALTY = 4.0
+YEAR_MISMATCH_PENALTY = 15.0
+YEAR_NEAR_RANGE = 3
 
 
 class SubtitleSearchAggregator:
@@ -34,8 +40,10 @@ class SubtitleSearchAggregator:
         )
 
     async def search_catalog(self, query: str, languages: str) -> AggregatedSearchCatalog:
+        clean_title, query_year = split_query_year(query)
+        dispatch_query = clean_title or query
         responses = await asyncio.gather(
-            *(provider.search_catalog(query, languages) for provider in self.providers),
+            *(provider.search_catalog(dispatch_query, languages) for provider in self.providers),
             return_exceptions=True,
         )
 
@@ -52,7 +60,7 @@ class SubtitleSearchAggregator:
         if not catalogs:
             raise SubtitleSourceError("All subtitle sources failed.")
 
-        aggregated = self._merge_catalogs(catalogs, languages)
+        aggregated = self._merge_catalogs(catalogs, languages, query_year)
         aggregated.warnings.extend(warnings)
         if not aggregated.results and errors:
             raise SubtitleSourceError("; ".join(errors))
@@ -63,7 +71,22 @@ class SubtitleSearchAggregator:
         provider = next(item for item in self.providers if item.provider_code == result.provider)
         return await provider.download(result.provider_result)
 
-    def _merge_catalogs(self, catalogs: Iterable[ProviderSearchCatalog], languages: str) -> AggregatedSearchCatalog:
+    def _year_bonus(self, match_year: int | None, query_year: int | None) -> float:
+        if query_year is None or match_year is None:
+            return 0.0
+        if match_year == query_year:
+            return YEAR_EXACT_BONUS
+        diff = abs(match_year - query_year)
+        if diff <= YEAR_NEAR_RANGE:
+            return -YEAR_NEAR_PENALTY * diff
+        return -YEAR_MISMATCH_PENALTY
+
+    def _merge_catalogs(
+        self,
+        catalogs: Iterable[ProviderSearchCatalog],
+        languages: str,
+        query_year: int | None = None,
+    ) -> AggregatedSearchCatalog:
         requested_languages = {code.strip() for code in languages.split(",") if code.strip()}
         all_matches: list[ProviderSubtitleMatch] = []
         all_results: list[ProviderSubtitleResult] = []
@@ -183,25 +206,28 @@ class SubtitleSearchAggregator:
                 )
             )
 
-        matches = [
-            AggregatedTitleMatch(
-                id=group_id,
-                title=str(group["title"]),
-                year=group["year"] if isinstance(group["year"], int) else None,
-                imdb_id=str(group["imdb_id"]) if group["imdb_id"] else None,
-                tmdb_id=str(group["tmdb_id"]) if group["tmdb_id"] else None,
-                media_type=str(group["media_type"]),
-                season=group["season"] if isinstance(group["season"], int) else None,
-                episode=group["episode"] if isinstance(group["episode"], int) else None,
-                parent_title=str(group["parent_title"]) if group["parent_title"] else None,
-                subtitles_count=int(group["subtitles_count"]),
-                match_score=float(group["match_score"]),
-                provider_count=len(group["providers"]),
-                providers=tuple(sorted(group["providers"])),
-                provider_labels=tuple(sorted(group["provider_labels"])),
+        matches: list[AggregatedTitleMatch] = []
+        for group_id, group in groups.items():
+            year_value = group["year"] if isinstance(group["year"], int) else None
+            adjusted_score = float(group["match_score"]) + self._year_bonus(year_value, query_year)
+            matches.append(
+                AggregatedTitleMatch(
+                    id=group_id,
+                    title=str(group["title"]),
+                    year=year_value,
+                    imdb_id=str(group["imdb_id"]) if group["imdb_id"] else None,
+                    tmdb_id=str(group["tmdb_id"]) if group["tmdb_id"] else None,
+                    media_type=str(group["media_type"]),
+                    season=group["season"] if isinstance(group["season"], int) else None,
+                    episode=group["episode"] if isinstance(group["episode"], int) else None,
+                    parent_title=str(group["parent_title"]) if group["parent_title"] else None,
+                    subtitles_count=int(group["subtitles_count"]),
+                    match_score=adjusted_score,
+                    provider_count=len(group["providers"]),
+                    providers=tuple(sorted(group["providers"])),
+                    provider_labels=tuple(sorted(group["provider_labels"])),
+                )
             )
-            for group_id, group in groups.items()
-        ]
         matches.sort(key=lambda item: (item.match_score, item.provider_count, item.subtitles_count), reverse=True)
 
         group_scores = {item.id: item.match_score for item in matches}
