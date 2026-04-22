@@ -123,9 +123,9 @@ fn backend_ready() -> bool {
         .unwrap_or(false)
 }
 
-fn ensure_backend_running(process: &BackendProcess) {
+fn ensure_backend_running(process: &BackendProcess) -> bool {
     if backend_ready() {
-        return;
+        return false;
     }
 
     let python = python_executable();
@@ -152,10 +152,11 @@ fn ensure_backend_running(process: &BackendProcess) {
 
     for _ in 0..30 {
         if backend_ready() {
-            return;
+            return true;
         }
         std::thread::sleep(Duration::from_millis(500));
     }
+    true
 }
 
 fn post_json(path: &str, body: serde_json::Value) -> Result<(), String> {
@@ -457,6 +458,9 @@ fn main() {
     };
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main(app);
+        }))
         .manage(backend_process.clone())
         .manage(shell_state.clone())
         .invoke_handler(tauri::generate_handler![
@@ -473,9 +477,12 @@ fn main() {
             set_capture_region,
         ])
         .setup(move |app| {
-            ensure_backend_running(app.state::<BackendProcess>().inner());
+            let backend_just_started = ensure_backend_running(app.state::<BackendProcess>().inner());
             if let Some(main) = app.get_webview_window("main") {
-                let _ = main.navigate(Url::parse(&api_base()).map_err(|error| error.to_string())?);
+                let _ = main.set_decorations(false);
+                if backend_just_started {
+                    let _ = main.navigate(Url::parse(&api_base()).map_err(|error| error.to_string())?);
+                }
             }
 
             let show_item = MenuItem::with_id(app, "show", "Open App", true, None::<&str>)?;
