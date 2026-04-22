@@ -55,7 +55,7 @@ def test_load_invalid_toml_returns_defaults(tmp_path: Path) -> None:
 
 def test_config_example_contains_all_sections() -> None:
     payload = tomllib.loads(Path("config.example.toml").read_text(encoding="utf-8"))
-    assert set(payload) == {"subtitle_sources", "languages", "capture", "matching", "translation", "overlay"}
+    assert set(payload) == {"subtitle_sources", "languages", "capture", "matching", "translation", "overlay", "debug"}
     assert set(payload["subtitle_sources"]) == {"opensubtitles", "subdl", "assrt"}
 
 

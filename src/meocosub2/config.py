@@ -66,6 +66,8 @@ def load_config(path: Path | None = None) -> AppConfig:
     except tomllib.TOMLDecodeError:
         return AppConfig()
 
+    # New config writes live under subtitle_sources, but older local installs may
+    # still carry a top-level [opensubtitles] section.
     subtitle_sources = data.get("subtitle_sources", {})
     if not isinstance(subtitle_sources, dict):
         subtitle_sources = {}
@@ -339,6 +341,8 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
     if not isinstance(overlay, dict):
         overlay = {}
 
+    # Payload merges are intentionally partial because the dashboard can persist
+    # one subsection at a time, such as language-only saves.
     opensubtitles = subtitle_sources.get("opensubtitles", {})
     subdl = subtitle_sources.get("subdl", {})
     assrt = subtitle_sources.get("assrt", {})

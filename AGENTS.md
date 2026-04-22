@@ -10,15 +10,17 @@
 - Studio route: [src/meocosub2/overlay/server.py](src/meocosub2/overlay/server.py)
 - Subtitle source aggregator: [src/meocosub2/subtitle_sources](src/meocosub2/subtitle_sources)
 - Live studio page: [src/meocosub2/overlay/static/index.html](src/meocosub2/overlay/static/index.html)
-- Shared studio logic: [src/meocosub2/overlay/static/app.js](src/meocosub2/overlay/static/app.js)
+- Dashboard JS entrypoint: [src/meocosub2/overlay/static/app.js](src/meocosub2/overlay/static/app.js)
+- Dashboard JS modules: [src/meocosub2/overlay/static](src/meocosub2/overlay/static) `app-*.js`
 - Shared studio styles: [src/meocosub2/overlay/static/app.css](src/meocosub2/overlay/static/app.css)
 - Tauri shell startup: [src-tauri/src/main.rs](src-tauri/src/main.rs)
 - Tauri window config: [src-tauri/tauri.conf.json](src-tauri/tauri.conf.json)
 
 ## Source Of Truth
 - Treat the server-backed `/` route as the real desktop runtime path.
-- Make desktop studio UI fixes in `index.html`, `app.js`, and `app.css` first.
+- Make desktop studio UI fixes in `index.html`, `app.js`, `app-*.js`, and `app.css` first.
 - Keep `desktop-main.html` in sync when markup changes, but do not treat it as the primary runtime path.
+- `docs/plans/` is not authoritative for current behavior and should be ignored for maintenance work.
 
 ## Log Inspection
 
@@ -40,8 +42,9 @@
 ## Verification
 
 - Run `pytest -q` after Python or server changes.
-- Run `node --check src\meocosub2\overlay\static\app.js` after frontend JS changes.
+- Run `Get-ChildItem src\meocosub2\overlay\static\app*.js | ForEach-Object { node --check $_.FullName }` after frontend JS changes.
 - Run `cargo check --manifest-path src-tauri\Cargo.toml` after shell changes.
+- Run `python scripts\run_dashboard_smoke.py` when you need a served-dashboard smoke check.
 - For launcher debugging on Windows:
   - `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*meocosub2.cli serve*' }`
   - `Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -eq 8765 }`
@@ -52,6 +55,7 @@
 - The repo may contain local generated or user-authored changes. Do not revert unrelated work.
 - When changing the shared studio markup, keep tests in `tests/test_overlay.py` aligned with the served contract.
 - Studio subtitle search is provider-neutral now; the main API/UI flow uses opaque `matchId` and `resultId` values instead of provider file ids.
+- Prefer short rationale comments in non-obvious logic and hotspot flows. Do not add boilerplate comments to simple code.
 - When debugging startup issues, separate three layers:
   - served page correctness
   - launcher/process correctness
@@ -70,6 +74,7 @@
 ## Lessons Learned
 - Browser automation in this harness validated the served Chromium page at `http://127.0.0.1:8765/`, not the actual Tauri/WebView2 desktop window.
 - A browser pass is not enough to prove a desktop rendering fix. Desktop-only issues still need real shell verification.
+- `python scripts\run_dashboard_smoke.py` is the lightweight served-page smoke path; it validates the dashboard contract but not native Tauri rendering.
 - This Codex harness can launch Windows apps through shell or URI handlers and can inspect the real desktop app with OS-level screenshots or `scripts/capture_meowcal_window.py`.
 - Treat that desktop visibility as a visual inspection capability, not as proof of stable native GUI interaction parity with browser automation.
 - Generic active-window OS screenshots can show a black WebView2 surface even when the app is visible; `scripts/capture_meowcal_window.py` is currently the more reliable path for Meowcal desktop captures.

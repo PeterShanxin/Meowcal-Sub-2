@@ -1,0 +1,49 @@
+name: Windows CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Python dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+
+      - name: Install Playwright browser
+        run: python -m playwright install chromium
+
+      - name: Run pytest
+        run: pytest -q
+
+      - name: Check dashboard modules
+        shell: pwsh
+        run: |
+          Get-ChildItem src\meocosub2\overlay\static\app*.js | ForEach-Object {
+            node --check $_.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Cargo check
+        run: cargo check --manifest-path src-tauri\Cargo.toml
+
+      - name: Dashboard smoke
+        run: python scripts\run_dashboard_smoke.py

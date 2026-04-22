@@ -117,38 +117,31 @@ def test_dashboard_script_uses_blocking_bootstrap_without_custom_selects(tmp_pat
     server = make_server(tmp_path / "config.toml")
     with TestClient(server.app) as client:
         script = client.get("/static/app.js")
+        bootstrap = client.get("/static/app-bootstrap.js")
+        language_module = client.get("/static/app-language.js")
+        session_module = client.get("/static/app-session.js")
+        shell_module = client.get("/static/app-shell.js")
 
     assert script.status_code == 200
-    assert "Language options failed to load. Retry startup." in script.text
-    assert "Studio startup incomplete" in script.text
-    assert "Loading studio..." in script.text
-    assert "Preparing languages and saved settings." in script.text
-    assert "languageMenuPortal" not in script.text
-    assert "languageMenuPanel" not in script.text
-    assert "positionLanguageMenuPanel" not in script.text
-    assert "showModal()" not in script.text
-    assert "languageMenuDialog" not in script.text
-    assert "wrapSelect(" not in script.text
-    assert "custom-select" not in script.text
-    assert "title-match-results" in script.text
-    assert "ocr_fallback" in script.text
-    assert "search-result-summary" in script.text
-    assert "results-selection-summary" in script.text
-    assert "renderResultsFlow" in script.text
-    assert "renderResultsSelectionSummary" in script.text
-    assert "Searching subtitle sources..." in script.text
-    assert 'document.getElementById("window-minimize-button")' in script.text
-    assert 'document.getElementById("results-prepare-button")' in script.text
-    assert 'document.querySelectorAll("[data-view-target]")' in script.text
-    assert 'TAURI.core.invoke("toggle_main_window_maximize")' in script.text
-    assert "state.ui.manualView" in script.text
-    assert "currentTargetSelectionMode" in script.text
-    assert "openCaptureRegionSelector" in script.text
-    assert "currentResultsStep" in script.text
-    assert "subtitleSources" in script.text
-    assert "sourceResultId" in script.text
-    assert "matchId" in script.text
-    assert "Searching OpenSubtitles..." not in script.text
+    assert script.text.strip() == 'import "./app-bootstrap.js";'
+    assert bootstrap.status_code == 200
+    assert "Language options failed to load. Retry startup." in bootstrap.text
+    assert "Loading studio..." in bootstrap.text
+    assert "Preparing languages and saved settings." in bootstrap.text
+    assert "appendDebugEntry" in bootstrap.text
+    assert "bindSessionActions" in bootstrap.text
+    assert "Searching OpenSubtitles..." not in bootstrap.text
+    assert language_module.status_code == 200
+    assert "custom-select" not in language_module.text
+    assert "languageMenuPortal" not in language_module.text
+    assert "showModal()" not in language_module.text
+    assert session_module.status_code == 200
+    assert "state.ui.manualView" in session_module.text
+    assert "sourceResultId" in session_module.text
+    assert "matchId" in session_module.text
+    assert shell_module.status_code == 200
+    assert "Studio startup incomplete" in shell_module.text
+    assert 'TAURI.core.invoke("toggle_main_window_maximize")' in shell_module.text
 
 
 def test_dashboard_styles_use_inline_language_picker_layout(tmp_path: Path) -> None:

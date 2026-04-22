@@ -1,17 +1,22 @@
 # Meowcal-Sub-2
 
-`meowcal-sub-2` is a Python CLI that searches OpenSubtitles, downloads and caches subtitle files, batch-translates them with Foundry Local when needed, and syncs translated overlay text against on-screen subtitles using OCR plus fuzzy matching.
+`meowcal-sub-2` is a Windows-first subtitle studio with a Python backend, a local web dashboard, and a Tauri desktop shell. It searches multiple subtitle sources, prepares subtitle-pair or OCR-fallback sessions, translates through Foundry Local when needed, and syncs overlay text to live playback with OCR plus fuzzy matching.
 
-User guide:
+Docs:
 
-- [`docs/user-guide.md`](docs/user-guide.md)
+- [docs/user-guide.md](docs/user-guide.md)
+- [docs/developer-guide.md](docs/developer-guide.md)
 
 ## Requirements
 
 - Python 3.11+
 - Windows for OCR support via `winocr`
-- An OpenSubtitles API key
-- Optional: a Foundry Local OpenAI-compatible endpoint for subtitle translation
+- Optional desktop shell: WebView2/Tauri runtime on Windows
+- Optional subtitle sources:
+  - OpenSubtitles API key
+  - ASSRT token
+- Optional translation backend:
+  - Foundry Local OpenAI-compatible endpoint
 
 ## Install
 
@@ -19,28 +24,38 @@ User guide:
 pip install -e ".[dev]"
 ```
 
-## Windows Desktop Launch
+The `dev` extra also installs the Playwright dependency used by the served-dashboard smoke script.
 
-- Use `run_app.vbs` to open the desktop app without a console window.
-- `run_app.vbs` is the only Windows launcher now. It opens the built desktop shell when present and falls back to the Python GUI through `pythonw.exe`.
-- The startup spinner now means the studio is still loading. It only clears once the language controls and saved settings are ready to use.
+## Runtime Modes
+
+- Desktop launch: `run_app.vbs`
+- Local dashboard server: `python -m meocosub2.cli serve`
+- Browser dashboard URL: `http://127.0.0.1:8765/`
+- Browser overlay URL: `http://127.0.0.1:8765/overlay`
+
+`run_app.vbs` is the supported Windows launcher. It opens the built Tauri shell when present and falls back to the Python GUI path through `pythonw.exe`.
 
 ## Config
 
-Default config path:
+Default config path on Windows:
 
-- Windows: `%APPDATA%/meowcal-sub-2/config.toml`
+- `%APPDATA%/meowcal-sub-2/config.toml`
 
-See [`config.example.toml`](config.example.toml) for the full schema.
+Use [config.example.toml](config.example.toml) as the source of truth for the current schema.
 
-Sections:
+Main sections:
 
-- `[opensubtitles]`: `api_key`, `username`, `password`, `enable_org_fallback`
-- `[languages]`: `source`, `target`
-- `[capture]`: `region`, `interval_ms`, `ocr_language`
-- `[matching]`: `fuzzy_threshold`, `window_size`
-- `[translation]`: `endpoint`, `model`, `timeout_s`, `batch_size`
-- `[overlay]`: `port`, `font_size`, `font_family`, `text_color`, `bg_color`, `position`
+- `[subtitle_sources.opensubtitles]`: enable/credentials/legacy alias fallback
+- `[subtitle_sources.subdl]`: enable flag
+- `[subtitle_sources.assrt]`: enable flag and token
+- `[languages]`: source and target language codes
+- `[capture]`: region, interval, OCR language
+- `[matching]`: fuzzy threshold and search window
+- `[translation]`: Foundry Local endpoint/model/batch settings
+- `[overlay]`: style and layout settings for the subtitle overlay
+- `[debug]`: dashboard debug panel toggle
+
+Legacy `[opensubtitles]` config still loads for backward compatibility, but new edits should use `subtitle_sources.opensubtitles`.
 
 ## Commands
 
@@ -56,25 +71,24 @@ Available commands:
 - `start SOURCE_SUBTITLE [--target-file TARGET_SUBTITLE]`
 - `run TITLE`
 - `gui`
+- `serve`
 
 Examples:
 
 ```bash
-meowcal-sub-2 search "Inception" --source en --target zht
-meowcal-sub-2 download 123456
-meowcal-sub-2 translate .\movie.en.srt
-meowcal-sub-2 start .\movie.en.srt --target-file .\movie.zht.srt
-meowcal-sub-2 run "Inception" --source en --target zht
 meowcal-sub-2 gui
+meowcal-sub-2 serve
+meowcal-sub-2 search "Inception" --source en --target zht
+meowcal-sub-2 translate .\movie.en.srt
 ```
 
-Optional legacy-title fallback:
-
-- Set `opensubtitles.enable_org_fallback = true` in the config file to let the app scrape `.org` search result titles as extra aliases when the official `.com` API misses a title.
-- The fallback only contributes title hints. Search, download, and session prep still use the official `.com` API.
-
-## Tests
+## Verification
 
 ```bash
-pytest -v --tb=short
+pytest -q
+Get-ChildItem src\meocosub2\overlay\static\app*.js | ForEach-Object { node --check $_.FullName }
+cargo check --manifest-path src-tauri\Cargo.toml
+python scripts\run_dashboard_smoke.py
 ```
+
+The Playwright smoke script validates the served dashboard path only. It does not prove native WebView2 rendering correctness inside the Tauri shell.

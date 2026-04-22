@@ -46,3 +46,6 @@ blur_px = 20
 shadow_strength = 0.45
 offset_pct = 10
 animation_ms = 220
+
+[debug]
+mode = false

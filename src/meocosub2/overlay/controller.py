@@ -216,6 +216,8 @@ class GuiController:
         logger.info("Saving config")
         from meocosub2.config import config_from_payload
 
+        # Always merge against the in-memory config so partial dashboard saves do
+        # not silently reset unrelated settings.
         new_config = config_from_payload(payload, fallback=self.config)
         save_config(new_config, self._config_path)
         self.config = new_config
@@ -564,6 +566,8 @@ class GuiController:
             if runtime.session_mode == "subtitle_pair":
                 if runtime.pair is None:
                     raise RuntimeError("Prepared subtitle-pair runtime is missing source data.")
+                # Debug events ride alongside the normal broadcast path so the
+                # dashboard panel can inspect OCR timing without changing sync behavior.
                 await run_sync_loop(runtime.pair, config, self.broadcast_overlay_subtitle, debug_broadcast=debug_cb)
             else:
                 await run_ocr_fallback_loop(runtime.target_lines, config, self.broadcast_overlay_subtitle, debug_broadcast=debug_cb)

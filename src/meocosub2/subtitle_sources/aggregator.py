@@ -117,6 +117,8 @@ class SubtitleSearchAggregator:
             match_score: float,
         ) -> str:
             key = match_group_key(title, media_type, year, season, episode, parent_title)
+            # Grouping by canonical title metadata keeps the UI stable even when
+            # different providers describe the same title with slightly different ids.
             if key in group_order:
                 group_id = group_order[key]
                 group = groups[group_id]
@@ -206,6 +208,8 @@ class SubtitleSearchAggregator:
                 )
             )
 
+        # ASSRT sometimes omits year/episode metadata; merge those "orphans" back
+        # into a stronger title group when the normalized title already exists.
         assrt_orphans = [
             item
             for item in aggregated_results

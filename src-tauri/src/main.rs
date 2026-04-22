@@ -445,6 +445,8 @@ fn emit_splash_status(app: &AppHandle, text: &str) {
 }
 
 fn run_backend_boot(app: &AppHandle) {
+    // The Tauri shell is a wrapper around the same served dashboard path used in
+    // the browser, so boot success is defined by the local backend becoming ready.
     emit_splash_status(app, "Checking backend...");
     if backend_ready() {
         navigate_main_to_backend(app);
@@ -464,6 +466,8 @@ fn navigate_main_to_backend(app: &AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
+    // Once the backend is ready, the shell simply navigates the main window to
+    // the served dashboard rather than loading a separate desktop-only frontend.
     let Ok(url) = Url::parse(&api_base()) else {
         return;
     };
