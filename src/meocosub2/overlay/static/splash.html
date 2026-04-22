@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Meowcal Sub 2</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #0b0d12;
+    color: #e6e8ec;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    overflow: hidden;
+  }
+  .wrap {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  .title { font-size: 20px; font-weight: 600; letter-spacing: 0.3px; }
+  .sub   { font-size: 13px; opacity: 0.65; }
+  .spinner {
+    width: 42px; height: 42px;
+    border: 3px solid rgba(255,255,255,0.12);
+    border-top-color: #7aa7ff;
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+  .error {
+    max-width: 520px;
+    text-align: center;
+    padding: 24px 28px;
+    border: 1px solid rgba(255,120,120,0.35);
+    border-radius: 10px;
+    background: rgba(255,80,80,0.06);
+  }
+  .error button {
+    margin-top: 14px;
+    padding: 8px 18px;
+    background: #2a3554;
+    color: #e6e8ec;
+    border: 1px solid #3a476a;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .error button:hover { background: #33426a; }
+  #error { display: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+  <div class="wrap" id="loading">
+    <div class="spinner"></div>
+    <div class="title">Meowcal Sub 2</div>
+    <div class="sub" id="status">Starting backend...</div>
+  </div>
+  <div class="wrap" id="error">
+    <div class="error">
+      <div class="title" style="color:#ffb3b3;">Backend did not start</div>
+      <div class="sub" style="margin-top:10px;">
+        Local Python backend failed to respond within the timeout.
+      </div>
+      <button onclick="window.__TAURI__?.event?.emit('splash-retry')">Retry</button>
+    </div>
+  </div>
+  <script>
+    if (window.__TAURI__?.event?.listen) {
+      window.__TAURI__.event.listen('splash-status', (e) => {
+        const s = document.getElementById('status');
+        if (s && e?.payload?.text) s.textContent = e.payload.text;
+      });
+      window.__TAURI__.event.listen('splash-error', () => {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('error').style.display = 'flex';
+      });
+    }
+  </script>
+</body>
+</html>

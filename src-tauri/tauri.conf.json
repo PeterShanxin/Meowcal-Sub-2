@@ -14,7 +14,7 @@
       {
         "title": "Meowcal Sub 2",
         "label": "main",
-        "url": "http://127.0.0.1:8765/",
+        "url": "splash.html",
         "width": 1320,
         "height": 900,
         "resizable": true,

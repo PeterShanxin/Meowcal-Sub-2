@@ -11,7 +11,7 @@ use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State,
+    AppHandle, Emitter, Listener, LogicalPosition, LogicalSize, Manager, State,
 };
 use tokio::time::sleep;
 use url::Url;
@@ -123,11 +123,7 @@ fn backend_ready() -> bool {
         .unwrap_or(false)
 }
 
-fn ensure_backend_running(process: &BackendProcess) -> bool {
-    if backend_ready() {
-        return false;
-    }
-
+fn spawn_backend(process: &BackendProcess) {
     let python = python_executable();
     let mut command = if python.exists() {
         let mut command = Command::new(python);
@@ -149,14 +145,17 @@ fn ensure_backend_running(process: &BackendProcess) -> bool {
     if let Ok(child) = command.spawn() {
         *process.0.lock().expect("backend process lock") = Some(child);
     }
+}
 
-    for _ in 0..30 {
+fn wait_for_backend(timeout: Duration) -> bool {
+    let start = std::time::Instant::now();
+    while start.elapsed() < timeout {
         if backend_ready() {
             return true;
         }
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(Duration::from_millis(400));
     }
-    true
+    false
 }
 
 fn post_json(path: &str, body: serde_json::Value) -> Result<(), String> {
@@ -441,6 +440,36 @@ fn set_capture_region(
     Ok(())
 }
 
+fn emit_splash_status(app: &AppHandle, text: &str) {
+    let _ = app.emit_to("main", "splash-status", serde_json::json!({ "text": text }));
+}
+
+fn run_backend_boot(app: &AppHandle) {
+    emit_splash_status(app, "Checking backend...");
+    if backend_ready() {
+        navigate_main_to_backend(app);
+        return;
+    }
+    emit_splash_status(app, "Starting Python backend...");
+    spawn_backend(app.state::<BackendProcess>().inner());
+    emit_splash_status(app, "Waiting for backend (up to 60s)...");
+    if wait_for_backend(Duration::from_secs(60)) {
+        navigate_main_to_backend(app);
+    } else {
+        let _ = app.emit_to("main", "splash-error", serde_json::json!({}));
+    }
+}
+
+fn navigate_main_to_backend(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let Ok(url) = Url::parse(&api_base()) else {
+        return;
+    };
+    let _ = window.navigate(url);
+}
+
 fn show_main(app: &AppHandle) {
     if let Ok(window) = main_window(app) {
         let _ = window.unminimize();
@@ -477,13 +506,22 @@ fn main() {
             set_capture_region,
         ])
         .setup(move |app| {
-            let backend_just_started = ensure_backend_running(app.state::<BackendProcess>().inner());
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.set_decorations(false);
-                if backend_just_started {
-                    let _ = main.navigate(Url::parse(&api_base()).map_err(|error| error.to_string())?);
-                }
             }
+
+            let app_handle_for_boot = app.handle().clone();
+            std::thread::spawn(move || {
+                run_backend_boot(&app_handle_for_boot);
+            });
+
+            let app_handle_for_retry = app.handle().clone();
+            app.listen_any("splash-retry", move |_event| {
+                let handle = app_handle_for_retry.clone();
+                std::thread::spawn(move || {
+                    run_backend_boot(&handle);
+                });
+            });
 
             let show_item = MenuItem::with_id(app, "show", "Open App", true, None::<&str>)?;
             let selector_item =
