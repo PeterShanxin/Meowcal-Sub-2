@@ -499,6 +499,7 @@ fn main() {
             let handle = app.handle().clone();
             TrayIconBuilder::new()
                 .icon(icon)
+                .tooltip("Meowcal Sub 2")
                 .menu(&menu)
                 .on_menu_event(move |tray, event| match event.id.as_ref() {
                     "show" => show_main(tray.app_handle()),
