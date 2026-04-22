@@ -44,6 +44,7 @@
 - Run `pytest -q` after Python or server changes.
 - Run `Get-ChildItem src\meocosub2\overlay\static\app*.js | ForEach-Object { node --check $_.FullName }` after frontend JS changes.
 - Run `cargo check --manifest-path src-tauri\Cargo.toml` after shell changes.
+- Run `python -m playwright install chromium` once per machine before the smoke script.
 - Run `python scripts\run_dashboard_smoke.py` when you need a served-dashboard smoke check.
 - For launcher debugging on Windows:
   - `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*meocosub2.cli serve*' }`
@@ -75,6 +76,7 @@
 - Browser automation in this harness validated the served Chromium page at `http://127.0.0.1:8765/`, not the actual Tauri/WebView2 desktop window.
 - A browser pass is not enough to prove a desktop rendering fix. Desktop-only issues still need real shell verification.
 - `python scripts\run_dashboard_smoke.py` is the lightweight served-page smoke path; it validates the dashboard contract but not native Tauri rendering.
+- The smoke script should fail rather than silently reuse an already-running dashboard, or it can false-green against stale code on port `8765`.
 - This Codex harness can launch Windows apps through shell or URI handlers and can inspect the real desktop app with OS-level screenshots or `scripts/capture_meowcal_window.py`.
 - Treat that desktop visibility as a visual inspection capability, not as proof of stable native GUI interaction parity with browser automation.
 - Generic active-window OS screenshots can show a black WebView2 surface even when the app is visible; `scripts/capture_meowcal_window.py` is currently the more reliable path for Meowcal desktop captures.

@@ -15,11 +15,13 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import Error, sync_playwright
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DASHBOARD_URL = "http://127.0.0.1:8765/"
 SERVER_TIMEOUT_S = 30
+ALLOW_REUSE_ENV = "MEOWCAL_SMOKE_REUSE_EXISTING"
+PLAYWRIGHT_INSTALL_HINT = "python -m playwright install chromium"
 
 
 def _python_command() -> list[str]:
@@ -49,6 +51,10 @@ def _server_is_ready(url: str) -> bool:
         return False
 
 
+def _allow_existing_server() -> bool:
+    return os.environ.get(ALLOW_REUSE_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _terminate_process(process: subprocess.Popen[str]) -> None:
     if process.poll() is not None:
         return
@@ -64,7 +70,14 @@ def main() -> int:
     env = os.environ.copy()
     env.setdefault("PYTHONUTF8", "1")
     process: subprocess.Popen[str] | None = None
-    if not _server_is_ready(DASHBOARD_URL):
+    if _server_is_ready(DASHBOARD_URL):
+        if not _allow_existing_server():
+            raise RuntimeError(
+                "Dashboard smoke refused to reuse an existing server on 127.0.0.1:8765 because "
+                "that can validate stale code. Stop the running dashboard first, or set "
+                f"{ALLOW_REUSE_ENV}=1 to opt into reusing it."
+            )
+    else:
         process = subprocess.Popen(
             [*_python_command(), "-m", "meocosub2.cli", "serve"],
             cwd=REPO_ROOT,
@@ -80,7 +93,13 @@ def main() -> int:
         page_errors: list[str] = []
 
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True)
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except Error as exc:
+                raise RuntimeError(
+                    "Playwright Chromium is not installed. "
+                    f"Run `{PLAYWRIGHT_INSTALL_HINT}` once before using the smoke script."
+                ) from exc
             page = browser.new_page()
             page.on(
                 "console",

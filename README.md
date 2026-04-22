@@ -22,9 +22,10 @@ Docs:
 
 ```bash
 pip install -e ".[dev]"
+python -m playwright install chromium
 ```
 
-The `dev` extra also installs the Playwright dependency used by the served-dashboard smoke script.
+The `dev` extra installs the Playwright Python package. Run `python -m playwright install chromium` once on each machine before using the served-dashboard smoke script.
 
 ## Runtime Modes
 
@@ -91,4 +92,6 @@ cargo check --manifest-path src-tauri\Cargo.toml
 python scripts\run_dashboard_smoke.py
 ```
 
-The Playwright smoke script validates the served dashboard path only. It does not prove native WebView2 rendering correctness inside the Tauri shell.
+Before the smoke check, install the browser once with `python -m playwright install chromium`.
+
+The Playwright smoke script validates the served dashboard path only. It also refuses to reuse an already-running dashboard by default, so you do not accidentally smoke-test stale code. It does not prove native WebView2 rendering correctness inside the Tauri shell.

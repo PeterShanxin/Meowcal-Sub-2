@@ -14,7 +14,7 @@ token = ""
 
 [languages]
 source = "en"
-target = "zht"
+target = "zh"
 
 [capture]
 region = []
@@ -36,7 +36,7 @@ port = 8765
 font_size = 28
 font_family = "Aptos"
 text_color = "#FFFFFF"
-bg_color = "rgba(12,18,29,0.64)"
+bg_color = "rgba(0,0,0,0.75)"
 position = "bottom"
 theme = "glass-cinematic"
 radius_px = 28

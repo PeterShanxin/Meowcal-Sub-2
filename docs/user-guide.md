@@ -43,7 +43,7 @@ enabled = true
 
 [languages]
 source = "en"
-target = "zht"
+target = "zh"
 ```
 
 If you want local translation fallback, also set:
@@ -108,9 +108,10 @@ pip install -e ".[dev]"
 
 8. Click `Start Sync`
 
-   This opens or updates the overlay at:
+   This starts live sync:
 
-   - `http://127.0.0.1:8765/overlay`
+   - In a browser session, the app opens or updates `http://127.0.0.1:8765/overlay`
+   - In the Tauri desktop runtime, the app shows the capture HUD and hides the main window while the same served overlay path keeps driving subtitle updates
 
 9. Start your video. The app captures the configured subtitle band, OCRs the visible text, matches it against the prepared session, and broadcasts the translated line to the overlay.
 

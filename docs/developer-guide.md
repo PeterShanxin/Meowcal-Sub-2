@@ -53,10 +53,11 @@ Use these checks after changes:
 pytest -q
 Get-ChildItem src\meocosub2\overlay\static\app*.js | ForEach-Object { node --check $_.FullName }
 cargo check --manifest-path src-tauri\Cargo.toml
+python -m playwright install chromium
 python scripts\run_dashboard_smoke.py
 ```
 
-The Playwright smoke script validates the served dashboard path only. It is useful for frontend contract regressions, but it does not prove native WebView2 correctness inside Tauri.
+Install Chromium once per machine before the smoke check. The Playwright smoke script validates the served dashboard path only, fails closed if another dashboard is already occupying port `8765`, and does not prove native WebView2 correctness inside Tauri.
 
 ## Commenting Guidance
 
