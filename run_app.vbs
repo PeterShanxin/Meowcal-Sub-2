@@ -2,7 +2,6 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 Set WshShell = CreateObject("WScript.Shell")
 
 repoRoot = fso.GetParentFolderName(WScript.ScriptFullName)
-shellPath = repoRoot & "\src-tauri\target\debug\meowcal-sub-2-shell.exe"
 webviewDataPath = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\com.meowcal.sub2\EBWebView"
 
 Sub RunCleanup()
@@ -27,11 +26,5 @@ If fso.FolderExists(webviewDataPath) Then
 End If
 WScript.Sleep 1200
 
-If fso.FileExists(shellPath) Then
-  ' Already compiled — launch directly (fast)
-  WshShell.Run Chr(34) & shellPath & Chr(34), 0, False
-Else
-  ' No compiled binary — build + launch via cargo tauri dev
-  WshShell.CurrentDirectory = repoRoot & "\src-tauri"
-  WshShell.Run "cmd /k cargo tauri dev", 1, False
-End If
+WshShell.CurrentDirectory = repoRoot & "\src-tauri"
+WshShell.Run "cmd /k cargo tauri dev", 1, False
