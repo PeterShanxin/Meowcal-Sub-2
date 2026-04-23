@@ -536,6 +536,7 @@ fn navigate_main_to_backend(app: &AppHandle) {
         return;
     };
     let _ = window.navigate(url);
+    let _ = window.set_focus();
 }
 
 fn show_main(app: &AppHandle) {
