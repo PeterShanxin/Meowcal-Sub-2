@@ -383,7 +383,7 @@ export function App(): JSX.Element {
             left: isCompact ? 20 : "50%",
             right: isCompact ? 20 : "auto",
             transform: isCompact ? "none" : "translateX(-50%)",
-            width: isCompact ? "auto" : 720,
+            width: isCompact ? "auto" : 860,
             zIndex: 4,
             transition: "all 280ms cubic-bezier(.2,.7,.3,1)",
           }}

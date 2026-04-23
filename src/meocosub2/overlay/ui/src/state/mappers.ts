@@ -140,6 +140,10 @@ export function buildCommands(phase: Phase): CommandItem[] {
   ];
 }
 
+// Backend normalizes Chinese codes: "zh" = Simplified, "zht" = Traditional.
+// Both are returned together when either is requested, so treat as one family.
+const CHINESE_FAMILY = new Set(["zh", "zht"]);
+
 function languageMatches(resultLang: string, wanted: string): boolean {
   if (!resultLang) return true;
   const a = resultLang.toLowerCase();
@@ -147,5 +151,6 @@ function languageMatches(resultLang: string, wanted: string): boolean {
   if (a === b) return true;
   const baseA = a.split(/[-_]/)[0];
   const baseB = b.split(/[-_]/)[0];
-  return baseA === baseB;
+  if (baseA === baseB) return true;
+  return CHINESE_FAMILY.has(baseA) && CHINESE_FAMILY.has(baseB);
 }

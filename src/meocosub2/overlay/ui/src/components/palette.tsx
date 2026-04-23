@@ -340,7 +340,7 @@ function TitleList({
                 {t.year} · {t.type} · {t.runtime}
               </div>
             </div>
-            {(sel || focused) && <Kbd>↵</Kbd>}
+            {focused && <Kbd>↵</Kbd>}
           </Row>
         );
       })}
@@ -408,7 +408,7 @@ function SubList({
                 {r.hi && <span style={{ marginLeft: 8 }}>HI</span>}
               </div>
             </div>
-            {(sel || focused) && <Kbd>↵</Kbd>}
+            {focused && <Kbd>↵</Kbd>}
           </Row>
         );
       })}
@@ -499,7 +499,7 @@ function TargetList({
                 AUTO
               </span>
             )}
-            {(sel || focused) && <Kbd>↵</Kbd>}
+            {focused && <Kbd>↵</Kbd>}
           </Row>
         );
       })}
@@ -587,9 +587,12 @@ const Row = forwardRef<HTMLDivElement, RowProps>(function Row(
         alignItems: "center",
         gap: 12,
         padding: "10px 20px",
-        background:
-          selected || focused ? "var(--accent-tint)" : "transparent",
-        borderLeft: `2px solid ${selected || focused ? "var(--accent-hex)" : "transparent"}`,
+        background: focused
+          ? "var(--accent-tint)"
+          : selected
+            ? "rgba(255,185,90,0.05)"
+            : "transparent",
+        borderLeft: `2px solid ${focused || selected ? "var(--accent-hex)" : "transparent"}`,
         cursor: "pointer",
       }}
     >
