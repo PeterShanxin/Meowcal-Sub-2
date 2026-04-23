@@ -83,7 +83,6 @@ class AppStateSnapshot:
     last_subtitle: str = ""
     error_message: str = ""
     warning_message: str = ""
-    overlay_url: str = ""
 
 
 @dataclass

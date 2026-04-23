@@ -17,7 +17,6 @@ def test_state_route_returns_snapshot(tmp_path: Path) -> None:
         response = client.get("/api/state")
     assert response.status_code == 200
     assert response.json()["status"] == "idle"
-    assert response.json()["overlay_url"].endswith("/overlay")
     assert response.json()["search_matches"] == []
     assert response.json()["selected_feature_id"] is None
 

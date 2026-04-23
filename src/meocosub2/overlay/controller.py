@@ -106,7 +106,6 @@ class GuiController:
         self._state = AppStateSnapshot(
             source_language=config.source_language,
             target_language=config.target_language,
-            overlay_url=f"http://127.0.0.1:{self._runtime_port}/overlay",
         )
 
     def state_snapshot(self) -> dict[str, object]:

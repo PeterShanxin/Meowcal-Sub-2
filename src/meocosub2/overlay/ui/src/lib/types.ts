@@ -128,7 +128,6 @@ export interface BackendSnapshot {
   last_subtitle: string;
   error_message: string;
   warning_message: string;
-  overlay_url: string;
   config: BackendConfig;
 }
 

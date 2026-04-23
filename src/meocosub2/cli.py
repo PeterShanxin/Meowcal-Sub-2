@@ -212,8 +212,10 @@ async def _start_overlay(pair, config: AppConfig) -> None:
     overlay = OverlayServer(config)
     server_config = uvicorn.Config(overlay.app, host="127.0.0.1", port=config.overlay_port, log_level="error")
     server = uvicorn.Server(server_config)
-    overlay_url = f"http://127.0.0.1:{config.overlay_port}/overlay"
-    webbrowser.open(overlay_url)
+    # Dedicated /overlay window was removed with the D3 redesign; live
+    # subtitles now render inside the main studio at /.
+    studio_url = f"http://127.0.0.1:{config.overlay_port}/"
+    webbrowser.open(studio_url)
     await asyncio.gather(server.serve(), run_sync_loop(pair, config, overlay.broadcast))
 
 

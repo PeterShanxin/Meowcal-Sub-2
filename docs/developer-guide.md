@@ -4,9 +4,9 @@
 
 - Python backend entrypoint: `python -m meocosub2.cli serve`
 - Served dashboard: `src/meocosub2/overlay/server.py`
-- Dashboard HTML: `src/meocosub2/overlay/static/index.html`
-- Dashboard JS entrypoint: `src/meocosub2/overlay/static/app.js`
-- Dashboard JS modules: `src/meocosub2/overlay/static/app-*.js`
+- Studio UI source (Vite + React + TS): `src/meocosub2/overlay/ui/`
+- Studio UI entry: `src/meocosub2/overlay/ui/src/app.tsx`
+- Studio UI build output (served at `/`): `src/meocosub2/overlay/static/index.html` + `src/meocosub2/overlay/static/assets/`
 - Subtitle-source logic: `src/meocosub2/subtitle_sources/`
 - Session orchestration: `src/meocosub2/overlay/controller.py`
 - Desktop shell: `src-tauri/src/main.rs`
@@ -21,16 +21,22 @@ The desktop app is still the same local server-backed UI wrapped by Tauri. The b
 
 ## Frontend Module Map
 
-- `app.js`: tiny browser entrypoint
-- `app-bootstrap.js`: startup flow, websocket wiring, and bootstrap orchestration
-- `app-shell.js`: render scheduling, loading shell, settings drawer, and Tauri hooks
-- `app-language.js`: language normalization, pickers, OCR-language derivation, and language preference persistence
-- `app-render.js`: read-model and DOM rendering for dashboard/results/session views
-- `app-session.js`: search/prepare/start/stop/config event handlers
-- `app-debug.js`: dashboard debug panel
-- `app-dom.js` and `app-state.js`: shared DOM lookup and mutable UI state
+Under `src/meocosub2/overlay/ui/src/`:
 
-Keep `app.js` as the stable entrypoint even when you move behavior between internal modules.
+- `main.tsx`: React mount point.
+- `app.tsx`: top-level state machine (`home` → `prep` → `live`, plus `settings` / empty / no-key variants). Bootstraps state via `/api/state`, `/api/config`, `/api/languages`, `/api/foundry/status`; wires the WebSocket; drives palette flow.
+- `components/primitives.tsx`: `Backdrop`, `TopBar`, `CatMark`, `CatMascot`, `Kbd`, `PaletteTabs`.
+- `components/palette.tsx`: the ⌘K command palette, tabs (Titles / Source / Target / Commands), lists, and footer hint.
+- `components/prep-card.tsx`: prep-phase session summary + preview card.
+- `components/live-dock.tsx`: live-phase subtitle view and bottom dock.
+- `components/variants/{empty,no-key,settings}.tsx`: first-launch, missing-provider, and full settings screens.
+- `hooks/use-api.ts`: typed REST wrapper.
+- `hooks/use-ws.ts`: `/ws/app` connection + dispatch.
+- `hooks/use-keybinds.ts`: global keybinds (⌘K / Tab / ↑↓ / ↵ / ⌘↵ / `,` / ⇧⌫).
+- `hooks/use-tauri.ts`: thin wrappers around `window.__TAURI__.core.invoke`.
+- `state/store.ts` + `state/mappers.ts`: single store (useSyncExternalStore) and backend → palette-shape mappers.
+
+Keep `app.tsx` as the top-level entry even when you move behavior between hooks/components.
 
 ## Subtitle Studio Flow
 
@@ -40,8 +46,10 @@ Keep `app.js` as the stable entrypoint even when you move behavior between inter
 4. `POST /api/session/prepare` creates either:
    - `subtitle_pair`
    - `ocr_fallback`
-5. `POST /api/session/start` begins sync and pushes updates over `/ws/app` and overlay websocket channels.
+5. `POST /api/session/start` begins sync and pushes updates over the `/ws/app` WebSocket (state, progress, subtitle, style, error, debug).
 6. `POST /api/session/stop` ends the active session and clears overlay state.
+
+When the user enters the live phase, the studio calls the Tauri `enter_live_mode` command; the main window reshapes into a bottom-of-screen always-on-top strip. `exit_live_mode` restores the pre-live geometry.
 
 The current provider-neutral selection model uses opaque `matchId` and `resultId` values instead of provider file ids in the UI flow.
 
@@ -51,7 +59,7 @@ Use these checks after changes:
 
 ```powershell
 pytest -q
-Get-ChildItem src\meocosub2\overlay\static\app*.js | ForEach-Object { node --check $_.FullName }
+npm --prefix src\meocosub2\overlay\ui run build
 cargo check --manifest-path src-tauri\Cargo.toml
 python -m playwright install chromium
 python scripts\run_dashboard_smoke.py

@@ -9,17 +9,17 @@
 - Backend server: `python -m meocosub2.cli serve`
 - Studio route: [src/meocosub2/overlay/server.py](src/meocosub2/overlay/server.py)
 - Subtitle source aggregator: [src/meocosub2/subtitle_sources](src/meocosub2/subtitle_sources)
-- Live studio page: [src/meocosub2/overlay/static/index.html](src/meocosub2/overlay/static/index.html)
-- Dashboard JS entrypoint: [src/meocosub2/overlay/static/app.js](src/meocosub2/overlay/static/app.js)
-- Dashboard JS modules: [src/meocosub2/overlay/static](src/meocosub2/overlay/static) `app-*.js`
-- Shared studio styles: [src/meocosub2/overlay/static/app.css](src/meocosub2/overlay/static/app.css)
+- Studio UI source (Vite + React + TS): [src/meocosub2/overlay/ui](src/meocosub2/overlay/ui)
+- Studio UI entry: [src/meocosub2/overlay/ui/src/app.tsx](src/meocosub2/overlay/ui/src/app.tsx)
+- Studio UI build output (served at `/`): [src/meocosub2/overlay/static/index.html](src/meocosub2/overlay/static/index.html) + `static/assets/`
 - Tauri shell startup: [src-tauri/src/main.rs](src-tauri/src/main.rs)
 - Tauri window config: [src-tauri/tauri.conf.json](src-tauri/tauri.conf.json)
 
 ## Source Of Truth
 - Treat the server-backed `/` route as the real desktop runtime path.
-- Make desktop studio UI fixes in `index.html`, `app.js`, `app-*.js`, and `app.css` first.
-- Keep `desktop-main.html` in sync when markup changes, but do not treat it as the primary runtime path.
+- Edit React source under `src/meocosub2/overlay/ui/src/`; run `npm --prefix src/meocosub2/overlay/ui run build` to refresh `static/index.html` + `static/assets/`.
+- Do not edit files under `static/assets/` directly — they are Vite build output.
+- `static/splash.html`, `static/selector.*`, and `static/capture-hud.*` are hand-maintained Tauri sub-windows; those live outside the React app.
 - `docs/plans/` is not authoritative for current behavior and should be ignored for maintenance work.
 
 ## Log Inspection
@@ -42,7 +42,7 @@
 ## Verification
 
 - Run `pytest -q` after Python or server changes.
-- Run `Get-ChildItem src\meocosub2\overlay\static\app*.js | ForEach-Object { node --check $_.FullName }` after frontend JS changes.
+- Run `npm --prefix src\meocosub2\overlay\ui run build` after studio UI changes (rebuilds `static/index.html` + `static/assets/`).
 - Run `cargo check --manifest-path src-tauri\Cargo.toml` after shell changes.
 - Run `python -m playwright install chromium` once per machine before the smoke script.
 - Run `python scripts\run_dashboard_smoke.py` when you need a served-dashboard smoke check.
@@ -81,8 +81,8 @@
 - Treat that desktop visibility as a visual inspection capability, not as proof of stable native GUI interaction parity with browser automation.
 - Generic active-window OS screenshots can show a black WebView2 surface even when the app is visible; `scripts/capture_meowcal_window.py` is currently the more reliable path for Meowcal desktop captures.
 - Relaunching the desktop shell can reuse stale `meocosub2.cli serve` workers on port `8765` if the launcher does not kill them first.
-- WebView2 can appear stale during debugging, so cache-busting shared asset URLs is useful when the desktop shell seems to ignore new `app.css` or `app.js`.
-- For desktop UI bugs, verify the runtime path before changing the wrong file. The shared `index.html` route matters more than `desktop-main.html`.
+- WebView2 can appear stale during debugging; Vite emits hashed asset URLs under `static/assets/`, so hard-reloading or relaunching the shell after a rebuild is usually enough to break stale-asset symptoms.
+- For desktop UI bugs, verify the runtime path before changing the wrong file. The shared `/` route (served from the Vite bundle in `static/`) is the one that matters.
 - For real desktop UI inspection, a window-level screenshot helper is more trustworthy than browser-only automation against the served page.
 - Tauri will create duplicate tray icons on Windows if the shell uses both `app.trayIcon` in `tauri.conf.json` and a manual `TrayIconBuilder` in Rust. Keep only one creation path.
 - Windows OCR capability lookup for this app should use exact BCP-47 tags such as `zh-TW` in the `Language.OCR*<tag>*` query, and the UI should treat post-install re-enumeration as the success signal instead of assuming the installer succeeded.
