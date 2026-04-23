@@ -1,7 +1,8 @@
-import { forwardRef } from "react";
+import { forwardRef, useEffect, useRef, useState } from "react";
 import type { CSSProperties, RefObject } from "react";
 import type {
   CommandItem,
+  LanguageOption,
   PaletteTabId,
   Phase,
   SourceItem,
@@ -34,7 +35,8 @@ interface PaletteProps {
   sourceLang: string;
   targetLang: string;
   searching: boolean;
-  onOpenSettings: () => void;
+  langOptions: LanguageOption[];
+  onChangeLang: (type: "source" | "target", code: string) => void;
 }
 
 export function Palette(props: PaletteProps): JSX.Element {
@@ -62,8 +64,23 @@ export function Palette(props: PaletteProps): JSX.Element {
     sourceLang,
     targetLang,
     searching,
-    onOpenSettings,
+    langOptions,
+    onChangeLang,
   } = props;
+
+  const [openDrop, setOpenDrop] = useState<"source" | "target" | null>(null);
+  const langRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!openDrop) return;
+    const close = (e: MouseEvent) => {
+      if (langRef.current && !langRef.current.contains(e.target as Node)) {
+        setOpenDrop(null);
+      }
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [openDrop]);
 
   const tabs = [
     { id: "titles", label: "Titles", count: titles.length },
@@ -132,23 +149,19 @@ export function Palette(props: PaletteProps): JSX.Element {
             fontWeight: 400,
           }}
         />
-        <div
-          role="button"
-          tabIndex={0}
-          title="Change languages"
-          onClick={onOpenSettings}
-          onKeyDown={(e) => e.key === "Enter" && onOpenSettings()}
-          style={{ display: "flex", gap: 6, alignItems: "center", cursor: "pointer" }}
-        >
+        <div ref={langRef} style={{ position: "relative", display: "flex", gap: 6, alignItems: "center" }}>
           <span
+            onClick={() => setOpenDrop(openDrop === "source" ? null : "source")}
             style={{
               padding: "4px 8px",
-              background: "rgba(255,255,255,0.04)",
+              background: openDrop === "source" ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.04)",
               borderRadius: 5,
               fontSize: 11,
               color: "#a8a8b2",
               border: "1px solid rgba(255,255,255,0.06)",
               textTransform: "uppercase",
+              cursor: "pointer",
+              userSelect: "none",
             }}
           >
             {sourceLang}
@@ -157,17 +170,67 @@ export function Palette(props: PaletteProps): JSX.Element {
             <path d="M1 5h8M7 1l4 4-4 4" />
           </svg>
           <span
+            onClick={() => setOpenDrop(openDrop === "target" ? null : "target")}
             style={{
               padding: "4px 8px",
-              background: "var(--accent-tint)",
+              background: openDrop === "target" ? "var(--accent-hex)" : "var(--accent-tint)",
               color: "var(--accent-text)",
               borderRadius: 5,
               fontSize: 11,
               border: "1px solid var(--accent-ring)",
+              cursor: "pointer",
+              userSelect: "none",
             }}
           >
             {targetLang}
           </span>
+          {openDrop && langOptions.length > 0 && (
+            <div
+              style={{
+                position: "absolute",
+                top: "calc(100% + 6px)",
+                right: 0,
+                minWidth: 180,
+                background: "#1a1a24",
+                border: "1px solid rgba(255,255,255,0.1)",
+                borderRadius: 8,
+                boxShadow: "0 12px 32px rgba(0,0,0,0.5)",
+                zIndex: 100,
+                overflow: "hidden",
+              }}
+            >
+              <div style={{ padding: "6px 10px 4px", fontSize: 10, color: "var(--text-label)", textTransform: "uppercase", letterSpacing: 1 }}>
+                {openDrop === "source" ? "Source language" : "Target language"}
+              </div>
+              {langOptions.map((opt) => {
+                const active = openDrop === "source"
+                  ? opt.code.toLowerCase() === sourceLang.toLowerCase()
+                  : opt.code.toLowerCase() === targetLang.toLowerCase();
+                return (
+                  <div
+                    key={opt.code}
+                    onClick={() => { onChangeLang(openDrop, opt.code); setOpenDrop(null); }}
+                    style={{
+                      padding: "8px 12px",
+                      fontSize: 13,
+                      color: active ? "var(--accent-text)" : "var(--text-body)",
+                      background: active ? "var(--accent-tint)" : "transparent",
+                      cursor: "pointer",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                    onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,0.04)"; }}
+                    onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+                  >
+                    <span>{opt.label}</span>
+                    <span style={{ fontSize: 10, color: "var(--text-label)", textTransform: "uppercase" }}>{opt.code}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 

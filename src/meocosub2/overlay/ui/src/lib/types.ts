@@ -186,15 +186,13 @@ export interface LanguageOption {
   label: string;
 }
 
+export interface OcrLanguageOption extends LanguageOption {
+  installed: boolean;
+}
+
 export interface LanguagesPayload {
-  sourceTarget: Array<{
-    source: LanguageOption;
-    target: LanguageOption;
-    availableTargets?: LanguageOption[];
-  }>;
-  ocr?: LanguageOption[];
-  sources?: LanguageOption[];
-  targets?: LanguageOption[];
+  sourceTarget: LanguageOption[];
+  ocr?: OcrLanguageOption[];
 }
 
 export interface FoundryStatus {

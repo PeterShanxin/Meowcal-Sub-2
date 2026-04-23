@@ -18,7 +18,7 @@ import {
   mapResultsToSource,
   mapResultsToTarget,
 } from "./state/mappers";
-import type { BackendConfig, PaletteTabId, Phase } from "./lib/types";
+import type { BackendConfig, LanguageOption, PaletteTabId, Phase } from "./lib/types";
 
 export function App(): JSX.Element {
   useAppWebSocket();
@@ -33,6 +33,7 @@ export function App(): JSX.Element {
   const selectedTargetId = useStore((s) => s.selectedTargetId);
   const cursorIndex = useStore((s) => s.cursorIndex);
   const liveLines = useStore((s) => s.liveLines);
+  const languages = useStore((s) => s.languages);
   const wsConnected = useStore((s) => s.wsConnected);
 
   const phase: Phase = derivePhase(snapshot, manualView);
@@ -201,6 +202,22 @@ export function App(): JSX.Element {
       await api.startSession();
       const fresh = await api.getState();
       store.set({ snapshot: fresh, config: fresh.config });
+    } catch (err) {
+      store.set({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }, []);
+
+  const onChangeLang = useCallback(async (type: "source" | "target", code: string) => {
+    const current = store.get().config;
+    if (!current) return;
+    const next: BackendConfig = {
+      ...current,
+      languages: { ...current.languages, [type]: code },
+    };
+    try {
+      const saved = await api.putConfig(next);
+      store.set({ config: saved });
+      store.resetSelection();
     } catch (err) {
       store.set({ error: err instanceof Error ? err.message : String(err) });
     }
@@ -440,7 +457,8 @@ export function App(): JSX.Element {
               sourceLang={sourceLang}
               targetLang={targetLang}
               searching={searching}
-              onOpenSettings={() => store.set({ manualView: "settings" })}
+              langOptions={(languages?.sourceTarget ?? []) as LanguageOption[]}
+              onChangeLang={(type, code) => void onChangeLang(type, code)}
             />
           )}
         </div>
