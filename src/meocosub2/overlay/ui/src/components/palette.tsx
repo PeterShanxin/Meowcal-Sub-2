@@ -34,6 +34,7 @@ interface PaletteProps {
   sourceLang: string;
   targetLang: string;
   searching: boolean;
+  onOpenSettings: () => void;
 }
 
 export function Palette(props: PaletteProps): JSX.Element {
@@ -61,6 +62,7 @@ export function Palette(props: PaletteProps): JSX.Element {
     sourceLang,
     targetLang,
     searching,
+    onOpenSettings,
   } = props;
 
   const tabs = [
@@ -130,7 +132,14 @@ export function Palette(props: PaletteProps): JSX.Element {
             fontWeight: 400,
           }}
         />
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <div
+          role="button"
+          tabIndex={0}
+          title="Change languages"
+          onClick={onOpenSettings}
+          onKeyDown={(e) => e.key === "Enter" && onOpenSettings()}
+          style={{ display: "flex", gap: 6, alignItems: "center", cursor: "pointer" }}
+        >
           <span
             style={{
               padding: "4px 8px",

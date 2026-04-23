@@ -440,6 +440,7 @@ export function App(): JSX.Element {
               sourceLang={sourceLang}
               targetLang={targetLang}
               searching={searching}
+              onOpenSettings={() => store.set({ manualView: "settings" })}
             />
           )}
         </div>
