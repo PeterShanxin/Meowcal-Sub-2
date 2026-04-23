@@ -822,22 +822,28 @@ function MatchingSection({ draft, update }: SectionProps): JSX.Element {
     <>
       <Heading eyebrow="Matching" title="How strict should OCR matching be?" />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-        <Field label="Fuzzy threshold" hint="0.0 – 1.0. Higher = stricter">
+        <Field label="Fuzzy threshold" hint="0 – 100. Higher = stricter (default 65)">
           <NumberInput
             value={m.fuzzyThreshold}
             onChange={(v) =>
-              update((c) => ({ ...c, matching: { ...c.matching, fuzzyThreshold: v } }))
+              update((c) => ({
+                ...c,
+                matching: { ...c.matching, fuzzyThreshold: Math.round(v) },
+              }))
             }
             min={0}
-            max={1}
-            step={0.01}
+            max={100}
+            step={1}
           />
         </Field>
         <Field label="Window size" hint="Lookback for matching (lines)">
           <NumberInput
             value={m.windowSize}
             onChange={(v) =>
-              update((c) => ({ ...c, matching: { ...c.matching, windowSize: v } }))
+              update((c) => ({
+                ...c,
+                matching: { ...c.matching, windowSize: Math.round(v) },
+              }))
             }
             min={1}
           />

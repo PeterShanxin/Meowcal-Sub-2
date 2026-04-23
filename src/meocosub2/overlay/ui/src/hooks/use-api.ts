@@ -33,7 +33,7 @@ export interface SearchResponse {
 }
 
 export interface PrepareBody {
-  mode: "subtitle_pair" | "ocr_fallback" | "local_translation";
+  mode: "subtitle_pair" | "ocr_fallback";
   matchId?: string | null;
   sourceResultId?: string | null;
   targetResultId?: string | null;

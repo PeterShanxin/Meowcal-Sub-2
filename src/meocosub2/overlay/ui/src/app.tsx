@@ -170,40 +170,55 @@ export function App(): JSX.Element {
     store.set({ selectedSourceId: id, tab: "target", cursorIndex: 0 });
   }, []);
 
-  const onPickTarget = useCallback(
-    async (id: string) => {
-      store.set({ selectedTargetId: id, tab: "cmd", cursorIndex: 0 });
-      const currentTitle = store.get().selectedTitleId;
-      const currentSource = store.get().selectedSourceId;
-      if (!currentTitle || !currentSource) return;
-      const mode: "subtitle_pair" | "ocr_fallback" | "local_translation" =
-        id === "__local__"
-          ? "local_translation"
-          : id === "__ocr__"
-            ? "ocr_fallback"
-            : "subtitle_pair";
-      try {
-        await api.prepareSession({
-          mode,
-          matchId: currentTitle,
-          sourceResultId: currentSource,
-          targetResultId:
-            id === "__local__" || id === "__ocr__" ? null : id,
-        });
-        const fresh = await api.getState();
-        store.set({ snapshot: fresh, config: fresh.config });
-      } catch (err) {
-        store.set({ error: err instanceof Error ? err.message : String(err) });
-      }
-    },
-    [],
-  );
+  const onPickTarget = useCallback(async (id: string) => {
+    store.set({ selectedTargetId: id, tab: "cmd", cursorIndex: 0 });
+    const currentTitle = store.get().selectedTitleId;
+    const currentSource = store.get().selectedSourceId;
+    if (!currentTitle || !currentSource) return;
+    // Backend accepts only "subtitle_pair" | "ocr_fallback". Local AI
+    // translation is triggered by subtitle_pair with no targetResultId —
+    // the controller falls back to Foundry via target_match_mode.
+    const mode: "subtitle_pair" | "ocr_fallback" =
+      id === "__ocr__" ? "ocr_fallback" : "subtitle_pair";
+    const targetResultId =
+      id === "__local__" || id === "__ocr__" ? null : id;
+    try {
+      await api.prepareSession({
+        mode,
+        matchId: currentTitle,
+        sourceResultId: currentSource,
+        targetResultId,
+      });
+      const fresh = await api.getState();
+      store.set({ snapshot: fresh, config: fresh.config });
+    } catch (err) {
+      store.set({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }, []);
 
   const startSync = useCallback(async () => {
     try {
       await api.startSession();
       const fresh = await api.getState();
       store.set({ snapshot: fresh, config: fresh.config });
+    } catch (err) {
+      store.set({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }, []);
+
+  const enableSubdlOnly = useCallback(async () => {
+    const current = store.get().config;
+    if (!current) return;
+    const next: BackendConfig = {
+      ...current,
+      subtitleSources: {
+        ...current.subtitleSources,
+        subdl: { enabled: true },
+      },
+    };
+    try {
+      const saved = await api.putConfig(next);
+      store.set({ config: saved });
     } catch (err) {
       store.set({ error: err instanceof Error ? err.message : String(err) });
     }
@@ -235,6 +250,12 @@ export function App(): JSX.Element {
   );
 
   const onSelect = useCallback(() => {
+    // Enter on Titles tab with no results yet = submit the search. This
+    // matches the palette footer hint ("↵ to search") when titles are empty.
+    if (tab === "titles" && activeList.length === 0 && query.trim()) {
+      void runSearch(query.trim());
+      return;
+    }
     if (activeList.length === 0) return;
     const item = activeList[Math.max(0, Math.min(cursorIndex, activeList.length - 1))];
     if (!item) return;
@@ -253,7 +274,7 @@ export function App(): JSX.Element {
     if (tab === "cmd") {
       onCommand(item.id);
     }
-  }, [activeList, cursorIndex, tab, onPickTitle, onPickSource, onPickTarget, onCommand]);
+  }, [activeList, cursorIndex, tab, query, runSearch, onPickTitle, onPickSource, onPickTarget, onCommand]);
 
   const onPrimaryConfirm = useCallback(() => {
     if (phase === "home" && tab === "titles" && query.trim()) {
@@ -342,20 +363,7 @@ export function App(): JSX.Element {
       {!showSettings && noKey && phase === "home" && !query && (
         <NoApiKey
           onOpenSettings={() => store.set({ manualView: "settings" })}
-          onUseSubdl={() => {
-            store.set({
-              manualView: null,
-              config: config
-                ? {
-                    ...config,
-                    subtitleSources: {
-                      ...config.subtitleSources,
-                      subdl: { enabled: true },
-                    },
-                  }
-                : config,
-            });
-          }}
+          onUseSubdl={() => void enableSubdlOnly()}
         />
       )}
 
