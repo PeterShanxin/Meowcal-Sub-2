@@ -1,0 +1,134 @@
+:root {
+  --text-body: #e8e6e1;
+  --text-heading: #f5f2eb;
+  --text-label: #6a6a76;
+  --text-muted: #8a8a96;
+  --text-dim: #5a5a66;
+
+  --bg-radial: radial-gradient(ellipse at 30% 10%, #1a1a24 0%, #0b0b10 55%, #050507 100%);
+  --glass: rgba(18, 18, 24, 0.82);
+  --glass-soft: rgba(18, 18, 24, 0.7);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.08);
+  --glass-border-soft: 1px solid rgba(255, 255, 255, 0.06);
+
+  --accent-hex: #f2c78f;
+  --accent-deep: #b97a38;
+  --accent-tint: rgba(242, 199, 143, 0.12);
+  --accent-ring: rgba(242, 199, 143, 0.2);
+  --accent-text: #f2c78f;
+
+  --danger-hex: #ff6b6b;
+  --danger-text: #ff8f8f;
+  --danger-tint: rgba(255, 107, 107, 0.15);
+  --danger-soft: rgba(255, 107, 107, 0.06);
+  --danger-ring: rgba(255, 107, 107, 0.2);
+
+  --ok-hex: #4ade80;
+
+  --font-ui:
+    "Inter", -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Instrument Serif", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-target: "Noto Sans TC", "Inter", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  color: var(--text-body);
+  font-family: var(--font-ui);
+  background: #050507;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg-radial);
+}
+
+button {
+  font-family: inherit;
+}
+
+input {
+  font-family: inherit;
+}
+
+kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.07);
+  color: #a8a8b2;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  font-weight: 500;
+  letter-spacing: 0.3px;
+}
+
+kbd[data-dim="true"] {
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text-label);
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.fade-in {
+  animation: fade-in 0.3s ease both;
+}
+
+.glass-panel {
+  background: var(--glass);
+  border: var(--glass-border);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-radius: 14px;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.display-serif {
+  font-family: var(--font-display);
+  font-style: italic;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}

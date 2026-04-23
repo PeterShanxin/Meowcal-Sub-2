@@ -109,13 +109,11 @@ def main() -> int:
             )
             page.on("pageerror", lambda exc: page_errors.append(str(exc)))
             page.goto(DASHBOARD_URL, wait_until="domcontentloaded")
-            page.wait_for_selector("#app-shell")
-            page.wait_for_function("!document.getElementById('loading-overlay')", timeout=15000)
-
-            assert page.locator("#hero-title-main").text_content()
-            assert page.locator("#search-form").count() == 1
-            assert page.locator("#results-flow").count() == 1
-            assert page.locator("#session-view-title").count() == 1
+            # Command-palette redesign: wait for the React root, then for the
+            # palette input to mount. Legacy DOM IDs (#app-shell, #hero-title-main,
+            # #search-form, #results-flow, #session-view-title) are gone.
+            page.wait_for_selector("#root")
+            page.wait_for_selector("input[data-palette=\"true\"]", timeout=15000)
 
             browser.close()
 

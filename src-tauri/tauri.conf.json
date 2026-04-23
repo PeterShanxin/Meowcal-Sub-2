@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../src/meocosub2/overlay/static",
     "beforeDevCommand": "",
-    "beforeBuildCommand": ""
+    "beforeBuildCommand": "npm --prefix ../src/meocosub2/overlay/ui run build"
   },
   "app": {
     "withGlobalTauri": true,
@@ -19,7 +19,7 @@
         "height": 900,
         "resizable": true,
         "center": true,
-        "decorations": false,
+        "decorations": true,
         "transparent": false,
         "visible": true
       },

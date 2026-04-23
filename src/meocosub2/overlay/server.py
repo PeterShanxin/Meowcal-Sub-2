@@ -70,10 +70,6 @@ class OverlayServer:
         async def index() -> FileResponse:
             return FileResponse(STATIC_DIR / "index.html")
 
-        @self.app.get("/overlay")
-        async def overlay_page() -> FileResponse:
-            return FileResponse(STATIC_DIR / "overlay.html")
-
         @self.app.get("/config")
         async def config_route() -> dict[str, object]:
             return overlay_style_payload(self.config)
@@ -166,14 +162,6 @@ class OverlayServer:
         async def app_websocket_route(websocket: WebSocket) -> None:
             await self._app_socket(websocket)
 
-        @self.app.websocket("/ws")
-        async def overlay_websocket_route(websocket: WebSocket) -> None:
-            await self._overlay_socket(websocket)
-
-        @self.app.websocket("/ws/overlay")
-        async def overlay_websocket_alias(websocket: WebSocket) -> None:
-            await self._overlay_socket(websocket)
-
     @property
     def config(self) -> AppConfig:
         return self.controller.config
@@ -193,24 +181,6 @@ class OverlayServer:
             if websocket in self.app_connections:
                 self.app_connections.remove(websocket)
             logger.debug("App WebSocket disconnected (remaining: %d)", len(self.app_connections))
-
-    async def _overlay_socket(self, websocket: WebSocket) -> None:
-        await websocket.accept()
-        logger.debug("Overlay WebSocket connected (total: %d)", len(self.overlay_connections) + 1)
-        self.overlay_connections.append(websocket)
-        await websocket.send_text(json.dumps({"type": "style", "style": overlay_style_payload(self.config)}))
-        subtitle = self.controller.state_snapshot().get("last_subtitle", "")
-        if subtitle:
-            await websocket.send_text(json.dumps({"type": "subtitle", "text": subtitle}))
-        try:
-            while True:
-                await websocket.receive_text()
-        except WebSocketDisconnect:
-            pass
-        finally:
-            if websocket in self.overlay_connections:
-                self.overlay_connections.remove(websocket)
-            logger.debug("Overlay WebSocket disconnected (remaining: %d)", len(self.overlay_connections))
 
     async def broadcast(self, subtitle_text: str) -> None:
         await self.controller.broadcast_overlay_subtitle(subtitle_text)

@@ -1,0 +1,206 @@
+export type Phase = "home" | "prep" | "live" | "settings" | "empty" | "no-key";
+
+export type BackendStatus =
+  | "idle"
+  | "searching"
+  | "preparing"
+  | "running"
+  | "stopping"
+  | "error";
+
+export interface BackendMatch {
+  id: string;
+  matchId: string;
+  title: string;
+  year: number | null;
+  imdbId: string | null;
+  tmdbId: string | null;
+  mediaType: string;
+  season: number | null;
+  episode: number | null;
+  parentTitle: string | null;
+  subtitlesCount: number;
+  matchScore: number;
+  providerCount: number;
+  providers: string[];
+  providerLabels: string[];
+  displayLabel: string;
+}
+
+export interface BackendResult {
+  id: string;
+  resultId: string;
+  matchId: string;
+  provider: string;
+  providerLabel: string;
+  title: string;
+  year: number | null;
+  imdbId: string | null;
+  mediaType: string;
+  season: number | null;
+  episode: number | null;
+  parentTitle: string | null;
+  language: string;
+  downloadCount: number;
+  fileName: string;
+  matchScore: number;
+  providerRank: number;
+  displayLabel: string;
+  languageLabel: string;
+}
+
+export interface BackendPreparedSession {
+  session_id: string;
+  title: string;
+  source_language: string;
+  target_language: string;
+  resolved_source_language: string;
+  source_language_mode: "exact" | "family_fallback";
+  session_mode: "subtitle_pair" | "ocr_fallback";
+  target_match_mode:
+    | "subtitle_file"
+    | "local_translation"
+    | "target_subtitle_match"
+    | "direct_translation";
+  feature_id: string | null;
+  source_file_id: string | null;
+  source_file_name: string | null;
+  source_provider: string | null;
+  source_path: string | null;
+  source_line_count: number;
+  target_file_id: string | null;
+  target_file_name: string | null;
+  target_provider: string | null;
+  target_path: string | null;
+  target_line_count: number;
+  translated_line_count: number;
+  used_translation: boolean;
+}
+
+export interface BackendProgress {
+  stage: string;
+  message: string;
+  current: number;
+  total: number;
+}
+
+export interface BackendConfig {
+  subtitleSources: {
+    opensubtitles: {
+      enabled: boolean;
+      apiKey: string;
+      username: string;
+      password: string;
+      enableOrgFallback: boolean;
+    };
+    subdl: { enabled: boolean };
+    assrt: { enabled: boolean; token: string };
+  };
+  languages: { source: string; target: string };
+  capture: {
+    region: [number, number, number, number];
+    intervalMs: number;
+    ocrLanguage: string;
+  };
+  matching: { fuzzyThreshold: number; windowSize: number };
+  translation: {
+    endpoint: string;
+    model: string;
+    timeoutS: number;
+    batchSize: number;
+  };
+  overlay: Record<string, unknown>;
+  debug: { mode: boolean };
+}
+
+export interface BackendSnapshot {
+  status: BackendStatus;
+  title: string;
+  source_language: string;
+  target_language: string;
+  search_results: BackendResult[];
+  search_matches: BackendMatch[];
+  selected_feature_id: string | null;
+  selected_source_file_id: string | null;
+  selected_target_file_id: string | null;
+  prepared_session: BackendPreparedSession | null;
+  progress: BackendProgress;
+  last_subtitle: string;
+  error_message: string;
+  warning_message: string;
+  overlay_url: string;
+  config: BackendConfig;
+}
+
+export interface TitleItem {
+  id: string;
+  title: string;
+  year: string;
+  type: string;
+  runtime: string;
+  raw: BackendMatch;
+}
+
+export interface SourceItem {
+  id: string;
+  file: string;
+  provider: string;
+  downloads: string;
+  fps: string;
+  hi: boolean;
+  trusted: boolean;
+  raw: BackendResult;
+}
+
+export type TargetKind = "local" | "ocr" | "file";
+
+export interface TargetItem {
+  id: string;
+  kind: TargetKind;
+  title?: string;
+  note?: string;
+  file?: string;
+  provider?: string;
+  downloads?: string;
+  fps?: string;
+  raw?: BackendResult;
+}
+
+export interface CommandItem {
+  id: string;
+  icon: string;
+  label: string;
+  shortcut: string;
+  kind?: "primary";
+  disabled?: boolean;
+}
+
+export interface LiveLine {
+  tc: string;
+  text: string;
+}
+
+export type PaletteTabId = "titles" | "source" | "target" | "cmd";
+
+export interface LanguageOption {
+  code: string;
+  label: string;
+}
+
+export interface LanguagesPayload {
+  sourceTarget: Array<{
+    source: LanguageOption;
+    target: LanguageOption;
+    availableTargets?: LanguageOption[];
+  }>;
+  ocr?: LanguageOption[];
+  sources?: LanguageOption[];
+  targets?: LanguageOption[];
+}
+
+export interface FoundryStatus {
+  phase: string;
+  notes?: string;
+  ready?: boolean;
+  [key: string]: unknown;
+}

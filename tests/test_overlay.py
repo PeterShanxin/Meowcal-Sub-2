@@ -1,30 +1,11 @@
 import asyncio
 import json
-from html.parser import HTMLParser
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from meocosub2.config import AppConfig
 from meocosub2.overlay.server import OverlayServer
-
-
-class IdCollector(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self.by_id: dict[str, dict[str, str]] = {}
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attributes = {key: value or "" for key, value in attrs}
-        element_id = attributes.get("id")
-        if element_id:
-            self.by_id[element_id] = {"tag": tag, **attributes}
-
-
-def collect_ids(html: str) -> dict[str, dict[str, str]]:
-    parser = IdCollector()
-    parser.feed(html)
-    return parser.by_id
 
 
 def make_server(config_path: Path | None = None) -> OverlayServer:
@@ -53,131 +34,15 @@ def make_server(config_path: Path | None = None) -> OverlayServer:
     )
 
 
-def test_dashboard_and_overlay_pages_served(tmp_path: Path) -> None:
+def test_dashboard_root_is_served(tmp_path: Path) -> None:
     server = make_server(tmp_path / "config.toml")
     with TestClient(server.app) as client:
         dashboard = client.get("/")
-        overlay = client.get("/overlay")
-    elements = collect_ids(dashboard.text)
     assert dashboard.status_code == 200
-    assert elements["hero-title-main"]["tag"] == "span"
-    assert elements["hero-title-accent"]["tag"] == "em"
-    assert elements["app-shell"]["tag"] == "main"
-    assert elements["loading-overlay"]["role"] == "alert"
-    assert elements["loading-retry"]["tag"] == "button"
-    assert elements["window-minimize-button"]["tag"] == "button"
-    assert elements["window-maximize-button"]["tag"] == "button"
-    assert elements["window-close-button"]["tag"] == "button"
-    assert elements["nav-dashboard"]["tag"] == "button"
-    assert elements["nav-results"]["tag"] == "button"
-    assert elements["nav-session"]["tag"] == "button"
-    assert elements["settings-open-button"]["tag"] == "button"
-    assert elements["settings-drawer"]["aria-hidden"] == "true"
-    assert elements["settings-close-button"]["tag"] == "button"
-    assert elements["settings-inline-button"]["tag"] == "button"
-    assert elements["source-language-picker"]["tag"] == "div"
-    assert elements["target-language-picker"]["tag"] == "div"
-    assert elements["source-language-options"]["role"] == "listbox"
-    assert elements["target-language-options"]["role"] == "listbox"
-    assert "hidden" not in elements["source-language-trigger"].get("class", "")
-    assert "hidden" not in elements["target-language-trigger"].get("class", "")
-    assert elements["source-language-input"]["name"] == "sourceLanguage"
-    assert elements["source-language-input"]["aria-hidden"] == "true"
-    assert elements["target-language-input"]["name"] == "targetLanguage"
-    assert elements["target-language-input"]["aria-hidden"] == "true"
-    assert elements["title-match-strip"]["tag"] == "section"
-    assert elements["title-match-results"]["tag"] == "div"
-    assert elements["search-result-summary"]["tag"] == "p"
-    assert elements["results-flow"]["tag"] == "div"
-    assert elements["results-selection-summary"]["tag"] == "div"
-    assert elements["results-prepare-button"]["tag"] == "button"
-    assert elements["results-back-button"]["tag"] == "button"
-    assert elements["results-step-pill"]["tag"] == "span"
-    assert elements["session-view-title"]["tag"] == "h2"
-    assert elements["session-select-region-button"]["tag"] == "button"
-    assert elements["footer-session-status"]["tag"] == "span"
-    assert elements["source-opensubtitles-enabled-input"]["tag"] == "input"
-    assert elements["source-opensubtitles-api-key-input"]["tag"] == "input"
-    assert elements["source-opensubtitles-org-fallback-input"]["tag"] == "input"
-    assert elements["source-subdl-enabled-input"]["tag"] == "input"
-    assert elements["source-assrt-enabled-input"]["tag"] == "input"
-    assert elements["source-assrt-token-input"]["tag"] == "input"
-    assert "language-menu-portal" not in elements
-    assert "language-menu-panel" not in elements
-    assert "custom-select" not in dashboard.text
-    assert "results-split-layout" in dashboard.text
-    assert "results-summary-panel" in dashboard.text
-    assert "results-active-panel" in dashboard.text
-    assert "Subtitle Sources" in dashboard.text
-    assert overlay.status_code == 200
-    assert "subtitle-shell" in overlay.text
-
-
-def test_dashboard_script_uses_blocking_bootstrap_without_custom_selects(tmp_path: Path) -> None:
-    server = make_server(tmp_path / "config.toml")
-    with TestClient(server.app) as client:
-        script = client.get("/static/app.js")
-        bootstrap = client.get("/static/app-bootstrap.js")
-        language_module = client.get("/static/app-language.js")
-        session_module = client.get("/static/app-session.js")
-        shell_module = client.get("/static/app-shell.js")
-
-    assert script.status_code == 200
-    assert script.text.strip() == 'import "./app-bootstrap.js";'
-    assert bootstrap.status_code == 200
-    assert "Language options failed to load. Retry startup." in bootstrap.text
-    assert "Loading studio..." in bootstrap.text
-    assert "Preparing languages and saved settings." in bootstrap.text
-    assert "appendDebugEntry" in bootstrap.text
-    assert "bindSessionActions" in bootstrap.text
-    assert "Searching OpenSubtitles..." not in bootstrap.text
-    assert language_module.status_code == 200
-    assert "custom-select" not in language_module.text
-    assert "languageMenuPortal" not in language_module.text
-    assert "showModal()" not in language_module.text
-    assert session_module.status_code == 200
-    assert "state.ui.manualView" in session_module.text
-    assert "sourceResultId" in session_module.text
-    assert "matchId" in session_module.text
-    assert shell_module.status_code == 200
-    assert "Studio startup incomplete" in shell_module.text
-    assert 'TAURI.core.invoke("toggle_main_window_maximize")' in shell_module.text
-
-
-def test_dashboard_styles_use_inline_language_picker_layout(tmp_path: Path) -> None:
-    server = make_server(tmp_path / "config.toml")
-    with TestClient(server.app) as client:
-        styles = client.get("/static/app.css")
-
-    assert styles.status_code == 200
-    assert ".language-picker {" in styles.text
-    assert ".language-picker-options {" in styles.text
-    assert ".language-picker-option" in styles.text
-    assert ".language-field.is-open .language-trigger" in styles.text
-    assert "position: absolute;" in styles.text
-    assert ".progress-fill.is-indeterminate" in styles.text
-    assert ".title-match-strip" in styles.text
-    assert '.result-card[data-kind="ocr-fallback"]' in styles.text
-    assert "clip-path: inset(50%)" in styles.text
-    assert ".window-chrome {" in styles.text
-    assert ".sidebar-rail {" in styles.text
-    assert ".dashboard-hero {" in styles.text
-    assert ".session-grid {" in styles.text
-    assert ".results-stage-shell" in styles.text
-    assert ".results-split-layout" in styles.text
-    assert ".results-summary-panel" in styles.text
-    assert ".results-active-panel" in styles.text
-    assert ".results-flow" in styles.text
-    assert ".results-selection-summary" in styles.text
-    assert '#title-match-strip' in styles.text
-    assert ".settings-drawer {" in styles.text
-    assert ".result-card.selected" in styles.text
-    assert ".source-provider-card" in styles.text
-    assert ".checkbox-line {" in styles.text
-    assert ".provider-badge" in styles.text
-    assert ".language-trigger,\n.language-picker {" not in styles.text
-    assert ".language-menu-portal" not in styles.text
-    assert ".language-menu-panel" not in styles.text
+    # Vite bundle mounts a root element; legacy DOM-ID assertions are gone with
+    # the command-palette redesign. Keep this shallow so we don't couple to the
+    # React bundle content.
+    assert "<div id=\"root\"" in dashboard.text or "<div id='root'" in dashboard.text
 
 
 def test_config_routes_return_compat_and_nested_payload(tmp_path: Path) -> None:
@@ -210,7 +75,9 @@ def test_put_config_updates_api_payload_and_persists_style(tmp_path: Path) -> No
     config_path = tmp_path / "config.toml"
     server = make_server(config_path)
     with TestClient(server.app) as client:
-        with client.websocket_connect("/ws") as websocket:
+        with client.websocket_connect("/ws/app") as websocket:
+            # Drain initial state frame, then style frame.
+            _ = json.loads(websocket.receive_text())
             initial = json.loads(websocket.receive_text())
             response = client.put(
                 "/api/config",
@@ -242,7 +109,13 @@ def test_put_config_updates_api_payload_and_persists_style(tmp_path: Path) -> No
                     },
                 },
             )
-            style_update = json.loads(websocket.receive_text())
+            style_update = None
+            for _ in range(4):
+                event = json.loads(websocket.receive_text())
+                if event.get("type") == "style":
+                    style_update = event
+                    break
+            assert style_update is not None, "expected a style event after config PUT"
 
         api_payload = client.get("/api/config")
 
@@ -301,13 +174,3 @@ def test_app_websocket_receives_initial_state_and_subtitle_events(tmp_path: Path
     assert subtitle_event == {"type": "subtitle", "text": "hello"}
 
 
-def test_overlay_websocket_receives_broadcast_and_prunes_dead_connections(tmp_path: Path) -> None:
-    server = make_server(tmp_path / "config.toml")
-    with TestClient(server.app) as client:
-        with client.websocket_connect("/ws") as websocket:
-            style_event = json.loads(websocket.receive_text())
-            asyncio.run(server.broadcast("overlay text"))
-            subtitle_event = json.loads(websocket.receive_text())
-
-    assert style_event["type"] == "style"
-    assert subtitle_event == {"type": "subtitle", "text": "overlay text"}

@@ -7,3 +7,8 @@ __pycache__/
 output/
 src-tauri/target/
 docs/plans/
+
+# Frontend tooling artifacts (built output is committed so Python-only runs work)
+src/meocosub2/overlay/ui/node_modules/
+src/meocosub2/overlay/ui/dist/
+src/meocosub2/overlay/ui/*.tsbuildinfo

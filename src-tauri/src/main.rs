@@ -11,7 +11,8 @@ use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Listener, LogicalPosition, LogicalSize, Manager, State,
+    AppHandle, Emitter, Listener, LogicalPosition, LogicalSize, Manager,
+    PhysicalPosition, PhysicalSize, State,
 };
 use tokio::time::sleep;
 use url::Url;
@@ -64,11 +65,19 @@ struct CaptureRegionState {
     device_scale_factor: f64,
 }
 
+#[derive(Clone, Copy)]
+struct MainWindowBounds {
+    position: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+    maximized: bool,
+}
+
 #[derive(Clone)]
 struct ShellState {
     capture_region: Arc<Mutex<Option<CaptureRegionState>>>,
     hud_enabled: Arc<AtomicBool>,
     hud_hovering: Arc<AtomicBool>,
+    prev_main_bounds: Arc<Mutex<Option<MainWindowBounds>>>,
 }
 
 fn repo_root() -> PathBuf {
@@ -310,27 +319,82 @@ fn show_main_window(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn minimize_main_window(app: AppHandle) -> Result<(), String> {
+fn enter_live_mode(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), String> {
     let window = main_window(&app)?;
-    window.minimize().map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-fn toggle_main_window_maximize(app: AppHandle) -> Result<bool, String> {
-    let window = main_window(&app)?;
-    let is_maximized = window.is_maximized().map_err(|error| error.to_string())?;
-    if is_maximized {
-        window.unmaximize().map_err(|error| error.to_string())?;
-    } else {
-        window.maximize().map_err(|error| error.to_string())?;
+    let maximized = window.is_maximized().map_err(|e| e.to_string())?;
+    if maximized {
+        window.unmaximize().map_err(|e| e.to_string())?;
     }
-    window.set_focus().map_err(|error| error.to_string())?;
-    Ok(!is_maximized)
+    let current_pos = window
+        .outer_position()
+        .map_err(|e| e.to_string())?;
+    let current_size = window.outer_size().map_err(|e| e.to_string())?;
+    *shell
+        .prev_main_bounds
+        .lock()
+        .map_err(|_| "prev bounds lock poisoned")? = Some(MainWindowBounds {
+        position: current_pos,
+        size: current_size,
+        maximized,
+    });
+
+    let monitor = window
+        .current_monitor()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "no monitor".to_string())?;
+    let monitor_size = monitor.size();
+    let monitor_pos = monitor.position();
+    let scale = monitor.scale_factor();
+    let strip_height = ((220.0_f64) * scale).round() as u32;
+    let strip_height = strip_height.min(monitor_size.height);
+
+    window.set_decorations(false).map_err(|e| e.to_string())?;
+    window.set_always_on_top(true).map_err(|e| e.to_string())?;
+    window.set_resizable(false).map_err(|e| e.to_string())?;
+    window
+        .set_size(PhysicalSize {
+            width: monitor_size.width,
+            height: strip_height,
+        })
+        .map_err(|e| e.to_string())?;
+    window
+        .set_position(PhysicalPosition {
+            x: monitor_pos.x,
+            y: monitor_pos.y + (monitor_size.height as i32) - (strip_height as i32),
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
-fn close_main_window(app: AppHandle) -> Result<(), String> {
-    hide_main_window(app)
+fn exit_live_mode(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), String> {
+    let window = main_window(&app)?;
+    window.set_always_on_top(false).map_err(|e| e.to_string())?;
+    window.set_decorations(true).map_err(|e| e.to_string())?;
+    window.set_resizable(true).map_err(|e| e.to_string())?;
+
+    let restore = shell
+        .prev_main_bounds
+        .lock()
+        .map_err(|_| "prev bounds lock poisoned")?
+        .take();
+    if let Some(bounds) = restore {
+        window
+            .set_size(bounds.size)
+            .map_err(|e| e.to_string())?;
+        window
+            .set_position(bounds.position)
+            .map_err(|e| e.to_string())?;
+        if bounds.maximized {
+            window.maximize().map_err(|e| e.to_string())?;
+        }
+    } else {
+        window
+            .set_size(LogicalSize::new(1320.0, 900.0))
+            .map_err(|e| e.to_string())?;
+        window.center().map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -488,6 +552,7 @@ fn main() {
         capture_region: Arc::new(Mutex::new(None)),
         hud_enabled: Arc::new(AtomicBool::new(false)),
         hud_hovering: Arc::new(AtomicBool::new(false)),
+        prev_main_bounds: Arc::new(Mutex::new(None)),
     };
 
     tauri::Builder::default()
@@ -501,9 +566,8 @@ fn main() {
             close_area_selector,
             hide_main_window,
             show_main_window,
-            minimize_main_window,
-            toggle_main_window_maximize,
-            close_main_window,
+            enter_live_mode,
+            exit_live_mode,
             show_capture_hud,
             get_api_base,
             stop_translation,
@@ -511,7 +575,7 @@ fn main() {
         ])
         .setup(move |app| {
             if let Some(main) = app.get_webview_window("main") {
-                let _ = main.set_decorations(false);
+                let _ = main.set_decorations(true);
             }
 
             let app_handle_for_boot = app.handle().clone();
