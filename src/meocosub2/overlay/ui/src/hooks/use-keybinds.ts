@@ -37,34 +37,52 @@ export function useKeybinds(h: KeyHandlers): void {
         return;
       }
 
-      // Tab / Shift+Tab — cycle palette tabs (when not typing in a non-palette input)
+      const target = e.target as HTMLElement | null;
+      const isPaletteInput =
+        target instanceof HTMLInputElement && target.dataset.palette === "true";
+
+      // Tab / Shift+Tab — cycle palette tabs (when in palette input)
       if (e.key === "Tab" && !e.altKey && !e.ctrlKey && !e.metaKey) {
-        const target = e.target as HTMLElement | null;
-        if (target instanceof HTMLInputElement && target.dataset.palette === "true") {
+        if (isPaletteInput) {
           e.preventDefault();
           h.onCycleTab(e.shiftKey ? -1 : 1);
           return;
         }
       }
 
-      // Arrow navigation inside palette input
-      if (
-        (e.key === "ArrowDown" || e.key === "ArrowUp") &&
-        e.target instanceof HTMLInputElement &&
-        e.target.dataset.palette === "true"
-      ) {
+      // Arrow up/down — palette cursor navigation (regardless of focus target,
+      // as long as user is not typing in a non-palette input)
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        if (!isPaletteInput && isTypingContext(e.target)) return;
         e.preventDefault();
         h.onMoveCursor(e.key === "ArrowDown" ? 1 : -1);
         return;
       }
 
+      // Arrow left/right — cycle tabs when at text boundary or input empty
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        if (isPaletteInput) {
+          const inp = target as HTMLInputElement;
+          const atStart = (inp.selectionStart ?? 0) === 0 && (inp.selectionEnd ?? 0) === 0;
+          const atEnd =
+            (inp.selectionStart ?? 0) === inp.value.length &&
+            (inp.selectionEnd ?? 0) === inp.value.length;
+          const empty = inp.value.length === 0;
+          if (empty || (e.key === "ArrowLeft" && atStart) || (e.key === "ArrowRight" && atEnd)) {
+            e.preventDefault();
+            h.onCycleTab(e.key === "ArrowRight" ? 1 : -1);
+            return;
+          }
+          return;
+        }
+        if (isTypingContext(e.target)) return;
+        e.preventDefault();
+        h.onCycleTab(e.key === "ArrowRight" ? 1 : -1);
+        return;
+      }
+
       // Enter inside palette input = select
-      if (
-        e.key === "Enter" &&
-        !isModifierKey(e) &&
-        e.target instanceof HTMLInputElement &&
-        e.target.dataset.palette === "true"
-      ) {
+      if (e.key === "Enter" && !isModifierKey(e) && isPaletteInput) {
         e.preventDefault();
         h.onSelect();
         return;

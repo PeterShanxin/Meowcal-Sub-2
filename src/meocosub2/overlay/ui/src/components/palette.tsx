@@ -9,7 +9,7 @@ import type {
   TargetItem,
   TitleItem,
 } from "../lib/types";
-import { CatMascot, Kbd, PaletteTabs } from "./primitives";
+import { Kbd, PaletteTabs } from "./primitives";
 
 interface PaletteProps {
   phase: Phase;
@@ -69,6 +69,7 @@ export function Palette(props: PaletteProps): JSX.Element {
   } = props;
 
   const [openDrop, setOpenDrop] = useState<"source" | "target" | null>(null);
+  const [focused, setFocused] = useState(false);
   const langRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -81,6 +82,31 @@ export function Palette(props: PaletteProps): JSX.Element {
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [openDrop]);
+
+  useEffect(() => {
+    if (phase !== "home" && phase !== "prep") return;
+    const inp = inputRef.current;
+    if (!inp) return;
+    const focusNow = () => {
+      try {
+        window.focus();
+      } catch {
+        // ignore cross-origin/webview restrictions
+      }
+      inp.focus();
+      inp.select();
+    };
+    focusNow();
+    const delays = [50, 150, 400, 900];
+    const timers = delays.map((d) => window.setTimeout(focusNow, d));
+    window.addEventListener("focus", focusNow);
+    document.addEventListener("visibilitychange", focusNow);
+    return () => {
+      timers.forEach((t) => window.clearTimeout(t));
+      window.removeEventListener("focus", focusNow);
+      document.removeEventListener("visibilitychange", focusNow);
+    };
+  }, [inputRef, phase]);
 
   const tabs = [
     { id: "titles", label: "Titles", count: titles.length },
@@ -120,14 +146,29 @@ export function Palette(props: PaletteProps): JSX.Element {
     >
       <div
         style={{
+          position: "relative",
           display: "flex",
           alignItems: "center",
           gap: 12,
           padding: compact ? "12px 16px" : "18px 20px",
-          borderBottom: "1px solid rgba(255,255,255,0.05)",
+          borderBottom: `1px solid ${focused ? "var(--accent-ring)" : "rgba(255,255,255,0.05)"}`,
+          background: focused
+            ? "linear-gradient(180deg, rgba(255,185,90,0.04), rgba(255,185,90,0) 70%)"
+            : "transparent",
+          boxShadow: focused ? "inset 0 -1px 0 0 var(--accent-hex)" : "none",
+          transition: "border-color 220ms ease, box-shadow 220ms ease, background 220ms ease",
         }}
       >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8a8a96" strokeWidth="1.5" aria-hidden>
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke={focused ? "var(--accent-hex)" : "#8a8a96"}
+          strokeWidth="1.5"
+          aria-hidden
+          style={{ transition: "stroke 220ms ease" }}
+        >
           <circle cx="7" cy="7" r="5" />
           <path d="M11 11l3.5 3.5" />
         </svg>
@@ -137,6 +178,11 @@ export function Palette(props: PaletteProps): JSX.Element {
           data-palette="true"
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
+          onFocus={(e) => {
+            setFocused(true);
+            e.currentTarget.select();
+          }}
+          onBlur={() => setFocused(false)}
           placeholder={placeholder}
           style={{
             flex: 1,
@@ -147,8 +193,10 @@ export function Palette(props: PaletteProps): JSX.Element {
             color: "var(--text-heading)",
             padding: 0,
             fontWeight: 400,
+            caretColor: "var(--accent-hex)",
           }}
         />
+        {searching && <div className="search-shimmer" aria-hidden />}
         <div ref={langRef} style={{ position: "relative", display: "flex", gap: 6, alignItems: "center" }}>
           <span
             onClick={() => setOpenDrop(openDrop === "source" ? null : "source")}
@@ -239,6 +287,8 @@ export function Palette(props: PaletteProps): JSX.Element {
         active={tab}
         onChange={(id) => onTabChange(id as PaletteTabId)}
       />
+
+      {searching && <div className="progress-bar" aria-hidden />}
 
       <div style={{ maxHeight: compact ? 240 : 360, overflow: "auto" }}>
         {tab === "titles" && (
@@ -361,11 +411,38 @@ function TitleList({
   searching: boolean;
 }): JSX.Element {
   if (items.length === 0) {
-    return (
-      <EmptyTab
-        hint={searching ? "Searching…" : "Type a title and press ↵ to search"}
-      />
-    );
+    if (searching) {
+      return (
+        <div
+          style={{
+            padding: "40px 20px",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 14,
+            color: "var(--text-label)",
+          }}
+        >
+          <span className="dot-loader" aria-hidden>
+            <span />
+            <span />
+            <span />
+          </span>
+          <span
+            style={{
+              fontSize: 11,
+              letterSpacing: 2,
+              textTransform: "uppercase",
+              color: "var(--accent-text)",
+              opacity: 0.75,
+            }}
+          >
+            Searching
+          </span>
+        </div>
+      );
+    }
+    return <EmptyTab hint="Type a title and press ↵ to search" />;
   }
   return (
     <div style={{ padding: "6px 0" }}>
@@ -695,16 +772,25 @@ function EmptyTab({ hint }: { hint: string }): JSX.Element {
   return (
     <div
       style={{
-        padding: "32px 20px",
+        padding: "48px 20px",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        gap: 10,
+        gap: 14,
         color: "var(--text-label)",
       }}
     >
-      <CatMascot size={44} expression="sleepy" />
-      <span style={{ fontSize: 12 }}>{hint}</span>
+      <div
+        aria-hidden
+        style={{
+          width: 36,
+          height: 1,
+          background:
+            "linear-gradient(90deg, transparent, var(--accent-ring), transparent)",
+          opacity: 0.6,
+        }}
+      />
+      <span style={{ fontSize: 12, letterSpacing: 0.2 }}>{hint}</span>
     </div>
   );
 }

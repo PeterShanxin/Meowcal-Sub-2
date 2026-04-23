@@ -41,6 +41,7 @@ export function App(): JSX.Element {
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const searchAbort = useRef<AbortController | null>(null);
+  const lastSearchedQuery = useRef<string>("");
 
   // Bootstrap: initial state + config + foundry status
   useEffect(() => {
@@ -131,6 +132,7 @@ export function App(): JSX.Element {
 
   const runSearch = useCallback(async (title: string) => {
     if (!title.trim()) return;
+    lastSearchedQuery.current = title.trim();
     searchAbort.current?.abort();
     const ctrl = new AbortController();
     searchAbort.current = ctrl;
@@ -151,34 +153,55 @@ export function App(): JSX.Element {
   }, []);
 
   const onQueryChange = useCallback((v: string) => {
-    store.set({ query: v, cursorIndex: 0 });
+    store.set({ query: v, cursorIndex: -1 });
   }, []);
 
-  const onTabChange = useCallback((t: PaletteTabId) => {
-    store.set({ tab: t, cursorIndex: 0 });
-  }, []);
+  const cursorForTab = useCallback(
+    (t: PaletteTabId): number => {
+      if (t === "titles" && selectedTitleId) {
+        const i = titles.findIndex((x) => x.id === selectedTitleId);
+        return i >= 0 ? i : -1;
+      }
+      if (t === "source" && selectedSourceId) {
+        const i = sources.findIndex((x) => x.id === selectedSourceId);
+        return i >= 0 ? i : -1;
+      }
+      if (t === "target" && selectedTargetId) {
+        const i = targets.findIndex((x) => x.id === selectedTargetId);
+        return i >= 0 ? i : -1;
+      }
+      return -1;
+    },
+    [titles, sources, targets, selectedTitleId, selectedSourceId, selectedTargetId],
+  );
+
+  const onTabChange = useCallback(
+    (t: PaletteTabId) => {
+      store.set({ tab: t, cursorIndex: cursorForTab(t) });
+    },
+    [cursorForTab],
+  );
 
   const onPickTitle = useCallback(
     (id: string) => {
-      const t = titles.find((x) => x.id === id);
       store.set({
         selectedTitleId: id,
         selectedSourceId: null,
         selectedTargetId: null,
         tab: "source",
-        query: t?.title ?? "",
-        cursorIndex: 0,
+        query: "",
+        cursorIndex: -1,
       });
     },
-    [titles],
+    [],
   );
 
   const onPickSource = useCallback((id: string) => {
-    store.set({ selectedSourceId: id, tab: "target", cursorIndex: 0 });
+    store.set({ selectedSourceId: id, tab: "target", cursorIndex: -1 });
   }, []);
 
   const onPickTarget = useCallback(async (id: string) => {
-    store.set({ selectedTargetId: id, tab: "cmd", cursorIndex: 0 });
+    store.set({ selectedTargetId: id, tab: "cmd", cursorIndex: -1 });
     const currentTitle = store.get().selectedTitleId;
     const currentSource = store.get().selectedSourceId;
     if (!currentTitle || !currentSource) return;
@@ -273,8 +296,10 @@ export function App(): JSX.Element {
   );
 
   const onSelect = useCallback(() => {
-    // Enter on Titles tab with no results yet = submit the search. This
-    // matches the palette footer hint ("↵ to search") when titles are empty.
+    if (tab === "titles" && query.trim() && query.trim() !== lastSearchedQuery.current) {
+      void runSearch(query.trim());
+      return;
+    }
     if (tab === "titles" && activeList.length === 0 && query.trim()) {
       void runSearch(query.trim());
       return;
@@ -323,7 +348,10 @@ export function App(): JSX.Element {
                 ? targets.length
                 : commands.length;
         if (list === 0) return {};
-        const next = (s.cursorIndex + dir + list) % list;
+        const next =
+          s.cursorIndex === -1
+            ? dir === 1 ? 0 : list - 1
+            : (s.cursorIndex + dir + list) % list;
         return { cursorIndex: next };
       });
     },
@@ -335,9 +363,9 @@ export function App(): JSX.Element {
     store.set((s) => {
       const idx = order.indexOf(s.tab);
       const next = order[(idx + dir + order.length) % order.length];
-      return { tab: next, cursorIndex: 0 };
+      return { tab: next, cursorIndex: cursorForTab(next) };
     });
-  }, []);
+  }, [cursorForTab]);
 
   useKeybinds({
     onFocusPalette: focusPalette,

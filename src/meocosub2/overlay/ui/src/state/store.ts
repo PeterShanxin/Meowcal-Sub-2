@@ -38,7 +38,7 @@ const initial: UIState = {
   selectedTitleId: null,
   selectedSourceId: null,
   selectedTargetId: null,
-  cursorIndex: 0,
+  cursorIndex: -1,
   liveLines: [],
   lastSubtitle: "",
   error: null,
@@ -79,7 +79,7 @@ class Store {
       selectedTitleId: null,
       selectedSourceId: null,
       selectedTargetId: null,
-      cursorIndex: 0,
+      cursorIndex: -1,
       manualView: null,
     });
   };
