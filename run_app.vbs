@@ -4,6 +4,8 @@ Set WshShell = CreateObject("WScript.Shell")
 repoRoot = fso.GetParentFolderName(WScript.ScriptFullName)
 shellPath = repoRoot & "\src-tauri\target\debug\meowcal-sub-2-shell.exe"
 webviewDataPath = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\com.meowcal.sub2\EBWebView"
+uiDir = repoRoot & "\src\meocosub2\overlay\ui"
+uiBuiltMarker = repoRoot & "\src\meocosub2\overlay\static\index.html"
 
 Dim forceRebuild
 forceRebuild = False
@@ -75,6 +77,58 @@ Function IsRebuildNeeded()
   IsRebuildNeeded = False
 End Function
 
+Function CheckUIFolderNewer(folderPath, refTime)
+  CheckUIFolderNewer = False
+  If Not fso.FolderExists(folderPath) Then Exit Function
+  Dim folder, file, subFolder, ext
+  Set folder = fso.GetFolder(folderPath)
+  For Each file In folder.Files
+    ext = LCase(fso.GetExtensionName(file.Name))
+    If ext = "ts" Or ext = "tsx" Or ext = "js" Or ext = "jsx" Or ext = "css" Or ext = "html" Then
+      If file.DateLastModified > refTime Then
+        CheckUIFolderNewer = True
+        Exit Function
+      End If
+    End If
+  Next
+  For Each subFolder In folder.SubFolders
+    If LCase(subFolder.Name) <> "node_modules" And LCase(subFolder.Name) <> "dist" Then
+      If CheckUIFolderNewer(subFolder.Path, refTime) Then
+        CheckUIFolderNewer = True
+        Exit Function
+      End If
+    End If
+  Next
+End Function
+
+Function IsUIRebuildNeeded()
+  If Not fso.FileExists(uiBuiltMarker) Then
+    IsUIRebuildNeeded = True
+    Exit Function
+  End If
+  Dim refTime
+  refTime = fso.GetFile(uiBuiltMarker).DateLastModified
+  Dim f
+  For Each f In Array( _
+    uiDir & "\index.html", _
+    uiDir & "\vite.config.ts", _
+    uiDir & "\package.json", _
+    uiDir & "\tsconfig.json" _
+  )
+    If fso.FileExists(f) Then
+      If fso.GetFile(f).DateLastModified > refTime Then
+        IsUIRebuildNeeded = True
+        Exit Function
+      End If
+    End If
+  Next
+  If CheckUIFolderNewer(uiDir & "\src", refTime) Then
+    IsUIRebuildNeeded = True
+    Exit Function
+  End If
+  IsUIRebuildNeeded = False
+End Function
+
 WshShell.CurrentDirectory = repoRoot
 RunCleanup
 
@@ -83,6 +137,11 @@ If forceRebuild And fso.FolderExists(webviewDataPath) Then
   On Error Resume Next
   fso.DeleteFolder webviewDataPath, True
   On Error GoTo 0
+End If
+
+If forceRebuild Or IsUIRebuildNeeded() Then
+  WshShell.CurrentDirectory = uiDir
+  WshShell.Run "cmd /c npm run build", 1, True
 End If
 
 If forceRebuild Or IsRebuildNeeded() Then
