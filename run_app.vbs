@@ -3,8 +3,6 @@ Set WshShell = CreateObject("WScript.Shell")
 
 repoRoot = fso.GetParentFolderName(WScript.ScriptFullName)
 shellPath = repoRoot & "\src-tauri\target\debug\meowcal-sub-2-shell.exe"
-pythonwPath = repoRoot & "\.venv\Scripts\pythonw.exe"
-pythonPath = repoRoot & "\.venv\Scripts\python.exe"
 webviewDataPath = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\com.meowcal.sub2\EBWebView"
 
 Sub RunCleanup()
@@ -30,11 +28,10 @@ End If
 WScript.Sleep 1200
 
 If fso.FileExists(shellPath) Then
+  ' Already compiled — launch directly (fast)
   WshShell.Run Chr(34) & shellPath & Chr(34), 0, False
-ElseIf fso.FileExists(pythonwPath) Then
-  WshShell.Run Chr(34) & pythonwPath & Chr(34) & " -m meocosub2.cli gui", 0, False
-ElseIf fso.FileExists(pythonPath) Then
-  MsgBox "Missing .venv\Scripts\pythonw.exe. Recreate the virtual environment or build the desktop shell first.", vbCritical, "Meowcal Sub 2"
 Else
-  MsgBox "Missing launcher runtime. Build the desktop shell or create the repo virtual environment first.", vbCritical, "Meowcal Sub 2"
+  ' No compiled binary — build + launch via cargo tauri dev
+  WshShell.CurrentDirectory = repoRoot & "\src-tauri"
+  WshShell.Run "cmd /k cargo tauri dev", 1, False
 End If
