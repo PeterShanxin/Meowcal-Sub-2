@@ -2,6 +2,7 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 Set WshShell = CreateObject("WScript.Shell")
 
 repoRoot = fso.GetParentFolderName(WScript.ScriptFullName)
+shellPath = repoRoot & "\src-tauri\target\debug\meowcal-sub-2-shell.exe"
 webviewDataPath = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\com.meowcal.sub2\EBWebView"
 
 Sub RunCleanup()
@@ -26,5 +27,12 @@ If fso.FolderExists(webviewDataPath) Then
 End If
 WScript.Sleep 1200
 
+' Build the Tauri shell (visible terminal so you can see compile progress)
 WshShell.CurrentDirectory = repoRoot & "\src-tauri"
-WshShell.Run "cmd /k cargo tauri dev", 1, False
+buildResult = WshShell.Run("cmd /c cargo build 2>&1 && echo BUILD_OK || echo BUILD_FAILED", 1, True)
+
+If fso.FileExists(shellPath) Then
+  WshShell.Run Chr(34) & shellPath & Chr(34), 0, False
+Else
+  MsgBox "Build failed — check the terminal output.", vbCritical, "Meowcal Sub 2"
+End If
