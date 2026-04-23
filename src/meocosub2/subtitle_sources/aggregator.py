@@ -21,13 +21,24 @@ from meocosub2.subtitle_sources.types import (
     ProviderSubtitleResult,
     SubtitleSourceProvider,
 )
-from meocosub2.subtitle_sources.utils import PROVIDER_RANK, language_priority, match_group_key, split_query_year
+from meocosub2.subtitle_sources.utils import (
+    EPISODE_PATTERN,
+    PROVIDER_RANK,
+    canonical_title,
+    language_priority,
+    match_group_key,
+    split_query_year,
+)
 
 
 YEAR_EXACT_BONUS = 20.0
 YEAR_NEAR_PENALTY = 4.0
 YEAR_MISMATCH_PENALTY = 15.0
 YEAR_NEAR_RANGE = 3
+BARE_TITLE_SERIES_BONUS = 24.0
+BARE_TITLE_EPISODE_PENALTY = 24.0
+PARENT_SERIES_BONUS = 50.0
+IMPLICIT_EPISODE_PENALTY = 80.0
 
 
 class SubtitleSearchAggregator:
@@ -60,7 +71,7 @@ class SubtitleSearchAggregator:
         if not catalogs:
             raise SubtitleSourceError("All subtitle sources failed.")
 
-        aggregated = self._merge_catalogs(catalogs, languages, query_year)
+        aggregated = self._merge_catalogs(catalogs, languages, query_year, dispatch_query)
         aggregated.warnings.extend(warnings)
         if not aggregated.results and errors:
             raise SubtitleSourceError("; ".join(errors))
@@ -86,8 +97,10 @@ class SubtitleSearchAggregator:
         catalogs: Iterable[ProviderSearchCatalog],
         languages: str,
         query_year: int | None = None,
+        query: str = "",
     ) -> AggregatedSearchCatalog:
         requested_languages = {code.strip() for code in languages.split(",") if code.strip()}
+        query_requests_episode = bool(EPISODE_PATTERN.search(query))
         all_matches: list[ProviderSubtitleMatch] = []
         all_results: list[ProviderSubtitleResult] = []
         provider_match_map: dict[str, str] = {}
@@ -217,7 +230,7 @@ class SubtitleSearchAggregator:
         ]
         for item in assrt_orphans:
             current_group_id = item.match_id
-            canonical_title = match_group_key(
+            orphan_title_key = match_group_key(
                 item.title,
                 item.media_type,
                 item.year,
@@ -228,7 +241,7 @@ class SubtitleSearchAggregator:
             candidate_group_ids = [
                 group_id
                 for key, group_id in group_order.items()
-                if group_id != current_group_id and key[0] == canonical_title
+                if group_id != current_group_id and key[0] == orphan_title_key
             ]
             if not candidate_group_ids:
                 continue
@@ -251,10 +264,40 @@ class SubtitleSearchAggregator:
             if group_id in empty_group_ids:
                 group_order.pop(key, None)
 
+        parent_series_keys: set[tuple[str, int]] = set()
+        if not query_requests_episode:
+            episode_parent_keys: set[tuple[str, int]] = set()
+            for group in groups.values():
+                if str(group["media_type"]) == "episode" and group["parent_title"]:
+                    year_value = group["year"] if isinstance(group["year"], int) else 0
+                    episode_parent_keys.add((canonical_title(str(group["parent_title"])), year_value))
+            for group in groups.values():
+                media_type = str(group["media_type"])
+                if media_type in {"series", "tvshow"}:
+                    year_value = group["year"] if isinstance(group["year"], int) else 0
+                    group_key = (canonical_title(str(group["title"])), year_value)
+                    if group_key in episode_parent_keys:
+                        parent_series_keys.add(group_key)
+
         matches: list[AggregatedTitleMatch] = []
         for group_id, group in groups.items():
             year_value = group["year"] if isinstance(group["year"], int) else None
             adjusted_score = float(group["match_score"]) + self._year_bonus(year_value, query_year)
+            media_type = str(group["media_type"])
+            if not query_requests_episode:
+                if media_type in {"series", "tvshow"}:
+                    adjusted_score += BARE_TITLE_SERIES_BONUS
+                elif media_type == "episode":
+                    adjusted_score -= BARE_TITLE_EPISODE_PENALTY
+            if parent_series_keys:
+                series_key_year = year_value or 0
+                if media_type in {"series", "tvshow"}:
+                    if (canonical_title(str(group["title"])), series_key_year) in parent_series_keys:
+                        adjusted_score += PARENT_SERIES_BONUS
+                elif media_type == "episode" and group["parent_title"]:
+                    episode_parent_key = (canonical_title(str(group["parent_title"])), series_key_year)
+                    if episode_parent_key in parent_series_keys:
+                        adjusted_score -= IMPLICIT_EPISODE_PENALTY
             matches.append(
                 AggregatedTitleMatch(
                     id=group_id,
@@ -262,7 +305,7 @@ class SubtitleSearchAggregator:
                     year=year_value,
                     imdb_id=str(group["imdb_id"]) if group["imdb_id"] else None,
                     tmdb_id=str(group["tmdb_id"]) if group["tmdb_id"] else None,
-                    media_type=str(group["media_type"]),
+                    media_type=media_type,
                     season=group["season"] if isinstance(group["season"], int) else None,
                     episode=group["episode"] if isinstance(group["episode"], int) else None,
                     parent_title=str(group["parent_title"]) if group["parent_title"] else None,

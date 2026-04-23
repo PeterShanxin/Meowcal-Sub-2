@@ -333,28 +333,18 @@ const primaryStyle: CSSProperties = {
 };
 
 function filterTitles(items: TitleItem[], q: string): TitleItem[] {
-  if (!q.trim()) return items;
-  const needle = q.toLowerCase();
-  return items.filter((t) => t.title.toLowerCase().includes(needle));
+  void q;
+  return items;
 }
 
 function filterSources(items: SourceItem[], q: string): SourceItem[] {
-  if (!q.trim()) return items;
-  const needle = q.toLowerCase();
-  return items.filter(
-    (s) =>
-      s.file.toLowerCase().includes(needle) ||
-      s.provider.toLowerCase().includes(needle),
-  );
+  void q;
+  return items;
 }
 
 function filterTargets(items: TargetItem[], q: string): TargetItem[] {
-  if (!q.trim()) return items;
-  const needle = q.toLowerCase();
-  return items.filter((t) => {
-    const hay = `${t.title ?? ""} ${t.file ?? ""} ${t.provider ?? ""}`.toLowerCase();
-    return hay.includes(needle);
-  });
+  void q;
+  return items;
 }
 
 function TitleList({

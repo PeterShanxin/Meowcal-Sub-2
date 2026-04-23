@@ -25,7 +25,7 @@ export function mapMatchesToTitles(matches: BackendMatch[]): TitleItem[] {
     const type =
       m.mediaType === "movie"
         ? "Movie"
-        : m.mediaType === "episode" || m.mediaType === "series"
+        : m.mediaType === "episode" || m.mediaType === "series" || m.mediaType === "tvshow"
           ? `Series${m.season != null ? ` · S${m.season}` : ""}${
               m.episode != null ? `E${m.episode}` : ""
             }`
