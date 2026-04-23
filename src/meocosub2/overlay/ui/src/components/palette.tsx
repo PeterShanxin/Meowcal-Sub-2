@@ -149,8 +149,8 @@ export function Palette(props: PaletteProps): JSX.Element {
           position: "relative",
           display: "flex",
           alignItems: "center",
-          gap: 12,
-          padding: compact ? "12px 16px" : "18px 20px",
+          gap: 14,
+          padding: compact ? "14px 18px" : "22px 24px",
           borderBottom: `1px solid ${focused ? "var(--accent-ring)" : "rgba(255,255,255,0.05)"}`,
           background: focused
             ? "linear-gradient(180deg, rgba(255,185,90,0.04), rgba(255,185,90,0) 70%)"
@@ -160,14 +160,14 @@ export function Palette(props: PaletteProps): JSX.Element {
         }}
       >
         <svg
-          width="16"
-          height="16"
+          width="20"
+          height="20"
           viewBox="0 0 16 16"
           fill="none"
           stroke={focused ? "var(--accent-hex)" : "#8a8a96"}
           strokeWidth="1.5"
           aria-hidden
-          style={{ transition: "stroke 220ms ease" }}
+          style={{ transition: "stroke 220ms ease", flexShrink: 0 }}
         >
           <circle cx="7" cy="7" r="5" />
           <path d="M11 11l3.5 3.5" />
@@ -189,11 +189,12 @@ export function Palette(props: PaletteProps): JSX.Element {
             border: "none",
             background: "transparent",
             outline: "none",
-            fontSize: compact ? 15 : 18,
+            fontSize: compact ? 16 : 22,
             color: "var(--text-heading)",
             padding: 0,
             fontWeight: 400,
             caretColor: "var(--accent-hex)",
+            letterSpacing: 0.1,
           }}
         />
         {searching && <div className="search-shimmer" aria-hidden />}
@@ -290,7 +291,7 @@ export function Palette(props: PaletteProps): JSX.Element {
 
       {searching && <div className="progress-bar" aria-hidden />}
 
-      <div style={{ maxHeight: compact ? 240 : 360, overflow: "auto" }}>
+      <div style={{ maxHeight: compact ? 280 : 420, overflow: "auto" }}>
         {tab === "titles" && (
           <TitleList
             items={filterTitles(titles, query)}
@@ -337,10 +338,10 @@ export function Palette(props: PaletteProps): JSX.Element {
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 10,
-          padding: "10px 16px",
+          gap: 12,
+          padding: "12px 20px",
           borderTop: "1px solid rgba(255,255,255,0.05)",
-          fontSize: 11,
+          fontSize: 12.5,
           color: "var(--text-label)",
         }}
       >
@@ -372,12 +373,12 @@ const primaryStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 8,
-  padding: "6px 14px",
+  padding: "8px 16px",
   background: "linear-gradient(180deg, var(--accent-hex), var(--accent-deep))",
   color: "#1a0f08",
   border: "none",
   borderRadius: 7,
-  fontSize: 12,
+  fontSize: 13,
   fontWeight: 600,
   cursor: "pointer",
 };
@@ -458,15 +459,15 @@ function TitleList({
           >
             <div
               style={{
-                width: 28,
-                height: 40,
-                borderRadius: 4,
+                width: 32,
+                height: 44,
+                borderRadius: 5,
                 flexShrink: 0,
                 background: "linear-gradient(135deg, #3a2a1a, #1a0f08)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: 13,
+                fontSize: 15,
               }}
             >
               {t.type.startsWith("Movie") ? "🎬" : "📺"}
@@ -475,7 +476,7 @@ function TitleList({
               <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                 <div
                   style={{
-                    fontSize: 14,
+                    fontSize: 16,
                     color: "var(--text-heading)",
                     fontWeight: 500,
                     overflow: "hidden",
@@ -503,7 +504,7 @@ function TitleList({
                   </span>
                 )}
               </div>
-              <div style={{ fontSize: 11, color: "var(--text-label)", marginTop: 2 }}>
+              <div style={{ fontSize: 12.5, color: "var(--text-label)", marginTop: 3 }}>
                 {t.year} · {t.type} · {t.runtime}
               </div>
             </div>
@@ -556,7 +557,7 @@ function SubList({
               <div
                 className="mono"
                 style={{
-                  fontSize: 13,
+                  fontSize: 14,
                   color: "var(--text-body)",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
@@ -565,7 +566,7 @@ function SubList({
               >
                 {r.file}
               </div>
-              <div style={{ fontSize: 11, color: "var(--text-label)", marginTop: 2 }}>
+              <div style={{ fontSize: 12, color: "var(--text-label)", marginTop: 3 }}>
                 {r.provider} · {r.downloads} downloads · {r.fps} fps
                 {r.trusted && (
                   <span style={{ color: "var(--accent-text)", marginLeft: 8 }}>
@@ -637,7 +638,7 @@ function TargetList({
               <div
                 className={isSpecial ? "" : "mono"}
                 style={{
-                  fontSize: 13,
+                  fontSize: 14,
                   color: "var(--text-body)",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
@@ -647,7 +648,7 @@ function TargetList({
               >
                 {r.title ?? r.file}
               </div>
-              <div style={{ fontSize: 11, color: "var(--text-label)", marginTop: 2 }}>
+              <div style={{ fontSize: 12, color: "var(--text-label)", marginTop: 3 }}>
                 {r.note ?? `${r.provider} · ${r.downloads} downloads · ${r.fps} fps`}
               </div>
             </div>
@@ -717,13 +718,13 @@ function CmdList({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: 13,
+                fontSize: 14,
                 border: `1px solid ${isPrimary ? "var(--accent-ring)" : "rgba(255,255,255,0.05)"}`,
               }}
             >
               {c.icon}
             </div>
-            <span style={{ flex: 1, fontSize: 13, color: "var(--text-body)" }}>
+            <span style={{ flex: 1, fontSize: 14, color: "var(--text-body)" }}>
               {c.label}
             </span>
             <Kbd>{c.shortcut}</Kbd>

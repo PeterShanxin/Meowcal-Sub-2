@@ -228,7 +228,7 @@ export function PaletteTabs({
       style={{
         display: "flex",
         gap: 2,
-        padding: "8px 12px",
+        padding: "10px 16px",
         borderBottom: "1px solid rgba(255,255,255,0.05)",
         background: "rgba(255,255,255,0.015)",
       }}
@@ -238,14 +238,14 @@ export function PaletteTabs({
         const style: CSSProperties = {
           display: "flex",
           alignItems: "center",
-          gap: 8,
-          padding: "6px 12px",
+          gap: 9,
+          padding: "7px 14px",
           border: "none",
           background: isActive ? "var(--accent-tint)" : "transparent",
           color: isActive ? "var(--accent-text)" : "var(--text-muted)",
           cursor: "pointer",
-          borderRadius: 6,
-          fontSize: 12,
+          borderRadius: 7,
+          fontSize: 13.5,
           fontWeight: 500,
         };
         return (
@@ -253,9 +253,9 @@ export function PaletteTabs({
             {t.label}
             <span
               style={{
-                fontSize: 10,
+                fontSize: 11,
                 color: isActive ? "var(--accent-text)" : "var(--text-dim)",
-                opacity: 0.7,
+                opacity: 0.75,
               }}
             >
               {t.count}
@@ -266,7 +266,7 @@ export function PaletteTabs({
       <div style={{ flex: 1 }} />
       <span
         style={{
-          fontSize: 11,
+          fontSize: 12,
           color: "var(--text-dim)",
           display: "flex",
           alignItems: "center",

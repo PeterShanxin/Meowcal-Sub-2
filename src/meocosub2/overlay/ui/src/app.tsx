@@ -384,6 +384,10 @@ export function App(): JSX.Element {
   const isEmpty = isFirstLaunch(config);
 
   const isCompact = phase === "prep" || phase === "live";
+  const isIdle =
+    phase === "home" &&
+    titles.length === 0 &&
+    sources.length === 0;
 
   return (
     <div
@@ -430,22 +434,23 @@ export function App(): JSX.Element {
         <div
           style={{
             position: "absolute",
-            top: isCompact ? 56 : 110,
+            top: isCompact ? 56 : isIdle ? 210 : 88,
             left: isCompact ? 20 : "50%",
             right: isCompact ? 20 : "auto",
             transform: isCompact ? "none" : "translateX(-50%)",
-            width: isCompact ? "auto" : 860,
+            width: isCompact ? "auto" : 920,
             zIndex: 4,
-            transition: "all 280ms cubic-bezier(.2,.7,.3,1)",
+            transition:
+              "top 520ms cubic-bezier(.22, 1.3, .36, 1), transform 280ms cubic-bezier(.2,.7,.3,1), width 280ms cubic-bezier(.2,.7,.3,1)",
           }}
         >
           {!isCompact && !noKey && !isEmpty && (
-            <div style={{ textAlign: "center", marginBottom: 18 }}>
+            <div style={{ textAlign: "center", marginBottom: 26 }}>
               <div
                 style={{
-                  fontSize: 11,
+                  fontSize: 13,
                   fontWeight: 700,
-                  letterSpacing: 2.5,
+                  letterSpacing: 3.2,
                   color: "var(--text-label)",
                   textTransform: "uppercase",
                 }}
@@ -455,10 +460,11 @@ export function App(): JSX.Element {
               <h1
                 className="display-serif"
                 style={{
-                  margin: "6px 0 0",
-                  fontSize: 32,
+                  margin: "10px 0 0",
+                  fontSize: 52,
                   fontWeight: 500,
-                  letterSpacing: -0.8,
+                  letterSpacing: -1.2,
+                  lineHeight: 1.1,
                   color: "var(--text-heading)",
                 }}
               >

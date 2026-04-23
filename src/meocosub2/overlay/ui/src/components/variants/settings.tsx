@@ -2,9 +2,17 @@ import { useEffect, useState } from "react";
 import type { BackendConfig } from "../../lib/types";
 import { api } from "../../hooks/use-api";
 import { tauri } from "../../hooks/use-tauri";
+import {
+  FONT_PRESETS,
+  loadFontScale,
+  presetLabel,
+  setFontScale,
+  type FontPresetName,
+} from "../../lib/font-scale";
 import { Kbd } from "../primitives";
 
 type SectionId =
+  | "appearance"
   | "sources"
   | "capture"
   | "overlay"
@@ -18,6 +26,7 @@ interface Section {
 }
 
 const SECTIONS: Section[] = [
+  { id: "appearance", label: "Appearance" },
   { id: "sources", label: "Subtitle sources" },
   { id: "capture", label: "Capture" },
   { id: "overlay", label: "Overlay style" },
@@ -173,6 +182,7 @@ export function SettingsView({
             {banner.text}
           </div>
         )}
+        {section === "appearance" && <AppearanceSection />}
         {section === "sources" && (
           <SourcesSection draft={draft} update={update} />
         )}
@@ -864,6 +874,99 @@ function DebugSection({ draft, update }: SectionProps): JSX.Element {
         }
         label="Enable debug overlay (OCR timing + match visualiser)"
       />
+    </>
+  );
+}
+
+function AppearanceSection(): JSX.Element {
+  const [active, setActive] = useState<FontPresetName>(() => loadFontScale());
+  const presets = Object.keys(FONT_PRESETS) as FontPresetName[];
+  const onPick = (name: FontPresetName): void => {
+    setFontScale(name);
+    setActive(name);
+  };
+  return (
+    <>
+      <Heading eyebrow="Appearance" title="Interface size" />
+      <p style={{ fontSize: 13, color: "var(--text-muted)", marginTop: -12, marginBottom: 18 }}>
+        Scale the entire app interface. Applies instantly and persists across launches.
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {presets.map((name) => {
+          const selected = active === name;
+          const pct = Math.round(FONT_PRESETS[name] * 100);
+          return (
+            <button
+              key={name}
+              onClick={() => onPick(name)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 14,
+                padding: "12px 16px",
+                background: selected ? "var(--accent-tint)" : "rgba(255,255,255,0.02)",
+                border: `1px solid ${selected ? "var(--accent-ring)" : "rgba(255,255,255,0.06)"}`,
+                borderRadius: 9,
+                cursor: "pointer",
+                textAlign: "left",
+                color: selected ? "var(--accent-text)" : "var(--text-body)",
+                transition: "background 160ms ease, border-color 160ms ease",
+              }}
+            >
+              <div
+                aria-hidden
+                style={{
+                  width: 20,
+                  height: 20,
+                  borderRadius: "50%",
+                  border: `2px solid ${selected ? "var(--accent-hex)" : "rgba(255,255,255,0.18)"}`,
+                  background: selected ? "var(--accent-hex)" : "transparent",
+                  flexShrink: 0,
+                  boxShadow: selected ? "inset 0 0 0 3px #1a0f08" : "none",
+                  transition: "all 160ms ease",
+                }}
+              />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 500 }}>
+                  {presetLabel(name)}
+                  {name === "default" && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        marginLeft: 8,
+                        padding: "2px 6px",
+                        borderRadius: 999,
+                        background: "rgba(255,255,255,0.06)",
+                        color: "var(--text-label)",
+                        textTransform: "uppercase",
+                        letterSpacing: 1,
+                        fontWeight: 600,
+                      }}
+                    >
+                      Recommended
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-label)", marginTop: 2 }}>
+                  Interface scale {pct}%
+                </div>
+              </div>
+              <div
+                aria-hidden
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontStyle: "italic",
+                  fontSize: 22 * FONT_PRESETS[name],
+                  color: selected ? "var(--accent-text)" : "var(--text-muted)",
+                  opacity: 0.85,
+                }}
+              >
+                Aa
+              </div>
+            </button>
+          );
+        })}
+      </div>
     </>
   );
 }
