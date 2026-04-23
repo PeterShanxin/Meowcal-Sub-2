@@ -137,6 +137,9 @@ export interface TitleItem {
   year: string;
   type: string;
   runtime: string;
+  sourceCount: number;
+  targetCount: number;
+  isRecommended: boolean;
   raw: BackendMatch;
 }
 

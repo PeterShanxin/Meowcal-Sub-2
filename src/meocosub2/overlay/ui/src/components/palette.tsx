@@ -395,8 +395,36 @@ function TitleList({
               {t.type.startsWith("Movie") ? "🎬" : "📺"}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 14, color: "var(--text-heading)", fontWeight: 500 }}>
-                {t.title}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                <div
+                  style={{
+                    fontSize: 14,
+                    color: "var(--text-heading)",
+                    fontWeight: 500,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {t.title}
+                </div>
+                {t.isRecommended && (
+                  <span
+                    style={{
+                      flexShrink: 0,
+                      padding: "2px 6px",
+                      borderRadius: 999,
+                      background: "var(--accent-tint)",
+                      border: "1px solid var(--accent-ring)",
+                      color: "var(--accent-text)",
+                      fontSize: 10,
+                      fontWeight: 600,
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    Recommended
+                  </span>
+                )}
               </div>
               <div style={{ fontSize: 11, color: "var(--text-label)", marginTop: 2 }}>
                 {t.year} · {t.type} · {t.runtime}

@@ -76,8 +76,14 @@ export function App(): JSX.Element {
   const targetLang = config?.languages.target ?? snapshot?.target_language ?? "zh-TW";
   const matchId = selectedTitleId;
   const titles = useMemo(
-    () => mapMatchesToTitles(snapshot?.search_matches ?? []),
-    [snapshot?.search_matches],
+    () =>
+      mapMatchesToTitles(
+        snapshot?.search_matches ?? [],
+        snapshot?.search_results ?? [],
+        snapshot?.source_language ?? "en",
+        snapshot?.target_language ?? "zh",
+      ),
+    [snapshot?.search_matches, snapshot?.search_results, snapshot?.source_language, snapshot?.target_language],
   );
   const sources = useMemo(
     () =>
