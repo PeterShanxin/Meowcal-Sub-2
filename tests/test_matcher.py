@@ -56,7 +56,74 @@ def test_windowed_search_advances_forward() -> None:
 
 def test_first_search_uses_initial_window_cap() -> None:
     matcher = SubtitleMatcher(make_lines())
-    assert list(matcher._search_indices()) == list(range(50))
+    assert list(matcher._search_indices()) == list(range(35))
+
+
+def test_first_search_respects_configured_forward_window() -> None:
+    matcher = SubtitleMatcher(make_lines(200), window_forward=100, window_backward=10)
+    assert list(matcher._search_indices()) == list(range(110))
+
+
+def test_short_cjk_line_matches() -> None:
+    matcher = SubtitleMatcher([SubtitleLine(index=0, start_ms=0, end_ms=1000, text="好的。")])
+    result = matcher.match("好的")
+    assert result is not None
+    assert result.line_index == 0
+
+
+def test_single_cjk_char_can_match() -> None:
+    matcher = SubtitleMatcher([SubtitleLine(index=0, start_ms=0, end_ms=1000, text="是。")])
+    result = matcher.match("是")
+    assert result is not None
+    assert result.line_index == 0
+
+
+def test_partial_ratio_handles_cjk_ocr_drop() -> None:
+    matcher = SubtitleMatcher(
+        [SubtitleLine(index=0, start_ms=0, end_ms=1000, text="我今天很开心")],
+        fuzzy_threshold=80,
+    )
+    result = matcher.match("我今很开心")
+    assert result is not None
+    assert result.line_index == 0
+
+
+def _unique_lines(count: int = 100) -> list[SubtitleLine]:
+    import hashlib
+    out: list[SubtitleLine] = []
+    for i in range(count):
+        digest = hashlib.sha1(f"line-{i}".encode()).hexdigest()
+        text = f"{digest[:8]} {digest[8:16]} {digest[16:24]} {digest[24:32]}"
+        out.append(SubtitleLine(index=i, start_ms=i * 1000, end_ms=(i + 1) * 1000, text=text))
+    return out
+
+
+def test_reset_clears_window_anchor() -> None:
+    lines = _unique_lines()
+    matcher = SubtitleMatcher(lines)
+    target = lines[90].text
+    result = matcher.match(target)
+    assert result is not None and result.line_index == 90
+    matcher.reset()
+    assert matcher._last_match_position is None
+    assert matcher._last_frame_hash is None
+    assert list(matcher._search_indices()) == list(range(35))
+
+
+def test_seek_back_self_heals_via_full_scan() -> None:
+    lines = _unique_lines()
+    matcher = SubtitleMatcher(lines)
+    matcher._last_match_position = 90
+    result = matcher.match(lines[5].text)
+    assert result is not None
+    assert result.line_index == 5
+    assert matcher._last_match_position == 5
+
+
+def test_window_backward_is_configurable() -> None:
+    matcher = SubtitleMatcher(make_lines(), window_forward=10, window_backward=20)
+    matcher._last_match_position = 30
+    assert list(matcher._search_indices()) == list(range(10, 41))
 
 
 def test_fallback_full_scan_when_window_misses() -> None:

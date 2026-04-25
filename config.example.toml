@@ -24,6 +24,7 @@ ocr_language = "en"
 [matching]
 fuzzy_threshold = 65
 window_size = 30
+window_backward = 5
 
 [translation]
 endpoint = "http://127.0.0.1:5273/v1"

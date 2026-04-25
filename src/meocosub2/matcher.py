@@ -57,21 +57,28 @@ class SubtitleMatcher:
             return False
         return self._hash_text(normalized_ocr) == self._last_frame_hash
 
+    def reset(self) -> None:
+        self._last_match_position = None
+        self._last_frame_hash = None
+
     def _search_indices(self) -> range:
         if self._last_match_position is None:
-            return range(0, min(len(self.subtitles), 50))
+            initial_cap = self.window_forward + self.window_backward
+            return range(0, min(len(self.subtitles), initial_cap))
         start = max(0, self._last_match_position - self.window_backward)
         stop = min(len(self.subtitles), self._last_match_position + self.window_forward + 1)
         return range(start, stop)
 
-    def _extract_best(self, normalized_ocr: str, indices: range) -> tuple[int, float] | None:
+    def _extract_best(
+        self, normalized_ocr: str, indices: range, scorer
+    ) -> tuple[int, float] | None:
         choices = {index: self._normalized[index] for index in indices if self._normalized[index]}
         if not choices:
             return None
         match = process.extractOne(
             normalized_ocr,
             choices,
-            scorer=fuzz.token_set_ratio,
+            scorer=scorer,
             score_cutoff=self.fuzzy_threshold,
         )
         if match is None:
@@ -81,7 +88,10 @@ class SubtitleMatcher:
 
     def match(self, ocr_text: str) -> MatchResult | None:
         normalized_ocr = self._normalize_for_match(ocr_text)
-        if len(normalized_ocr) < 3:
+        # Single CJK chars are word-meaningful (e.g. "好"); ASCII <3 chars is usually noise.
+        ocr_is_cjk = any(is_cjk_compactable_char(ch) for ch in normalized_ocr)
+        min_length = 1 if ocr_is_cjk else 3
+        if len(normalized_ocr) < min_length:
             logger.debug("MATCH skip: normalized too short (%d chars) for %r", len(normalized_ocr), ocr_text[:40])
             return None
 
@@ -90,11 +100,14 @@ class SubtitleMatcher:
             return None
         self._last_frame_hash = current_hash
 
+        # token_set_ratio degenerates on space-stripped CJK (single token); WRatio handles OCR char drops better.
+        scorer = fuzz.WRatio if ocr_is_cjk else fuzz.token_set_ratio
+
         window = self._search_indices()
-        best = self._extract_best(normalized_ocr, window)
+        best = self._extract_best(normalized_ocr, window, scorer)
         in_window = best is not None
         if best is None:
-            best = self._extract_best(normalized_ocr, range(len(self.subtitles)))
+            best = self._extract_best(normalized_ocr, range(len(self.subtitles)), scorer)
         if best is None:
             logger.debug("MATCH miss: threshold=%d ocr=%r", self.fuzzy_threshold, normalized_ocr[:60])
             return None

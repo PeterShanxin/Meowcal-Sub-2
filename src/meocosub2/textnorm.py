@@ -18,6 +18,9 @@ def is_cjk_char(ch: str) -> bool:
         or ("\u3040" <= ch <= "\u309f")
         or ("\u30a0" <= ch <= "\u30ff")
         or ("\uac00" <= ch <= "\ud7af")
+        or ("\uf900" <= ch <= "\ufaff")
+        or ("\U00020000" <= ch <= "\U0002ebef")
+        or ("\U00030000" <= ch <= "\U000323af")
     )
 
 
