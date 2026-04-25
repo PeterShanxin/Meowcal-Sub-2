@@ -454,7 +454,7 @@ class SubtitleSearchAggregator:
             return works
 
         series_indices = [i for i, w in enumerate(works) if w.media_type == "series"]
-        if len(series_indices) < 2:
+        if not series_indices:
             return works
 
         lookups = [self._lookup_series_identity(works[i], dispatch_query) for i in series_indices]
@@ -481,6 +481,9 @@ class SubtitleSearchAggregator:
             if work.media_type != "series" or not work.tmdb_id:
                 continue
             by_tmdb.setdefault(work.tmdb_id, []).append(i)
+
+        if not any(len(group) > 1 for group in by_tmdb.values()):
+            return enriched
 
         merged_indices: set[int] = set()
         result: list[AggregatedWork] = []

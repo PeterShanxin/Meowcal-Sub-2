@@ -303,11 +303,16 @@ class TMDbClient:
 
     async def _fetch(self, path: str, params: dict[str, str]) -> dict[str, Any] | None:
         query_params = dict(params)
-        query_params["api_key"] = self.api_key
+        headers: dict[str, str] = {}
+        # v4 read access tokens are JWTs ("eyJ..."); v3 keys are 32-char hex.
+        if self.api_key.startswith("eyJ"):
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        else:
+            query_params["api_key"] = self.api_key
         url = f"{TMDB_BASE_URL}{path}"
         try:
             client = await self._client_obj()
-            response = await client.get(url, params=query_params)
+            response = await client.get(url, params=query_params, headers=headers)
         except (httpx.HTTPError, asyncio.TimeoutError) as exc:
             logger.warning("TMDb request failed (%s): %s", path, exc)
             return None

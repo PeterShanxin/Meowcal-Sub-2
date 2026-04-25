@@ -247,6 +247,119 @@ async def test_aggregator_merges_cross_lingual_series_via_tmdb() -> None:
 
 
 @pytest.mark.asyncio
+async def test_aggregator_applies_skeleton_for_single_series_without_tmdb_id() -> None:
+    """A single series result with no provider-supplied tmdb_id still gets enriched
+    and skeleton-merged. Regression for S1/S3 missing on Overlord searches.
+    """
+    overlord_series = TMDbSeries(
+        tmdb_id=64196,
+        imdb_id="tt4869896",
+        name="Overlord",
+        original_name="オーバーロード",
+        first_air_year=2015,
+    )
+    stub = _StubTMDb(
+        search_hits={"overlord": overlord_series},
+        series_details={64196: {"number_of_seasons": 4}},
+        season_episodes={
+            (64196, 1): [
+                {"episode_number": 1, "name": "S1E1", "air_date": "2015-07-07"},
+                {"episode_number": 2, "name": "S1E2", "air_date": "2015-07-14"},
+            ],
+            (64196, 2): [
+                {"episode_number": 1, "name": "S2E1", "air_date": "2018-01-09"},
+            ],
+            (64196, 3): [
+                {"episode_number": 1, "name": "S3E1", "air_date": "2018-07-10"},
+            ],
+            (64196, 4): [
+                {"episode_number": 1, "name": "S4E1", "air_date": "2022-01-04"},
+            ],
+        },
+    )
+    config = AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True)
+    aggregator = SubtitleSearchAggregator(config, tmdb_client=stub)
+    aggregator.providers = (
+        _FakeProvider(
+            "assrt",
+            "ASSRT",
+            ProviderSearchCatalog(
+                matches=[
+                    ProviderSubtitleMatch(
+                        id="assrt-series",
+                        provider="assrt",
+                        provider_label="ASSRT",
+                        title="Overlord",
+                        year=2015,
+                        imdb_id=None,
+                        tmdb_id=None,
+                        media_type="tvshow",
+                        subtitles_count=1,
+                        match_score=300.0,
+                    ),
+                    ProviderSubtitleMatch(
+                        id="assrt-s2e1",
+                        provider="assrt",
+                        provider_label="ASSRT",
+                        title="Overlord S02E01",
+                        year=2018,
+                        imdb_id=None,
+                        tmdb_id=None,
+                        media_type="episode",
+                        season=2,
+                        episode=1,
+                        parent_title="Overlord",
+                        subtitles_count=1,
+                        match_score=290.0,
+                    ),
+                ],
+                results=[
+                    ProviderSubtitleResult(
+                        id="assrt-result",
+                        match_id="assrt-s2e1",
+                        provider="assrt",
+                        provider_label="ASSRT",
+                        title="Overlord",
+                        year=2015,
+                        imdb_id=None,
+                        tmdb_id=None,
+                        media_type="episode",
+                        season=2,
+                        episode=1,
+                        parent_title="Overlord",
+                        language="en",
+                        download_count=10,
+                        file_name="overlord-s2e1.srt",
+                    ),
+                ],
+            ),
+        ),
+    )
+
+    catalog = await aggregator.search_catalog("Overlord", "en")
+
+    series_works = [w for w in catalog.works if w.media_type == "series"]
+    assert len(series_works) == 1
+    work = series_works[0]
+    assert work.tmdb_id == "64196"
+    assert work.imdb_id == "tt4869896"
+
+    season_numbers = sorted(s.season_number for s in work.seasons)
+    assert season_numbers == [1, 2, 3, 4], "all four TMDb seasons should be present"
+
+    by_season = {s.season_number: s for s in work.seasons}
+    s1_ids = [ep.match_id for ep in by_season[1].episodes]
+    assert s1_ids == ["skeleton:1:1", "skeleton:1:2"]
+    assert all(ep.subtitles_count == 0 for ep in by_season[1].episodes)
+
+    s2_ids = [ep.match_id for ep in by_season[2].episodes]
+    assert any(not mid.startswith("skeleton:") for mid in s2_ids), "S2 keeps the real ASSRT episode"
+
+    assert by_season[3].episodes[0].match_id == "skeleton:3:1"
+    assert by_season[4].episodes[0].match_id == "skeleton:4:1"
+
+
+@pytest.mark.asyncio
 async def test_aggregator_skips_tmdb_when_disabled() -> None:
     config = AppConfig(tmdb_api_key="", tmdb_merge_enabled=True)
     aggregator = SubtitleSearchAggregator(config)
