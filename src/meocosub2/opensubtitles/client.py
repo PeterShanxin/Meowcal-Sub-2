@@ -26,9 +26,10 @@ MAX_RETRIES = 3
 MAX_QUERY_VARIANTS = 6
 MAX_FEATURES_PER_QUERY = 25
 MAX_FEATURES_TO_RESOLVE = 15
-MAX_SUBTITLE_RESULTS_PER_QUERY = 25
+MAX_SUBTITLE_RESULTS_PER_QUERY = 200
+MAX_SUBTITLE_PAGES_PER_QUERY = 4
 MAX_PARALLEL_SUBTITLE_FETCHES = 5
-MAX_SEARCH_RESULTS = 50
+MAX_SEARCH_RESULTS = 400
 STRONG_MATCH_THRESHOLD = 185.0
 ORG_SEARCH_URL = "https://www.opensubtitles.org/en/search2/moviename-{query}/sublanguageid-all"
 ORG_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0 Safari/537.36"
@@ -357,12 +358,26 @@ class OpenSubtitlesClient:
         return await self._search_subtitles_by_params(params)
 
     async def _search_subtitles_by_params(self, params: dict[str, str]) -> list[SearchResult]:
-        response = await self._request("GET", "/subtitles", params=params)
-        if response.status_code != 200:
-            raise OpenSubtitlesError(f"OpenSubtitles search failed: {response.status_code}")
-
-        payload = response.json()
-        results = [self._parse_result(item) for item in payload.get("data", [])[:MAX_SUBTITLE_RESULTS_PER_QUERY]]
+        results: list[SearchResult] = []
+        for page in range(1, MAX_SUBTITLE_PAGES_PER_QUERY + 1):
+            paged = dict(params)
+            paged["page"] = str(page)
+            response = await self._request("GET", "/subtitles", params=paged)
+            if response.status_code != 200:
+                raise OpenSubtitlesError(f"OpenSubtitles search failed: {response.status_code}")
+            payload = response.json()
+            data = payload.get("data", [])
+            if not isinstance(data, list) or not data:
+                break
+            for item in data:
+                results.append(self._parse_result(item))
+                if len(results) >= MAX_SUBTITLE_RESULTS_PER_QUERY:
+                    break
+            if len(results) >= MAX_SUBTITLE_RESULTS_PER_QUERY:
+                break
+            total_pages = payload.get("total_pages")
+            if isinstance(total_pages, int) and page >= total_pages:
+                break
         lang_summary = ",".join(sorted({r.language for r in results})) if results else "none"
         logger.debug("OS /subtitles params=%s → %d results [langs: %s]", params, len(results), lang_summary)
         return results
@@ -461,8 +476,10 @@ class OpenSubtitlesClient:
         codes = sorted({part.strip() for part in languages.split(",") if part.strip()})
         return ",".join(codes)
 
-    # OpenSubtitles uses "zhs" for Simplified Chinese; our internal code is "zh".
-    _INTERNAL_TO_OS_LANG: dict[str, str] = {"zh": "zhs"}
+    # OpenSubtitles API uses BCP-47 region codes: "zh-cn" Simplified, "zh-tw"
+    # Traditional. Our internal codes are "zh" / "zht". The legacy "zhs" / "zht"
+    # codes return 0 results from the v1 API.
+    _INTERNAL_TO_OS_LANG: dict[str, str] = {"zh": "zh-cn", "zht": "zh-tw"}
 
     def _to_api_languages(self, languages: str) -> str:
         codes = [c.strip() for c in languages.split(",") if c.strip()]
