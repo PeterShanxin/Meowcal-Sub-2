@@ -84,6 +84,22 @@ export function Palette(props: PaletteProps): JSX.Element {
   const [openDrop, setOpenDrop] = useState<"source" | "target" | null>(null);
   const [focused, setFocused] = useState(false);
   const langRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const container = listRef.current;
+    if (!container || cursorIndex < 0) return;
+    const target = container.querySelector(
+      `[data-cursor-row="${cursorIndex}"]`,
+    ) as HTMLElement | null;
+    if (!target) return;
+    const cTop = container.scrollTop;
+    const cBottom = cTop + container.clientHeight;
+    const tTop = target.offsetTop;
+    const tBottom = tTop + target.offsetHeight;
+    if (tTop < cTop) container.scrollTop = tTop;
+    else if (tBottom > cBottom) container.scrollTop = tBottom - container.clientHeight;
+  }, [cursorIndex, tab]);
 
   useEffect(() => {
     if (!openDrop) return;
@@ -305,7 +321,7 @@ export function Palette(props: PaletteProps): JSX.Element {
 
       {searching && <div className="progress-bar" aria-hidden />}
 
-      <div style={{ maxHeight: compact ? 280 : 420, overflow: "auto" }}>
+      <div ref={listRef} style={{ maxHeight: compact ? 280 : 420, overflow: "auto" }}>
         {tab === "titles" && (
           <WorkList
             items={works}
@@ -523,6 +539,7 @@ function WorkList({
               selected={isSelected}
               expanded={isExpanded}
               focused={focused}
+              rowIndex={rowIndex}
               onClick={() => {
                 if (work.expandable) {
                   onToggleExpandWork(work.id);
@@ -543,6 +560,7 @@ function WorkList({
               season={season}
               open={open}
               focused={focused}
+              rowIndex={rowIndex}
               onClick={() => onToggleExpandSeason(work.id, season.seasonNumber)}
             />
           );
@@ -560,6 +578,7 @@ function WorkList({
               picked={false}
               focused={false}
               skeleton
+              rowIndex={rowIndex}
               onClick={() => {}}
             />
           );
@@ -572,6 +591,7 @@ function WorkList({
             subtitles={ep.subtitlesCount}
             picked={picked}
             focused={focused}
+            rowIndex={rowIndex}
             onClick={() => onPickEpisode(work.id, ep.matchId)}
           />
         );
@@ -586,15 +606,17 @@ function WorkRow({
   expanded,
   focused,
   onClick,
+  rowIndex,
 }: {
   work: WorkItem;
   selected: boolean;
   expanded: boolean;
   focused: boolean;
   onClick: () => void;
+  rowIndex: number;
 }): JSX.Element {
   return (
-    <Row selected={selected} focused={focused} onClick={onClick}>
+    <Row selected={selected} focused={focused} onClick={onClick} rowIndex={rowIndex}>
       <div
         style={{
           width: 32,
@@ -642,14 +664,17 @@ function SeasonRow({
   open,
   focused,
   onClick,
+  rowIndex,
 }: {
   season: WorkSeasonItem;
   open: boolean;
   focused: boolean;
   onClick: () => void;
+  rowIndex: number;
 }): JSX.Element {
   return (
     <div
+      data-cursor-row={rowIndex}
       onClick={onClick}
       onMouseDown={(e) => e.preventDefault()}
       style={{
@@ -681,6 +706,7 @@ function EpisodeRow({
   focused,
   onClick,
   skeleton,
+  rowIndex,
 }: {
   label: string;
   subtitles: number;
@@ -688,9 +714,11 @@ function EpisodeRow({
   focused: boolean;
   onClick: () => void;
   skeleton?: boolean;
+  rowIndex?: number;
 }): JSX.Element {
   return (
     <div
+      data-cursor-row={rowIndex ?? undefined}
       onClick={skeleton ? undefined : onClick}
       onMouseDown={(e) => e.preventDefault()}
       style={{
@@ -754,6 +782,7 @@ function SubList({
             selected={sel}
             focused={focused}
             onClick={() => onPick(r.id)}
+            rowIndex={i}
           >
             <div
               style={{
@@ -823,6 +852,7 @@ function TargetList({
             selected={sel}
             focused={focused}
             onClick={() => onPick(r.id)}
+            rowIndex={i}
           >
             <div
               style={{
@@ -908,6 +938,7 @@ function CmdList({
         return (
           <div
             key={c.id}
+            data-cursor-row={i}
             onClick={() => {
               if (!disabled) onPick(c.id);
             }}
@@ -958,15 +989,17 @@ interface RowProps {
   focused: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  rowIndex?: number;
 }
 
 const Row = forwardRef<HTMLDivElement, RowProps>(function Row(
-  { selected, focused, onClick, children },
+  { selected, focused, onClick, children, rowIndex },
   ref,
 ) {
   return (
     <div
       ref={ref}
+      data-cursor-row={rowIndex ?? undefined}
       onClick={onClick}
       onMouseDown={(e) => e.preventDefault()}
       style={{
