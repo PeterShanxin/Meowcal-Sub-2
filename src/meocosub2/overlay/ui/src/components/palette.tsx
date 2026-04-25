@@ -7,9 +7,10 @@ import type {
   Phase,
   SourceItem,
   TargetItem,
-  TitleItem,
+  WorkItem,
+  WorkSeasonItem,
 } from "../lib/types";
-import { Kbd, PaletteTabs } from "./primitives";
+import { DisclosureChevron, InfoChipRow, Kbd, PaletteTabs } from "./primitives";
 
 interface PaletteProps {
   phase: Phase;
@@ -18,15 +19,21 @@ interface PaletteProps {
   onQueryChange: (v: string) => void;
   tab: PaletteTabId;
   onTabChange: (v: PaletteTabId) => void;
-  titles: TitleItem[];
+  works: WorkItem[];
   sources: SourceItem[];
   targets: TargetItem[];
   commands: CommandItem[];
-  selectedTitleId: string | null;
+  selectedWorkId: string | null;
+  expandedWorkId: string | null;
+  expandedSeasonNumber: number | null;
+  selectedEpisodeMatchId: string | null;
   selectedSourceId: string | null;
   selectedTargetId: string | null;
   cursorIndex: number;
-  onPickTitle: (id: string) => void;
+  onToggleExpandWork: (id: string) => void;
+  onToggleExpandSeason: (workId: string, seasonNumber: number) => void;
+  onPickWork: (id: string) => void;
+  onPickEpisode: (workId: string, matchId: string) => void;
   onPickSource: (id: string) => void;
   onPickTarget: (id: string) => void;
   onCommand: (id: string) => void;
@@ -47,15 +54,21 @@ export function Palette(props: PaletteProps): JSX.Element {
     onQueryChange,
     tab,
     onTabChange,
-    titles,
+    works,
     sources,
     targets,
     commands,
-    selectedTitleId,
+    selectedWorkId,
+    expandedWorkId,
+    expandedSeasonNumber,
+    selectedEpisodeMatchId,
     selectedSourceId,
     selectedTargetId,
     cursorIndex,
-    onPickTitle,
+    onToggleExpandWork,
+    onToggleExpandSeason,
+    onPickWork,
+    onPickEpisode,
     onPickSource,
     onPickTarget,
     onCommand,
@@ -108,10 +121,11 @@ export function Palette(props: PaletteProps): JSX.Element {
     };
   }, [inputRef, phase]);
 
+  const hasSelectedEpisode = !!selectedEpisodeMatchId;
   const tabs = [
-    { id: "titles", label: "Titles", count: titles.length },
-    { id: "source", label: "Source", count: selectedTitleId ? sources.length : 0 },
-    { id: "target", label: "Target", count: selectedTitleId ? targets.length : 0 },
+    { id: "titles", label: "Titles", count: works.length },
+    { id: "source", label: "Source", count: hasSelectedEpisode ? sources.length : 0 },
+    { id: "target", label: "Target", count: hasSelectedEpisode ? targets.length : 0 },
     { id: "cmd", label: "Commands", count: commands.length },
   ];
 
@@ -126,7 +140,7 @@ export function Palette(props: PaletteProps): JSX.Element {
 
   const canStart = phase === "prep";
   const canPrepare =
-    selectedTitleId && selectedSourceId && selectedTargetId && phase !== "prep";
+    hasSelectedEpisode && selectedSourceId && selectedTargetId && phase !== "prep";
   const primaryLabel = canStart
     ? "Start sync"
     : canPrepare
@@ -293,36 +307,42 @@ export function Palette(props: PaletteProps): JSX.Element {
 
       <div style={{ maxHeight: compact ? 280 : 420, overflow: "auto" }}>
         {tab === "titles" && (
-          <TitleList
-            items={filterTitles(titles, query)}
-            selectedId={selectedTitleId}
+          <WorkList
+            items={works}
+            selectedWorkId={selectedWorkId}
+            expandedWorkId={expandedWorkId}
+            expandedSeasonNumber={expandedSeasonNumber}
+            selectedEpisodeMatchId={selectedEpisodeMatchId}
             cursorIndex={cursorIndex}
-            onPick={onPickTitle}
+            onToggleExpandWork={onToggleExpandWork}
+            onToggleExpandSeason={onToggleExpandSeason}
+            onPickWork={onPickWork}
+            onPickEpisode={onPickEpisode}
             searching={searching}
           />
         )}
         {tab === "source" && (
-          selectedTitleId ? (
+          hasSelectedEpisode ? (
             <SubList
-              items={filterSources(sources, query)}
+              items={sources}
               selectedId={selectedSourceId}
               cursorIndex={cursorIndex}
               onPick={onPickSource}
             />
           ) : (
-            <EmptyTab hint="Pick a title first" />
+            <EmptyTab hint="Pick a title (and episode) first" />
           )
         )}
         {tab === "target" && (
-          selectedTitleId ? (
+          hasSelectedEpisode ? (
             <TargetList
-              items={filterTargets(targets, query)}
+              items={targets}
               selectedId={selectedTargetId}
               cursorIndex={cursorIndex}
               onPick={onPickTarget}
             />
           ) : (
-            <EmptyTab hint="Pick a title first" />
+            <EmptyTab hint="Pick a title (and episode) first" />
           )
         )}
         {tab === "cmd" && (
@@ -357,7 +377,7 @@ export function Palette(props: PaletteProps): JSX.Element {
           </button>
         ) : (
           <span>
-            {!selectedTitleId
+            {!hasSelectedEpisode
               ? "Pick a title to continue"
               : !selectedSourceId
                 ? "Pick a source subtitle"
@@ -383,32 +403,72 @@ const primaryStyle: CSSProperties = {
   cursor: "pointer",
 };
 
-function filterTitles(items: TitleItem[], q: string): TitleItem[] {
-  void q;
-  return items;
+interface TitleNavRow {
+  kind: "work" | "season" | "episode" | "skeleton_episode";
+  workId: string;
+  seasonNumber?: number;
+  episodeMatchId?: string;
 }
 
-function filterSources(items: SourceItem[], q: string): SourceItem[] {
-  void q;
-  return items;
+function flattenNavRows(
+  items: WorkItem[],
+  expandedWorkId: string | null,
+  expandedSeasonNumber: number | null,
+): TitleNavRow[] {
+  const rows: TitleNavRow[] = [];
+  for (const work of items) {
+    rows.push({ kind: "work", workId: work.id });
+    if (work.id === expandedWorkId && work.expandable) {
+      for (const season of work.seasons) {
+        rows.push({ kind: "season", workId: work.id, seasonNumber: season.seasonNumber });
+        if (season.seasonNumber === expandedSeasonNumber) {
+          for (const ep of season.episodes) {
+            const isSkeleton = ep.matchId.startsWith("skeleton:");
+            rows.push({
+              kind: isSkeleton ? "skeleton_episode" : "episode",
+              workId: work.id,
+              seasonNumber: season.seasonNumber,
+              episodeMatchId: ep.matchId,
+            });
+          }
+        }
+      }
+    }
+  }
+  return rows;
 }
 
-function filterTargets(items: TargetItem[], q: string): TargetItem[] {
-  void q;
-  return items;
+export function paletteWorksNavRows(
+  items: WorkItem[],
+  expandedWorkId: string | null,
+  expandedSeasonNumber: number | null,
+): TitleNavRow[] {
+  return flattenNavRows(items, expandedWorkId, expandedSeasonNumber);
 }
 
-function TitleList({
+function WorkList({
   items,
-  selectedId,
+  selectedWorkId,
+  expandedWorkId,
+  expandedSeasonNumber,
+  selectedEpisodeMatchId,
   cursorIndex,
-  onPick,
+  onToggleExpandWork,
+  onToggleExpandSeason,
+  onPickWork,
+  onPickEpisode,
   searching,
 }: {
-  items: TitleItem[];
-  selectedId: string | null;
+  items: WorkItem[];
+  selectedWorkId: string | null;
+  expandedWorkId: string | null;
+  expandedSeasonNumber: number | null;
+  selectedEpisodeMatchId: string | null;
   cursorIndex: number;
-  onPick: (id: string) => void;
+  onToggleExpandWork: (id: string) => void;
+  onToggleExpandSeason: (workId: string, seasonNumber: number) => void;
+  onPickWork: (id: string) => void;
+  onPickEpisode: (workId: string, matchId: string) => void;
   searching: boolean;
 }): JSX.Element {
   if (items.length === 0) {
@@ -445,73 +505,228 @@ function TitleList({
     }
     return <EmptyTab hint="Type a title and press ↵ to search" />;
   }
+
+  const rows = flattenNavRows(items, expandedWorkId, expandedSeasonNumber);
+
   return (
     <div style={{ padding: "6px 0" }}>
-      {items.map((t, i) => {
-        const sel = selectedId === t.id;
-        const focused = cursorIndex === i;
-        return (
-          <Row
-            key={t.id}
-            selected={sel}
-            focused={focused}
-            onClick={() => onPick(t.id)}
-          >
-            <div
-              style={{
-                width: 32,
-                height: 44,
-                borderRadius: 5,
-                flexShrink: 0,
-                background: "linear-gradient(135deg, #3a2a1a, #1a0f08)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 15,
+      {rows.map((row, rowIndex) => {
+        const focused = cursorIndex === rowIndex;
+        if (row.kind === "work") {
+          const work = items.find((w) => w.id === row.workId)!;
+          const isSelected = selectedWorkId === work.id;
+          const isExpanded = expandedWorkId === work.id;
+          return (
+            <WorkRow
+              key={`work-${work.id}`}
+              work={work}
+              selected={isSelected}
+              expanded={isExpanded}
+              focused={focused}
+              onClick={() => {
+                if (work.expandable) {
+                  onToggleExpandWork(work.id);
+                } else {
+                  onPickWork(work.id);
+                }
               }}
-            >
-              {t.type.startsWith("Movie") ? "🎬" : "📺"}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                <div
-                  style={{
-                    fontSize: 16,
-                    color: "var(--text-heading)",
-                    fontWeight: 500,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {t.title}
-                </div>
-                {t.isRecommended && (
-                  <span
-                    style={{
-                      flexShrink: 0,
-                      padding: "2px 6px",
-                      borderRadius: 999,
-                      background: "var(--accent-tint)",
-                      border: "1px solid var(--accent-ring)",
-                      color: "var(--accent-text)",
-                      fontSize: 10,
-                      fontWeight: 600,
-                      textTransform: "uppercase",
-                    }}
-                  >
-                    Recommended
-                  </span>
-                )}
-              </div>
-              <div style={{ fontSize: 12.5, color: "var(--text-label)", marginTop: 3 }}>
-                {t.year} · {t.type} · {t.runtime}
-              </div>
-            </div>
-            {focused && <Kbd>↵</Kbd>}
-          </Row>
+            />
+          );
+        }
+        if (row.kind === "season") {
+          const work = items.find((w) => w.id === row.workId)!;
+          const season = work.seasons.find((s) => s.seasonNumber === row.seasonNumber)!;
+          const open = expandedSeasonNumber === season.seasonNumber && expandedWorkId === work.id;
+          return (
+            <SeasonRow
+              key={`season-${work.id}-${season.seasonNumber}`}
+              season={season}
+              open={open}
+              focused={focused}
+              onClick={() => onToggleExpandSeason(work.id, season.seasonNumber)}
+            />
+          );
+        }
+        const work = items.find((w) => w.id === row.workId)!;
+        const season = work.seasons.find((s) => s.seasonNumber === row.seasonNumber)!;
+        const ep = season.episodes.find((e) => e.matchId === row.episodeMatchId)!;
+        if (!ep) return null;
+        if (row.kind === "skeleton_episode") {
+          return (
+            <EpisodeRow
+              key={`skep-${ep.matchId}`}
+              label={ep.label}
+              subtitles={0}
+              picked={false}
+              focused={false}
+              skeleton
+              onClick={() => {}}
+            />
+          );
+        }
+        const picked = selectedEpisodeMatchId === ep.matchId;
+        return (
+          <EpisodeRow
+            key={`ep-${ep.matchId}`}
+            label={ep.label}
+            subtitles={ep.subtitlesCount}
+            picked={picked}
+            focused={focused}
+            onClick={() => onPickEpisode(work.id, ep.matchId)}
+          />
         );
       })}
+    </div>
+  );
+}
+
+function WorkRow({
+  work,
+  selected,
+  expanded,
+  focused,
+  onClick,
+}: {
+  work: WorkItem;
+  selected: boolean;
+  expanded: boolean;
+  focused: boolean;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <Row selected={selected} focused={focused} onClick={onClick}>
+      <div
+        style={{
+          width: 32,
+          height: 44,
+          borderRadius: 5,
+          flexShrink: 0,
+          background: "linear-gradient(135deg, #3a2a1a, #1a0f08)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 15,
+        }}
+      >
+        {work.mediaType === "movie" ? "🎬" : "📺"}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          {work.expandable && <DisclosureChevron open={expanded} />}
+          <div
+            style={{
+              fontSize: 16,
+              color: "var(--text-heading)",
+              fontWeight: 500,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {work.title}
+          </div>
+        </div>
+        <div style={{ fontSize: 12.5, color: "var(--text-label)", marginTop: 3 }}>
+          {work.year} · {work.type}
+          {work.totalSubtitles > 0 ? ` · ${work.totalSubtitles.toLocaleString()} subs` : ""}
+        </div>
+        <InfoChipRow chips={work.chips} max={4} />
+      </div>
+      {focused && <Kbd>↵</Kbd>}
+    </Row>
+  );
+}
+
+function SeasonRow({
+  season,
+  open,
+  focused,
+  onClick,
+}: {
+  season: WorkSeasonItem;
+  open: boolean;
+  focused: boolean;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <div
+      onClick={onClick}
+      onMouseDown={(e) => e.preventDefault()}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "8px 20px 8px 48px",
+        cursor: "pointer",
+        background: focused ? "var(--accent-tint)" : "transparent",
+        borderLeft: `2px solid ${focused ? "var(--accent-hex)" : "transparent"}`,
+        userSelect: "none",
+        WebkitUserSelect: "none",
+      }}
+    >
+      <DisclosureChevron open={open} />
+      <div style={{ flex: 1, fontSize: 13.5, color: "var(--text-body)" }}>{season.label}</div>
+      <span style={{ fontSize: 11, color: "var(--text-label)" }}>
+        {season.episodes.length} ep{season.episodes.length === 1 ? "" : "s"}
+      </span>
+      {focused && <Kbd>↵</Kbd>}
+    </div>
+  );
+}
+
+function EpisodeRow({
+  label,
+  subtitles,
+  picked,
+  focused,
+  onClick,
+  skeleton,
+}: {
+  label: string;
+  subtitles: number;
+  picked: boolean;
+  focused: boolean;
+  onClick: () => void;
+  skeleton?: boolean;
+}): JSX.Element {
+  return (
+    <div
+      onClick={skeleton ? undefined : onClick}
+      onMouseDown={(e) => e.preventDefault()}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "7px 20px 7px 72px",
+        cursor: skeleton ? "default" : "pointer",
+        opacity: skeleton ? 0.38 : 1,
+        background: !skeleton && focused
+          ? "var(--accent-tint)"
+          : !skeleton && picked
+            ? "rgba(255,185,90,0.05)"
+            : "transparent",
+        borderLeft: `2px solid ${!skeleton && (focused || picked) ? "var(--accent-hex)" : "transparent"}`,
+        userSelect: "none",
+        WebkitUserSelect: "none",
+      }}
+    >
+      <span
+        className="mono"
+        style={{
+          flex: 1,
+          fontSize: 13,
+          color: skeleton ? "var(--text-label)" : "var(--text-body)",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {label}
+      </span>
+      {subtitles > 0 && (
+        <span style={{ fontSize: 10.5, color: "var(--text-label)" }}>{subtitles} subs</span>
+      )}
+      {!skeleton && focused && <Kbd>↵</Kbd>}
     </div>
   );
 }
@@ -527,7 +742,7 @@ function SubList({
   cursorIndex: number;
   onPick: (id: string) => void;
 }): JSX.Element {
-  if (items.length === 0) return <EmptyTab hint="No subtitles for this title" />;
+  if (items.length === 0) return <EmptyTab hint="No subtitles for this episode" />;
   return (
     <div style={{ padding: "6px 0" }}>
       {items.map((r, i) => {
@@ -696,6 +911,7 @@ function CmdList({
             onClick={() => {
               if (!disabled) onPick(c.id);
             }}
+            onMouseDown={(e) => e.preventDefault()}
             style={{
               display: "flex",
               alignItems: "center",
@@ -705,6 +921,8 @@ function CmdList({
               cursor: disabled ? "not-allowed" : "pointer",
               background: focused ? "var(--accent-tint)" : "transparent",
               borderLeft: `2px solid ${focused ? "var(--accent-hex)" : "transparent"}`,
+              userSelect: "none",
+              WebkitUserSelect: "none",
             }}
           >
             <div
@@ -750,6 +968,7 @@ const Row = forwardRef<HTMLDivElement, RowProps>(function Row(
     <div
       ref={ref}
       onClick={onClick}
+      onMouseDown={(e) => e.preventDefault()}
       style={{
         display: "flex",
         alignItems: "center",
@@ -762,6 +981,8 @@ const Row = forwardRef<HTMLDivElement, RowProps>(function Row(
             : "transparent",
         borderLeft: `2px solid ${focused || selected ? "var(--accent-hex)" : "transparent"}`,
         cursor: "pointer",
+        userSelect: "none",
+        WebkitUserSelect: "none",
       }}
     >
       {children}
