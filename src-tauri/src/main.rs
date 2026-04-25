@@ -388,12 +388,9 @@ fn exit_live_mode(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), St
         if bounds.maximized {
             window.maximize().map_err(|e| e.to_string())?;
         }
-    } else {
-        window
-            .set_size(LogicalSize::new(1320.0, 900.0))
-            .map_err(|e| e.to_string())?;
-        window.center().map_err(|e| e.to_string())?;
     }
+    // No prev bounds = app was never in live mode. Leave window where the
+    // user put it; do not re-center on every phase transition.
     Ok(())
 }
 

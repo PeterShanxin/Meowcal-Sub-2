@@ -75,6 +75,7 @@ class AppStateSnapshot:
     target_language: str = "zh"
     search_results: list[dict[str, object]] = field(default_factory=list)
     search_matches: list[dict[str, object]] = field(default_factory=list)
+    search_works: list[dict[str, object]] = field(default_factory=list)
     selected_feature_id: str | None = None
     selected_source_file_id: str | None = None
     selected_target_file_id: str | None = None

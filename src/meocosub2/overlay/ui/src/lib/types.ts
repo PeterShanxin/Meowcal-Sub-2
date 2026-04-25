@@ -95,6 +95,7 @@ export interface BackendConfig {
     };
     subdl: { enabled: boolean };
     assrt: { enabled: boolean; token: string };
+    tmdb: { apiKey: string; mergeEnabled: boolean };
   };
   languages: { source: string; target: string };
   capture: {
@@ -113,6 +114,49 @@ export interface BackendConfig {
   debug: { mode: boolean };
 }
 
+export interface BackendEpisode {
+  season: number | null;
+  episode: number | null;
+  title: string;
+  matchId: string;
+  year: number | null;
+  subtitlesCount: number;
+  providers: string[];
+}
+
+export interface BackendSeason {
+  seasonNumber: number;
+  subtitlesCount: number;
+  episodes: BackendEpisode[];
+}
+
+export interface BackendInfoChip {
+  kind: string;
+  label: string;
+  tone: string;
+}
+
+export interface BackendWork {
+  id: string;
+  workId: string;
+  title: string;
+  mediaType: "movie" | "series";
+  year: number | null;
+  yearEnd: number | null;
+  displayYear: string;
+  imdbId: string | null;
+  tmdbId: string | null;
+  providers: string[];
+  providerLabels: string[];
+  primaryMatchId: string | null;
+  expandable: boolean;
+  totalEpisodes: number;
+  totalSubtitles: number;
+  matchScore: number;
+  seasons: BackendSeason[];
+  infoChips: BackendInfoChip[];
+}
+
 export interface BackendSnapshot {
   status: BackendStatus;
   title: string;
@@ -120,6 +164,7 @@ export interface BackendSnapshot {
   target_language: string;
   search_results: BackendResult[];
   search_matches: BackendMatch[];
+  search_works: BackendWork[];
   selected_feature_id: string | null;
   selected_source_file_id: string | null;
   selected_target_file_id: string | null;
@@ -131,16 +176,43 @@ export interface BackendSnapshot {
   config: BackendConfig;
 }
 
-export interface TitleItem {
+export interface WorkEpisodeItem {
+  matchId: string;
+  season: number | null;
+  episode: number | null;
+  label: string;
+  title: string;
+  subtitlesCount: number;
+}
+
+export interface WorkSeasonItem {
+  seasonNumber: number;
+  label: string;
+  subtitlesCount: number;
+  episodes: WorkEpisodeItem[];
+}
+
+export interface InfoChip {
+  kind: string;
+  label: string;
+  tone: "neutral" | "accent" | "verified";
+}
+
+export interface WorkItem {
   id: string;
   title: string;
   year: string;
   type: string;
-  runtime: string;
-  sourceCount: number;
-  targetCount: number;
-  isRecommended: boolean;
-  raw: BackendMatch;
+  mediaType: "movie" | "series";
+  expandable: boolean;
+  primaryMatchId: string | null;
+  totalSubtitles: number;
+  totalEpisodes: number;
+  providers: string[];
+  providerLabels: string[];
+  chips: InfoChip[];
+  seasons: WorkSeasonItem[];
+  raw: BackendWork;
 }
 
 export interface SourceItem {

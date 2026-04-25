@@ -466,3 +466,263 @@ async def test_aggregator_raises_when_all_providers_fail() -> None:
 
     with pytest.raises(SubtitleSourceError):
         await aggregator.search_catalog("Movie", "en")
+
+
+@pytest.mark.asyncio
+async def test_aggregator_collapses_series_seasons_into_one_work() -> None:
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider(
+            "opensubtitles",
+            "OpenSubtitles",
+            ProviderSearchCatalog(
+                matches=[
+                    ProviderSubtitleMatch(
+                        id="os-series",
+                        provider="opensubtitles",
+                        provider_label="OpenSubtitles",
+                        title="Overlord",
+                        year=2015,
+                        imdb_id="tt4869896",
+                        tmdb_id=None,
+                        media_type="tvshow",
+                        subtitles_count=120,
+                        match_score=300.0,
+                    ),
+                    ProviderSubtitleMatch(
+                        id="os-s1e1",
+                        provider="opensubtitles",
+                        provider_label="OpenSubtitles",
+                        title="The End and the Beginning",
+                        year=2015,
+                        imdb_id=None,
+                        tmdb_id=None,
+                        media_type="episode",
+                        season=1,
+                        episode=1,
+                        parent_title="Overlord",
+                        subtitles_count=12,
+                        match_score=260.0,
+                    ),
+                    ProviderSubtitleMatch(
+                        id="os-s2e4",
+                        provider="opensubtitles",
+                        provider_label="OpenSubtitles",
+                        title="A Boy's Dream",
+                        year=2018,
+                        imdb_id=None,
+                        tmdb_id=None,
+                        media_type="episode",
+                        season=2,
+                        episode=4,
+                        parent_title="Overlord",
+                        subtitles_count=8,
+                        match_score=250.0,
+                    ),
+                ],
+                results=[
+                    ProviderSubtitleResult(
+                        id="os-result-1",
+                        match_id="os-s1e1",
+                        provider="opensubtitles",
+                        provider_label="OpenSubtitles",
+                        title="Overlord",
+                        year=2015,
+                        imdb_id=None,
+                        tmdb_id=None,
+                        media_type="episode",
+                        season=1,
+                        episode=1,
+                        parent_title="Overlord",
+                        language="en",
+                        download_count=5000,
+                        file_name="Overlord.S01E01.srt",
+                        match_score=260.0,
+                    ),
+                ],
+            ),
+        ),
+        FakeProvider(
+            "subdl",
+            "SubDL",
+            ProviderSearchCatalog(
+                matches=[
+                    ProviderSubtitleMatch(
+                        id="sd-s2e4",
+                        provider="subdl",
+                        provider_label="SubDL",
+                        title="A Boy's Dream",
+                        year=2018,
+                        imdb_id=None,
+                        tmdb_id=None,
+                        media_type="episode",
+                        season=2,
+                        episode=4,
+                        parent_title="Overlord",
+                        subtitles_count=3,
+                        match_score=210.0,
+                    ),
+                ],
+                results=[],
+            ),
+        ),
+    )
+
+    catalog = await aggregator.search_catalog("Overlord", "en")
+
+    assert len(catalog.works) == 1, catalog.works
+    work = catalog.works[0]
+    assert work.media_type == "series"
+    assert work.imdb_id == "tt4869896"
+    assert len(work.seasons) == 2
+    season_numbers = sorted(s.season_number for s in work.seasons)
+    assert season_numbers == [1, 2]
+    assert work.total_episodes == 2
+    assert "opensubtitles" in work.providers
+    assert "subdl" in work.providers
+    chip_kinds = [chip.kind for chip in work.info_chips]
+    assert "imdb" in chip_kinds
+    assert "episodes" in chip_kinds
+
+
+@pytest.mark.asyncio
+async def test_aggregator_merges_roman_and_s_suffix_season_movies_into_series() -> None:
+    """Providers that tag each season as a movie still fold into one work."""
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider(
+            "subdl",
+            "SubDL",
+            ProviderSearchCatalog(
+                matches=[
+                    ProviderSubtitleMatch(
+                        id="sd-s1",
+                        provider="subdl",
+                        provider_label="SubDL",
+                        title="Overlord",
+                        year=2015,
+                        imdb_id=None,
+                        tmdb_id=None,
+                        media_type="tvshow",
+                        subtitles_count=120,
+                        match_score=300.0,
+                    ),
+                    ProviderSubtitleMatch(
+                        id="sd-s2",
+                        provider="subdl",
+                        provider_label="SubDL",
+                        title="Overlord II",
+                        year=2018,
+                        imdb_id=None,
+                        tmdb_id=None,
+                        media_type="movie",
+                        subtitles_count=77,
+                        match_score=260.0,
+                    ),
+                    ProviderSubtitleMatch(
+                        id="sd-s4-s",
+                        provider="subdl",
+                        provider_label="SubDL",
+                        title="OVERLORD S4",
+                        year=2022,
+                        imdb_id=None,
+                        tmdb_id=None,
+                        media_type="movie",
+                        subtitles_count=30,
+                        match_score=240.0,
+                    ),
+                ],
+                results=[
+                    ProviderSubtitleResult(
+                        id="sd-res-1",
+                        match_id="sd-s2",
+                        provider="subdl",
+                        provider_label="SubDL",
+                        title="Overlord II",
+                        year=2018,
+                        imdb_id=None,
+                        tmdb_id=None,
+                        media_type="movie",
+                        language="en",
+                        download_count=520,
+                        file_name="overlord-ii.srt",
+                    ),
+                    ProviderSubtitleResult(
+                        id="sd-res-2",
+                        match_id="sd-s4-s",
+                        provider="subdl",
+                        provider_label="SubDL",
+                        title="OVERLORD S4",
+                        year=2022,
+                        imdb_id=None,
+                        tmdb_id=None,
+                        media_type="movie",
+                        language="en",
+                        download_count=100,
+                        file_name="overlord-s4.srt",
+                    ),
+                ],
+            ),
+        ),
+    )
+
+    catalog = await aggregator.search_catalog("Overlord", "en")
+
+    series_works = [w for w in catalog.works if w.media_type == "series"]
+    assert len(series_works) == 1, catalog.works
+    work = series_works[0]
+    seasons = sorted(s.season_number for s in work.seasons)
+    # S2 via roman, S4 via "S" prefix, S1 none (series-level match has no
+    # season marker so it supplies the primary_match_id, not an episode row).
+    assert 2 in seasons
+    assert 4 in seasons
+
+
+@pytest.mark.asyncio
+async def test_aggregator_keeps_movie_sequels_separate_works() -> None:
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider(
+            "opensubtitles",
+            "OpenSubtitles",
+            ProviderSearchCatalog(
+                matches=[
+                    ProviderSubtitleMatch(
+                        id="os-avengers",
+                        provider="opensubtitles",
+                        provider_label="OpenSubtitles",
+                        title="The Avengers",
+                        year=2012,
+                        imdb_id="tt0848228",
+                        tmdb_id=None,
+                        media_type="movie",
+                        subtitles_count=400,
+                        match_score=280.0,
+                    ),
+                    ProviderSubtitleMatch(
+                        id="os-endgame",
+                        provider="opensubtitles",
+                        provider_label="OpenSubtitles",
+                        title="Avengers: Endgame",
+                        year=2019,
+                        imdb_id="tt4154796",
+                        tmdb_id=None,
+                        media_type="movie",
+                        subtitles_count=520,
+                        match_score=270.0,
+                    ),
+                ],
+                results=[],
+            ),
+        ),
+    )
+
+    catalog = await aggregator.search_catalog("Avengers", "en")
+
+    movie_works = [w for w in catalog.works if w.media_type == "movie"]
+    assert len(movie_works) == 2
+    imdb_ids = {w.imdb_id for w in movie_works}
+    assert imdb_ids == {"tt0848228", "tt4154796"}
+    for work in movie_works:
+        assert work.seasons == []
+        assert work.primary_match_id is not None

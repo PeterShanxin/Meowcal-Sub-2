@@ -1,34 +1,30 @@
 import { describe, expect, it } from "vitest";
 
-import type { BackendMatch, BackendResult } from "../lib/types";
-import { mapMatchesToTitles, mapResultsToTarget } from "./mappers";
+import type { BackendResult, BackendWork } from "../lib/types";
+import { mapResultsToTarget, mapWorksToItems } from "./mappers";
 
-function makeMatch(overrides: Partial<BackendMatch> & Pick<BackendMatch, "matchId" | "title">): BackendMatch {
-  const { matchId, title, ...rest } = overrides;
+function makeWork(overrides: Partial<BackendWork> & Pick<BackendWork, "id" | "title" | "mediaType">): BackendWork {
   return {
-    id: matchId,
-    matchId,
-    title,
+    workId: overrides.id,
     year: null,
+    yearEnd: null,
+    displayYear: "",
     imdbId: null,
     tmdbId: null,
-    mediaType: "tvshow",
-    season: null,
-    episode: null,
-    parentTitle: null,
-    subtitlesCount: 0,
+    providers: [],
+    providerLabels: [],
+    primaryMatchId: null,
+    expandable: false,
+    totalEpisodes: 0,
+    totalSubtitles: 0,
     matchScore: 0,
-    providerCount: 1,
-    providers: ["opensubtitles"],
-    providerLabels: ["OpenSubtitles"],
-    displayLabel: title,
-    ...rest,
-  };
+    seasons: [],
+    infoChips: [],
+    ...overrides,
+  } as BackendWork;
 }
 
-function makeResult(
-  overrides: Partial<BackendResult> & Pick<BackendResult, "resultId" | "matchId" | "language">,
-): BackendResult {
+function makeResult(overrides: Partial<BackendResult> & Pick<BackendResult, "resultId" | "matchId" | "language">): BackendResult {
   const { resultId, matchId, language, ...rest } = overrides;
   return {
     id: resultId,
@@ -54,86 +50,71 @@ function makeResult(
   };
 }
 
-describe("mapMatchesToTitles", () => {
-  it("promotes and badges the Overlord-style entry with both source and target files", () => {
-    const matches = [
-      makeMatch({ matchId: "movie", title: "Overlord", year: 2018, mediaType: "movie", subtitlesCount: 384, matchScore: 492 }),
-      makeMatch({ matchId: "anime", title: "オーバーロード", year: 2015, mediaType: "tvshow", subtitlesCount: 61, matchScore: 124 }),
-      makeMatch({
-        matchId: "episode",
-        title: "overlord",
-        year: 2015,
-        mediaType: "episode",
-        season: 2,
-        episode: 4,
-        parentTitle: "Manhattan",
-        subtitlesCount: 43,
-        matchScore: 486,
+describe("mapWorksToItems", () => {
+  it("marks movie works as non-expandable and carries primary match id", () => {
+    const items = mapWorksToItems([
+      makeWork({
+        id: "work-1",
+        title: "Inception",
+        mediaType: "movie",
+        displayYear: "2010",
+        primaryMatchId: "match-7",
       }),
-    ];
-    const results = [
-      makeResult({ resultId: "anime-zh", matchId: "anime", language: "zh" }),
-      makeResult({ resultId: "anime-en", matchId: "anime", language: "en" }),
-      makeResult({ resultId: "movie-en", matchId: "movie", language: "en" }),
-    ];
-
-    const titles = mapMatchesToTitles(matches, results, "zh", "en");
-
-    expect(titles[0].id).toBe("anime");
-    expect(titles[0].isRecommended).toBe(true);
-    expect(titles[0].sourceCount).toBe(1);
-    expect(titles[0].targetCount).toBe(1);
-    expect(titles.filter((item) => item.isRecommended)).toHaveLength(1);
+    ]);
+    expect(items).toHaveLength(1);
+    expect(items[0].expandable).toBe(false);
+    expect(items[0].type).toBe("Movie");
+    expect(items[0].primaryMatchId).toBe("match-7");
   });
 
-  it("chooses the best eligible title by readiness score before match score", () => {
-    const matches = [
-      makeMatch({ matchId: "balanced", title: "Balanced", matchScore: 200 }),
-      makeMatch({ matchId: "lopsided", title: "Lopsided", matchScore: 260 }),
-    ];
-    const results = [
-      makeResult({ resultId: "balanced-zh-1", matchId: "balanced", language: "zh" }),
-      makeResult({ resultId: "balanced-zh-2", matchId: "balanced", language: "zh" }),
-      makeResult({ resultId: "balanced-en-1", matchId: "balanced", language: "en" }),
-      makeResult({ resultId: "balanced-en-2", matchId: "balanced", language: "en" }),
-      makeResult({ resultId: "lopsided-zh-1", matchId: "lopsided", language: "zh" }),
-      makeResult({ resultId: "lopsided-zh-2", matchId: "lopsided", language: "zh" }),
-      makeResult({ resultId: "lopsided-zh-3", matchId: "lopsided", language: "zh" }),
-      makeResult({ resultId: "lopsided-en-1", matchId: "lopsided", language: "en" }),
-    ];
-
-    const titles = mapMatchesToTitles(matches, results, "zh", "en");
-
-    expect(titles[0].id).toBe("balanced");
-    expect(titles[0].isRecommended).toBe(true);
-    expect(titles[1].isRecommended).toBe(false);
+  it("builds season+episode labels for series", () => {
+    const items = mapWorksToItems([
+      makeWork({
+        id: "work-1",
+        title: "Overlord",
+        mediaType: "series",
+        expandable: true,
+        totalEpisodes: 2,
+        seasons: [
+          {
+            seasonNumber: 1,
+            subtitlesCount: 5,
+            episodes: [
+              {
+                season: 1,
+                episode: 1,
+                title: "The End and the Beginning",
+                matchId: "match-10",
+                year: 2015,
+                subtitlesCount: 3,
+                providers: ["opensubtitles"],
+              },
+              {
+                season: 1,
+                episode: 2,
+                title: "",
+                matchId: "match-11",
+                year: 2015,
+                subtitlesCount: 2,
+                providers: ["subdl"],
+              },
+            ],
+          },
+        ],
+      }),
+    ]);
+    const work = items[0];
+    expect(work.expandable).toBe(true);
+    expect(work.type).toBe("Series · 2 eps");
+    expect(work.seasons[0].episodes[0].label).toBe("S01E01 — The End and the Beginning");
+    expect(work.seasons[0].episodes[1].label).toBe("S01E02");
   });
+});
 
-  it("keeps backend order and shows no badge when no title has both sides", () => {
-    const matches = [
-      makeMatch({ matchId: "source-only", title: "Source Only", matchScore: 300 }),
-      makeMatch({ matchId: "target-only", title: "Target Only", matchScore: 200 }),
-    ];
-    const results = [
-      makeResult({ resultId: "source-only-zh", matchId: "source-only", language: "zh" }),
-      makeResult({ resultId: "target-only-en", matchId: "target-only", language: "en" }),
-    ];
-
-    const titles = mapMatchesToTitles(matches, results, "zh", "en");
-
-    expect(titles.map((item) => item.id)).toEqual(["source-only", "target-only"]);
-    expect(titles.every((item) => item.isRecommended === false)).toBe(true);
-  });
-
-  it("does not count local or ocr target options as recommendation coverage", () => {
-    const matches = [makeMatch({ matchId: "source-only", title: "Source Only", matchScore: 300 })];
-    const results = [makeResult({ resultId: "source-only-zh", matchId: "source-only", language: "zh" })];
-
-    const targets = mapResultsToTarget(results, "source-only", "en");
-    const titles = mapMatchesToTitles(matches, results, "zh", "en");
-
-    expect(targets.map((item) => item.kind)).toEqual(["local", "ocr"]);
-    expect(titles[0].targetCount).toBe(0);
-    expect(titles[0].isRecommended).toBe(false);
+describe("mapResultsToTarget", () => {
+  it("injects local and ocr synthetic targets around real files", () => {
+    const results = [makeResult({ resultId: "r1", matchId: "m1", language: "zh" })];
+    const targets = mapResultsToTarget(results, "m1", "en");
+    expect(targets.map((t) => t.kind)).toEqual(["local", "ocr"]);
   });
 });

@@ -136,83 +136,69 @@ export function SettingsView({
             </button>
           );
         })}
-        <div style={{ flex: 1 }} />
-        <button
-          onClick={onClose}
-          style={{
-            marginTop: 8,
-            padding: "8px 10px",
-            borderRadius: 7,
-            border: "1px solid rgba(255,255,255,0.08)",
-            background: "transparent",
-            color: "#a8a8b2",
-            fontSize: 12,
-            cursor: "pointer",
-          }}
-        >
-          Close settings <Kbd dim>Esc</Kbd>
-        </button>
       </aside>
 
       <main
         className="glass-panel"
         style={{
-          padding: 28,
-          overflow: "auto",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
           position: "relative",
         }}
       >
-        {banner && (
-          <div
-            style={{
-              position: "absolute",
-              top: 16,
-              right: 16,
-              padding: "8px 12px",
-              borderRadius: 7,
-              fontSize: 12,
-              background:
-                banner.kind === "ok"
-                  ? "rgba(74,222,128,0.1)"
-                  : "var(--danger-tint)",
-              color: banner.kind === "ok" ? "var(--ok-hex)" : "var(--danger-text)",
-              border: `1px solid ${banner.kind === "ok" ? "rgba(74,222,128,0.3)" : "var(--danger-ring)"}`,
-            }}
-          >
-            {banner.text}
-          </div>
-        )}
-        {section === "appearance" && <AppearanceSection />}
-        {section === "sources" && (
-          <SourcesSection draft={draft} update={update} />
-        )}
-        {section === "capture" && (
-          <CaptureSection draft={draft} update={update} />
-        )}
-        {section === "overlay" && (
-          <OverlaySection draft={draft} update={update} />
-        )}
-        {section === "translate" && (
-          <TranslateSection draft={draft} update={update} />
-        )}
-        {section === "matching" && (
-          <MatchingSection draft={draft} update={update} />
-        )}
-        {section === "debug" && (
-          <DebugSection draft={draft} update={update} />
-        )}
+        <div style={{ flex: 1, overflow: "auto", padding: 28, position: "relative" }}>
+          {banner && (
+            <div
+              style={{
+                position: "absolute",
+                top: 16,
+                right: 16,
+                padding: "8px 12px",
+                borderRadius: 7,
+                fontSize: 12,
+                background:
+                  banner.kind === "ok"
+                    ? "rgba(74,222,128,0.1)"
+                    : "var(--danger-tint)",
+                color: banner.kind === "ok" ? "var(--ok-hex)" : "var(--danger-text)",
+                border: `1px solid ${banner.kind === "ok" ? "rgba(74,222,128,0.3)" : "var(--danger-ring)"}`,
+              }}
+            >
+              {banner.text}
+            </div>
+          )}
+          {section === "appearance" && <AppearanceSection />}
+          {section === "sources" && (
+            <SourcesSection draft={draft} update={update} />
+          )}
+          {section === "capture" && (
+            <CaptureSection draft={draft} update={update} />
+          )}
+          {section === "overlay" && (
+            <OverlaySection draft={draft} update={update} />
+          )}
+          {section === "translate" && (
+            <TranslateSection draft={draft} update={update} />
+          )}
+          {section === "matching" && (
+            <MatchingSection draft={draft} update={update} />
+          )}
+          {section === "debug" && (
+            <DebugSection draft={draft} update={update} />
+          )}
+        </div>
 
         <div
           style={{
-            position: "sticky",
-            bottom: -28,
-            marginTop: 32,
-            padding: "14px 0 0",
+            flexShrink: 0,
+            padding: "14px 28px 20px",
             display: "flex",
             gap: 10,
-            justifyContent: "flex-end",
+            justifyContent: "space-between",
+            alignItems: "center",
             background:
-              "linear-gradient(to bottom, transparent, rgba(18,18,24,0.9) 30%)",
+              "linear-gradient(to bottom, transparent, rgba(18,18,24,0.95) 30%)",
           }}
         >
           <button
@@ -235,24 +221,40 @@ export function SettingsView({
           >
             Reset
           </button>
-          <button
-            onClick={save}
-            disabled={!dirty || saving}
-            style={{
-              padding: "10px 16px",
-              borderRadius: 8,
-              border: "none",
-              background:
-                "linear-gradient(180deg, var(--accent-hex), var(--accent-deep))",
-              color: "#1a0f08",
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: dirty ? "pointer" : "not-allowed",
-              opacity: dirty ? 1 : 0.5,
-            }}
-          >
-            {saving ? "Saving…" : "Save changes"}
-          </button>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              onClick={onClose}
+              style={{
+                padding: "10px 16px",
+                borderRadius: 8,
+                border: "1px solid rgba(255,255,255,0.08)",
+                background: "transparent",
+                color: "#a8a8b2",
+                fontSize: 13,
+                cursor: "pointer",
+              }}
+            >
+              Close settings <Kbd dim>Esc</Kbd>
+            </button>
+            <button
+              onClick={save}
+              disabled={!dirty || saving}
+              style={{
+                padding: "10px 16px",
+                borderRadius: 8,
+                border: "none",
+                background:
+                  "linear-gradient(180deg, var(--accent-hex), var(--accent-deep))",
+                color: "#1a0f08",
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: dirty ? "pointer" : "not-allowed",
+                opacity: dirty ? 1 : 0.5,
+              }}
+            >
+              {saving ? "Saving…" : "Save changes"}
+            </button>
+          </div>
         </div>
       </main>
     </div>
@@ -450,12 +452,21 @@ function SourcesSection({ draft, update }: SectionProps): JSX.Element {
   const os = draft.subtitleSources.opensubtitles;
   const sd = draft.subtitleSources.subdl;
   const as_ = draft.subtitleSources.assrt;
+  const tmdb = draft.subtitleSources.tmdb;
   const setOs = (patch: Partial<typeof os>): void =>
     update((c) => ({
       ...c,
       subtitleSources: {
         ...c.subtitleSources,
         opensubtitles: { ...c.subtitleSources.opensubtitles, ...patch },
+      },
+    }));
+  const setTmdb = (patch: Partial<typeof tmdb>): void =>
+    update((c) => ({
+      ...c,
+      subtitleSources: {
+        ...c.subtitleSources,
+        tmdb: { ...c.subtitleSources.tmdb, ...patch },
       },
     }));
   return (
@@ -582,6 +593,42 @@ function SourcesSection({ draft, update }: SectionProps): JSX.Element {
                 }))
               }
               type="password"
+            />
+          </Field>
+        </div>
+
+        <div className="glass-panel" style={{ padding: 18 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 10,
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-heading)" }}>
+                TMDb cross-lingual merge
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                Collapses same show across languages (e.g. オーバーロード + Overlord) via TMDb IDs.
+              </div>
+            </div>
+            <Toggle
+              checked={tmdb.mergeEnabled}
+              onChange={(v) => setTmdb({ mergeEnabled: v })}
+              label={tmdb.mergeEnabled ? "On" : "Off"}
+            />
+          </div>
+          <Field
+            label="TMDb API key"
+            hint="Free at themoviedb.org → Settings → API. v3 auth. Leave blank to disable."
+          >
+            <TextInput
+              value={tmdb.apiKey}
+              onChange={(v) => setTmdb({ apiKey: v })}
+              type="password"
+              placeholder="tmdb-v3-key"
             />
           </Field>
         </div>

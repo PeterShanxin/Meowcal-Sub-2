@@ -1,4 +1,78 @@
 import type { CSSProperties, ReactNode } from "react";
+import type { InfoChip } from "../lib/types";
+
+export function DisclosureChevron({ open }: { open: boolean }): JSX.Element {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 10 10"
+      aria-hidden
+      style={{
+        transform: open ? "rotate(90deg)" : "rotate(0deg)",
+        transition: "transform 180ms cubic-bezier(.2,.8,.3,1)",
+        color: "var(--text-label)",
+        flexShrink: 0,
+      }}
+    >
+      <path d="M3 1.5 L7 5 L3 8.5" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function chipStyle(tone: InfoChip["tone"]): CSSProperties {
+  if (tone === "accent") {
+    return {
+      background: "rgba(255,185,90,0.10)",
+      border: "1px solid var(--accent-ring)",
+      color: "var(--accent-text)",
+    };
+  }
+  if (tone === "verified") {
+    return {
+      background: "rgba(120,200,130,0.12)",
+      border: "1px solid rgba(120,200,130,0.28)",
+      color: "#8ec99a",
+    };
+  }
+  return {
+    background: "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    color: "var(--text-label)",
+  };
+}
+
+export function InfoChipRow({ chips, max = 4 }: { chips: InfoChip[]; max?: number }): JSX.Element | null {
+  if (!chips || chips.length === 0) return null;
+  const shown = chips.slice(0, max);
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 6,
+        marginTop: 6,
+      }}
+    >
+      {shown.map((chip, i) => (
+        <span
+          key={`${chip.kind}-${i}-${chip.label}`}
+          style={{
+            ...chipStyle(chip.tone),
+            padding: "2px 7px",
+            borderRadius: 999,
+            fontSize: 10.5,
+            letterSpacing: 0.2,
+            fontWeight: 500,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {chip.label}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 export function Kbd({
   children,
@@ -153,11 +227,13 @@ export function TopBar({
   wsConnected,
   foundryPhase,
   sourcesCount,
+  onOpenSettings,
 }: {
   phase: "home" | "prep" | "live" | "settings" | "empty" | "no-key";
   wsConnected: boolean;
   foundryPhase: string;
   sourcesCount: number;
+  onOpenSettings?: () => void;
 }): JSX.Element {
   const label =
     phase === "live"
@@ -209,8 +285,59 @@ export function TopBar({
         <span title={wsConnected ? "Connected" : "Reconnecting…"}>
           {wsConnected ? "●" : "○"}
         </span>
+        {onOpenSettings && (
+          <button
+            onClick={onOpenSettings}
+            aria-label="Open settings"
+            title="Settings (,)"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 26,
+              height: 26,
+              padding: 0,
+              marginLeft: 4,
+              borderRadius: 7,
+              border: "1px solid rgba(255,255,255,0.06)",
+              background: "rgba(255,255,255,0.02)",
+              color: "var(--text-label)",
+              cursor: "pointer",
+              transition: "background 160ms ease, color 160ms ease",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "var(--accent-tint)";
+              e.currentTarget.style.color = "var(--accent-text)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "rgba(255,255,255,0.02)";
+              e.currentTarget.style.color = "var(--text-label)";
+            }}
+          >
+            <GearIcon />
+          </button>
+        )}
       </div>
     </div>
+  );
+}
+
+function GearIcon(): JSX.Element {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
   );
 }
 

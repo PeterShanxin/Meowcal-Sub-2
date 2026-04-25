@@ -23,6 +23,8 @@ class AppConfig:
     subdl_enabled: bool = True
     assrt_enabled: bool = False
     assrt_token: str = ""
+    tmdb_api_key: str = ""
+    tmdb_merge_enabled: bool = True
     source_language: str = "en"
     target_language: str = "zh"
     capture_region: list[int] = field(default_factory=list)
@@ -76,6 +78,7 @@ def load_config(path: Path | None = None) -> AppConfig:
     legacy_opensubtitles = data.get("opensubtitles", {})
     subdl = subtitle_sources.get("subdl", {})
     assrt = subtitle_sources.get("assrt", {})
+    tmdb = subtitle_sources.get("tmdb", {})
     if not isinstance(opensubtitles, dict):
         opensubtitles = {}
     if not isinstance(legacy_opensubtitles, dict):
@@ -84,6 +87,8 @@ def load_config(path: Path | None = None) -> AppConfig:
         subdl = {}
     if not isinstance(assrt, dict):
         assrt = {}
+    if not isinstance(tmdb, dict):
+        tmdb = {}
 
     source_language = normalize_source_language(data.get("languages", {}).get("source", "en"))
     target_language = normalize_target_language(data.get("languages", {}).get("target", "zh"))
@@ -104,6 +109,8 @@ def load_config(path: Path | None = None) -> AppConfig:
         subdl_enabled=_coerce_bool(subdl.get("enabled", True), True),
         assrt_enabled=_coerce_bool(assrt.get("enabled", False), False),
         assrt_token=str(assrt.get("token", "")),
+        tmdb_api_key=str(tmdb.get("api_key", "")),
+        tmdb_merge_enabled=_coerce_bool(tmdb.get("merge_enabled", True), True),
         source_language=source_language,
         target_language=target_language,
         capture_region=data.get("capture", {}).get("region", []),
@@ -151,6 +158,10 @@ def save_config(config: AppConfig, path: Path | None = None) -> None:
             "assrt": {
                 "enabled": config.assrt_enabled,
                 "token": config.assrt_token,
+            },
+            "tmdb": {
+                "api_key": config.tmdb_api_key,
+                "merge_enabled": config.tmdb_merge_enabled,
             },
         },
         # Keep the legacy mirror for one release to preserve older tooling.
@@ -238,6 +249,10 @@ def config_to_payload(config: AppConfig) -> dict[str, object]:
             "assrt": {
                 "enabled": config.assrt_enabled,
                 "token": config.assrt_token,
+            },
+            "tmdb": {
+                "apiKey": config.tmdb_api_key,
+                "mergeEnabled": config.tmdb_merge_enabled,
             },
         },
         "opensubtitles": {
@@ -346,12 +361,15 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
     opensubtitles = subtitle_sources.get("opensubtitles", {})
     subdl = subtitle_sources.get("subdl", {})
     assrt = subtitle_sources.get("assrt", {})
+    tmdb = subtitle_sources.get("tmdb", {})
     if not isinstance(opensubtitles, dict):
         opensubtitles = {}
     if not isinstance(subdl, dict):
         subdl = {}
     if not isinstance(assrt, dict):
         assrt = {}
+    if not isinstance(tmdb, dict):
+        tmdb = {}
 
     return AppConfig(
         opensubtitles_enabled=_coerce_bool(
@@ -368,6 +386,8 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
         subdl_enabled=_coerce_bool(subdl.get("enabled", base.subdl_enabled), base.subdl_enabled),
         assrt_enabled=_coerce_bool(assrt.get("enabled", base.assrt_enabled), base.assrt_enabled),
         assrt_token=str(assrt.get("token", base.assrt_token)),
+        tmdb_api_key=str(tmdb.get("apiKey", base.tmdb_api_key)),
+        tmdb_merge_enabled=_coerce_bool(tmdb.get("mergeEnabled", base.tmdb_merge_enabled), base.tmdb_merge_enabled),
         source_language=normalize_source_language(str(languages.get("source", base.source_language))),
         target_language=normalize_target_language(str(languages.get("target", base.target_language))),
         capture_region=_coerce_int_list(capture.get("region", base.capture_region), base.capture_region),

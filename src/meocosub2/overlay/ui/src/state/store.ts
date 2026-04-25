@@ -17,7 +17,10 @@ export interface UIState {
   manualView: Phase | null;
   query: string;
   tab: PaletteTabId;
-  selectedTitleId: string | null;
+  selectedWorkId: string | null;
+  expandedWorkId: string | null;
+  expandedSeasonNumber: number | null;
+  selectedEpisodeMatchId: string | null;
   selectedSourceId: string | null;
   selectedTargetId: string | null;
   cursorIndex: number;
@@ -35,7 +38,10 @@ const initial: UIState = {
   manualView: null,
   query: "",
   tab: "titles",
-  selectedTitleId: null,
+  selectedWorkId: null,
+  expandedWorkId: null,
+  expandedSeasonNumber: null,
+  selectedEpisodeMatchId: null,
   selectedSourceId: null,
   selectedTargetId: null,
   cursorIndex: -1,
@@ -76,7 +82,10 @@ class Store {
     this.set({
       query: "",
       tab: "titles",
-      selectedTitleId: null,
+      selectedWorkId: null,
+      expandedWorkId: null,
+      expandedSeasonNumber: null,
+      selectedEpisodeMatchId: null,
       selectedSourceId: null,
       selectedTargetId: null,
       cursorIndex: -1,

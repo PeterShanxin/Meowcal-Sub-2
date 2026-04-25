@@ -22,7 +22,13 @@ from meocosub2.errors import SubtitleSourceError, TranslationError
 from meocosub2.foundry import foundry_status, make_foundry_ready
 from meocosub2.languages import is_chinese_family, language_label, normalize_ocr_language, source_language_mode
 from meocosub2.models import AppProgress, AppStateSnapshot, PreparedRuntime, PreparedSession, SearchRequest
-from meocosub2.subtitle_sources import AggregatedSearchCatalog, AggregatedSubtitleResult, AggregatedTitleMatch, SubtitleSearchAggregator
+from meocosub2.subtitle_sources import (
+    AggregatedSearchCatalog,
+    AggregatedSubtitleResult,
+    AggregatedTitleMatch,
+    AggregatedWork,
+    SubtitleSearchAggregator,
+)
 from meocosub2.subtitles import align_subtitles, assign_target_translations, load_subtitle_file
 from meocosub2.sync import run_ocr_fallback_loop, run_sync_loop
 from meocosub2.translator import translate_lines
@@ -49,6 +55,50 @@ def search_result_payload(result: AggregatedSubtitleResult) -> dict[str, object]
         "providerRank": result.provider_rank,
         "displayLabel": result.display_label(),
         "languageLabel": language_label(result.language),
+    }
+
+
+def search_work_payload(work: AggregatedWork) -> dict[str, object]:
+    return {
+        "id": work.id,
+        "workId": work.id,
+        "title": work.title,
+        "mediaType": work.media_type,
+        "year": work.year,
+        "yearEnd": work.year_end,
+        "displayYear": work.display_year(),
+        "imdbId": work.imdb_id,
+        "tmdbId": work.tmdb_id,
+        "providers": list(work.providers),
+        "providerLabels": list(work.provider_labels),
+        "primaryMatchId": work.primary_match_id,
+        "expandable": work.expandable,
+        "totalEpisodes": work.total_episodes,
+        "totalSubtitles": work.total_subtitles,
+        "matchScore": work.match_score,
+        "seasons": [
+            {
+                "seasonNumber": season.season_number,
+                "subtitlesCount": season.subtitles_count,
+                "episodes": [
+                    {
+                        "season": episode.season,
+                        "episode": episode.episode,
+                        "title": episode.title,
+                        "matchId": episode.match_id,
+                        "year": episode.year,
+                        "subtitlesCount": episode.subtitles_count,
+                        "providers": list(episode.providers),
+                    }
+                    for episode in season.episodes
+                ],
+            }
+            for season in work.seasons
+        ],
+        "infoChips": [
+            {"kind": chip.kind, "label": chip.label, "tone": chip.tone}
+            for chip in work.info_chips
+        ],
     }
 
 
@@ -251,12 +301,14 @@ class GuiController:
 
         payload = [search_result_payload(result) for result in catalog.results]
         matches = [search_match_payload(match) for match in catalog.matches]
+        works = [search_work_payload(work) for work in catalog.works]
         async with self._lock:
             self._search_catalog = catalog
             self._state.status = "idle"
             self._state.search_results = payload
             self._state.search_matches = matches
-            self._state.selected_feature_id = matches[0]["id"] if matches else None
+            self._state.search_works = works
+            self._state.selected_feature_id = None
             self._state.selected_source_file_id = None
             self._state.selected_target_file_id = None
             self._state.prepared_session = None
@@ -264,7 +316,12 @@ class GuiController:
             self._state.warning_message = _search_warning_message(request, catalog.warnings)
             self._prepared_runtime = None
         await self._emit_app_state()
-        return {"results": payload, "matches": matches, "warnings": catalog.warnings}
+        return {
+            "results": payload,
+            "matches": matches,
+            "works": works,
+            "warnings": catalog.warnings,
+        }
 
     async def prepare_session(
         self,

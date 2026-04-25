@@ -20,6 +20,45 @@ SEPARATOR_PATTERN = re.compile(r"[|]+")
 QUERY_PAREN_YEAR_PATTERN = re.compile(r"^(?P<title>.+?)\s*\((?P<year>19\d{2}|20\d{2}|21\d{2})\)\s*$")
 QUERY_TRAILING_YEAR_PATTERN = re.compile(r"^(?P<title>.+?)\s+(?P<year>19\d{2}|20\d{2}|21\d{2})\s*$")
 
+_ROMAN_SEASON_MAP = {
+    "II": 2, "III": 3, "IV": 4, "V": 5,
+    "VI": 6, "VII": 7, "VIII": 8, "IX": 9, "X": 10,
+}
+# Ordered: most specific first to avoid "Overlord II" being caught by season-digit.
+_SEASON_SUFFIX_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"^(?P<base>.+?)\s+Season\s+(?P<num>\d{1,2})\s*$", re.IGNORECASE), "num"),
+    (re.compile(r"^(?P<base>.+?)\s+S(?P<num>\d{1,2})\s*$", re.IGNORECASE), "num"),
+    (re.compile(r"^(?P<base>.+?)\s+第(?P<num>\d+)(?:期|季)\s*$"), "num"),
+    (re.compile(r"^(?P<base>.+?)\s+(?P<num>\d+)(?:期|季)\s*$"), "num"),
+    (re.compile(r"^(?P<base>.+?)\s+(?P<rom>II|III|IV|V|VI|VII|VIII|IX|X)\s*$"), "rom"),
+)
+
+
+def extract_season_suffix(title: str | None) -> tuple[str, int | None]:
+    """Detect trailing season markers like 'II', 'S2', 'Season 2', '第2期'.
+
+    Returns (base_title, season_number). Season None means no marker found.
+    Used to merge provider cards that label each season as a separate movie.
+    """
+    if not title:
+        return title or "", None
+    text = title.strip()
+    for pattern, kind in _SEASON_SUFFIX_PATTERNS:
+        match = pattern.match(text)
+        if not match:
+            continue
+        base = match.group("base").strip(" -_:·")
+        if not base:
+            continue
+        if kind == "num":
+            try:
+                return base, int(match.group("num"))
+            except ValueError:
+                return base, None
+        rom = match.group("rom").upper()
+        return base, _ROMAN_SEASON_MAP.get(rom)
+    return text, None
+
 
 def split_query_year(query: str) -> tuple[str, int | None]:
     """Extract a trailing 4-digit year from a user query. Returns (clean_title, year_or_none)."""
@@ -133,6 +172,40 @@ def best_title_guess(query: str, *values: str | None) -> str:
         return query
     ranked = sorted(segments, key=lambda item: (title_similarity(query, [item]), len(item)), reverse=True)
     return ranked[0]
+
+
+def media_type_category(media_type: str | None) -> str:
+    """Collapse raw media types into the high-level work category."""
+    if media_type == "movie":
+        return "movie"
+    if media_type in {"series", "tvshow", "episode"}:
+        return "series"
+    return "movie"
+
+
+def work_key(
+    *,
+    title: str,
+    media_type: str,
+    year: int | None,
+    parent_title: str | None,
+    imdb_id: str | None,
+) -> tuple[str, str]:
+    """Identifier used to bucket provider matches into a single 'work'.
+
+    Movies stay separate (year/IMDb-aware). All seasons and episodes of a
+    series fold into one key via parent title or series-level IMDb ID.
+    """
+    category = media_type_category(media_type)
+    if category == "series":
+        # Series collapse purely by canonical parent title so imdb-bearing
+        # series matches merge with their episode-level siblings (which rarely
+        # carry the series IMDb id).
+        series_title = parent_title or title
+        return ("series", f"title:{canonical_title(series_title)}")
+    if media_type == "movie" and imdb_id:
+        return ("movie", f"imdb:{imdb_id}")
+    return ("movie", f"title:{canonical_title(title)}|{year or 0}")
 
 
 def match_group_key(

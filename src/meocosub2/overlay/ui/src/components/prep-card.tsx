@@ -3,19 +3,20 @@ import type {
   LiveLine,
   SourceItem,
   TargetItem,
-  TitleItem,
 } from "../lib/types";
 import { Kbd } from "./primitives";
 
 interface PrepCardProps {
-  title: TitleItem | null;
+  titleLabel: string | null;
+  runtimeLabel: string;
   source: SourceItem | null;
   target: TargetItem | null;
   prepared: BackendPreparedSession | null;
 }
 
 export function PrepCard({
-  title,
+  titleLabel,
+  runtimeLabel,
   source,
   target,
   prepared,
@@ -59,7 +60,7 @@ export function PrepCard({
           letterSpacing: -0.3,
         }}
       >
-        {title?.title ?? prepared?.title ?? "Untitled"}
+        {titleLabel ?? prepared?.title ?? "Untitled"}
       </div>
       <div style={{ display: "grid", gap: 12, fontSize: 13 }}>
         <Row label="Source" value={sourceFile} mono />
@@ -68,7 +69,7 @@ export function PrepCard({
           value={targetLabel}
           tag={prepared?.target_match_mode === "local_translation" ? "AUTO" : null}
         />
-        <Row label="Runtime" value={title?.runtime ?? "—"} />
+        <Row label="Runtime" value={runtimeLabel} />
         <Row label="Lines" value={lines} />
       </div>
       <div style={{ flex: 1 }} />

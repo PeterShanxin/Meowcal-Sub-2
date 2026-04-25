@@ -133,10 +133,66 @@ class AggregatedSubtitleResult:
         return self.provider_result.display_label()
 
 
+@dataclass(frozen=True)
+class WorkChip:
+    """A single info chip shown on a work card."""
+
+    kind: str  # "provider" | "imdb" | "episodes" | "downloads"
+    label: str
+    tone: str = "neutral"  # "neutral" | "accent" | "verified"
+
+
+@dataclass
+class AggregatedEpisode:
+    season: int | None
+    episode: int | None
+    title: str
+    match_id: str
+    year: int | None = None
+    subtitles_count: int = 0
+    providers: tuple[str, ...] = ()
+
+
+@dataclass
+class AggregatedSeason:
+    season_number: int
+    episodes: list[AggregatedEpisode] = field(default_factory=list)
+    subtitles_count: int = 0
+
+
+@dataclass
+class AggregatedWork:
+    id: str
+    title: str
+    media_type: str  # "movie" | "series"
+    year: int | None
+    year_end: int | None
+    imdb_id: str | None
+    tmdb_id: str | None
+    providers: tuple[str, ...]
+    provider_labels: tuple[str, ...]
+    seasons: list[AggregatedSeason] = field(default_factory=list)
+    total_episodes: int = 0
+    total_subtitles: int = 0
+    match_score: float = 0.0
+    primary_match_id: str | None = None
+    info_chips: list[WorkChip] = field(default_factory=list)
+
+    @property
+    def expandable(self) -> bool:
+        return bool(self.seasons)
+
+    def display_year(self) -> str:
+        if self.year and self.year_end and self.year_end != self.year:
+            return f"{self.year}–{self.year_end}"
+        return str(self.year) if self.year else ""
+
+
 @dataclass
 class AggregatedSearchCatalog:
     matches: list[AggregatedTitleMatch]
     results: list[AggregatedSubtitleResult]
+    works: list[AggregatedWork] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def find_result(self, result_id: str | None) -> AggregatedSubtitleResult | None:

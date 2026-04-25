@@ -1,12 +1,14 @@
 import type {
-  BackendMatch,
   BackendResult,
   BackendSnapshot,
+  BackendWork,
   CommandItem,
+  InfoChip,
   Phase,
   SourceItem,
   TargetItem,
-  TitleItem,
+  WorkItem,
+  WorkSeasonItem,
 } from "../lib/types";
 
 export function derivePhase(
@@ -20,85 +22,63 @@ export function derivePhase(
   return "home";
 }
 
-export function mapMatchesToTitles(
-  matches: BackendMatch[],
-  results: BackendResult[] = [],
-  sourceLanguage = "en",
-  targetLanguage = "zh",
-): TitleItem[] {
-  const coverageByMatch = new Map<string, { sourceCount: number; targetCount: number }>();
-  for (const result of results) {
-    const key = result.matchId;
-    const entry = coverageByMatch.get(key) ?? { sourceCount: 0, targetCount: 0 };
-    if (languageMatches(result.language, sourceLanguage)) {
-      entry.sourceCount += 1;
-    }
-    if (languageMatches(result.language, targetLanguage)) {
-      entry.targetCount += 1;
-    }
-    coverageByMatch.set(key, entry);
-  }
+const CHIP_TONES = new Set<InfoChip["tone"]>(["neutral", "accent", "verified"]);
 
-  const items = matches.map((m, index) => {
-    const coverage = coverageByMatch.get(m.matchId) ?? { sourceCount: 0, targetCount: 0 };
+function normalizeChip(raw: { kind: string; label: string; tone: string }): InfoChip {
+  const tone = CHIP_TONES.has(raw.tone as InfoChip["tone"])
+    ? (raw.tone as InfoChip["tone"])
+    : "neutral";
+  return { kind: raw.kind, label: raw.label, tone };
+}
+
+export function mapWorksToItems(works: BackendWork[]): WorkItem[] {
+  return works.map((w) => {
     const type =
-      m.mediaType === "movie"
+      w.mediaType === "movie"
         ? "Movie"
-        : m.mediaType === "episode" || m.mediaType === "series" || m.mediaType === "tvshow"
-          ? `Series${m.season != null ? ` · S${m.season}` : ""}${
-              m.episode != null ? `E${m.episode}` : ""
-            }`
-          : m.mediaType || "Title";
-    const runtime =
-      m.subtitlesCount > 0
-        ? `${m.subtitlesCount.toLocaleString()} subs`
-        : (m.providerLabels.join(" · ") || m.displayLabel);
+        : w.totalEpisodes > 0
+          ? `Series · ${w.totalEpisodes} eps`
+          : "Series";
+    const seasons: WorkSeasonItem[] = w.seasons.map((season) => ({
+      seasonNumber: season.seasonNumber,
+      label: season.seasonNumber > 0 ? `Season ${season.seasonNumber}` : "Specials",
+      subtitlesCount: season.subtitlesCount,
+      episodes: season.episodes.map((ep) => {
+        const s = ep.season ?? season.seasonNumber;
+        const e = ep.episode;
+        const code = s && e
+          ? `S${String(s).padStart(2, "0")}E${String(e).padStart(2, "0")}`
+          : s
+            ? `Season ${s} · all episodes`
+            : ep.title || `Entry`;
+        const label = ep.title && ep.title !== code ? `${code} — ${ep.title}` : code;
+        return {
+          matchId: ep.matchId,
+          season: ep.season,
+          episode: ep.episode,
+          label,
+          title: ep.title,
+          subtitlesCount: ep.subtitlesCount,
+        };
+      }),
+    }));
     return {
-      id: m.matchId,
-      title: m.title,
-      year: m.year != null ? String(m.year) : "—",
+      id: w.id,
+      title: w.title,
+      year: w.displayYear || "—",
       type,
-      runtime,
-      sourceCount: coverage.sourceCount,
-      targetCount: coverage.targetCount,
-      isRecommended: false,
-      raw: m,
-      _originalIndex: index,
+      mediaType: w.mediaType,
+      expandable: w.expandable && seasons.some((s) => s.episodes.length > 0),
+      primaryMatchId: w.primaryMatchId,
+      totalSubtitles: w.totalSubtitles,
+      totalEpisodes: w.totalEpisodes,
+      providers: w.providers,
+      providerLabels: w.providerLabels,
+      chips: w.infoChips.map(normalizeChip),
+      seasons,
+      raw: w,
     };
   });
-
-  const eligible = items.filter((item) => item.sourceCount > 0 && item.targetCount > 0);
-  if (eligible.length === 0) {
-    return items.map(({ _originalIndex, ...item }) => item);
-  }
-
-  const recommended = eligible.reduce((best, current) => {
-    if (best === null) return current;
-    const bestMin = Math.min(best.sourceCount, best.targetCount);
-    const currentMin = Math.min(current.sourceCount, current.targetCount);
-    if (currentMin !== bestMin) return currentMin > bestMin ? current : best;
-
-    const bestSum = best.sourceCount + best.targetCount;
-    const currentSum = current.sourceCount + current.targetCount;
-    if (currentSum !== bestSum) return currentSum > bestSum ? current : best;
-
-    if (current.raw.matchScore !== best.raw.matchScore) {
-      return current.raw.matchScore > best.raw.matchScore ? current : best;
-    }
-
-    return current._originalIndex < best._originalIndex ? current : best;
-  }, null as (typeof items)[number] | null);
-
-  if (!recommended) {
-    return items.map(({ _originalIndex, ...item }) => item);
-  }
-
-  const recommendedId = recommended.id;
-  const ordered = [
-    ...items.filter((item) => item.id === recommendedId).map((item) => ({ ...item, isRecommended: true })),
-    ...items.filter((item) => item.id !== recommendedId),
-  ];
-  return ordered.map(({ _originalIndex, ...item }) => item);
 }
 
 function formatDownloads(n: number): string {
