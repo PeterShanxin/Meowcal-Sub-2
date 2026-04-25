@@ -156,8 +156,12 @@ async def test_aggregator_merges_duplicate_titles_and_prefers_provider_order() -
 
     catalog = await aggregator.search_catalog("Fate/strange Fake", "en,zht")
 
-    assert len(catalog.matches) == 1
-    assert catalog.matches[0].provider_count == 2
+    # The two providers' tvshow matches merge by canonical title; the per-
+    # episode results are promoted to a separate episode-level group so the UI
+    # can break them out later.
+    tvshow_matches = [m for m in catalog.matches if m.media_type in ("tvshow", "series")]
+    assert len(tvshow_matches) == 1
+    assert tvshow_matches[0].provider_count == 2
     assert catalog.results[0].provider == "subdl"
     assert catalog.results[1].provider == "opensubtitles"
 

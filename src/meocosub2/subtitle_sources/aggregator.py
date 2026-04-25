@@ -202,8 +202,32 @@ class SubtitleSearchAggregator:
 
         aggregated_results: list[AggregatedSubtitleResult] = []
         for index, item in enumerate(all_results, start=1):
-            match_id = provider_match_map.get(item.match_id)
-            if match_id is None:
+            mapped_match_id = provider_match_map.get(item.match_id)
+            # If a result carries explicit episode metadata, route it to a per-
+            # episode group instead of collapsing it into the parent tvshow group.
+            # OpenSubtitles returns every episode result under the parent feature's
+            # match id, so without this we would lose all season/episode breakdown.
+            promote_to_episode = (
+                item.media_type == "episode"
+                and item.season is not None
+                and item.episode is not None
+            )
+            if promote_to_episode:
+                match_id = ensure_group(
+                    title=item.title,
+                    media_type="episode",
+                    year=item.year,
+                    season=item.season,
+                    episode=item.episode,
+                    parent_title=item.parent_title,
+                    imdb_id=item.imdb_id,
+                    tmdb_id=item.tmdb_id,
+                    provider=item.provider,
+                    provider_label=item.provider_label,
+                    subtitles_count=1,
+                    match_score=item.match_score,
+                )
+            elif mapped_match_id is None:
                 match_id = ensure_group(
                     title=item.title,
                     media_type=item.media_type,
@@ -219,6 +243,7 @@ class SubtitleSearchAggregator:
                     match_score=item.match_score,
                 )
             else:
+                match_id = mapped_match_id
                 group = groups[match_id]
                 group["subtitles_count"] = int(group["subtitles_count"]) + 1
                 group["match_score"] = max(float(group["match_score"]), item.match_score)
@@ -283,7 +308,10 @@ class SubtitleSearchAggregator:
                 source_group["subtitles_count"] = max(0, int(source_group["subtitles_count"]) - 1)
 
         referenced_group_ids = {item.match_id for item in aggregated_results}
-        empty_group_ids = set(groups) - referenced_group_ids
+        provider_match_group_ids = set(provider_match_map.values())
+        # Series/tvshow groups can be referenced only by their match (no direct
+        # files). Keep those so the title list still surfaces the series row.
+        empty_group_ids = set(groups) - referenced_group_ids - provider_match_group_ids
 
         # Keep a snapshot of every group (including empties) so the work-level
         # builder can still see series-level matches that carry IMDb IDs even
