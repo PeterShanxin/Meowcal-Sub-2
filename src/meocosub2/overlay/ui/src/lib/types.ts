@@ -256,6 +256,8 @@ export interface LiveLine {
 
 export type PaletteTabId = "titles" | "source" | "target" | "cmd";
 
+export type TitleMediaFilter = "all" | "series" | "movie" | "specials";
+
 export interface LanguageOption {
   code: string;
   label: string;

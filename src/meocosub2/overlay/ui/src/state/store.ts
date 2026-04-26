@@ -7,6 +7,7 @@ import type {
   LiveLine,
   PaletteTabId,
   Phase,
+  TitleMediaFilter,
 } from "../lib/types";
 
 export interface UIState {
@@ -17,6 +18,8 @@ export interface UIState {
   manualView: Phase | null;
   query: string;
   tab: PaletteTabId;
+  titleMediaFilter: TitleMediaFilter;
+  selectedSeasonFilters: number[];
   selectedWorkId: string | null;
   expandedWorkId: string | null;
   expandedSeasonNumber: number | null;
@@ -38,6 +41,8 @@ const initial: UIState = {
   manualView: null,
   query: "",
   tab: "titles",
+  titleMediaFilter: "all",
+  selectedSeasonFilters: [],
   selectedWorkId: null,
   expandedWorkId: null,
   expandedSeasonNumber: null,
@@ -82,6 +87,8 @@ class Store {
     this.set({
       query: "",
       tab: "titles",
+      titleMediaFilter: "all",
+      selectedSeasonFilters: [],
       selectedWorkId: null,
       expandedWorkId: null,
       expandedSeasonNumber: null,

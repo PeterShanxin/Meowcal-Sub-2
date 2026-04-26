@@ -68,7 +68,10 @@ class OverlayServer:
 
         @self.app.get("/")
         async def index() -> FileResponse:
-            return FileResponse(STATIC_DIR / "index.html")
+            return FileResponse(
+                STATIC_DIR / "index.html",
+                headers={"Cache-Control": "no-store, max-age=0"},
+            )
 
         @self.app.get("/config")
         async def config_route() -> dict[str, object]:

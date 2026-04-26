@@ -18,7 +18,14 @@ import {
   mapResultsToTarget,
   mapWorksToItems,
 } from "./state/mappers";
-import type { BackendConfig, LanguageOption, PaletteTabId, Phase, WorkItem } from "./lib/types";
+import type {
+  BackendConfig,
+  LanguageOption,
+  PaletteTabId,
+  Phase,
+  TitleMediaFilter,
+  WorkItem,
+} from "./lib/types";
 
 export function App(): JSX.Element {
   useAppWebSocket();
@@ -28,6 +35,8 @@ export function App(): JSX.Element {
   const manualView = useStore((s) => s.manualView);
   const query = useStore((s) => s.query);
   const tab = useStore((s) => s.tab);
+  const titleMediaFilter = useStore((s) => s.titleMediaFilter);
+  const selectedSeasonFilters = useStore((s) => s.selectedSeasonFilters);
   const selectedWorkId = useStore((s) => s.selectedWorkId);
   const expandedWorkId = useStore((s) => s.expandedWorkId);
   const expandedSeasonNumber = useStore((s) => s.expandedSeasonNumber);
@@ -83,6 +92,11 @@ export function App(): JSX.Element {
     () => mapWorksToItems(snapshot?.search_works ?? []),
     [snapshot?.search_works],
   );
+  const availableSeasonNumbers = useMemo(() => collectSeasonNumbers(works), [works]);
+  const filteredWorks = useMemo(
+    () => filterWorks(works, titleMediaFilter, selectedSeasonFilters),
+    [works, titleMediaFilter, selectedSeasonFilters],
+  );
   const sources = useMemo(
     () =>
       mapResultsToSource(
@@ -104,8 +118,8 @@ export function App(): JSX.Element {
   const commands = useMemo(() => buildCommands(phase), [phase]);
 
   const titleNavRows = useMemo(
-    () => paletteWorksNavRows(works, expandedWorkId, expandedSeasonNumber),
-    [works, expandedWorkId, expandedSeasonNumber],
+    () => paletteWorksNavRows(filteredWorks, expandedWorkId, expandedSeasonNumber),
+    [filteredWorks, expandedWorkId, expandedSeasonNumber],
   );
 
   const titleListLength = titleNavRows.length;
@@ -215,7 +229,7 @@ export function App(): JSX.Element {
 
   const onToggleExpandWork = useCallback(
     (id: string) => {
-      const work = works.find((w) => w.id === id);
+      const work = filteredWorks.find((w) => w.id === id);
       if (!work) return;
       if (!work.expandable) {
         if (work.primaryMatchId) advanceToSourceTab(id, work.primaryMatchId);
@@ -231,7 +245,7 @@ export function App(): JSX.Element {
         };
       });
     },
-    [works, advanceToSourceTab],
+    [filteredWorks, advanceToSourceTab],
   );
 
   const onToggleExpandSeason = useCallback(
@@ -252,7 +266,7 @@ export function App(): JSX.Element {
 
   const onPickWork = useCallback(
     (id: string) => {
-      const work = works.find((w) => w.id === id);
+      const work = filteredWorks.find((w) => w.id === id);
       if (!work) return;
       if (work.expandable) {
         onToggleExpandWork(id);
@@ -260,8 +274,35 @@ export function App(): JSX.Element {
       }
       if (work.primaryMatchId) advanceToSourceTab(id, work.primaryMatchId);
     },
-    [works, onToggleExpandWork, advanceToSourceTab],
+    [filteredWorks, onToggleExpandWork, advanceToSourceTab],
   );
+
+  const onTitleMediaFilterChange = useCallback((filter: TitleMediaFilter) => {
+    store.set({
+      titleMediaFilter: filter,
+      cursorIndex: -1,
+      expandedWorkId: null,
+      expandedSeasonNumber: null,
+    });
+  }, []);
+
+  const onToggleSeasonFilter = useCallback((seasonNumber: number) => {
+    store.set((s) => {
+      const active = s.selectedSeasonFilters.includes(seasonNumber);
+      const next = active
+        ? s.selectedSeasonFilters.filter((n) => n !== seasonNumber)
+        : [...s.selectedSeasonFilters, seasonNumber].sort((a, b) => a - b);
+      return {
+        selectedSeasonFilters: next,
+        cursorIndex: -1,
+        expandedSeasonNumber: null,
+      };
+    });
+  }, []);
+
+  const onClearSeasonFilters = useCallback(() => {
+    store.set({ selectedSeasonFilters: [], cursorIndex: -1, expandedSeasonNumber: null });
+  }, []);
 
   const onPickEpisode = useCallback(
     (workId: string, matchId: string) => advanceToSourceTab(workId, matchId),
@@ -483,7 +524,7 @@ export function App(): JSX.Element {
   const isCompact = phase === "prep" || phase === "live";
   const isIdle =
     phase === "home" &&
-    works.length === 0 &&
+    filteredWorks.length === 0 &&
     sources.length === 0;
 
   const selectedWork = works.find((w) => w.id === selectedWorkId) ?? null;
@@ -586,7 +627,14 @@ export function App(): JSX.Element {
               onQueryChange={onQueryChange}
               tab={tab}
               onTabChange={onTabChange}
-              works={works}
+              works={filteredWorks}
+              totalWorksCount={works.length}
+              titleMediaFilter={titleMediaFilter}
+              selectedSeasonFilters={selectedSeasonFilters}
+              availableSeasonNumbers={availableSeasonNumbers}
+              onTitleMediaFilterChange={onTitleMediaFilterChange}
+              onToggleSeasonFilter={onToggleSeasonFilter}
+              onClearSeasonFilters={onClearSeasonFilters}
               sources={sources}
               targets={targets}
               commands={commands}
@@ -712,4 +760,51 @@ function languageLabel(code: string | undefined): string {
     de: "German",
   };
   return map[code] ?? code;
+}
+
+function collectSeasonNumbers(works: WorkItem[]): number[] {
+  const numbers = new Set<number>();
+  for (const work of works) {
+    if (work.mediaType !== "series") continue;
+    for (const season of work.seasons) {
+      numbers.add(season.seasonNumber);
+    }
+  }
+  return [...numbers].sort((a, b) => a - b);
+}
+
+function filterWorks(
+  works: WorkItem[],
+  mediaFilter: TitleMediaFilter,
+  seasonFilters: number[],
+): WorkItem[] {
+  const seasonSet = new Set(seasonFilters);
+  return works.flatMap((work) => {
+    if (mediaFilter === "movie" && work.mediaType !== "movie") return [];
+    if (mediaFilter === "series" && work.mediaType !== "series") return [];
+    if (mediaFilter === "specials" && !isSpecialWork(work)) return [];
+
+    if (work.mediaType !== "series" || seasonSet.size === 0) return [work];
+
+    const seasons = work.seasons.filter((season) => seasonSet.has(season.seasonNumber));
+    if (seasons.length === 0) return [];
+    const totalEpisodes = seasons.reduce((sum, season) => sum + season.episodes.length, 0);
+    const totalSubtitles = seasons.reduce((sum, season) => sum + season.subtitlesCount, 0);
+    return [
+      {
+        ...work,
+        seasons,
+        totalEpisodes,
+        totalSubtitles,
+        expandable: seasons.some((season) => season.episodes.length > 0),
+      },
+    ];
+  });
+}
+
+function isSpecialWork(work: WorkItem): boolean {
+  if (work.mediaType === "series" && work.seasons.some((season) => season.seasonNumber <= 0)) {
+    return true;
+  }
+  return /\b(ova|oad|ona|special|specials)\b/i.test(work.title);
 }

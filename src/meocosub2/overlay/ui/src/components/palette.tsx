@@ -7,6 +7,7 @@ import type {
   Phase,
   SourceItem,
   TargetItem,
+  TitleMediaFilter,
   WorkItem,
   WorkSeasonItem,
 } from "../lib/types";
@@ -20,6 +21,13 @@ interface PaletteProps {
   tab: PaletteTabId;
   onTabChange: (v: PaletteTabId) => void;
   works: WorkItem[];
+  totalWorksCount: number;
+  titleMediaFilter: TitleMediaFilter;
+  selectedSeasonFilters: number[];
+  availableSeasonNumbers: number[];
+  onTitleMediaFilterChange: (v: TitleMediaFilter) => void;
+  onToggleSeasonFilter: (seasonNumber: number) => void;
+  onClearSeasonFilters: () => void;
   sources: SourceItem[];
   targets: TargetItem[];
   commands: CommandItem[];
@@ -55,6 +63,13 @@ export function Palette(props: PaletteProps): JSX.Element {
     tab,
     onTabChange,
     works,
+    totalWorksCount,
+    titleMediaFilter,
+    selectedSeasonFilters,
+    availableSeasonNumbers,
+    onTitleMediaFilterChange,
+    onToggleSeasonFilter,
+    onClearSeasonFilters,
     sources,
     targets,
     commands,
@@ -321,6 +336,19 @@ export function Palette(props: PaletteProps): JSX.Element {
 
       {searching && <div className="progress-bar" aria-hidden />}
 
+      {tab === "titles" && totalWorksCount > 0 && (
+        <TitleFilters
+          mediaFilter={titleMediaFilter}
+          selectedSeasons={selectedSeasonFilters}
+          availableSeasons={availableSeasonNumbers}
+          filteredCount={works.length}
+          totalCount={totalWorksCount}
+          onMediaFilterChange={onTitleMediaFilterChange}
+          onToggleSeason={onToggleSeasonFilter}
+          onClearSeasons={onClearSeasonFilters}
+        />
+      )}
+
       <div ref={listRef} style={{ maxHeight: compact ? 280 : 420, overflow: "auto" }}>
         {tab === "titles" && (
           <WorkList
@@ -335,6 +363,7 @@ export function Palette(props: PaletteProps): JSX.Element {
             onPickWork={onPickWork}
             onPickEpisode={onPickEpisode}
             searching={searching}
+            emptyHint={totalWorksCount > 0 ? "No titles match these filters" : undefined}
           />
         )}
         {tab === "source" && (
@@ -419,6 +448,125 @@ const primaryStyle: CSSProperties = {
   cursor: "pointer",
 };
 
+function TitleFilters({
+  mediaFilter,
+  selectedSeasons,
+  availableSeasons,
+  filteredCount,
+  totalCount,
+  onMediaFilterChange,
+  onToggleSeason,
+  onClearSeasons,
+}: {
+  mediaFilter: TitleMediaFilter;
+  selectedSeasons: number[];
+  availableSeasons: number[];
+  filteredCount: number;
+  totalCount: number;
+  onMediaFilterChange: (filter: TitleMediaFilter) => void;
+  onToggleSeason: (seasonNumber: number) => void;
+  onClearSeasons: () => void;
+}): JSX.Element {
+  const filters: Array<{ id: TitleMediaFilter; label: string }> = [
+    { id: "all", label: "All" },
+    { id: "series", label: "TV Shows" },
+    { id: "movie", label: "Movies" },
+    { id: "specials", label: "OVA / Specials" },
+  ];
+  const showSeasons =
+    availableSeasons.length > 0 && (mediaFilter === "series" || selectedSeasons.length > 0);
+
+  return (
+    <div
+      style={{
+        padding: "10px 20px 12px",
+        borderBottom: "1px solid rgba(255,255,255,0.05)",
+        background: "rgba(0,0,0,0.12)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {filters.map((filter) => (
+            <FilterChip
+              key={filter.id}
+              active={mediaFilter === filter.id}
+              label={filter.label}
+              onClick={() => onMediaFilterChange(filter.id)}
+            />
+          ))}
+        </div>
+        <div style={{ flex: 1 }} />
+        <span style={{ fontSize: 11.5, color: "var(--text-dim)", whiteSpace: "nowrap" }}>
+          {filteredCount === totalCount
+            ? `${totalCount} shown`
+            : `${filteredCount} of ${totalCount}`}
+        </span>
+      </div>
+      {showSeasons && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span
+            style={{
+              fontSize: 10.5,
+              color: "var(--text-label)",
+              textTransform: "uppercase",
+              letterSpacing: 1,
+            }}
+          >
+            Seasons
+          </span>
+          <FilterChip
+            active={selectedSeasons.length === 0}
+            label="All seasons"
+            onClick={onClearSeasons}
+          />
+          {availableSeasons.map((season) => (
+            <FilterChip
+              key={season}
+              active={selectedSeasons.includes(season)}
+              label={season > 0 ? `S${season}` : "SP"}
+              onClick={() => onToggleSeason(season)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FilterChip({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        padding: "5px 10px",
+        borderRadius: 7,
+        border: active ? "1px solid var(--accent-ring)" : "1px solid rgba(255,255,255,0.07)",
+        background: active ? "var(--accent-tint)" : "rgba(255,255,255,0.025)",
+        color: active ? "var(--accent-text)" : "var(--text-muted)",
+        fontSize: 12,
+        fontWeight: 600,
+        lineHeight: 1.2,
+        cursor: "pointer",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 interface TitleNavRow {
   kind: "work" | "season" | "episode" | "skeleton_episode";
   workId: string;
@@ -474,6 +622,7 @@ function WorkList({
   onPickWork,
   onPickEpisode,
   searching,
+  emptyHint,
 }: {
   items: WorkItem[];
   selectedWorkId: string | null;
@@ -486,6 +635,7 @@ function WorkList({
   onPickWork: (id: string) => void;
   onPickEpisode: (workId: string, matchId: string) => void;
   searching: boolean;
+  emptyHint?: string;
 }): JSX.Element {
   if (items.length === 0) {
     if (searching) {
@@ -519,7 +669,7 @@ function WorkList({
         </div>
       );
     }
-    return <EmptyTab hint="Type a title and press ↵ to search" />;
+    return <EmptyTab hint={emptyHint ?? "Type a title and press ↵ to search"} />;
   }
 
   const rows = flattenNavRows(items, expandedWorkId, expandedSeasonNumber);

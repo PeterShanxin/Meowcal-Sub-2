@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -529,9 +529,14 @@ fn navigate_main_to_backend(app: &AppHandle) {
     };
     // Once the backend is ready, the shell simply navigates the main window to
     // the served dashboard rather than loading a separate desktop-only frontend.
-    let Ok(url) = Url::parse(&api_base()) else {
+    let Ok(mut url) = Url::parse(&api_base()) else {
         return;
     };
+    let launch_id = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis().to_string())
+        .unwrap_or_else(|_| "0".to_string());
+    url.query_pairs_mut().append_pair("desktopLaunch", &launch_id);
     let _ = window.navigate(url);
     let _ = window.set_focus();
 }
