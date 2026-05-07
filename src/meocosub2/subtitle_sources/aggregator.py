@@ -13,7 +13,7 @@ from meocosub2.subtitle_sources.assrt import AssrtProvider
 from meocosub2.subtitle_sources.opensubtitles import OpenSubtitlesProvider
 from meocosub2.subtitle_sources.subdl import SubdlProvider
 from meocosub2.subtitle_sources.season_skeleton import build_season_skeleton
-from meocosub2.subtitle_sources.tmdb import TMDbClient, TMDbSeries
+from meocosub2.subtitle_sources.tmdb import TMDbClient, TMDbSeries, poster_url_from_path
 from meocosub2.subtitle_sources.types import (
     AggregatedEpisode,
     AggregatedSearchCatalog,
@@ -118,6 +118,7 @@ class SubtitleSearchAggregator:
         if self._tmdb_client is not None and self._tmdb_client.enabled and aggregated.works:
             aggregated.works = await self._merge_works_via_tmdb(aggregated.works, dispatch_query)
             aggregated.works = await self._apply_tmdb_season_skeleton(aggregated.works)
+            aggregated.works = await self._apply_tmdb_posters(aggregated.works)
         aggregated.works = self._sort_works(aggregated.works, dispatch_query, query_year)
         return aggregated
 
@@ -570,6 +571,7 @@ class SubtitleSearchAggregator:
                 work,
                 imdb_id=work.imdb_id or series.imdb_id,
                 tmdb_id=work.tmdb_id or str(series.tmdb_id),
+                poster_url=work.poster_url or poster_url_from_path(series.poster_path),
             )
 
         # Flush cache in the background so the next search benefits.
@@ -653,7 +655,35 @@ class SubtitleSearchAggregator:
                 seasons=new_seasons,
                 total_episodes=total_ep,
                 info_chips=[*other_chips, ep_chip],
+                poster_url=work.poster_url or poster_url_from_path(
+                    details.get("poster_path") if isinstance(details.get("poster_path"), str) else None
+                ),
             )
+
+        results = await asyncio.gather(*[enrich(w) for w in works], return_exceptions=True)
+        return [
+            r if not isinstance(r, Exception) else works[i]
+            for i, r in enumerate(results)
+        ]
+
+    async def _apply_tmdb_posters(
+        self,
+        works: list[AggregatedWork],
+    ) -> list[AggregatedWork]:
+        if self._tmdb_client is None or not self._tmdb_client.enabled:
+            return works
+
+        async def enrich(work: AggregatedWork) -> AggregatedWork:
+            if work.poster_url or not work.tmdb_id:
+                return work
+            try:
+                tmdb_id = int(work.tmdb_id)
+            except (ValueError, TypeError):
+                return work
+            poster_url = await self._tmdb_client.fetch_poster_url(tmdb_id, work.media_type)
+            if not poster_url:
+                return work
+            return replace(work, poster_url=poster_url)
 
         results = await asyncio.gather(*[enrich(w) for w in works], return_exceptions=True)
         return [
@@ -913,6 +943,7 @@ def _fold_series_works(
         match_score=match_score,
         primary_match_id=primary_match_id,
         info_chips=chips,
+        poster_url=primary.poster_url or next((w.poster_url for w in partners if w.poster_url), None),
     )
 
 

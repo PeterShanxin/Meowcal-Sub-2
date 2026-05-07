@@ -74,6 +74,7 @@ export function mapWorksToItems(works: BackendWork[]): WorkItem[] {
       totalEpisodes: w.totalEpisodes,
       providers: w.providers,
       providerLabels: w.providerLabels,
+      posterUrl: w.posterUrl,
       chips: w.infoChips.map(normalizeChip),
       seasons,
       raw: w,

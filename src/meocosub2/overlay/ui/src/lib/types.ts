@@ -146,6 +146,7 @@ export interface BackendWork {
   displayYear: string;
   imdbId: string | null;
   tmdbId: string | null;
+  posterUrl: string | null;
   providers: string[];
   providerLabels: string[];
   primaryMatchId: string | null;
@@ -210,6 +211,7 @@ export interface WorkItem {
   totalEpisodes: number;
   providers: string[];
   providerLabels: string[];
+  posterUrl: string | null;
   chips: InfoChip[];
   seasons: WorkSeasonItem[];
   raw: BackendWork;

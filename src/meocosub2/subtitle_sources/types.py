@@ -177,6 +177,7 @@ class AggregatedWork:
     match_score: float = 0.0
     primary_match_id: str | None = None
     info_chips: list[WorkChip] = field(default_factory=list)
+    poster_url: str | None = None
 
     @property
     def expandable(self) -> bool:

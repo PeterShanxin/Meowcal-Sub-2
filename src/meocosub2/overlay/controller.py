@@ -69,6 +69,7 @@ def search_work_payload(work: AggregatedWork) -> dict[str, object]:
         "displayYear": work.display_year(),
         "imdbId": work.imdb_id,
         "tmdbId": work.tmdb_id,
+        "posterUrl": work.poster_url,
         "providers": list(work.providers),
         "providerLabels": list(work.provider_labels),
         "primaryMatchId": work.primary_match_id,

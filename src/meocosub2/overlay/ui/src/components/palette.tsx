@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, RefObject } from "react";
 import type {
   CommandItem,
@@ -100,6 +100,10 @@ export function Palette(props: PaletteProps): JSX.Element {
   const [focused, setFocused] = useState(false);
   const langRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const titleResultsKey = useMemo(
+    () => works.map((w) => `${w.id}:${w.title}:${w.totalSubtitles}:${w.posterUrl ?? ""}`).join("|"),
+    [works],
+  );
 
   useEffect(() => {
     const container = listRef.current;
@@ -334,8 +338,6 @@ export function Palette(props: PaletteProps): JSX.Element {
         onChange={(id) => onTabChange(id as PaletteTabId)}
       />
 
-      {searching && <div className="progress-bar" aria-hidden />}
-
       {tab === "titles" && totalWorksCount > 0 && (
         <TitleFilters
           mediaFilter={titleMediaFilter}
@@ -349,22 +351,32 @@ export function Palette(props: PaletteProps): JSX.Element {
         />
       )}
 
-      <div ref={listRef} style={{ maxHeight: compact ? 280 : 420, overflow: "auto" }}>
+      <div ref={listRef} style={{ maxHeight: compact ? 280 : 420, overflow: "auto", position: "relative" }}>
         {tab === "titles" && (
-          <WorkList
-            items={works}
-            selectedWorkId={selectedWorkId}
-            expandedWorkId={expandedWorkId}
-            expandedSeasonNumber={expandedSeasonNumber}
-            selectedEpisodeMatchId={selectedEpisodeMatchId}
-            cursorIndex={cursorIndex}
-            onToggleExpandWork={onToggleExpandWork}
-            onToggleExpandSeason={onToggleExpandSeason}
-            onPickWork={onPickWork}
-            onPickEpisode={onPickEpisode}
-            searching={searching}
-            emptyHint={totalWorksCount > 0 ? "No titles match these filters" : undefined}
-          />
+          <div className={`results-shell ${searching && works.length > 0 ? "is-refreshing" : ""}`}>
+            {searching && works.length > 0 && (
+              <div className="results-status" aria-live="polite">
+                <span className="mini-spinner" aria-hidden />
+                <span>Searching</span>
+              </div>
+            )}
+            <div key={titleResultsKey} className="results-content">
+              <WorkList
+                items={works}
+                selectedWorkId={selectedWorkId}
+                expandedWorkId={expandedWorkId}
+                expandedSeasonNumber={expandedSeasonNumber}
+                selectedEpisodeMatchId={selectedEpisodeMatchId}
+                cursorIndex={cursorIndex}
+                onToggleExpandWork={onToggleExpandWork}
+                onToggleExpandSeason={onToggleExpandSeason}
+                onPickWork={onPickWork}
+                onPickEpisode={onPickEpisode}
+                searching={searching}
+                emptyHint={totalWorksCount > 0 ? "No titles match these filters" : undefined}
+              />
+            </div>
+          </div>
         )}
         {tab === "source" && (
           hasSelectedEpisode ? (
@@ -765,22 +777,29 @@ function WorkRow({
   onClick: () => void;
   rowIndex: number;
 }): JSX.Element {
+  const [posterFailed, setPosterFailed] = useState(false);
+  const posterUrl = work.posterUrl && !posterFailed ? work.posterUrl : null;
+
+  useEffect(() => {
+    setPosterFailed(false);
+  }, [work.posterUrl]);
+
   return (
     <Row selected={selected} focused={focused} onClick={onClick} rowIndex={rowIndex}>
       <div
-        style={{
-          width: 32,
-          height: 44,
-          borderRadius: 5,
-          flexShrink: 0,
-          background: "linear-gradient(135deg, #3a2a1a, #1a0f08)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: 15,
-        }}
+        className={`work-poster ${posterUrl ? "has-image" : ""}`}
+        aria-hidden
       >
-        {work.mediaType === "movie" ? "🎬" : "📺"}
+        {posterUrl && (
+          <img
+            src={posterUrl}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onError={() => setPosterFailed(true)}
+          />
+        )}
+        {!posterUrl && <span>{work.mediaType === "movie" ? "MOV" : "TV"}</span>}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>

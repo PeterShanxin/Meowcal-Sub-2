@@ -24,6 +24,7 @@ from rapidfuzz import fuzz
 logger = logging.getLogger(__name__)
 
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
+TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p"
 CACHE_TTL_SECONDS = 90 * 24 * 3600
 CACHE_MAX_ENTRIES = 10_000
 SEARCH_TIMEOUT_SECONDS = 6.0
@@ -38,6 +39,7 @@ class TMDbSeries:
     name: str
     original_name: str
     first_air_year: int | None
+    poster_path: str | None = None
 
 
 class TMDbCache:
@@ -133,6 +135,19 @@ def _title_score(query: str, candidate: dict[str, Any]) -> float:
 def _extract_year(value: Any) -> int | None:
     if not isinstance(value, str) or len(value) < 4:
         return None
+
+
+def poster_url_from_path(path: str | None, size: str = "w92") -> str | None:
+    if not path:
+        return None
+    cleaned = path.strip()
+    if not cleaned:
+        return None
+    if cleaned.startswith(("http://", "https://")):
+        return cleaned
+    if not cleaned.startswith("/"):
+        cleaned = f"/{cleaned}"
+    return f"{TMDB_IMAGE_BASE_URL}/{size}{cleaned}"
     try:
         return int(value[:4])
     except ValueError:
@@ -250,6 +265,7 @@ class TMDbClient:
             name=str(candidate.get("name") or ""),
             original_name=str(candidate.get("original_name") or ""),
             first_air_year=_extract_year(candidate.get("first_air_date")),
+            poster_path=str(candidate.get("poster_path") or "") or None,
         )
 
     async def fetch_series_details(self, tmdb_id: int) -> dict[str, Any] | None:
@@ -266,9 +282,26 @@ class TMDbClient:
         result = {
             "number_of_seasons": data.get("number_of_seasons"),
             "name": data.get("name") or "",
+            "poster_path": data.get("poster_path") or "",
         }
         self.cache.set(key, result)
         return result
+
+    async def fetch_poster_url(self, tmdb_id: int, media_type: str) -> str | None:
+        """Fetch a poster URL for a TMDb movie or TV work."""
+        if not self.enabled or not tmdb_id:
+            return None
+        kind = "movie" if media_type == "movie" else "tv"
+        key = f"tmdb:poster:{kind}:{tmdb_id}"
+        cached = self.cache.get(key)
+        if cached is not None:
+            return cached if isinstance(cached, str) and cached else None
+        async with self._semaphore:
+            data = await self._fetch(f"/{kind}/{tmdb_id}", {})
+        path = (data or {}).get("poster_path")
+        url = poster_url_from_path(path if isinstance(path, str) else None)
+        self.cache.set(key, url or "")
+        return url
 
     async def fetch_season(self, tmdb_id: int, season_number: int) -> list[dict[str, Any]]:
         """Calls /tv/{id}/season/{n} and returns [{episode_number, name, air_date}]."""
@@ -336,6 +369,7 @@ def _serialize_series(series: TMDbSeries | None) -> Any:
         "name": series.name,
         "original_name": series.original_name,
         "first_air_year": series.first_air_year,
+        "poster_path": series.poster_path,
     }
 
 
@@ -351,4 +385,5 @@ def _deserialize_series(value: Any) -> TMDbSeries | None:
         name=str(value.get("name") or ""),
         original_name=str(value.get("original_name") or ""),
         first_air_year=value.get("first_air_year") if isinstance(value.get("first_air_year"), int) else None,
+        poster_path=value.get("poster_path") if isinstance(value.get("poster_path"), str) else None,
     )
