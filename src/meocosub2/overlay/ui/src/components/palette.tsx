@@ -422,7 +422,7 @@ export function Palette(props: PaletteProps): JSX.Element {
           color: "var(--text-label)",
         }}
       >
-        <Kbd dim>↑↓</Kbd>
+        <Kbd dim>↑↓←→</Kbd>
         <span>Navigate</span>
         <Kbd dim>↵</Kbd>
         <span>Select</span>
@@ -652,32 +652,11 @@ function WorkList({
   if (items.length === 0) {
     if (searching) {
       return (
-        <div
-          style={{
-            padding: "40px 20px",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 14,
-            color: "var(--text-label)",
-          }}
-        >
-          <span className="dot-loader" aria-hidden>
-            <span />
-            <span />
-            <span />
-          </span>
-          <span
-            style={{
-              fontSize: 11,
-              letterSpacing: 2,
-              textTransform: "uppercase",
-              color: "var(--accent-text)",
-              opacity: 0.75,
-            }}
-          >
-            Searching
-          </span>
+        <div className="empty-searching">
+          <div className="empty-searching-card">
+            <span className="empty-searching-spinner" aria-hidden />
+            <span>Searching</span>
+          </div>
         </div>
       );
     }
@@ -685,9 +664,10 @@ function WorkList({
   }
 
   const rows = flattenNavRows(items, expandedWorkId, expandedSeasonNumber);
+  const gridMode = expandedWorkId == null && rows.every((row) => row.kind === "work");
 
   return (
-    <div style={{ padding: "6px 0" }}>
+    <div className={gridMode ? "work-grid" : "work-list"}>
       {rows.map((row, rowIndex) => {
         const focused = cursorIndex === rowIndex;
         if (row.kind === "work") {
@@ -785,7 +765,13 @@ function WorkRow({
   }, [work.posterUrl]);
 
   return (
-    <Row selected={selected} focused={focused} onClick={onClick} rowIndex={rowIndex}>
+    <Row
+      selected={selected}
+      focused={focused}
+      onClick={onClick}
+      rowIndex={rowIndex}
+      className="work-row"
+    >
       <div
         className={`work-poster ${posterUrl ? "has-image" : ""}`}
         aria-hidden
@@ -1159,15 +1145,17 @@ interface RowProps {
   onClick: () => void;
   children: React.ReactNode;
   rowIndex?: number;
+  className?: string;
 }
 
 const Row = forwardRef<HTMLDivElement, RowProps>(function Row(
-  { selected, focused, onClick, children, rowIndex },
+  { selected, focused, onClick, children, rowIndex, className },
   ref,
 ) {
   return (
     <div
       ref={ref}
+      className={className}
       data-cursor-row={rowIndex ?? undefined}
       onClick={onClick}
       onMouseDown={(e) => e.preventDefault()}
@@ -1175,12 +1163,12 @@ const Row = forwardRef<HTMLDivElement, RowProps>(function Row(
         display: "flex",
         alignItems: "center",
         gap: 12,
-        padding: "10px 20px",
+        padding: className === "work-row" ? undefined : "10px 20px",
         background: focused
           ? "var(--accent-tint)"
           : selected
             ? "rgba(255,185,90,0.05)"
-            : "transparent",
+            : undefined,
         borderLeft: `2px solid ${focused || selected ? "var(--accent-hex)" : "transparent"}`,
         cursor: "pointer",
         userSelect: "none",
