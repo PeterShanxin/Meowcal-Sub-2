@@ -126,6 +126,8 @@ def test_aggregator_work_sort_prefers_exact_series_and_franchise_movies() -> Non
     sorted_works = aggregator._sort_works(works, "Overlord")
 
     assert [work.id for work in sorted_works] == ["anime-series", "anime-movie", "movie-2018"]
+    assert aggregator._sort_works(works, "Overlord", query_year=2018)[0].id == "movie-2018"
+    assert aggregator._sort_works(works, "Overlord", query_year=2015)[0].id == "anime-series"
 
 
 @pytest.mark.asyncio
