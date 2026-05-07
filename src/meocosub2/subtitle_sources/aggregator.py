@@ -36,6 +36,7 @@ from meocosub2.subtitle_sources.utils import (
     match_group_key,
     media_type_category,
     split_query_year,
+    title_similarity,
     work_key,
 )
 
@@ -54,6 +55,11 @@ BARE_TITLE_SERIES_BONUS = 24.0
 BARE_TITLE_EPISODE_PENALTY = 24.0
 PARENT_SERIES_BONUS = 50.0
 IMPLICIT_EPISODE_PENALTY = 80.0
+QUERY_ALIASES = {
+    "fate fake": "Fate/strange Fake",
+    "fate faker": "Fate/strange Fake",
+    "fate strange faker": "Fate/strange Fake",
+}
 
 
 class SubtitleSearchAggregator:
@@ -75,7 +81,7 @@ class SubtitleSearchAggregator:
 
     async def search_catalog(self, query: str, languages: str) -> AggregatedSearchCatalog:
         clean_title, query_year = split_query_year(query)
-        dispatch_query = clean_title or query
+        dispatch_query = _rewrite_query_alias(clean_title or query)
         responses = await asyncio.gather(
             *(provider.search_catalog(dispatch_query, languages) for provider in self.providers),
             return_exceptions=True,
@@ -102,6 +108,7 @@ class SubtitleSearchAggregator:
         if self._tmdb_client is not None and self._tmdb_client.enabled and aggregated.works:
             aggregated.works = await self._merge_works_via_tmdb(aggregated.works, dispatch_query)
             aggregated.works = await self._apply_tmdb_season_skeleton(aggregated.works)
+        aggregated.works = self._sort_works(aggregated.works, dispatch_query)
         return aggregated
 
     async def download(self, result: AggregatedSubtitleResult) -> Path:
@@ -413,7 +420,7 @@ class SubtitleSearchAggregator:
             for group in [works_groups_snapshot[group_id]]
         ]
 
-        works = self._build_works(full_matches_for_works, aggregated_results)
+        works = self._sort_works(self._build_works(full_matches_for_works, aggregated_results), query)
         return AggregatedSearchCatalog(matches=matches, results=aggregated_results, works=works)
 
     def _build_works(
@@ -467,6 +474,50 @@ class SubtitleSearchAggregator:
             reverse=True,
         )
         return works
+
+    def _sort_works(self, works: list[AggregatedWork], query: str) -> list[AggregatedWork]:
+        """Rank top-level work cards by user query fit after all enrichment."""
+        if not works:
+            return works
+        query_key = canonical_title(query)
+        exact_series_exists = bool(
+            query_key
+            and any(w.media_type == "series" and canonical_title(w.title) == query_key for w in works)
+        )
+
+        def relation_rank(work: AggregatedWork) -> int:
+            if not query_key:
+                return 0
+            title_key = canonical_title(work.title)
+            if not title_key:
+                return 0
+            if title_key == query_key:
+                if work.media_type == "series":
+                    return 520
+                return 330 if exact_series_exists else 420
+            if title_key.startswith(f"{query_key} "):
+                return 450
+            if query_key in title_key:
+                return 380
+            return 0
+
+        def soft_similarity(work: AggregatedWork) -> float:
+            return title_similarity(query, [work.title]) if relation_rank(work) == 0 else 0.0
+
+        return sorted(
+            works,
+            key=lambda w: (
+                relation_rank(w),
+                soft_similarity(w),
+                w.total_subtitles,
+                1 if w.media_type == "series" and w.total_episodes > 0 else 0,
+                1 if w.imdb_id or w.tmdb_id else 0,
+                len(w.providers),
+                w.total_episodes,
+                w.match_score,
+            ),
+            reverse=True,
+        )
 
     async def _merge_works_via_tmdb(
         self,
@@ -908,3 +959,7 @@ def _humanize_downloads(count: int) -> str:
         value = count / 1_000
         return f"{value:.1f}k DL".replace(".0k", "k")
     return f"{count} DL"
+
+
+def _rewrite_query_alias(query: str) -> str:
+    return QUERY_ALIASES.get(canonical_title(query), query)
