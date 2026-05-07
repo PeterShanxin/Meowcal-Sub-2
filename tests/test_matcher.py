@@ -78,7 +78,7 @@ def test_single_cjk_char_can_match() -> None:
     assert result.line_index == 0
 
 
-def test_partial_ratio_handles_cjk_ocr_drop() -> None:
+def test_cjk_match_tolerates_ocr_char_drop() -> None:
     matcher = SubtitleMatcher(
         [SubtitleLine(index=0, start_ms=0, end_ms=1000, text="我今天很开心")],
         fuzzy_threshold=80,

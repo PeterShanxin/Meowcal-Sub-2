@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+from typing import Callable
 
 from rapidfuzz import fuzz, process
 
@@ -70,7 +71,10 @@ class SubtitleMatcher:
         return range(start, stop)
 
     def _extract_best(
-        self, normalized_ocr: str, indices: range, scorer
+        self,
+        normalized_ocr: str,
+        indices: range,
+        scorer: Callable[[str, str], float],
     ) -> tuple[int, float] | None:
         choices = {index: self._normalized[index] for index in indices if self._normalized[index]}
         if not choices:
