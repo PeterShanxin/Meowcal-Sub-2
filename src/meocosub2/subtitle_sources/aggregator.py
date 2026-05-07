@@ -56,6 +56,7 @@ BARE_TITLE_EPISODE_PENALTY = 24.0
 PARENT_SERIES_BONUS = 50.0
 IMPLICIT_EPISODE_PENALTY = 80.0
 WORK_RANK_EXACT_SERIES = 520
+WORK_RANK_EXACT_MOVIE_YEAR = 540
 WORK_RANK_PREFIX = 450
 WORK_RANK_EXACT_MOVIE = 420
 WORK_RANK_CONTAINS = 380
@@ -505,6 +506,8 @@ class SubtitleSearchAggregator:
             if not title_key:
                 return 0
             if title_key == query_key:
+                if work.media_type == "movie" and query_year is not None and work.year == query_year:
+                    return WORK_RANK_EXACT_MOVIE_YEAR
                 if work.media_type == "series":
                     return WORK_RANK_EXACT_SERIES
                 return WORK_RANK_EXACT_MOVIE_WITH_SERIES if exact_series_exists else WORK_RANK_EXACT_MOVIE
@@ -518,9 +521,10 @@ class SubtitleSearchAggregator:
             title_key = canonical_title(work.title)
             relation = relation_rank(work, title_key)
             similarity = title_similarity(query, [work.title]) if relation == 0 else 0.0
+            year_rank = _work_year_rank(work, query_year) if relation > 0 else 0
             return (
-                _work_year_rank(work, query_year),
                 relation,
+                year_rank,
                 similarity,
                 work.total_subtitles,
                 1 if work.media_type == "series" and work.total_episodes > 0 else 0,

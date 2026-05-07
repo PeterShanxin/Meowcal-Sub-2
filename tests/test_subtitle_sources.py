@@ -121,11 +121,24 @@ def test_aggregator_work_sort_prefers_exact_series_and_franchise_movies() -> Non
             total_subtitles=14,
             match_score=202.0,
         ),
+        AggregatedWork(
+            id="unrelated-2018",
+            title="Noisy Provider Hit",
+            media_type="movie",
+            year=2018,
+            year_end=None,
+            imdb_id="tt-noisy",
+            tmdb_id="999",
+            providers=("opensubtitles",),
+            provider_labels=("OpenSubtitles",),
+            total_subtitles=999,
+            match_score=999.0,
+        ),
     ]
 
     sorted_works = aggregator._sort_works(works, "Overlord")
 
-    assert [work.id for work in sorted_works] == ["anime-series", "anime-movie", "movie-2018"]
+    assert [work.id for work in sorted_works[:3]] == ["anime-series", "anime-movie", "movie-2018"]
     assert aggregator._sort_works(works, "Overlord", query_year=2018)[0].id == "movie-2018"
     assert aggregator._sort_works(works, "Overlord", query_year=2015)[0].id == "anime-series"
 
