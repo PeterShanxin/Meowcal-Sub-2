@@ -92,10 +92,30 @@ export function App(): JSX.Element {
     () => mapWorksToItems(snapshot?.search_works ?? []),
     [snapshot?.search_works],
   );
-  const availableSeasonNumbers = useMemo(() => collectSeasonNumbers(works), [works]);
+  const mediaFilteredWorks = useMemo(
+    () => filterWorks(works, titleMediaFilter, [], null),
+    [works, titleMediaFilter],
+  );
+  const seasonFilterScopeWork = useMemo(
+    () => findSeasonFilterScopeWork(mediaFilteredWorks, selectedWorkId, expandedWorkId),
+    [mediaFilteredWorks, selectedWorkId, expandedWorkId],
+  );
+  const availableSeasonNumbers = useMemo(
+    () =>
+      collectSeasonNumbers(
+        seasonFilterScopeWork ? [seasonFilterScopeWork] : mediaFilteredWorks,
+      ),
+    [seasonFilterScopeWork, mediaFilteredWorks],
+  );
   const filteredWorks = useMemo(
-    () => filterWorks(works, titleMediaFilter, selectedSeasonFilters),
-    [works, titleMediaFilter, selectedSeasonFilters],
+    () =>
+      filterWorks(
+        works,
+        titleMediaFilter,
+        selectedSeasonFilters,
+        seasonFilterScopeWork?.id ?? null,
+      ),
+    [works, titleMediaFilter, selectedSeasonFilters, seasonFilterScopeWork?.id],
   );
   const sources = useMemo(
     () =>
@@ -116,6 +136,15 @@ export function App(): JSX.Element {
     [snapshot?.search_results, episodeMatchId, snapshot?.target_language],
   );
   const commands = useMemo(() => buildCommands(phase), [phase]);
+
+  useEffect(() => {
+    if (selectedSeasonFilters.length === 0) return;
+    const available = new Set(availableSeasonNumbers);
+    const valid = selectedSeasonFilters.filter((season) => available.has(season));
+    if (valid.length !== selectedSeasonFilters.length) {
+      store.set({ selectedSeasonFilters: valid, cursorIndex: -1 });
+    }
+  }, [availableSeasonNumbers, selectedSeasonFilters]);
 
   const titleNavRows = useMemo(
     () => paletteWorksNavRows(filteredWorks, expandedWorkId, expandedSeasonNumber),
@@ -280,6 +309,7 @@ export function App(): JSX.Element {
   const onTitleMediaFilterChange = useCallback((filter: TitleMediaFilter) => {
     store.set({
       titleMediaFilter: filter,
+      selectedSeasonFilters: [],
       cursorIndex: -1,
       expandedWorkId: null,
       expandedSeasonNumber: null,
@@ -777,12 +807,14 @@ function filterWorks(
   works: WorkItem[],
   mediaFilter: TitleMediaFilter,
   seasonFilters: number[],
+  seasonScopeWorkId: string | null,
 ): WorkItem[] {
   const seasonSet = new Set(seasonFilters);
   return works.flatMap((work) => {
     if (mediaFilter === "movie" && work.mediaType !== "movie") return [];
     if (mediaFilter === "series" && work.mediaType !== "series") return [];
     if (mediaFilter === "specials" && !isSpecialWork(work)) return [];
+    if (seasonSet.size > 0 && seasonScopeWorkId && work.id !== seasonScopeWorkId) return [];
 
     if (work.mediaType !== "series" || seasonSet.size === 0) return [work];
 
@@ -800,6 +832,19 @@ function filterWorks(
       },
     ];
   });
+}
+
+function findSeasonFilterScopeWork(
+  works: WorkItem[],
+  selectedWorkId: string | null,
+  expandedWorkId: string | null,
+): WorkItem | null {
+  const ids = [expandedWorkId, selectedWorkId].filter(Boolean);
+  for (const id of ids) {
+    const work = works.find((item) => item.id === id && item.mediaType === "series");
+    if (work) return work;
+  }
+  return works.find((work) => work.mediaType === "series") ?? null;
 }
 
 function isSpecialWork(work: WorkItem): boolean {
