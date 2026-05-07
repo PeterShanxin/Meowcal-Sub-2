@@ -8,6 +8,8 @@ from meocosub2.errors import OpenSubtitlesError
 from meocosub2.opensubtitles.client import (
     BASE_URL,
     MAX_RETRIES,
+    STRONG_MATCH_THRESHOLD,
+    _TITLE_BONUS_EXACT,
     OpenSubtitlesClient,
     _OpenSubtitlesOrgAliasParser,
 )
@@ -770,3 +772,46 @@ def test_org_alias_parser_extracts_titles() -> None:
     )
 
     assert parser.titles == ["Fate/strange Fake", '"Fate/strange Fake" The Heroic Spirit Incident']
+
+
+# ---------------------------------------------------------------------------
+# _score_alias_values — document the bonus scale with concrete expectations
+# ---------------------------------------------------------------------------
+
+def _make_client() -> OpenSubtitlesClient:
+    return OpenSubtitlesClient(api_key="test")
+
+
+def test_score_alias_values_exact_match_exceeds_strong_threshold() -> None:
+    client = _make_client()
+    score = client._score_alias_values("inception", ["Inception"])
+    assert score == 100.0 + _TITLE_BONUS_EXACT
+    assert score >= STRONG_MATCH_THRESHOLD
+
+
+def test_score_alias_values_prefix_match_does_not_reach_strong_threshold() -> None:
+    client = _make_client()
+    # "inception" is a prefix of "inception 2010" — bonus applied but still < 185
+    score = client._score_alias_values("inception", ["Inception 2010"])
+    assert score < STRONG_MATCH_THRESHOLD
+
+
+def test_score_alias_values_ampersand_normalised_consistently() -> None:
+    client = _make_client()
+    # alias built from query "lock and stock"; title stored as "Lock & Stock"
+    score_ampersand = client._score_alias_values("lock and stock", ["Lock & Stock"])
+    score_direct = client._score_alias_values("lock and stock", ["Lock and Stock"])
+    assert score_ampersand == score_direct
+
+
+def test_score_alias_values_html_entity_title_normalised() -> None:
+    client = _make_client()
+    # API sometimes returns HTML-encoded titles
+    score = client._score_alias_values("lock and stock", ["Lock &amp; Stock"])
+    assert score == 100.0 + _TITLE_BONUS_EXACT
+
+
+def test_score_alias_values_returns_zero_for_empty_values() -> None:
+    client = _make_client()
+    assert client._score_alias_values("inception", []) == 0.0
+    assert client._score_alias_values("inception", [""]) == 0.0
