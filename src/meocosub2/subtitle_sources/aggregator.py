@@ -36,6 +36,7 @@ from meocosub2.subtitle_sources.utils import (
     match_group_key,
     media_type_category,
     split_query_year,
+    title_similarity,
     work_key,
 )
 
@@ -54,6 +55,21 @@ BARE_TITLE_SERIES_BONUS = 24.0
 BARE_TITLE_EPISODE_PENALTY = 24.0
 PARENT_SERIES_BONUS = 50.0
 IMPLICIT_EPISODE_PENALTY = 80.0
+WORK_RANK_EXACT_SERIES = 520
+WORK_RANK_EXACT_MOVIE_YEAR = 540
+WORK_RANK_PREFIX = 450
+WORK_RANK_EXACT_MOVIE = 420
+WORK_RANK_CONTAINS = 380
+WORK_RANK_EXACT_MOVIE_WITH_SERIES = 330
+WORK_YEAR_EXACT_MOVIE = 500
+WORK_YEAR_EXACT_START = 450
+WORK_YEAR_IN_RANGE = 300
+WORK_YEAR_NEAR_BASE = 100
+QUERY_ALIASES = {
+    "fate fake": "Fate/strange Fake",
+    "fate faker": "Fate/strange Fake",
+    "fate strange faker": "Fate/strange Fake",
+}
 
 
 class SubtitleSearchAggregator:
@@ -75,7 +91,7 @@ class SubtitleSearchAggregator:
 
     async def search_catalog(self, query: str, languages: str) -> AggregatedSearchCatalog:
         clean_title, query_year = split_query_year(query)
-        dispatch_query = clean_title or query
+        dispatch_query = _rewrite_query_alias(clean_title or query)
         responses = await asyncio.gather(
             *(provider.search_catalog(dispatch_query, languages) for provider in self.providers),
             return_exceptions=True,
@@ -102,6 +118,7 @@ class SubtitleSearchAggregator:
         if self._tmdb_client is not None and self._tmdb_client.enabled and aggregated.works:
             aggregated.works = await self._merge_works_via_tmdb(aggregated.works, dispatch_query)
             aggregated.works = await self._apply_tmdb_season_skeleton(aggregated.works)
+        aggregated.works = self._sort_works(aggregated.works, dispatch_query, query_year)
         return aggregated
 
     async def download(self, result: AggregatedSubtitleResult) -> Path:
@@ -413,7 +430,7 @@ class SubtitleSearchAggregator:
             for group in [works_groups_snapshot[group_id]]
         ]
 
-        works = self._build_works(full_matches_for_works, aggregated_results)
+        works = self._sort_works(self._build_works(full_matches_for_works, aggregated_results), query, query_year)
         return AggregatedSearchCatalog(matches=matches, results=aggregated_results, works=works)
 
     def _build_works(
@@ -467,6 +484,61 @@ class SubtitleSearchAggregator:
             reverse=True,
         )
         return works
+
+    def _sort_works(
+        self,
+        works: list[AggregatedWork],
+        query: str,
+        query_year: int | None = None,
+    ) -> list[AggregatedWork]:
+        """Rank top-level work cards by user query fit after all enrichment."""
+        if not works:
+            return works
+        query_key = canonical_title(query)
+        exact_series_exists = bool(
+            query_key
+            and any(w.media_type == "series" and canonical_title(w.title) == query_key for w in works)
+        )
+
+        def relation_rank(work: AggregatedWork, title_key: str) -> int:
+            if not query_key:
+                return 0
+            if not title_key:
+                return 0
+            if title_key == query_key:
+                if work.media_type == "movie" and query_year is not None and work.year == query_year:
+                    return WORK_RANK_EXACT_MOVIE_YEAR
+                if work.media_type == "series":
+                    return WORK_RANK_EXACT_SERIES
+                return WORK_RANK_EXACT_MOVIE_WITH_SERIES if exact_series_exists else WORK_RANK_EXACT_MOVIE
+            if title_key.startswith(f"{query_key} "):
+                return WORK_RANK_PREFIX
+            if query_key in title_key:
+                return WORK_RANK_CONTAINS
+            return 0
+
+        def sort_key(work: AggregatedWork) -> tuple[float, ...]:
+            title_key = canonical_title(work.title)
+            relation = relation_rank(work, title_key)
+            similarity = title_similarity(query, [work.title]) if relation == 0 else 0.0
+            year_rank = _work_year_rank(work, query_year) if relation > 0 else 0
+            return (
+                relation,
+                year_rank,
+                similarity,
+                work.total_subtitles,
+                1 if work.media_type == "series" and work.total_episodes > 0 else 0,
+                1 if work.imdb_id or work.tmdb_id else 0,
+                len(work.providers),
+                work.total_episodes,
+                work.match_score,
+            )
+
+        return sorted(
+            works,
+            key=sort_key,
+            reverse=True,
+        )
 
     async def _merge_works_via_tmdb(
         self,
@@ -908,3 +980,21 @@ def _humanize_downloads(count: int) -> str:
         value = count / 1_000
         return f"{value:.1f}k DL".replace(".0k", "k")
     return f"{count} DL"
+
+
+def _rewrite_query_alias(query: str) -> str:
+    return QUERY_ALIASES.get(canonical_title(query), query)
+
+
+def _work_year_rank(work: AggregatedWork, query_year: int | None) -> int:
+    if query_year is None:
+        return 0
+    if work.year == query_year:
+        return WORK_YEAR_EXACT_MOVIE if work.media_type == "movie" else WORK_YEAR_EXACT_START
+    if work.year and work.year_end and work.year <= query_year <= work.year_end:
+        return WORK_YEAR_IN_RANGE
+    if work.year:
+        diff = abs(work.year - query_year)
+        if diff <= YEAR_NEAR_RANGE:
+            return WORK_YEAR_NEAR_BASE - diff
+    return 0

@@ -4,7 +4,7 @@ from meocosub2.config import AppConfig
 from meocosub2.errors import SubtitleSourceError
 from meocosub2.subtitle_sources.aggregator import SubtitleSearchAggregator
 from meocosub2.subtitle_sources.subdl import SubdlProvider
-from meocosub2.subtitle_sources.types import ProviderSearchCatalog, ProviderSubtitleMatch, ProviderSubtitleResult
+from meocosub2.subtitle_sources.types import AggregatedWork, ProviderSearchCatalog, ProviderSubtitleMatch, ProviderSubtitleResult
 from meocosub2.subtitle_sources.utils import map_subdl_language
 
 
@@ -22,6 +22,16 @@ class FakeProvider:
 
     async def download(self, result: ProviderSubtitleResult):
         return result.file_name
+
+
+class QueryRecorderProvider(FakeProvider):
+    def __init__(self):
+        super().__init__("recorder", "Recorder", ProviderSearchCatalog(matches=[], results=[]))
+        self.queries: list[str] = []
+
+    async def search_catalog(self, query: str, languages: str) -> ProviderSearchCatalog:
+        self.queries.append(query)
+        return await super().search_catalog(query, languages)
 
 
 @pytest.mark.parametrize(
@@ -66,6 +76,82 @@ def test_subdl_parse_page_subtitles_keeps_big_5_code_results_for_chinese_request
     assert len(results) == 1
     assert results[0].language == "zht"
     assert results[0].file_name == "[Crazy-SoL]OverlordIIIEp01-13"
+
+
+def test_aggregator_work_sort_prefers_exact_series_and_franchise_movies() -> None:
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    works = [
+        AggregatedWork(
+            id="movie-2018",
+            title="Overlord",
+            media_type="movie",
+            year=2018,
+            year_end=None,
+            imdb_id="tt4530422",
+            tmdb_id="438799",
+            providers=("opensubtitles",),
+            provider_labels=("OpenSubtitles",),
+            total_subtitles=214,
+            match_score=492.0,
+        ),
+        AggregatedWork(
+            id="anime-series",
+            title="Overlord",
+            media_type="series",
+            year=2015,
+            year_end=2022,
+            imdb_id="tt4869896",
+            tmdb_id="64196",
+            providers=("assrt", "opensubtitles"),
+            provider_labels=("ASSRT", "OpenSubtitles"),
+            total_episodes=52,
+            total_subtitles=281,
+            match_score=510.0,
+        ),
+        AggregatedWork(
+            id="anime-movie",
+            title="OVERLORD: The Sacred Kingdom",
+            media_type="movie",
+            year=2024,
+            year_end=None,
+            imdb_id="tt14603848",
+            tmdb_id="1014505",
+            providers=("opensubtitles",),
+            provider_labels=("OpenSubtitles",),
+            total_subtitles=14,
+            match_score=202.0,
+        ),
+        AggregatedWork(
+            id="unrelated-2018",
+            title="Noisy Provider Hit",
+            media_type="movie",
+            year=2018,
+            year_end=None,
+            imdb_id="tt-noisy",
+            tmdb_id="999",
+            providers=("opensubtitles",),
+            provider_labels=("OpenSubtitles",),
+            total_subtitles=999,
+            match_score=999.0,
+        ),
+    ]
+
+    sorted_works = aggregator._sort_works(works, "Overlord")
+
+    assert [work.id for work in sorted_works[:3]] == ["anime-series", "anime-movie", "movie-2018"]
+    assert aggregator._sort_works(works, "Overlord", query_year=2018)[0].id == "movie-2018"
+    assert aggregator._sort_works(works, "Overlord", query_year=2015)[0].id == "anime-series"
+
+
+@pytest.mark.asyncio
+async def test_aggregator_rewrites_fate_faker_alias_before_provider_search() -> None:
+    provider = QueryRecorderProvider()
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (provider,)
+
+    await aggregator.search_catalog("Fate Faker", "en")
+
+    assert provider.queries == ["Fate/strange Fake"]
 
 
 @pytest.mark.asyncio
