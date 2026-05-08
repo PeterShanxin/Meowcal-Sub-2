@@ -664,27 +664,31 @@ function WorkList({
   }
 
   const rows = flattenNavRows(items, expandedWorkId, expandedSeasonNumber);
-  const rowIndexForWork = (workId: string): number =>
-    rows.findIndex((row) => row.kind === "work" && row.workId === workId);
-  const rowIndexForSeason = (workId: string, seasonNumber: number): number =>
-    rows.findIndex(
-      (row) =>
-        row.kind === "season" &&
-        row.workId === workId &&
-        row.seasonNumber === seasonNumber,
+  const rowIndexByKey = new Map<string, number>();
+  rows.forEach((row, index) => {
+    if (row.kind === "work") {
+      rowIndexByKey.set(`work:${row.workId}`, index);
+      return;
+    }
+    if (row.kind === "season") {
+      rowIndexByKey.set(`season:${row.workId}:${row.seasonNumber}`, index);
+      return;
+    }
+    rowIndexByKey.set(
+      `episode:${row.workId}:${row.seasonNumber}:${row.episodeMatchId}`,
+      index,
     );
+  });
+  const rowIndexForWork = (workId: string): number =>
+    rowIndexByKey.get(`work:${workId}`) ?? -1;
+  const rowIndexForSeason = (workId: string, seasonNumber: number): number =>
+    rowIndexByKey.get(`season:${workId}:${seasonNumber}`) ?? -1;
   const rowIndexForEpisode = (
     workId: string,
     seasonNumber: number,
     episodeMatchId: string,
   ): number =>
-    rows.findIndex(
-      (row) =>
-        (row.kind === "episode" || row.kind === "skeleton_episode") &&
-        row.workId === workId &&
-        row.seasonNumber === seasonNumber &&
-        row.episodeMatchId === episodeMatchId,
-    );
+    rowIndexByKey.get(`episode:${workId}:${seasonNumber}:${episodeMatchId}`) ?? -1;
 
   return (
     <div className="work-grid">

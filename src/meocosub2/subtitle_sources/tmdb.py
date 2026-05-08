@@ -135,6 +135,10 @@ def _title_score(query: str, candidate: dict[str, Any]) -> float:
 def _extract_year(value: Any) -> int | None:
     if not isinstance(value, str) or len(value) < 4:
         return None
+    try:
+        return int(value[:4])
+    except ValueError:
+        return None
 
 
 def poster_url_from_path(path: str | None, size: str = "w92") -> str | None:
@@ -148,10 +152,6 @@ def poster_url_from_path(path: str | None, size: str = "w92") -> str | None:
     if not cleaned.startswith("/"):
         cleaned = f"/{cleaned}"
     return f"{TMDB_IMAGE_BASE_URL}/{size}{cleaned}"
-    try:
-        return int(value[:4])
-    except ValueError:
-        return None
 
 
 class TMDbClient:

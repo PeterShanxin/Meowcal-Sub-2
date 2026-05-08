@@ -151,6 +151,13 @@ export function App(): JSX.Element {
     () => paletteWorksNavRows(filteredWorks, expandedWorkId, expandedSeasonNumber),
     [filteredWorks, expandedWorkId, expandedSeasonNumber],
   );
+  const titleWorkRowIndices = useMemo(
+    () =>
+      titleNavRows.flatMap((row, index) =>
+        row.kind === "work" ? [index] : [],
+      ),
+    [titleNavRows],
+  );
 
   const titleListLength = titleNavRows.length;
   const titleGridColumns = filteredWorks.length > 0 && viewportWidth >= 900 ? 2 : 1;
@@ -540,20 +547,25 @@ export function App(): JSX.Element {
           ? titleNavRows[s.cursorIndex]
           : null;
         if (s.tab === "titles" && titleGridColumns > 1 && titleRow?.kind === "work") {
+          const workPosition = titleWorkRowIndices.indexOf(s.cursorIndex);
+          if (workPosition === -1) return {};
           const delta =
             dir === "down" ? titleGridColumns
               : dir === "up" ? -titleGridColumns
                 : dir === "right" ? 1
                   : -1;
-          const next = Math.max(0, Math.min(list - 1, s.cursorIndex + delta));
-          return { cursorIndex: next };
+          const nextWorkPosition = Math.max(
+            0,
+            Math.min(titleWorkRowIndices.length - 1, workPosition + delta),
+          );
+          return { cursorIndex: titleWorkRowIndices[nextWorkPosition] };
         }
         const step = dir === "up" || dir === "left" ? -1 : 1;
         const next = (s.cursorIndex + step + list) % list;
         return { cursorIndex: next };
       });
     },
-    [titleListLength, sources.length, targets.length, commands.length, titleGridColumns, titleNavRows, cursorForTab],
+    [titleListLength, sources.length, targets.length, commands.length, titleGridColumns, titleNavRows, titleWorkRowIndices, cursorForTab],
   );
 
   const onCycleTab = useCallback((dir: 1 | -1) => {

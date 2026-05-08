@@ -118,6 +118,7 @@ async def test_tmdb_client_search_returns_best_match_and_caches(tmp_path: Path) 
     assert hit is not None
     assert hit.tmdb_id == 64196
     assert hit.imdb_id == "tt4869896"
+    assert hit.first_air_year == 2015
     assert hit.poster_path == "/overlord.jpg"
     assert cached == hit
     await client.close()

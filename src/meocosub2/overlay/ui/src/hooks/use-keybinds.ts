@@ -59,8 +59,8 @@ export function useKeybinds(h: KeyHandlers): void {
         return;
       }
 
-      // Arrow left/right — move inside result grids first, cycle tabs from
-      // text boundaries, and otherwise preserve normal text editing.
+      // Arrow left/right — move result focus from palette input boundaries,
+      // and otherwise preserve normal text editing.
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         if (isPaletteInput) {
           const inp = target as HTMLInputElement;
