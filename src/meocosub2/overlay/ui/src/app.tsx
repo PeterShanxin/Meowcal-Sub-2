@@ -51,6 +51,7 @@ export function App(): JSX.Element {
   const phase: Phase = derivePhase(snapshot, manualView);
   const [searching, setSearching] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  const viewportWidth = useViewportWidth();
   const inputRef = useRef<HTMLInputElement>(null);
   const searchAbort = useRef<AbortController | null>(null);
   const lastSearchedQuery = useRef<string>("");
@@ -150,8 +151,16 @@ export function App(): JSX.Element {
     () => paletteWorksNavRows(filteredWorks, expandedWorkId, expandedSeasonNumber),
     [filteredWorks, expandedWorkId, expandedSeasonNumber],
   );
+  const titleWorkRowIndices = useMemo(
+    () =>
+      titleNavRows.flatMap((row, index) =>
+        row.kind === "work" ? [index] : [],
+      ),
+    [titleNavRows],
+  );
 
   const titleListLength = titleNavRows.length;
+  const titleGridColumns = filteredWorks.length > 0 && viewportWidth >= 900 ? 2 : 1;
   const activeListLength =
     tab === "titles"
       ? titleListLength
@@ -188,6 +197,15 @@ export function App(): JSX.Element {
     const ctrl = new AbortController();
     searchAbort.current = ctrl;
     setSearching(true);
+    store.set({
+      cursorIndex: -1,
+      selectedWorkId: null,
+      expandedWorkId: null,
+      expandedSeasonNumber: null,
+      selectedEpisodeMatchId: null,
+      selectedSourceId: null,
+      selectedTargetId: null,
+    });
     try {
       const res = await api.search(title);
       const fresh = await api.getState();
@@ -505,8 +523,14 @@ export function App(): JSX.Element {
   }, [phase, tab, query, runSearch, startSync, episodeMatchId, selectedSourceId, selectedTargetId, onPickTarget]);
 
   const onMoveCursor = useCallback(
-    (dir: 1 | -1) => {
+    (dir: "up" | "down" | "left" | "right") => {
       store.set((s) => {
+        if ((dir === "left" || dir === "right") && s.tab !== "titles") {
+          const order: PaletteTabId[] = ["titles", "source", "target", "cmd"];
+          const idx = order.indexOf(s.tab);
+          const next = order[(idx + (dir === "right" ? 1 : -1) + order.length) % order.length];
+          return { tab: next, cursorIndex: cursorForTab(next) };
+        }
         const list =
           s.tab === "titles"
             ? titleListLength
@@ -516,14 +540,32 @@ export function App(): JSX.Element {
                 ? targets.length
                 : commands.length;
         if (list === 0) return {};
-        const next =
-          s.cursorIndex === -1
-            ? dir === 1 ? 0 : list - 1
-            : (s.cursorIndex + dir + list) % list;
+        if (s.cursorIndex === -1) {
+          return { cursorIndex: dir === "up" || dir === "left" ? list - 1 : 0 };
+        }
+        const titleRow = s.tab === "titles" && s.cursorIndex >= 0
+          ? titleNavRows[s.cursorIndex]
+          : null;
+        if (s.tab === "titles" && titleGridColumns > 1 && titleRow?.kind === "work") {
+          const workPosition = titleWorkRowIndices.indexOf(s.cursorIndex);
+          if (workPosition === -1) return {};
+          const delta =
+            dir === "down" ? titleGridColumns
+              : dir === "up" ? -titleGridColumns
+                : dir === "right" ? 1
+                  : -1;
+          const nextWorkPosition = Math.max(
+            0,
+            Math.min(titleWorkRowIndices.length - 1, workPosition + delta),
+          );
+          return { cursorIndex: titleWorkRowIndices[nextWorkPosition] };
+        }
+        const step = dir === "up" || dir === "left" ? -1 : 1;
+        const next = (s.cursorIndex + step + list) % list;
         return { cursorIndex: next };
       });
     },
-    [titleListLength, sources.length, targets.length, commands.length],
+    [titleListLength, sources.length, targets.length, commands.length, titleGridColumns, titleNavRows, titleWorkRowIndices, cursorForTab],
   );
 
   const onCycleTab = useCallback((dir: 1 | -1) => {
@@ -615,7 +657,7 @@ export function App(): JSX.Element {
             left: isCompact ? 20 : "50%",
             right: isCompact ? 20 : "auto",
             transform: isCompact ? "none" : "translateX(-50%)",
-            width: isCompact ? "auto" : 920,
+            width: isCompact ? "auto" : "min(920px, calc(100vw - 28px))",
             zIndex: 4,
             transition:
               "top 520ms cubic-bezier(.22, 1.3, .36, 1), transform 280ms cubic-bezier(.2,.7,.3,1), width 280ms cubic-bezier(.2,.7,.3,1)",
@@ -852,4 +894,18 @@ function isSpecialWork(work: WorkItem): boolean {
     return true;
   }
   return /\b(ova|oad|ona|special|specials)\b/i.test(work.title);
+}
+
+function useViewportWidth(): number {
+  const [width, setWidth] = useState(() =>
+    typeof window === "undefined" ? 1024 : window.innerWidth,
+  );
+
+  useEffect(() => {
+    const onResize = (): void => setWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  return width;
 }

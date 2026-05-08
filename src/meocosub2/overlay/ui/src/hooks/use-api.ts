@@ -29,6 +29,7 @@ async function request<T>(
 export interface SearchResponse {
   results: BackendSnapshot["search_results"];
   matches: BackendSnapshot["search_matches"];
+  works: BackendSnapshot["search_works"];
   warnings: string[];
 }
 

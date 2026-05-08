@@ -3,7 +3,7 @@ import { useEffect } from "react";
 export interface KeyHandlers {
   onFocusPalette: () => void;
   onCycleTab: (direction: 1 | -1) => void;
-  onMoveCursor: (direction: 1 | -1) => void;
+  onMoveCursor: (direction: "up" | "down" | "left" | "right") => void;
   onPrimaryConfirm: () => void;
   onSelect: () => void;
   onOpenSettings: () => void;
@@ -55,11 +55,12 @@ export function useKeybinds(h: KeyHandlers): void {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         if (!isPaletteInput && isTypingContext(e.target)) return;
         e.preventDefault();
-        h.onMoveCursor(e.key === "ArrowDown" ? 1 : -1);
+        h.onMoveCursor(e.key === "ArrowDown" ? "down" : "up");
         return;
       }
 
-      // Arrow left/right — cycle tabs when at text boundary or input empty
+      // Arrow left/right — move result focus from palette input boundaries,
+      // and otherwise preserve normal text editing.
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         if (isPaletteInput) {
           const inp = target as HTMLInputElement;
@@ -68,16 +69,21 @@ export function useKeybinds(h: KeyHandlers): void {
             (inp.selectionStart ?? 0) === inp.value.length &&
             (inp.selectionEnd ?? 0) === inp.value.length;
           const empty = inp.value.length === 0;
-          if (empty || (e.key === "ArrowLeft" && atStart) || (e.key === "ArrowRight" && atEnd)) {
+          if (!empty && ((e.key === "ArrowLeft" && atStart) || (e.key === "ArrowRight" && atEnd))) {
             e.preventDefault();
-            h.onCycleTab(e.key === "ArrowRight" ? 1 : -1);
+            h.onMoveCursor(e.key === "ArrowRight" ? "right" : "left");
+            return;
+          }
+          if (empty) {
+            e.preventDefault();
+            h.onMoveCursor(e.key === "ArrowRight" ? "right" : "left");
             return;
           }
           return;
         }
         if (isTypingContext(e.target)) return;
         e.preventDefault();
-        h.onCycleTab(e.key === "ArrowRight" ? 1 : -1);
+        h.onMoveCursor(e.key === "ArrowRight" ? "right" : "left");
         return;
       }
 

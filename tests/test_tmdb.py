@@ -67,6 +67,9 @@ class _StubTMDb:
     async def fetch_season(self, tmdb_id: int, season_number: int) -> list[dict]:
         return self._season_episodes.get((tmdb_id, season_number), [])
 
+    async def fetch_poster_url(self, tmdb_id: int, media_type: str) -> str | None:
+        return None
+
 
 class _NullCache:
     def flush(self) -> None:  # pragma: no cover - trivial
@@ -95,6 +98,7 @@ async def test_tmdb_client_search_returns_best_match_and_caches(tmp_path: Path) 
                             "name": "Overlord",
                             "original_name": "オーバーロード",
                             "first_air_date": "2015-07-07",
+                            "poster_path": "/overlord.jpg",
                             "popularity": 80.0,
                         },
                     ]
@@ -114,6 +118,8 @@ async def test_tmdb_client_search_returns_best_match_and_caches(tmp_path: Path) 
     assert hit is not None
     assert hit.tmdb_id == 64196
     assert hit.imdb_id == "tt4869896"
+    assert hit.first_air_year == 2015
+    assert hit.poster_path == "/overlord.jpg"
     assert cached == hit
     await client.close()
 
@@ -242,6 +248,7 @@ async def test_aggregator_merges_cross_lingual_series_via_tmdb() -> None:
     work = series_works[0]
     assert work.tmdb_id == "64196"
     assert work.imdb_id == "tt4869896"
+    assert work.poster_url is None
     assert "subdl" in work.providers
     assert "opensubtitles" in work.providers
 
@@ -260,7 +267,7 @@ async def test_aggregator_applies_skeleton_for_single_series_without_tmdb_id() -
     )
     stub = _StubTMDb(
         search_hits={"overlord": overlord_series},
-        series_details={64196: {"number_of_seasons": 4}},
+        series_details={64196: {"number_of_seasons": 4, "poster_path": "/overlord.jpg"}},
         season_episodes={
             (64196, 1): [
                 {"episode_number": 1, "name": "S1E1", "air_date": "2015-07-07"},
@@ -343,6 +350,7 @@ async def test_aggregator_applies_skeleton_for_single_series_without_tmdb_id() -
     work = series_works[0]
     assert work.tmdb_id == "64196"
     assert work.imdb_id == "tt4869896"
+    assert work.poster_url == "https://image.tmdb.org/t/p/w92/overlord.jpg"
 
     season_numbers = sorted(s.season_number for s in work.seasons)
     assert season_numbers == [1, 2, 3, 4], "all four TMDb seasons should be present"
@@ -414,7 +422,7 @@ async def test_fetch_series_details_returns_season_count(tmp_path: Path) -> None
     with respx.mock(base_url="https://api.themoviedb.org/3") as router:
         router.get("/tv/64196").mock(
             return_value=httpx.Response(
-                200, json={"number_of_seasons": 4, "name": "Overlord"}
+                200, json={"number_of_seasons": 4, "name": "Overlord", "poster_path": "/overlord.jpg"}
             )
         )
         details = await client.fetch_series_details(64196)
@@ -423,7 +431,25 @@ async def test_fetch_series_details_returns_season_count(tmp_path: Path) -> None
 
     assert details is not None
     assert details["number_of_seasons"] == 4
+    assert details["poster_path"] == "/overlord.jpg"
     assert cached == details
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_fetch_poster_url_returns_tmdb_image_url(tmp_path: Path) -> None:
+    cache = TMDbCache(tmp_path / "cache.json")
+    client = TMDbClient("key", cache=cache)
+    with respx.mock(base_url="https://api.themoviedb.org/3") as router:
+        router.get("/movie/27205").mock(
+            return_value=httpx.Response(200, json={"poster_path": "/inception.jpg"})
+        )
+        poster = await client.fetch_poster_url(27205, "movie")
+        cached = await client.fetch_poster_url(27205, "movie")
+        assert router.calls.call_count == 1
+
+    assert poster == "https://image.tmdb.org/t/p/w92/inception.jpg"
+    assert cached == poster
     await client.close()
 
 
