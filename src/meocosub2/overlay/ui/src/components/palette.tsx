@@ -664,24 +664,42 @@ function WorkList({
   }
 
   const rows = flattenNavRows(items, expandedWorkId, expandedSeasonNumber);
-  const gridMode = expandedWorkId == null && rows.every((row) => row.kind === "work");
+  const rowIndexForWork = (workId: string): number =>
+    rows.findIndex((row) => row.kind === "work" && row.workId === workId);
+  const rowIndexForSeason = (workId: string, seasonNumber: number): number =>
+    rows.findIndex(
+      (row) =>
+        row.kind === "season" &&
+        row.workId === workId &&
+        row.seasonNumber === seasonNumber,
+    );
+  const rowIndexForEpisode = (
+    workId: string,
+    seasonNumber: number,
+    episodeMatchId: string,
+  ): number =>
+    rows.findIndex(
+      (row) =>
+        (row.kind === "episode" || row.kind === "skeleton_episode") &&
+        row.workId === workId &&
+        row.seasonNumber === seasonNumber &&
+        row.episodeMatchId === episodeMatchId,
+    );
 
   return (
-    <div className={gridMode ? "work-grid" : "work-list"}>
-      {rows.map((row, rowIndex) => {
-        const focused = cursorIndex === rowIndex;
-        if (row.kind === "work") {
-          const work = items.find((w) => w.id === row.workId)!;
-          const isSelected = selectedWorkId === work.id;
-          const isExpanded = expandedWorkId === work.id;
-          return (
+    <div className="work-grid">
+      {items.map((work) => {
+        const workRowIndex = rowIndexForWork(work.id);
+        const isSelected = selectedWorkId === work.id;
+        const isExpanded = expandedWorkId === work.id;
+        return (
+          <div className="work-card" key={`work-card-${work.id}`}>
             <WorkRow
-              key={`work-${work.id}`}
               work={work}
               selected={isSelected}
               expanded={isExpanded}
-              focused={focused}
-              rowIndex={rowIndex}
+              focused={cursorIndex === workRowIndex}
+              rowIndex={workRowIndex}
               onClick={() => {
                 if (work.expandable) {
                   onToggleExpandWork(work.id);
@@ -690,52 +708,56 @@ function WorkList({
                 }
               }}
             />
-          );
-        }
-        if (row.kind === "season") {
-          const work = items.find((w) => w.id === row.workId)!;
-          const season = work.seasons.find((s) => s.seasonNumber === row.seasonNumber)!;
-          const open = expandedSeasonNumber === season.seasonNumber && expandedWorkId === work.id;
-          return (
-            <SeasonRow
-              key={`season-${work.id}-${season.seasonNumber}`}
-              season={season}
-              open={open}
-              focused={focused}
-              rowIndex={rowIndex}
-              onClick={() => onToggleExpandSeason(work.id, season.seasonNumber)}
-            />
-          );
-        }
-        const work = items.find((w) => w.id === row.workId)!;
-        const season = work.seasons.find((s) => s.seasonNumber === row.seasonNumber)!;
-        const ep = season.episodes.find((e) => e.matchId === row.episodeMatchId)!;
-        if (!ep) return null;
-        if (row.kind === "skeleton_episode") {
-          return (
-            <EpisodeRow
-              key={`skep-${ep.matchId}`}
-              label={ep.label}
-              subtitles={0}
-              picked={false}
-              focused={false}
-              skeleton
-              rowIndex={rowIndex}
-              onClick={() => {}}
-            />
-          );
-        }
-        const picked = selectedEpisodeMatchId === ep.matchId;
-        return (
-          <EpisodeRow
-            key={`ep-${ep.matchId}`}
-            label={ep.label}
-            subtitles={ep.subtitlesCount}
-            picked={picked}
-            focused={focused}
-            rowIndex={rowIndex}
-            onClick={() => onPickEpisode(work.id, ep.matchId)}
-          />
+            {isExpanded && (
+              <div className="work-nested">
+                {work.seasons.map((season) => {
+                  const seasonRowIndex = rowIndexForSeason(work.id, season.seasonNumber);
+                  const open = expandedSeasonNumber === season.seasonNumber;
+                  return (
+                    <div key={`season-group-${work.id}-${season.seasonNumber}`}>
+                      <SeasonRow
+                        season={season}
+                        open={open}
+                        focused={cursorIndex === seasonRowIndex}
+                        rowIndex={seasonRowIndex}
+                        onClick={() => onToggleExpandSeason(work.id, season.seasonNumber)}
+                      />
+                      {open && season.episodes.map((ep) => {
+                        const epRowIndex = rowIndexForEpisode(work.id, season.seasonNumber, ep.matchId);
+                        const isSkeleton = ep.matchId.startsWith("skeleton:");
+                        if (isSkeleton) {
+                          return (
+                            <EpisodeRow
+                              key={`skep-${ep.matchId}`}
+                              label={ep.label}
+                              subtitles={0}
+                              picked={false}
+                              focused={false}
+                              skeleton
+                              rowIndex={epRowIndex}
+                              onClick={() => {}}
+                            />
+                          );
+                        }
+                        const picked = selectedEpisodeMatchId === ep.matchId;
+                        return (
+                          <EpisodeRow
+                            key={`ep-${ep.matchId}`}
+                            label={ep.label}
+                            subtitles={ep.subtitlesCount}
+                            picked={picked}
+                            focused={cursorIndex === epRowIndex}
+                            rowIndex={epRowIndex}
+                            onClick={() => onPickEpisode(work.id, ep.matchId)}
+                          />
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         );
       })}
     </div>

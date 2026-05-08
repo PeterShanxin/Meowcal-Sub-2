@@ -153,7 +153,7 @@ export function App(): JSX.Element {
   );
 
   const titleListLength = titleNavRows.length;
-  const titleGridColumns = filteredWorks.length > 0 && !expandedWorkId && viewportWidth >= 900 ? 2 : 1;
+  const titleGridColumns = filteredWorks.length > 0 && viewportWidth >= 900 ? 2 : 1;
   const activeListLength =
     tab === "titles"
       ? titleListLength
@@ -190,6 +190,15 @@ export function App(): JSX.Element {
     const ctrl = new AbortController();
     searchAbort.current = ctrl;
     setSearching(true);
+    store.set({
+      cursorIndex: -1,
+      selectedWorkId: null,
+      expandedWorkId: null,
+      expandedSeasonNumber: null,
+      selectedEpisodeMatchId: null,
+      selectedSourceId: null,
+      selectedTargetId: null,
+    });
     try {
       const res = await api.search(title);
       const fresh = await api.getState();
@@ -527,7 +536,10 @@ export function App(): JSX.Element {
         if (s.cursorIndex === -1) {
           return { cursorIndex: dir === "up" || dir === "left" ? list - 1 : 0 };
         }
-        if (s.tab === "titles" && titleGridColumns > 1) {
+        const titleRow = s.tab === "titles" && s.cursorIndex >= 0
+          ? titleNavRows[s.cursorIndex]
+          : null;
+        if (s.tab === "titles" && titleGridColumns > 1 && titleRow?.kind === "work") {
           const delta =
             dir === "down" ? titleGridColumns
               : dir === "up" ? -titleGridColumns
@@ -541,7 +553,7 @@ export function App(): JSX.Element {
         return { cursorIndex: next };
       });
     },
-    [titleListLength, sources.length, targets.length, commands.length, titleGridColumns, cursorForTab],
+    [titleListLength, sources.length, targets.length, commands.length, titleGridColumns, titleNavRows, cursorForTab],
   );
 
   const onCycleTab = useCallback((dir: 1 | -1) => {
