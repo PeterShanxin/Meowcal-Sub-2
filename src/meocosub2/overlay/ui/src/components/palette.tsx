@@ -1179,6 +1179,7 @@ const Row = forwardRef<HTMLDivElement, RowProps>(function Row(
       ref={ref}
       className={className}
       data-cursor-row={rowIndex ?? undefined}
+      data-row-active={className === "work-row" && (focused || selected) ? "true" : undefined}
       onClick={onClick}
       onMouseDown={(e) => e.preventDefault()}
       style={{
@@ -1191,7 +1192,10 @@ const Row = forwardRef<HTMLDivElement, RowProps>(function Row(
           : selected
             ? "rgba(255,185,90,0.05)"
             : undefined,
-        borderLeft: `2px solid ${focused || selected ? "var(--accent-hex)" : "transparent"}`,
+        borderLeft:
+          className === "work-row"
+            ? "2px solid transparent"
+            : `2px solid ${focused || selected ? "var(--accent-hex)" : "transparent"}`,
         cursor: "pointer",
         userSelect: "none",
         WebkitUserSelect: "none",

@@ -336,9 +336,28 @@ kbd[data-dim="true"] {
 }
 
 .work-row {
+  position: relative;
   min-width: 0;
   min-height: 94px;
   padding: 13px 14px;
+}
+
+.work-row::before {
+  content: "";
+  position: absolute;
+  left: -2px;
+  top: 13px;
+  bottom: 13px;
+  width: 2px;
+  border-radius: 999px;
+  background: transparent;
+  pointer-events: none;
+  transition: background 150ms ease, box-shadow 150ms ease;
+}
+
+.work-row[data-row-active="true"]::before {
+  background: var(--accent-hex);
+  box-shadow: 0 0 10px rgba(242, 199, 143, 0.36);
 }
 
 .work-nested {
@@ -397,6 +416,7 @@ kbd[data-dim="true"] {
   .work-nested,
   .work-nested [data-cursor-row],
   .work-poster img,
+  .work-row::before,
   .work-card {
     animation: none;
     transition: none;
