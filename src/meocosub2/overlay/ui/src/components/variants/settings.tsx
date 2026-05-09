@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BackendConfig } from "../../lib/types";
 import { api } from "../../hooks/use-api";
 import { tauri } from "../../hooks/use-tauri";
@@ -49,9 +49,11 @@ const FOCUSABLE_SELECTOR = [
 export function SettingsView({
   initialConfig,
   onClose,
+  open,
 }: {
   initialConfig: BackendConfig;
   onClose: () => void;
+  open: boolean;
 }): JSX.Element {
   const [section, setSection] = useState<SectionId>("sources");
   const [draft, setDraft] = useState<BackendConfig>(initialConfig);
@@ -61,23 +63,34 @@ export function SettingsView({
     kind: "ok" | "error";
     text: string;
   } | null>(null);
-  const [motionState, setMotionState] = useState<"opening" | "open" | "closing">(
-    "opening",
+  const [motionState, setMotionState] = useState<"hidden" | "open" | "closing">(
+    open ? "open" : "hidden",
   );
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const closeTimerRef = useRef<number | null>(null);
-  const frameRef = useRef<number | null>(null);
+  const previousFocusRef = useRef<Element | null>(null);
 
-  const closeAnimated = useCallback((): void => {
-    setMotionState((current) => {
-      if (current === "closing") return current;
-      closeTimerRef.current = window.setTimeout(() => {
-        onClose();
-      }, SETTINGS_CLOSE_ANIMATION_MS);
-      return "closing";
-    });
-  }, [onClose]);
+  useEffect(() => {
+    if (open) {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
+      setMotionState("open");
+    } else {
+      setMotionState((current) => {
+        if (current === "open") {
+          closeTimerRef.current = window.setTimeout(() => {
+            setMotionState("hidden");
+            closeTimerRef.current = null;
+          }, SETTINGS_CLOSE_ANIMATION_MS);
+          return "closing";
+        }
+        return current;
+      });
+    }
+  }, [open]);
 
   useEffect(() => {
     setDraft(initialConfig);
@@ -85,18 +98,15 @@ export function SettingsView({
   }, [initialConfig]);
 
   useEffect(() => {
-    const previousFocus = document.activeElement;
+    if (motionState !== "open") return;
+
+    previousFocusRef.current = document.activeElement;
     closeButtonRef.current?.focus({ preventScroll: true });
-    frameRef.current = window.requestAnimationFrame(() => {
-      frameRef.current = window.requestAnimationFrame(() => {
-        setMotionState("open");
-      });
-    });
 
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
         event.preventDefault();
-        closeAnimated();
+        onClose();
         return;
       }
 
@@ -131,18 +141,21 @@ export function SettingsView({
 
     document.addEventListener("keydown", onKeyDown);
     return () => {
-      if (frameRef.current !== null) {
-        window.cancelAnimationFrame(frameRef.current);
-      }
-      if (closeTimerRef.current !== null) {
-        window.clearTimeout(closeTimerRef.current);
-      }
       document.removeEventListener("keydown", onKeyDown);
+      const previousFocus = previousFocusRef.current;
       if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
         previousFocus.focus({ preventScroll: true });
       }
     };
-  }, [closeAnimated]);
+  }, [motionState, onClose]);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+      }
+    };
+  }, []);
 
   const update = (patch: (c: BackendConfig) => BackendConfig): void => {
     setDraft((prev) => patch(prev));
@@ -170,7 +183,7 @@ export function SettingsView({
       className="settings-backdrop"
       data-motion={motionState}
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) closeAnimated();
+        if (event.target === event.currentTarget) onClose();
       }}
       style={{
         position: "absolute",
@@ -181,8 +194,6 @@ export function SettingsView({
         justifyContent: "center",
         padding: "72px 28px 28px",
         background: "rgba(7,7,10,0.04)",
-        backdropFilter: "blur(5px) saturate(1.12) brightness(1.02)",
-        WebkitBackdropFilter: "blur(5px) saturate(1.12) brightness(1.02)",
       }}
     >
       <div
@@ -206,7 +217,7 @@ export function SettingsView({
       >
         <button
           ref={closeButtonRef}
-          onClick={closeAnimated}
+          onClick={onClose}
           aria-label="Close settings"
           title="Close settings"
           style={{
@@ -372,7 +383,7 @@ export function SettingsView({
           </button>
           <div style={{ display: "flex", gap: 10 }}>
             <button
-              onClick={closeAnimated}
+              onClick={onClose}
               style={{
                 padding: "10px 16px",
                 borderRadius: 8,

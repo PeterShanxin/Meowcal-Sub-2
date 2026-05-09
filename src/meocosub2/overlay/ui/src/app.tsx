@@ -805,10 +805,11 @@ export function App(): JSX.Element {
         )}
       </div>
 
-      {showSettings && config && (
+      {config && (
         <SettingsView
           initialConfig={config}
           onClose={closeSettings}
+          open={showSettings}
         />
       )}
 
