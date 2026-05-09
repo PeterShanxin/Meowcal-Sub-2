@@ -618,6 +618,12 @@ export function App(): JSX.Element {
       ? `${selectedWork.totalSubtitles.toLocaleString()} subs`
       : selectedWork.type
     : "—";
+  const openSettings = useCallback(() => {
+    store.set({ manualView: "settings" });
+  }, []);
+  const closeSettings = useCallback(() => {
+    store.set({ manualView: null });
+  }, []);
 
   return (
     <div
@@ -642,12 +648,12 @@ export function App(): JSX.Element {
           wsConnected={wsConnected}
           foundryPhase={foundry?.phase ?? "—"}
           sourcesCount={countEnabledSources(config)}
-          onOpenSettings={() => store.set({ manualView: "settings" })}
+          onOpenSettings={openSettings}
         />
 
         {noKey && phase === "home" && !query && (
           <NoApiKey
-            onOpenSettings={() => store.set({ manualView: "settings" })}
+            onOpenSettings={openSettings}
             onUseSubdl={() => void enableSubdlOnly()}
           />
         )}
@@ -775,7 +781,7 @@ export function App(): JSX.Element {
             current={liveLines[liveLines.length - 1] ?? null}
             onStop={() => void clearSession()}
             onSelectRegion={() => void tauri.openAreaSelector()}
-            onOpenSettings={() => store.set({ manualView: "settings" })}
+            onOpenSettings={openSettings}
           />
         )}
       </div>
@@ -783,7 +789,7 @@ export function App(): JSX.Element {
       {showSettings && config && (
         <SettingsView
           initialConfig={config}
-          onClose={() => store.set({ manualView: null })}
+          onClose={closeSettings}
         />
       )}
 
