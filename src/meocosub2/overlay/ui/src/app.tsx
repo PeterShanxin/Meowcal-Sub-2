@@ -629,147 +629,156 @@ export function App(): JSX.Element {
       }}
     >
       <Backdrop />
-      <TopBar
-        phase={phase}
-        wsConnected={wsConnected}
-        foundryPhase={foundry?.phase ?? "—"}
-        sourcesCount={countEnabledSources(config)}
-        onOpenSettings={() => store.set({ manualView: "settings" })}
-      />
-
-      {noKey && phase === "home" && !query && (
-        <NoApiKey
-          onOpenSettings={() => store.set({ manualView: "settings" })}
-          onUseSubdl={() => void enableSubdlOnly()}
-        />
-      )}
-
-      {!noKey && isEmpty && phase === "home" && !query && (
-        <EmptyState
-          sourceLabel={languageLabel(config?.languages.source)}
-          targetLabel={languageLabel(config?.languages.target)}
-          onOpenPalette={focusPalette}
-        />
-      )}
-
       <div
+        aria-hidden={showSettings}
         style={{
           position: "absolute",
-          top: isCompact ? 56 : isIdle ? 210 : 88,
-          left: isCompact ? 20 : "50%",
-          right: isCompact ? 20 : "auto",
-          transform: isCompact ? "none" : "translateX(-50%)",
-          width: isCompact ? "auto" : "min(920px, calc(100vw - 28px))",
-          zIndex: 4,
-          transition:
-            "top 520ms cubic-bezier(.22, 1.3, .36, 1), transform 280ms cubic-bezier(.2,.7,.3,1), width 280ms cubic-bezier(.2,.7,.3,1)",
+          inset: 0,
+          pointerEvents: showSettings ? "none" : "auto",
         }}
       >
-        {!isCompact && !noKey && !isEmpty && (
-          <div style={{ textAlign: "center", marginBottom: 26 }}>
-            <div
-              style={{
-                fontSize: 13,
-                fontWeight: 700,
-                letterSpacing: 3.2,
-                color: "var(--text-label)",
-                textTransform: "uppercase",
-              }}
-            >
-              Meowcal Studio
-            </div>
-            <h1
-              className="display-serif"
-              style={{
-                margin: "10px 0 0",
-                fontSize: 52,
-                fontWeight: 500,
-                letterSpacing: -1.2,
-                lineHeight: 1.1,
-                color: "var(--text-heading)",
-              }}
-            >
-              What are you watching?
-            </h1>
-          </div>
-        )}
-        {!noKey && !isEmpty && (
-          <Palette
-            phase={phase}
-            compact={isCompact}
-            query={query}
-            onQueryChange={onQueryChange}
-            tab={tab}
-            onTabChange={onTabChange}
-            works={filteredWorks}
-            totalWorksCount={works.length}
-            titleMediaFilter={titleMediaFilter}
-            selectedSeasonFilters={selectedSeasonFilters}
-            availableSeasonNumbers={availableSeasonNumbers}
-            onTitleMediaFilterChange={onTitleMediaFilterChange}
-            onToggleSeasonFilter={onToggleSeasonFilter}
-            onClearSeasonFilters={onClearSeasonFilters}
-            sources={sources}
-            targets={targets}
-            commands={commands}
-            selectedWorkId={selectedWorkId}
-            expandedWorkId={expandedWorkId}
-            expandedSeasonNumber={expandedSeasonNumber}
-            selectedEpisodeMatchId={selectedEpisodeMatchId}
-            selectedSourceId={selectedSourceId}
-            selectedTargetId={selectedTargetId}
-            cursorIndex={cursorIndex}
-            onToggleExpandWork={onToggleExpandWork}
-            onToggleExpandSeason={onToggleExpandSeason}
-            onPickWork={onPickWork}
-            onPickEpisode={onPickEpisode}
-            onPickSource={onPickSource}
-            onPickTarget={(id) => void onPickTarget(id)}
-            onCommand={onCommand}
-            onPrimary={() => void onPrimaryConfirm()}
-            inputRef={inputRef}
-            sourceLang={sourceLang}
-            targetLang={targetLang}
-            searching={searching}
-            langOptions={(languages?.sourceTarget ?? []) as LanguageOption[]}
-            onChangeLang={(type, code) => void onChangeLang(type, code)}
+        <TopBar
+          phase={phase}
+          wsConnected={wsConnected}
+          foundryPhase={foundry?.phase ?? "—"}
+          sourcesCount={countEnabledSources(config)}
+          onOpenSettings={() => store.set({ manualView: "settings" })}
+        />
+
+        {noKey && phase === "home" && !query && (
+          <NoApiKey
+            onOpenSettings={() => store.set({ manualView: "settings" })}
+            onUseSubdl={() => void enableSubdlOnly()}
           />
         )}
-      </div>
 
-      {phase === "prep" && (
+        {!noKey && isEmpty && phase === "home" && !query && (
+          <EmptyState
+            sourceLabel={languageLabel(config?.languages.source)}
+            targetLabel={languageLabel(config?.languages.target)}
+            onOpenPalette={focusPalette}
+          />
+        )}
+
         <div
           style={{
             position: "absolute",
-            top: 380,
-            left: 20,
-            right: 20,
-            bottom: 20,
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 16,
+            top: isCompact ? 56 : isIdle ? 210 : 88,
+            left: isCompact ? 20 : "50%",
+            right: isCompact ? 20 : "auto",
+            transform: isCompact ? "none" : "translateX(-50%)",
+            width: isCompact ? "auto" : "min(920px, calc(100vw - 28px))",
+            zIndex: 4,
+            transition:
+              "top 520ms cubic-bezier(.22, 1.3, .36, 1), transform 280ms cubic-bezier(.2,.7,.3,1), width 280ms cubic-bezier(.2,.7,.3,1)",
           }}
         >
-          <PrepCard
-            titleLabel={prepTitleLabel}
-            runtimeLabel={prepRuntimeLabel}
-            source={sources.find((s) => s.id === selectedSourceId) ?? null}
-            target={targets.find((t) => t.id === selectedTargetId) ?? null}
-            prepared={snapshot?.prepared_session ?? null}
-          />
-          <PreviewCard line={liveLines[liveLines.length - 1] ?? null} />
+          {!isCompact && !noKey && !isEmpty && (
+            <div style={{ textAlign: "center", marginBottom: 26 }}>
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  letterSpacing: 3.2,
+                  color: "var(--text-label)",
+                  textTransform: "uppercase",
+                }}
+              >
+                Meowcal Studio
+              </div>
+              <h1
+                className="display-serif"
+                style={{
+                  margin: "10px 0 0",
+                  fontSize: 52,
+                  fontWeight: 500,
+                  letterSpacing: -1.2,
+                  lineHeight: 1.1,
+                  color: "var(--text-heading)",
+                }}
+              >
+                What are you watching?
+              </h1>
+            </div>
+          )}
+          {!noKey && !isEmpty && (
+            <Palette
+              phase={phase}
+              compact={isCompact}
+              query={query}
+              onQueryChange={onQueryChange}
+              tab={tab}
+              onTabChange={onTabChange}
+              works={filteredWorks}
+              totalWorksCount={works.length}
+              titleMediaFilter={titleMediaFilter}
+              selectedSeasonFilters={selectedSeasonFilters}
+              availableSeasonNumbers={availableSeasonNumbers}
+              onTitleMediaFilterChange={onTitleMediaFilterChange}
+              onToggleSeasonFilter={onToggleSeasonFilter}
+              onClearSeasonFilters={onClearSeasonFilters}
+              sources={sources}
+              targets={targets}
+              commands={commands}
+              selectedWorkId={selectedWorkId}
+              expandedWorkId={expandedWorkId}
+              expandedSeasonNumber={expandedSeasonNumber}
+              selectedEpisodeMatchId={selectedEpisodeMatchId}
+              selectedSourceId={selectedSourceId}
+              selectedTargetId={selectedTargetId}
+              cursorIndex={cursorIndex}
+              onToggleExpandWork={onToggleExpandWork}
+              onToggleExpandSeason={onToggleExpandSeason}
+              onPickWork={onPickWork}
+              onPickEpisode={onPickEpisode}
+              onPickSource={onPickSource}
+              onPickTarget={(id) => void onPickTarget(id)}
+              onCommand={onCommand}
+              onPrimary={() => void onPrimaryConfirm()}
+              inputRef={inputRef}
+              sourceLang={sourceLang}
+              targetLang={targetLang}
+              searching={searching}
+              langOptions={(languages?.sourceTarget ?? []) as LanguageOption[]}
+              onChangeLang={(type, code) => void onChangeLang(type, code)}
+            />
+          )}
         </div>
-      )}
 
-      {phase === "live" && (
-        <LiveView
-          prev={liveLines[liveLines.length - 2] ?? null}
-          current={liveLines[liveLines.length - 1] ?? null}
-          onStop={() => void clearSession()}
-          onSelectRegion={() => void tauri.openAreaSelector()}
-          onOpenSettings={() => store.set({ manualView: "settings" })}
-        />
-      )}
+        {phase === "prep" && (
+          <div
+            style={{
+              position: "absolute",
+              top: 380,
+              left: 20,
+              right: 20,
+              bottom: 20,
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 16,
+            }}
+          >
+            <PrepCard
+              titleLabel={prepTitleLabel}
+              runtimeLabel={prepRuntimeLabel}
+              source={sources.find((s) => s.id === selectedSourceId) ?? null}
+              target={targets.find((t) => t.id === selectedTargetId) ?? null}
+              prepared={snapshot?.prepared_session ?? null}
+            />
+            <PreviewCard line={liveLines[liveLines.length - 1] ?? null} />
+          </div>
+        )}
+
+        {phase === "live" && (
+          <LiveView
+            prev={liveLines[liveLines.length - 2] ?? null}
+            current={liveLines[liveLines.length - 1] ?? null}
+            onStop={() => void clearSession()}
+            onSelectRegion={() => void tauri.openAreaSelector()}
+            onOpenSettings={() => store.set({ manualView: "settings" })}
+          />
+        )}
+      </div>
 
       {showSettings && config && (
         <SettingsView
