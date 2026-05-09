@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { BackendConfig } from "../../lib/types";
 import { api } from "../../hooks/use-api";
 import { tauri } from "../../hooks/use-tauri";
@@ -35,6 +35,8 @@ const SECTIONS: Section[] = [
   { id: "debug", label: "Debug" },
 ];
 
+const SETTINGS_CLOSE_ANIMATION_MS = 160;
+
 const FOCUSABLE_SELECTOR = [
   "button:not([disabled])",
   "input:not([disabled])",
@@ -59,8 +61,20 @@ export function SettingsView({
     kind: "ok" | "error";
     text: string;
   } | null>(null);
+  const [closing, setClosing] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const closeTimerRef = useRef<number | null>(null);
+
+  const closeAnimated = useCallback((): void => {
+    setClosing((alreadyClosing) => {
+      if (alreadyClosing) return alreadyClosing;
+      closeTimerRef.current = window.setTimeout(() => {
+        onClose();
+      }, SETTINGS_CLOSE_ANIMATION_MS);
+      return true;
+    });
+  }, [onClose]);
 
   useEffect(() => {
     setDraft(initialConfig);
@@ -74,7 +88,7 @@ export function SettingsView({
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        closeAnimated();
         return;
       }
 
@@ -109,12 +123,15 @@ export function SettingsView({
 
     document.addEventListener("keydown", onKeyDown);
     return () => {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+      }
       document.removeEventListener("keydown", onKeyDown);
       if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
         previousFocus.focus({ preventScroll: true });
       }
     };
-  }, [onClose]);
+  }, [closeAnimated]);
 
   const update = (patch: (c: BackendConfig) => BackendConfig): void => {
     setDraft((prev) => patch(prev));
@@ -139,9 +156,9 @@ export function SettingsView({
 
   return (
     <div
-      className="settings-backdrop"
+      className={`settings-backdrop${closing ? " is-closing" : ""}`}
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (event.target === event.currentTarget) closeAnimated();
       }}
       style={{
         position: "absolute",
@@ -177,7 +194,7 @@ export function SettingsView({
       >
         <button
           ref={closeButtonRef}
-          onClick={onClose}
+          onClick={closeAnimated}
           aria-label="Close settings"
           title="Close settings"
           style={{
@@ -343,7 +360,7 @@ export function SettingsView({
           </button>
           <div style={{ display: "flex", gap: 10 }}>
             <button
-              onClick={onClose}
+              onClick={closeAnimated}
               style={{
                 padding: "10px 16px",
                 borderRadius: 8,
