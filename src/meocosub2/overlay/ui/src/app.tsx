@@ -48,12 +48,14 @@ export function App(): JSX.Element {
   const languages = useStore((s) => s.languages);
   const wsConnected = useStore((s) => s.wsConnected);
 
-  const showSettings = manualView === "settings";
+  const settingsRequested = manualView === "settings";
+  const showSettings = settingsRequested && !!config;
   const phase: Phase = derivePhase(snapshot, null);
   const [searching, setSearching] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const viewportWidth = useViewportWidth();
   const inputRef = useRef<HTMLInputElement>(null);
+  const backgroundRef = useRef<HTMLDivElement>(null);
   const searchAbort = useRef<AbortController | null>(null);
   const lastSearchedQuery = useRef<string>("");
 
@@ -447,14 +449,24 @@ export function App(): JSX.Element {
     store.resetSelection();
   }, []);
 
+  const openSettings = useCallback(() => {
+    if (store.get().config) {
+      store.set({ manualView: "settings" });
+    }
+  }, []);
+
+  const closeSettings = useCallback(() => {
+    store.set({ manualView: null });
+  }, []);
+
   const onCommand = useCallback(
     (id: string) => {
       if (id === "c1") void startSync();
       else if (id === "c2") void tauri.openAreaSelector();
-      else if (id === "c3") store.set({ manualView: "settings" });
+      else if (id === "c3") openSettings();
       else if (id === "c4") void clearSession();
     },
-    [startSync, clearSession],
+    [startSync, openSettings, clearSession],
   );
 
   const onSelect = useCallback(() => {
@@ -594,7 +606,7 @@ export function App(): JSX.Element {
     onSelect: () => {
       if (!store.get().manualView) onSelect();
     },
-    onOpenSettings: () => store.set({ manualView: "settings" }),
+    onOpenSettings: openSettings,
     onClearSession: () => {
       if (!store.get().manualView) void clearSession();
     },
@@ -618,12 +630,18 @@ export function App(): JSX.Element {
       ? `${selectedWork.totalSubtitles.toLocaleString()} subs`
       : selectedWork.type
     : "—";
-  const openSettings = useCallback(() => {
-    store.set({ manualView: "settings" });
-  }, []);
-  const closeSettings = useCallback(() => {
-    store.set({ manualView: null });
-  }, []);
+  const palettePhase = showSettings ? "settings" : phase;
+
+  useEffect(() => {
+    const background = backgroundRef.current as (HTMLDivElement & { inert?: boolean }) | null;
+    if (!background) return;
+    background.inert = showSettings;
+    if (showSettings) {
+      background.setAttribute("inert", "");
+    } else {
+      background.removeAttribute("inert");
+    }
+  }, [showSettings]);
 
   return (
     <div
@@ -636,6 +654,7 @@ export function App(): JSX.Element {
     >
       <Backdrop />
       <div
+        ref={backgroundRef}
         aria-hidden={showSettings}
         style={{
           position: "absolute",
@@ -709,7 +728,7 @@ export function App(): JSX.Element {
           )}
           {!noKey && !isEmpty && (
             <Palette
-              phase={phase}
+              phase={palettePhase}
               compact={isCompact}
               query={query}
               onQueryChange={onQueryChange}

@@ -102,54 +102,6 @@ kbd[data-dim="true"] {
   animation: fade-in 0.3s ease both;
 }
 
-@keyframes settings-backdrop-in {
-  0% {
-    opacity: 0;
-    backdrop-filter: blur(0) saturate(1);
-    -webkit-backdrop-filter: blur(0) saturate(1);
-  }
-  100% {
-    opacity: 1;
-    backdrop-filter: blur(5px) saturate(1.12) brightness(1.02);
-    -webkit-backdrop-filter: blur(5px) saturate(1.12) brightness(1.02);
-  }
-}
-
-@keyframes settings-backdrop-out {
-  0% {
-    opacity: 1;
-    backdrop-filter: blur(5px) saturate(1.12) brightness(1.02);
-    -webkit-backdrop-filter: blur(5px) saturate(1.12) brightness(1.02);
-  }
-  100% {
-    opacity: 0;
-    backdrop-filter: blur(0) saturate(1);
-    -webkit-backdrop-filter: blur(0) saturate(1);
-  }
-}
-
-@keyframes settings-dialog-in {
-  0% {
-    opacity: 0;
-    transform: translateY(6px) scale(0.985);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes settings-dialog-out {
-  0% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: translateY(4px) scale(0.992);
-  }
-}
-
 @keyframes shimmer-sweep {
   0% {
     transform: translateX(-60%);
@@ -465,9 +417,7 @@ kbd[data-dim="true"] {
   .work-nested [data-cursor-row],
   .work-poster img,
   .work-row::before,
-  .work-card,
-  .settings-backdrop,
-  .settings-dialog {
+  .work-card {
     animation: none;
     transition: none;
   }
@@ -502,20 +452,69 @@ kbd[data-dim="true"] {
 }
 
 .settings-backdrop {
-  animation: settings-backdrop-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  opacity: 0;
+  backdrop-filter: blur(0) saturate(1);
+  -webkit-backdrop-filter: blur(0) saturate(1);
+  transition:
+    opacity 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    backdrop-filter 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.settings-backdrop.is-closing {
-  animation: settings-backdrop-out 160ms cubic-bezier(0.4, 0, 1, 1) both;
+.settings-backdrop[data-motion="open"] {
+  opacity: 1;
+  backdrop-filter: blur(5px) saturate(1.12) brightness(1.02);
+  -webkit-backdrop-filter: blur(5px) saturate(1.12) brightness(1.02);
+}
+
+.settings-backdrop[data-motion="closing"] {
+  opacity: 0;
+  backdrop-filter: blur(0) saturate(1);
+  -webkit-backdrop-filter: blur(0) saturate(1);
+  transition-duration: 160ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
 }
 
 .settings-dialog {
-  animation: settings-dialog-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
   transform-origin: center;
+  opacity: 0;
+  transform: translateY(6px) scale(0.985);
+  transition:
+    opacity 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.settings-backdrop.is-closing .settings-dialog {
-  animation: settings-dialog-out 160ms cubic-bezier(0.4, 0, 1, 1) both;
+.settings-backdrop[data-motion="open"] .settings-dialog {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.settings-backdrop[data-motion="closing"] .settings-dialog {
+  opacity: 0;
+  transform: translateY(4px) scale(0.992);
+  transition-duration: 160ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-backdrop,
+  .settings-dialog {
+    transition: none !important;
+  }
+
+  .settings-backdrop,
+  .settings-backdrop[data-motion="open"],
+  .settings-backdrop[data-motion="closing"] {
+    opacity: 1;
+    backdrop-filter: blur(5px) saturate(1.12) brightness(1.02);
+    -webkit-backdrop-filter: blur(5px) saturate(1.12) brightness(1.02);
+  }
+
+  .settings-dialog,
+  .settings-backdrop[data-motion="open"] .settings-dialog,
+  .settings-backdrop[data-motion="closing"] .settings-dialog {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .mono {

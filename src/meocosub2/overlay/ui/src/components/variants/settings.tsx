@@ -61,18 +61,21 @@ export function SettingsView({
     kind: "ok" | "error";
     text: string;
   } | null>(null);
-  const [closing, setClosing] = useState(false);
+  const [motionState, setMotionState] = useState<"opening" | "open" | "closing">(
+    "opening",
+  );
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const closeTimerRef = useRef<number | null>(null);
+  const frameRef = useRef<number | null>(null);
 
   const closeAnimated = useCallback((): void => {
-    setClosing((alreadyClosing) => {
-      if (alreadyClosing) return alreadyClosing;
+    setMotionState((current) => {
+      if (current === "closing") return current;
       closeTimerRef.current = window.setTimeout(() => {
         onClose();
       }, SETTINGS_CLOSE_ANIMATION_MS);
-      return true;
+      return "closing";
     });
   }, [onClose]);
 
@@ -84,6 +87,11 @@ export function SettingsView({
   useEffect(() => {
     const previousFocus = document.activeElement;
     closeButtonRef.current?.focus({ preventScroll: true });
+    frameRef.current = window.requestAnimationFrame(() => {
+      frameRef.current = window.requestAnimationFrame(() => {
+        setMotionState("open");
+      });
+    });
 
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
@@ -123,6 +131,9 @@ export function SettingsView({
 
     document.addEventListener("keydown", onKeyDown);
     return () => {
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current);
+      }
       if (closeTimerRef.current !== null) {
         window.clearTimeout(closeTimerRef.current);
       }
@@ -156,7 +167,8 @@ export function SettingsView({
 
   return (
     <div
-      className={`settings-backdrop${closing ? " is-closing" : ""}`}
+      className="settings-backdrop"
+      data-motion={motionState}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) closeAnimated();
       }}
