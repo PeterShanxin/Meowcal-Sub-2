@@ -48,7 +48,8 @@ export function App(): JSX.Element {
   const languages = useStore((s) => s.languages);
   const wsConnected = useStore((s) => s.wsConnected);
 
-  const phase: Phase = derivePhase(snapshot, manualView);
+  const showSettings = manualView === "settings";
+  const phase: Phase = derivePhase(snapshot, null);
   const [searching, setSearching] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const viewportWidth = useViewportWidth();
@@ -578,18 +579,29 @@ export function App(): JSX.Element {
   }, [cursorForTab]);
 
   useKeybinds({
-    onFocusPalette: focusPalette,
-    onCycleTab,
-    onMoveCursor,
-    onPrimaryConfirm,
-    onSelect,
+    onFocusPalette: () => {
+      if (!store.get().manualView) focusPalette();
+    },
+    onCycleTab: (dir) => {
+      if (!store.get().manualView) onCycleTab(dir);
+    },
+    onMoveCursor: (dir) => {
+      if (!store.get().manualView) onMoveCursor(dir);
+    },
+    onPrimaryConfirm: () => {
+      if (!store.get().manualView) void onPrimaryConfirm();
+    },
+    onSelect: () => {
+      if (!store.get().manualView) onSelect();
+    },
     onOpenSettings: () => store.set({ manualView: "settings" }),
-    onClearSession: () => void clearSession(),
+    onClearSession: () => {
+      if (!store.get().manualView) void clearSession();
+    },
   });
 
   // --- Render ---
 
-  const showSettings = phase === "settings";
   const noKey = shouldShowNoKey(config);
   const isEmpty = isFirstLaunch(config);
 
@@ -617,31 +629,22 @@ export function App(): JSX.Element {
       }}
     >
       <Backdrop />
-      {!showSettings && (
-        <TopBar
-          phase={phase}
-          wsConnected={wsConnected}
-          foundryPhase={foundry?.phase ?? "—"}
-          sourcesCount={countEnabledSources(config)}
-          onOpenSettings={() => store.set({ manualView: "settings" })}
-        />
-      )}
+      <TopBar
+        phase={phase}
+        wsConnected={wsConnected}
+        foundryPhase={foundry?.phase ?? "—"}
+        sourcesCount={countEnabledSources(config)}
+        onOpenSettings={() => store.set({ manualView: "settings" })}
+      />
 
-      {showSettings && config && (
-        <SettingsView
-          initialConfig={config}
-          onClose={() => store.set({ manualView: null })}
-        />
-      )}
-
-      {!showSettings && noKey && phase === "home" && !query && (
+      {noKey && phase === "home" && !query && (
         <NoApiKey
           onOpenSettings={() => store.set({ manualView: "settings" })}
           onUseSubdl={() => void enableSubdlOnly()}
         />
       )}
 
-      {!showSettings && !noKey && isEmpty && phase === "home" && !query && (
+      {!noKey && isEmpty && phase === "home" && !query && (
         <EmptyState
           sourceLabel={languageLabel(config?.languages.source)}
           targetLabel={languageLabel(config?.languages.target)}
@@ -649,94 +652,92 @@ export function App(): JSX.Element {
         />
       )}
 
-      {!showSettings && (
-        <div
-          style={{
-            position: "absolute",
-            top: isCompact ? 56 : isIdle ? 210 : 88,
-            left: isCompact ? 20 : "50%",
-            right: isCompact ? 20 : "auto",
-            transform: isCompact ? "none" : "translateX(-50%)",
-            width: isCompact ? "auto" : "min(920px, calc(100vw - 28px))",
-            zIndex: 4,
-            transition:
-              "top 520ms cubic-bezier(.22, 1.3, .36, 1), transform 280ms cubic-bezier(.2,.7,.3,1), width 280ms cubic-bezier(.2,.7,.3,1)",
-          }}
-        >
-          {!isCompact && !noKey && !isEmpty && (
-            <div style={{ textAlign: "center", marginBottom: 26 }}>
-              <div
-                style={{
-                  fontSize: 13,
-                  fontWeight: 700,
-                  letterSpacing: 3.2,
-                  color: "var(--text-label)",
-                  textTransform: "uppercase",
-                }}
-              >
-                Meowcal Studio
-              </div>
-              <h1
-                className="display-serif"
-                style={{
-                  margin: "10px 0 0",
-                  fontSize: 52,
-                  fontWeight: 500,
-                  letterSpacing: -1.2,
-                  lineHeight: 1.1,
-                  color: "var(--text-heading)",
-                }}
-              >
-                What are you watching?
-              </h1>
+      <div
+        style={{
+          position: "absolute",
+          top: isCompact ? 56 : isIdle ? 210 : 88,
+          left: isCompact ? 20 : "50%",
+          right: isCompact ? 20 : "auto",
+          transform: isCompact ? "none" : "translateX(-50%)",
+          width: isCompact ? "auto" : "min(920px, calc(100vw - 28px))",
+          zIndex: 4,
+          transition:
+            "top 520ms cubic-bezier(.22, 1.3, .36, 1), transform 280ms cubic-bezier(.2,.7,.3,1), width 280ms cubic-bezier(.2,.7,.3,1)",
+        }}
+      >
+        {!isCompact && !noKey && !isEmpty && (
+          <div style={{ textAlign: "center", marginBottom: 26 }}>
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 700,
+                letterSpacing: 3.2,
+                color: "var(--text-label)",
+                textTransform: "uppercase",
+              }}
+            >
+              Meowcal Studio
             </div>
-          )}
-          {!noKey && !isEmpty && (
-            <Palette
-              phase={phase}
-              compact={isCompact}
-              query={query}
-              onQueryChange={onQueryChange}
-              tab={tab}
-              onTabChange={onTabChange}
-              works={filteredWorks}
-              totalWorksCount={works.length}
-              titleMediaFilter={titleMediaFilter}
-              selectedSeasonFilters={selectedSeasonFilters}
-              availableSeasonNumbers={availableSeasonNumbers}
-              onTitleMediaFilterChange={onTitleMediaFilterChange}
-              onToggleSeasonFilter={onToggleSeasonFilter}
-              onClearSeasonFilters={onClearSeasonFilters}
-              sources={sources}
-              targets={targets}
-              commands={commands}
-              selectedWorkId={selectedWorkId}
-              expandedWorkId={expandedWorkId}
-              expandedSeasonNumber={expandedSeasonNumber}
-              selectedEpisodeMatchId={selectedEpisodeMatchId}
-              selectedSourceId={selectedSourceId}
-              selectedTargetId={selectedTargetId}
-              cursorIndex={cursorIndex}
-              onToggleExpandWork={onToggleExpandWork}
-              onToggleExpandSeason={onToggleExpandSeason}
-              onPickWork={onPickWork}
-              onPickEpisode={onPickEpisode}
-              onPickSource={onPickSource}
-              onPickTarget={(id) => void onPickTarget(id)}
-              onCommand={onCommand}
-              onPrimary={() => void onPrimaryConfirm()}
-              inputRef={inputRef}
-              sourceLang={sourceLang}
-              targetLang={targetLang}
-              searching={searching}
-              langOptions={(languages?.sourceTarget ?? []) as LanguageOption[]}
-              onChangeLang={(type, code) => void onChangeLang(type, code)}
-            />
-          )}
-        </div>
-      )}
+            <h1
+              className="display-serif"
+              style={{
+                margin: "10px 0 0",
+                fontSize: 52,
+                fontWeight: 500,
+                letterSpacing: -1.2,
+                lineHeight: 1.1,
+                color: "var(--text-heading)",
+              }}
+            >
+              What are you watching?
+            </h1>
+          </div>
+        )}
+        {!noKey && !isEmpty && (
+          <Palette
+            phase={phase}
+            compact={isCompact}
+            query={query}
+            onQueryChange={onQueryChange}
+            tab={tab}
+            onTabChange={onTabChange}
+            works={filteredWorks}
+            totalWorksCount={works.length}
+            titleMediaFilter={titleMediaFilter}
+            selectedSeasonFilters={selectedSeasonFilters}
+            availableSeasonNumbers={availableSeasonNumbers}
+            onTitleMediaFilterChange={onTitleMediaFilterChange}
+            onToggleSeasonFilter={onToggleSeasonFilter}
+            onClearSeasonFilters={onClearSeasonFilters}
+            sources={sources}
+            targets={targets}
+            commands={commands}
+            selectedWorkId={selectedWorkId}
+            expandedWorkId={expandedWorkId}
+            expandedSeasonNumber={expandedSeasonNumber}
+            selectedEpisodeMatchId={selectedEpisodeMatchId}
+            selectedSourceId={selectedSourceId}
+            selectedTargetId={selectedTargetId}
+            cursorIndex={cursorIndex}
+            onToggleExpandWork={onToggleExpandWork}
+            onToggleExpandSeason={onToggleExpandSeason}
+            onPickWork={onPickWork}
+            onPickEpisode={onPickEpisode}
+            onPickSource={onPickSource}
+            onPickTarget={(id) => void onPickTarget(id)}
+            onCommand={onCommand}
+            onPrimary={() => void onPrimaryConfirm()}
+            inputRef={inputRef}
+            sourceLang={sourceLang}
+            targetLang={targetLang}
+            searching={searching}
+            langOptions={(languages?.sourceTarget ?? []) as LanguageOption[]}
+            onChangeLang={(type, code) => void onChangeLang(type, code)}
+          />
+        )}
+      </div>
 
-      {phase === "prep" && !showSettings && (
+      {phase === "prep" && (
         <div
           style={{
             position: "absolute",
@@ -760,13 +761,20 @@ export function App(): JSX.Element {
         </div>
       )}
 
-      {phase === "live" && !showSettings && (
+      {phase === "live" && (
         <LiveView
           prev={liveLines[liveLines.length - 2] ?? null}
           current={liveLines[liveLines.length - 1] ?? null}
           onStop={() => void clearSession()}
           onSelectRegion={() => void tauri.openAreaSelector()}
           onOpenSettings={() => store.set({ manualView: "settings" })}
+        />
+      )}
+
+      {showSettings && config && (
+        <SettingsView
+          initialConfig={config}
+          onClose={() => store.set({ manualView: null })}
         />
       )}
 

@@ -256,10 +256,6 @@ export function TopBar({
         zIndex: 5,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <CatMark />
-        <span style={{ color: "var(--text-body)", fontWeight: 600 }}>Meowcal</span>
-      </div>
       <div style={{ flex: 1 }} />
       <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
         <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
