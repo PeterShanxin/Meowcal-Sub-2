@@ -50,7 +50,7 @@ export function App(): JSX.Element {
 
   const settingsRequested = manualView === "settings";
   const showSettings = settingsRequested && !!config;
-  const phase: Phase = derivePhase(snapshot, null);
+  const phase: Phase = derivePhase(snapshot, showSettings ? "home" : null);
   const [searching, setSearching] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const viewportWidth = useViewportWidth();

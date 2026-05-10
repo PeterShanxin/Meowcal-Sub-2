@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node -e \"const fs=require('fs');const p='../static/assets';if(fs.existsSync(p))fs.rmSync(p,{recursive:true,force:true})\" && tsc -b && vite build",
+    "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run"
   },

@@ -66,6 +66,7 @@ export function SettingsView({
   const [motionState, setMotionState] = useState<"hidden" | "open" | "closing">(
     open ? "open" : "hidden",
   );
+  const backdropRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const closeTimerRef = useRef<number | null>(null);
@@ -81,16 +82,30 @@ export function SettingsView({
     } else {
       setMotionState((current) => {
         if (current === "open") {
+          const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          const delay = reducedMotion ? 0 : SETTINGS_CLOSE_ANIMATION_MS;
           closeTimerRef.current = window.setTimeout(() => {
             setMotionState("hidden");
             closeTimerRef.current = null;
-          }, SETTINGS_CLOSE_ANIMATION_MS);
+          }, delay);
           return "closing";
         }
         return current;
       });
     }
   }, [open]);
+
+  useEffect(() => {
+    const el = backdropRef.current;
+    if (!el) return;
+    if (motionState === "hidden") {
+      el.setAttribute("inert", "");
+      el.setAttribute("aria-hidden", "true");
+    } else {
+      el.removeAttribute("inert");
+      el.removeAttribute("aria-hidden");
+    }
+  }, [motionState]);
 
   useEffect(() => {
     setDraft(initialConfig);
@@ -180,6 +195,7 @@ export function SettingsView({
 
   return (
     <div
+      ref={backdropRef}
       className="settings-backdrop"
       data-motion={motionState}
       onMouseDown={(event) => {
