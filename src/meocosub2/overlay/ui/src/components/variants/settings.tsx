@@ -113,10 +113,12 @@ export function SettingsView({
   }, [initialConfig]);
 
   useEffect(() => {
-    if (motionState !== "open") return;
+    if (motionState === "hidden") return;
 
-    previousFocusRef.current = document.activeElement;
-    closeButtonRef.current?.focus({ preventScroll: true });
+    if (motionState === "open") {
+      previousFocusRef.current = document.activeElement;
+      closeButtonRef.current?.focus({ preventScroll: true });
+    }
 
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
@@ -157,9 +159,14 @@ export function SettingsView({
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      const previousFocus = previousFocusRef.current;
-      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
-        previousFocus.focus({ preventScroll: true });
+      // Restore focus only when the closing animation finishes (closing → hidden).
+      // The closure captures motionState at effect-run time, so this fires only
+      // for the "closing" invocation's cleanup, not the "open" one.
+      if (motionState === "closing") {
+        const previousFocus = previousFocusRef.current;
+        if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+          previousFocus.focus({ preventScroll: true });
+        }
       }
     };
   }, [motionState, onClose]);

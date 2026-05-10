@@ -10,10 +10,19 @@ const staticDir = resolve(here, "..", "static");
 const cleanAssets = {
   name: "clean-assets",
   apply: "build" as const,
-  buildStart() {
+  writeBundle(_: unknown, bundle: Record<string, { fileName: string }>) {
     const assetsPath = resolve(staticDir, "assets");
-    if (fs.existsSync(assetsPath)) {
-      fs.rmSync(assetsPath, { recursive: true, force: true });
+    if (!fs.existsSync(assetsPath)) return;
+    const emitted = new Set(
+      Object.values(bundle)
+        .map((c) => c.fileName)
+        .filter((f) => f.startsWith("assets/"))
+        .map((f) => f.slice("assets/".length)),
+    );
+    for (const file of fs.readdirSync(assetsPath)) {
+      if (!emitted.has(file)) {
+        fs.rmSync(resolve(assetsPath, file), { force: true });
+      }
     }
   },
 };

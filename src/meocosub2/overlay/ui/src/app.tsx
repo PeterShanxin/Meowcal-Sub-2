@@ -53,6 +53,10 @@ export function App(): JSX.Element {
   const phase: Phase = derivePhase(snapshot, showSettings ? "home" : null);
   const [searching, setSearching] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  // Tracks visibility through the close animation so background stays inert
+  // until the modal is fully hidden (not just until showSettings goes false).
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const settingsCloseTimerRef = useRef<number | null>(null);
   const viewportWidth = useViewportWidth();
   const inputRef = useRef<HTMLInputElement>(null);
   const backgroundRef = useRef<HTMLDivElement>(null);
@@ -186,6 +190,30 @@ export function App(): JSX.Element {
     }
     prevPhase.current = phase;
   }, [phase]);
+
+  useEffect(() => {
+    if (showSettings) {
+      if (settingsCloseTimerRef.current !== null) {
+        window.clearTimeout(settingsCloseTimerRef.current);
+        settingsCloseTimerRef.current = null;
+      }
+      setSettingsVisible(true);
+      return;
+    }
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    settingsCloseTimerRef.current = window.setTimeout(() => {
+      setSettingsVisible(false);
+      settingsCloseTimerRef.current = null;
+    }, reducedMotion ? 0 : 160);
+  }, [showSettings]);
+
+  useEffect(() => {
+    return () => {
+      if (settingsCloseTimerRef.current !== null) {
+        window.clearTimeout(settingsCloseTimerRef.current);
+      }
+    };
+  }, []);
 
   // --- Actions ---
 
@@ -630,18 +658,17 @@ export function App(): JSX.Element {
       ? `${selectedWork.totalSubtitles.toLocaleString()} subs`
       : selectedWork.type
     : "—";
-  const palettePhase = showSettings ? "settings" : phase;
+  const palettePhase = settingsVisible ? "settings" : phase;
 
   useEffect(() => {
     const background = backgroundRef.current as (HTMLDivElement & { inert?: boolean }) | null;
     if (!background) return;
-    background.inert = showSettings;
-    if (showSettings) {
+    if (settingsVisible) {
       background.setAttribute("inert", "");
     } else {
       background.removeAttribute("inert");
     }
-  }, [showSettings]);
+  }, [settingsVisible]);
 
   return (
     <div
@@ -655,11 +682,11 @@ export function App(): JSX.Element {
       <Backdrop />
       <div
         ref={backgroundRef}
-        aria-hidden={showSettings}
+        aria-hidden={settingsVisible}
         style={{
           position: "absolute",
           inset: 0,
-          pointerEvents: showSettings ? "none" : "auto",
+          pointerEvents: settingsVisible ? "none" : "auto",
         }}
       >
         <TopBar

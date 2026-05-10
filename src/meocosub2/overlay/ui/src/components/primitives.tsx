@@ -84,28 +84,6 @@ export function Kbd({
   return <kbd data-dim={dim ? "true" : "false"}>{children}</kbd>;
 }
 
-export function CatMark({ size = 18 }: { size?: number }): JSX.Element {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 18 18"
-      style={{ display: "block" }}
-      aria-hidden
-    >
-      <defs>
-        <linearGradient id="catgrad" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="var(--accent-hex)" />
-          <stop offset="1" stopColor="var(--accent-deep)" />
-        </linearGradient>
-      </defs>
-      <path d="M2 15 L2 5 L6 8 L12 8 L16 5 L16 15 Z" fill="url(#catgrad)" />
-      <circle cx="6.5" cy="11.5" r="0.9" fill="#1a1014" />
-      <circle cx="11.5" cy="11.5" r="0.9" fill="#1a1014" />
-    </svg>
-  );
-}
-
 export function CatMascot({
   size = 56,
   expression = "curious",
