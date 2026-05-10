@@ -9,6 +9,7 @@ const staticDir = resolve(here, "..", "static");
 
 const cleanAssets = {
   name: "clean-assets",
+  apply: "build" as const,
   buildStart() {
     const assetsPath = resolve(staticDir, "assets");
     if (fs.existsSync(assetsPath)) {
