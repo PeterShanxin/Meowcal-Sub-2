@@ -2,12 +2,33 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
+import fs from "node:fs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const staticDir = resolve(here, "..", "static");
 
+const cleanAssets = {
+  name: "clean-assets",
+  apply: "build" as const,
+  writeBundle(_: unknown, bundle: Record<string, { fileName: string }>) {
+    const assetsPath = resolve(staticDir, "assets");
+    if (!fs.existsSync(assetsPath)) return;
+    const emitted = new Set(
+      Object.values(bundle)
+        .map((c) => c.fileName)
+        .filter((f) => f.startsWith("assets/"))
+        .map((f) => f.slice("assets/".length)),
+    );
+    for (const file of fs.readdirSync(assetsPath)) {
+      if (!emitted.has(file)) {
+        fs.rmSync(resolve(assetsPath, file), { force: true });
+      }
+    }
+  },
+};
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), cleanAssets],
   base: "/static/",
   build: {
     outDir: staticDir,

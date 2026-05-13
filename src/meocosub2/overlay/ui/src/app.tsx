@@ -48,11 +48,18 @@ export function App(): JSX.Element {
   const languages = useStore((s) => s.languages);
   const wsConnected = useStore((s) => s.wsConnected);
 
-  const phase: Phase = derivePhase(snapshot, manualView);
+  const settingsRequested = manualView === "settings";
+  const showSettings = settingsRequested && !!config;
+  const phase: Phase = derivePhase(snapshot, showSettings ? "home" : null);
   const [searching, setSearching] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  // Tracks visibility through the close animation so background stays inert
+  // until the modal is fully hidden (not just until showSettings goes false).
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const settingsCloseTimerRef = useRef<number | null>(null);
   const viewportWidth = useViewportWidth();
   const inputRef = useRef<HTMLInputElement>(null);
+  const backgroundRef = useRef<HTMLDivElement>(null);
   const searchAbort = useRef<AbortController | null>(null);
   const lastSearchedQuery = useRef<string>("");
 
@@ -183,6 +190,30 @@ export function App(): JSX.Element {
     }
     prevPhase.current = phase;
   }, [phase]);
+
+  useEffect(() => {
+    if (showSettings) {
+      if (settingsCloseTimerRef.current !== null) {
+        window.clearTimeout(settingsCloseTimerRef.current);
+        settingsCloseTimerRef.current = null;
+      }
+      setSettingsVisible(true);
+      return;
+    }
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    settingsCloseTimerRef.current = window.setTimeout(() => {
+      setSettingsVisible(false);
+      settingsCloseTimerRef.current = null;
+    }, reducedMotion ? 0 : 160);
+  }, [showSettings]);
+
+  useEffect(() => {
+    return () => {
+      if (settingsCloseTimerRef.current !== null) {
+        window.clearTimeout(settingsCloseTimerRef.current);
+      }
+    };
+  }, []);
 
   // --- Actions ---
 
@@ -446,14 +477,24 @@ export function App(): JSX.Element {
     store.resetSelection();
   }, []);
 
+  const openSettings = useCallback(() => {
+    if (store.get().config) {
+      store.set({ manualView: "settings" });
+    }
+  }, []);
+
+  const closeSettings = useCallback(() => {
+    store.set({ manualView: null });
+  }, []);
+
   const onCommand = useCallback(
     (id: string) => {
       if (id === "c1") void startSync();
       else if (id === "c2") void tauri.openAreaSelector();
-      else if (id === "c3") store.set({ manualView: "settings" });
+      else if (id === "c3") openSettings();
       else if (id === "c4") void clearSession();
     },
-    [startSync, clearSession],
+    [startSync, openSettings, clearSession],
   );
 
   const onSelect = useCallback(() => {
@@ -578,18 +619,29 @@ export function App(): JSX.Element {
   }, [cursorForTab]);
 
   useKeybinds({
-    onFocusPalette: focusPalette,
-    onCycleTab,
-    onMoveCursor,
-    onPrimaryConfirm,
-    onSelect,
-    onOpenSettings: () => store.set({ manualView: "settings" }),
-    onClearSession: () => void clearSession(),
+    onFocusPalette: () => {
+      if (!store.get().manualView) focusPalette();
+    },
+    onCycleTab: (dir) => {
+      if (!store.get().manualView) onCycleTab(dir);
+    },
+    onMoveCursor: (dir) => {
+      if (!store.get().manualView) onMoveCursor(dir);
+    },
+    onPrimaryConfirm: () => {
+      if (!store.get().manualView) void onPrimaryConfirm();
+    },
+    onSelect: () => {
+      if (!store.get().manualView) onSelect();
+    },
+    onOpenSettings: openSettings,
+    onClearSession: () => {
+      if (!store.get().manualView) void clearSession();
+    },
   });
 
   // --- Render ---
 
-  const showSettings = phase === "settings";
   const noKey = shouldShowNoKey(config);
   const isEmpty = isFirstLaunch(config);
 
@@ -606,6 +658,17 @@ export function App(): JSX.Element {
       ? `${selectedWork.totalSubtitles.toLocaleString()} subs`
       : selectedWork.type
     : "—";
+  const palettePhase = settingsVisible ? "settings" : phase;
+
+  useEffect(() => {
+    const background = backgroundRef.current as (HTMLDivElement & { inert?: boolean }) | null;
+    if (!background) return;
+    if (settingsVisible) {
+      background.setAttribute("inert", "");
+    } else {
+      background.removeAttribute("inert");
+    }
+  }, [settingsVisible]);
 
   return (
     <div
@@ -617,39 +680,38 @@ export function App(): JSX.Element {
       }}
     >
       <Backdrop />
-      {!showSettings && (
+      <div
+        ref={backgroundRef}
+        aria-hidden={settingsVisible}
+        style={{
+          position: "absolute",
+          inset: 0,
+          pointerEvents: settingsVisible ? "none" : "auto",
+        }}
+      >
         <TopBar
           phase={phase}
           wsConnected={wsConnected}
           foundryPhase={foundry?.phase ?? "—"}
           sourcesCount={countEnabledSources(config)}
-          onOpenSettings={() => store.set({ manualView: "settings" })}
+          onOpenSettings={openSettings}
         />
-      )}
 
-      {showSettings && config && (
-        <SettingsView
-          initialConfig={config}
-          onClose={() => store.set({ manualView: null })}
-        />
-      )}
+        {noKey && phase === "home" && !query && (
+          <NoApiKey
+            onOpenSettings={openSettings}
+            onUseSubdl={() => void enableSubdlOnly()}
+          />
+        )}
 
-      {!showSettings && noKey && phase === "home" && !query && (
-        <NoApiKey
-          onOpenSettings={() => store.set({ manualView: "settings" })}
-          onUseSubdl={() => void enableSubdlOnly()}
-        />
-      )}
+        {!noKey && isEmpty && phase === "home" && !query && (
+          <EmptyState
+            sourceLabel={languageLabel(config?.languages.source)}
+            targetLabel={languageLabel(config?.languages.target)}
+            onOpenPalette={focusPalette}
+          />
+        )}
 
-      {!showSettings && !noKey && isEmpty && phase === "home" && !query && (
-        <EmptyState
-          sourceLabel={languageLabel(config?.languages.source)}
-          targetLabel={languageLabel(config?.languages.target)}
-          onOpenPalette={focusPalette}
-        />
-      )}
-
-      {!showSettings && (
         <div
           style={{
             position: "absolute",
@@ -693,7 +755,7 @@ export function App(): JSX.Element {
           )}
           {!noKey && !isEmpty && (
             <Palette
-              phase={phase}
+              phase={palettePhase}
               compact={isCompact}
               query={query}
               onQueryChange={onQueryChange}
@@ -734,39 +796,47 @@ export function App(): JSX.Element {
             />
           )}
         </div>
-      )}
 
-      {phase === "prep" && !showSettings && (
-        <div
-          style={{
-            position: "absolute",
-            top: 380,
-            left: 20,
-            right: 20,
-            bottom: 20,
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 16,
-          }}
-        >
-          <PrepCard
-            titleLabel={prepTitleLabel}
-            runtimeLabel={prepRuntimeLabel}
-            source={sources.find((s) => s.id === selectedSourceId) ?? null}
-            target={targets.find((t) => t.id === selectedTargetId) ?? null}
-            prepared={snapshot?.prepared_session ?? null}
+        {phase === "prep" && (
+          <div
+            style={{
+              position: "absolute",
+              top: 380,
+              left: 20,
+              right: 20,
+              bottom: 20,
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 16,
+            }}
+          >
+            <PrepCard
+              titleLabel={prepTitleLabel}
+              runtimeLabel={prepRuntimeLabel}
+              source={sources.find((s) => s.id === selectedSourceId) ?? null}
+              target={targets.find((t) => t.id === selectedTargetId) ?? null}
+              prepared={snapshot?.prepared_session ?? null}
+            />
+            <PreviewCard line={liveLines[liveLines.length - 1] ?? null} />
+          </div>
+        )}
+
+        {phase === "live" && (
+          <LiveView
+            prev={liveLines[liveLines.length - 2] ?? null}
+            current={liveLines[liveLines.length - 1] ?? null}
+            onStop={() => void clearSession()}
+            onSelectRegion={() => void tauri.openAreaSelector()}
+            onOpenSettings={openSettings}
           />
-          <PreviewCard line={liveLines[liveLines.length - 1] ?? null} />
-        </div>
-      )}
+        )}
+      </div>
 
-      {phase === "live" && !showSettings && (
-        <LiveView
-          prev={liveLines[liveLines.length - 2] ?? null}
-          current={liveLines[liveLines.length - 1] ?? null}
-          onStop={() => void clearSession()}
-          onSelectRegion={() => void tauri.openAreaSelector()}
-          onOpenSettings={() => store.set({ manualView: "settings" })}
+      {config && (
+        <SettingsView
+          initialConfig={config}
+          onClose={closeSettings}
+          open={showSettings}
         />
       )}
 

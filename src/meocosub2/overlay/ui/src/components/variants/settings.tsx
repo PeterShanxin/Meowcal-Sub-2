@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BackendConfig } from "../../lib/types";
 import { api } from "../../hooks/use-api";
 import { tauri } from "../../hooks/use-tauri";
@@ -35,12 +35,25 @@ const SECTIONS: Section[] = [
   { id: "debug", label: "Debug" },
 ];
 
+const SETTINGS_CLOSE_ANIMATION_MS = 160;
+
+const FOCUSABLE_SELECTOR = [
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "a[href]",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
 export function SettingsView({
   initialConfig,
   onClose,
+  open,
 }: {
   initialConfig: BackendConfig;
   onClose: () => void;
+  open: boolean;
 }): JSX.Element {
   const [section, setSection] = useState<SectionId>("sources");
   const [draft, setDraft] = useState<BackendConfig>(initialConfig);
@@ -50,11 +63,121 @@ export function SettingsView({
     kind: "ok" | "error";
     text: string;
   } | null>(null);
+  const [motionState, setMotionState] = useState<"hidden" | "open" | "closing">(
+    open ? "open" : "hidden",
+  );
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const closeTimerRef = useRef<number | null>(null);
+  const previousFocusRef = useRef<Element | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
+      setMotionState("open");
+    } else {
+      setMotionState((current) => {
+        if (current === "open") {
+          const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          const delay = reducedMotion ? 0 : SETTINGS_CLOSE_ANIMATION_MS;
+          closeTimerRef.current = window.setTimeout(() => {
+            setMotionState("hidden");
+            closeTimerRef.current = null;
+          }, delay);
+          return "closing";
+        }
+        return current;
+      });
+    }
+  }, [open]);
+
+  useEffect(() => {
+    const el = backdropRef.current;
+    if (!el) return;
+    if (motionState === "hidden") {
+      el.setAttribute("inert", "");
+      el.setAttribute("aria-hidden", "true");
+    } else {
+      el.removeAttribute("inert");
+      el.removeAttribute("aria-hidden");
+    }
+  }, [motionState]);
 
   useEffect(() => {
     setDraft(initialConfig);
     setDirty(false);
   }, [initialConfig]);
+
+  useEffect(() => {
+    if (motionState === "hidden") return;
+
+    if (motionState === "open") {
+      previousFocusRef.current = document.activeElement;
+      closeButtonRef.current?.focus({ preventScroll: true });
+    }
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const dialog = dialogRef.current;
+      if (!dialog) {
+        return;
+      }
+
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+      ).filter((element) => element.offsetParent !== null);
+      if (focusable.length === 0) {
+        event.preventDefault();
+        closeButtonRef.current?.focus({ preventScroll: true });
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      // Restore focus only when the closing animation finishes (closing → hidden).
+      // The closure captures motionState at effect-run time, so this fires only
+      // for the "closing" invocation's cleanup, not the "open" one.
+      if (motionState === "closing") {
+        const previousFocus = previousFocusRef.current;
+        if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+          previousFocus.focus({ preventScroll: true });
+        }
+      }
+    };
+  }, [motionState, onClose]);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current !== null) {
+        window.clearTimeout(closeTimerRef.current);
+      }
+    };
+  }, []);
 
   const update = (patch: (c: BackendConfig) => BackendConfig): void => {
     setDraft((prev) => patch(prev));
@@ -79,81 +202,141 @@ export function SettingsView({
 
   return (
     <div
+      ref={backdropRef}
+      className="settings-backdrop"
+      data-motion={motionState}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
       style={{
         position: "absolute",
-        top: 70,
-        left: 20,
-        right: 20,
-        bottom: 20,
-        display: "grid",
-        gridTemplateColumns: "220px 1fr",
-        gap: 16,
+        inset: 0,
+        zIndex: 30,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "72px 28px 28px",
+        background: "rgba(7,7,10,0.04)",
       }}
     >
-      <aside
-        className="glass-panel"
+      <div
+        ref={dialogRef}
+        className="settings-dialog glass-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Settings"
+        onMouseDown={(event) => event.stopPropagation()}
         style={{
-          padding: 12,
-          display: "flex",
-          flexDirection: "column",
-          gap: 2,
+          position: "relative",
+          width: "min(920px, calc(100vw - 48px))",
+          height: "min(760px, calc(100vh - 112px))",
+          minHeight: 0,
+          display: "grid",
+          gridTemplateColumns: "var(--settings-dialog-columns, 220px minmax(0, 1fr))",
+          overflow: "hidden",
+          boxShadow:
+            "0 30px 86px rgba(0,0,0,0.42), 0 0 0 1px rgba(242,199,143,0.04)",
         }}
       >
-        <div
+        <button
+          ref={closeButtonRef}
+          onClick={onClose}
+          aria-label="Close settings"
+          title="Close settings"
           style={{
-            fontSize: 10,
-            letterSpacing: 1.5,
-            color: "var(--text-label)",
-            fontWeight: 700,
-            textTransform: "uppercase",
-            padding: "8px 10px 4px",
+            position: "absolute",
+            top: 14,
+            right: 14,
+            zIndex: 3,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 30,
+            height: 30,
+            padding: 0,
+            borderRadius: 7,
+            border: "1px solid rgba(255,255,255,0.08)",
+            background: "rgba(255,255,255,0.035)",
+            color: "var(--text-muted)",
+            cursor: "pointer",
           }}
         >
-          Settings
-        </div>
-        {SECTIONS.map((s) => {
-          const active = s.id === section;
-          return (
-            <button
-              key={s.id}
-              onClick={() => setSection(s.id)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "8px 10px",
-                border: "none",
-                borderRadius: 7,
-                cursor: "pointer",
-                fontSize: 13,
-                background: active ? "var(--accent-tint)" : "transparent",
-                color: active ? "var(--accent-text)" : "#a8a8b2",
-                borderLeft: `2px solid ${active ? "var(--accent-hex)" : "transparent"}`,
-                textAlign: "left",
-              }}
-            >
-              <span style={{ flex: 1 }}>{s.label}</span>
-            </button>
-          );
-        })}
-      </aside>
+          <CloseIcon />
+        </button>
+        <aside
+          style={{
+            padding: "18px 12px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 2,
+            minHeight: 0,
+            borderRight: "1px solid rgba(255,255,255,0.06)",
+            background: "rgba(0,0,0,0.12)",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 10,
+              letterSpacing: 1.5,
+              color: "var(--text-label)",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              padding: "8px 10px 4px",
+            }}
+          >
+            Settings
+          </div>
+          {SECTIONS.map((s) => {
+            const active = s.id === section;
+            return (
+              <button
+                key={s.id}
+                onClick={() => setSection(s.id)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "8px 10px",
+                  border: "none",
+                  borderRadius: 7,
+                  cursor: "pointer",
+                  fontSize: 13,
+                  background: active ? "var(--accent-tint)" : "transparent",
+                  color: active ? "var(--accent-text)" : "#a8a8b2",
+                  borderLeft: `2px solid ${active ? "var(--accent-hex)" : "transparent"}`,
+                  textAlign: "left",
+                }}
+              >
+                <span style={{ flex: 1 }}>{s.label}</span>
+              </button>
+            );
+          })}
+        </aside>
 
-      <main
-        className="glass-panel"
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          position: "relative",
-        }}
-      >
-        <div style={{ flex: 1, overflow: "auto", padding: 28, position: "relative" }}>
+        <main
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            position: "relative",
+            minWidth: 0,
+            minHeight: 0,
+          }}
+        >
+        <div
+          style={{
+            flex: 1,
+            overflow: "auto",
+            padding: "34px 28px 28px",
+            position: "relative",
+          }}
+        >
           {banner && (
             <div
               style={{
                 position: "absolute",
-                top: 16,
-                right: 16,
+                top: 18,
+                right: 58,
                 padding: "8px 12px",
                 borderRadius: 7,
                 fontSize: 12,
@@ -257,7 +440,26 @@ export function SettingsView({
           </div>
         </div>
       </main>
+      </div>
     </div>
+  );
+}
+
+function CloseIcon(): JSX.Element {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      aria-hidden
+    >
+      <path d="M6 6l12 12" />
+      <path d="M18 6L6 18" />
+    </svg>
   );
 }
 
