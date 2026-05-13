@@ -10,7 +10,7 @@ from typing import Iterable
 
 from meocosub2.config import AppConfig
 from meocosub2.errors import SubtitleSourceError
-from meocosub2.event_log import log_event
+from meocosub2.event_log import event_correlation, log_event
 from meocosub2.subtitle_sources.assrt import AssrtProvider
 from meocosub2.subtitle_sources.opensubtitles import OpenSubtitlesProvider
 from meocosub2.subtitle_sources.subdl import SubdlProvider
@@ -109,10 +109,11 @@ class SubtitleSearchAggregator:
             providers=[provider.provider_code for provider in self.providers],
             tmdb_enabled=bool(self._tmdb_client and self._tmdb_client.enabled),
         )
-        responses = await asyncio.gather(
-            *(self._search_provider(provider, dispatch_query, languages, correlation_id) for provider in self.providers),
-            return_exceptions=True,
-        )
+        with event_correlation(correlation_id):
+            responses = await asyncio.gather(
+                *(self._search_provider(provider, dispatch_query, languages, correlation_id) for provider in self.providers),
+                return_exceptions=True,
+            )
 
         catalogs: list[ProviderSearchCatalog] = []
         warnings: list[str] = []

@@ -6,6 +6,7 @@ import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
@@ -34,7 +35,7 @@ class SearchBody(BaseModel):
 
 class ClientLogBody(BaseModel):
     event: str
-    level: str = "info"
+    level: Literal["debug", "info", "warning", "error"] = "info"
     correlationId: str | None = None
     data: dict[str, object] = Field(default_factory=dict)
 
@@ -125,7 +126,7 @@ class OverlayServer:
                 layer="frontend",
                 level=body.level,
                 correlation_id=body.correlationId,
-                **body.data,
+                data=body.data,
             )
             return {"status": "logged"}
 

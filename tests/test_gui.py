@@ -72,8 +72,8 @@ def test_client_log_route_writes_structured_event(tmp_path: Path, monkeypatch) -
     assert record["layer"] == "frontend"
     assert record["event"] == "ui.search.submitted"
     assert record["correlation_id"] == "search-123"
-    assert record["token"] == "[redacted]"
-    assert record["title"] == "Fate"
+    assert record["data"]["token"] == "[redacted]"
+    assert record["data"]["title"] == "Fate"
 
 
 def test_prepare_start_and_stop_routes_delegate_to_controller(tmp_path: Path, mocker) -> None:

@@ -28,7 +28,10 @@ import type {
 } from "./lib/types";
 
 function clientEventId(prefix: string): string {
-  const random = crypto.randomUUID?.() ?? Math.random().toString(16).slice(2);
+  if (crypto.randomUUID) return `${prefix}-${crypto.randomUUID()}`;
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  const random = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
   return `${prefix}-${random}`;
 }
 

@@ -5,11 +5,14 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from contextlib import contextmanager
+from contextvars import ContextVar, Token
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterator
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +29,9 @@ SENSITIVE_KEY_PARTS = (
     "secret",
     "token",
 )
+RESERVED_KEYS = frozenset({"correlation_id", "event", "layer", "level", "ts", "ts_ms"})
+URL_PATTERN = re.compile(r"https?://[^\s\"'<>]+")
+CURRENT_CORRELATION_ID: ContextVar[str | None] = ContextVar("meocosub2_correlation_id", default=None)
 
 
 def event_log_path() -> Path:
@@ -44,6 +50,7 @@ def log_event(
     correlation_id: str | None = None,
     **fields: Any,
 ) -> None:
+    correlation_id = correlation_id or CURRENT_CORRELATION_ID.get()
     record: dict[str, Any] = {
         "ts": datetime.now(UTC).isoformat(timespec="milliseconds"),
         "ts_ms": round(time.time() * 1000),
@@ -53,7 +60,11 @@ def log_event(
     }
     if correlation_id:
         record["correlation_id"] = correlation_id
-    record.update({key: _sanitize(value, key) for key, value in fields.items()})
+    for key, value in fields.items():
+        if key in RESERVED_KEYS:
+            record.setdefault("data", {})[key] = _sanitize(value, key)
+        else:
+            record[key] = _sanitize(value, key)
 
     try:
         path = event_log_path()
@@ -98,6 +109,18 @@ def event_span(
         )
 
 
+@contextmanager
+def event_correlation(correlation_id: str | None) -> Iterator[None]:
+    token: Token[str | None] | None = None
+    if correlation_id:
+        token = CURRENT_CORRELATION_ID.set(correlation_id)
+    try:
+        yield
+    finally:
+        if token is not None:
+            CURRENT_CORRELATION_ID.reset(token)
+
+
 def _elapsed_ms(start: float) -> int:
     return round((time.perf_counter() - start) * 1000)
 
@@ -112,6 +135,7 @@ def _sanitize(value: Any, key: str = "") -> Any:
     if isinstance(value, tuple):
         return [_sanitize(item, key) for item in value]
     if isinstance(value, str):
+        value = URL_PATTERN.sub(lambda match: _redact_url(match.group(0)), value)
         return value if len(value) <= MAX_STRING_LENGTH else value[:MAX_STRING_LENGTH] + "..."
     if isinstance(value, (bool, int, float)) or value is None:
         return value
@@ -121,3 +145,17 @@ def _sanitize(value: Any, key: str = "") -> Any:
 def _is_sensitive_key(key: str) -> bool:
     normalized = key.replace("-", "_").replace(" ", "_").casefold()
     return any(part in normalized for part in SENSITIVE_KEY_PARTS)
+
+
+def _redact_url(url: str) -> str:
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return url
+    if not parts.query:
+        return url
+    query = [
+        (key, REDACTED if _is_sensitive_key(key) else value)
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+    ]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
