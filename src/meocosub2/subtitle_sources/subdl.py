@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 from urllib.parse import quote
 
@@ -11,6 +12,7 @@ import httpx
 
 from meocosub2.config import AppConfig
 from meocosub2.errors import SubtitleSourceError
+from meocosub2.event_log import log_event
 from meocosub2.subtitle_sources.types import (
     ProviderCapabilities,
     ProviderSearchCatalog,
@@ -176,13 +178,26 @@ class SubdlProvider:
 
     async def _fetch_next_data(self, url: str) -> dict[str, object]:
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
+            started = time.perf_counter()
             response = await client.get(url)
+            log_event(
+                "provider.http",
+                layer="backend",
+                provider="subdl",
+                method="GET",
+                path=self._safe_path(url),
+                status_code=response.status_code,
+                duration_ms=round((time.perf_counter() - started) * 1000),
+            )
             response.raise_for_status()
         match = NEXT_DATA_PATTERN.search(response.text)
         if not match:
             raise SubtitleSourceError(f"SubDL page did not expose structured data: {url}")
         payload = json.loads(match.group(1))
         return payload.get("props", {}).get("pageProps", {})
+
+    def _safe_path(self, url: str) -> str:
+        return url.replace(BASE_URL, "")
 
     def _coerce_int(self, value: object) -> int | None:
         try:
