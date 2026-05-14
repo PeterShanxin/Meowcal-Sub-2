@@ -22,12 +22,13 @@ export function PrepCard({
   prepared,
 }: PrepCardProps): JSX.Element {
   const sourceFile = prepared?.source_file_name ?? source?.file ?? "—";
-  const isAutoTranslation =
-    prepared?.target_match_mode === "local_translation" ||
-    prepared?.target_match_mode === "auto_live_translation";
+  const isAutoTranslation = prepared?.target_match_mode === "auto_live_translation";
+  const isLocalTranslation = prepared?.target_match_mode === "local_translation";
   const targetLabel =
     isAutoTranslation
       ? "Live translation (Foundry)"
+      : isLocalTranslation
+        ? "Local translation (Foundry)"
       : (prepared?.target_file_name ?? target?.title ?? target?.file ?? "—");
   const lines =
     prepared?.source_line_count
@@ -70,7 +71,7 @@ export function PrepCard({
         <Row
           label="Target"
           value={targetLabel}
-          tag={isAutoTranslation ? "AUTO" : null}
+          tag={isAutoTranslation || isLocalTranslation ? "AUTO" : null}
         />
         <Row label="Runtime" value={runtimeLabel} />
         <Row label="Lines" value={lines} />

@@ -196,11 +196,7 @@ async def run_auto_candidate_sync_loop(
     client = None
     model = None
     translation_cache: OrderedDict[str, str] = OrderedDict()
-    needs_live_translation = not any(
-        line.translated
-        for candidate in candidates
-        for line in candidate.pair.source_lines
-    )
+    needs_live_translation = any(_candidate_needs_live_translation(candidate) for candidate in candidates)
     iteration = 0
 
     try:
@@ -219,9 +215,15 @@ async def run_auto_candidate_sync_loop(
                 ocr_text = await ocr_image(image, config.ocr_language)
 
                 if locked is not None:
+                    repeat_frame = _is_repeated_frame(locked.matcher, ocr_text)
                     result = locked.matcher.match(ocr_text)
                     winner = locked if result is not None else None
                     if result is None:
+                        if repeat_frame:
+                            logger.debug("AUTO match repeat frame: candidate=%s", locked.candidate.result_id)
+                            elapsed = monotonic() - loop_start
+                            await asyncio.sleep(max(0, interval_s - elapsed))
+                            continue
                         locked_misses += 1
                         if locked_misses >= AUTO_UNLOCK_MISSES:
                             logger.debug("AUTO match unlock: candidate=%s misses=%d", locked.candidate.result_id, locked_misses)
@@ -253,7 +255,7 @@ async def run_auto_candidate_sync_loop(
                 can_display = result is not None and locked is not None and winner is locked
                 if can_display:
                     display_text = result.target_text
-                    if needs_live_translation and client is not None:
+                    if winner is not None and _candidate_needs_live_translation(winner.candidate) and client is not None:
                         display_text = await _translate_cached(result.source_text, config, client, model, translation_cache)
                     display_key = f"{winner.candidate.result_id if winner else ''}:{result.line_index}:{display_text}"
                     if display_text and display_key != last_displayed_key:
@@ -285,7 +287,7 @@ async def run_auto_candidate_sync_loop(
                     "lockedThisFrame": locked_this_frame,
                     "elapsedMs": int(elapsed * 1000),
                 })
-                elapsed = monotonic() - loop_start
+            elapsed = monotonic() - loop_start
             await asyncio.sleep(max(0, interval_s - elapsed))
     finally:
         if client is not None:
@@ -295,6 +297,17 @@ async def run_auto_candidate_sync_loop(
 def _normalize_live_ocr_text(text: str) -> str:
     normalized = SubtitleMatcher.normalize_text(text)
     return clean_cjk_text(normalized)
+
+
+def _candidate_needs_live_translation(candidate: SourceSubtitleCandidate) -> bool:
+    return any(not line.translated for line in candidate.pair.source_lines)
+
+
+def _is_repeated_frame(matcher: SubtitleMatcher, ocr_text: str) -> bool:
+    normalized_ocr = matcher._normalize_for_match(ocr_text)
+    if len(normalized_ocr) < 3:
+        return False
+    return matcher._hash_text(normalized_ocr) == matcher._last_frame_hash
 
 
 class _CandidateMatcher:
