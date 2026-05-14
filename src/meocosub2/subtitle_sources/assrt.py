@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import httpx
 
 from meocosub2.config import AppConfig
 from meocosub2.errors import SubtitleSourceError
+from meocosub2.event_log import log_event
 from meocosub2.subtitle_sources.types import ProviderCapabilities, ProviderSearchCatalog, ProviderSubtitleResult
 from meocosub2.subtitle_sources.utils import (
     best_title_guess,
@@ -123,7 +125,18 @@ class AssrtProvider:
 
     async def _request(self, path: str, params: dict[str, object]) -> dict[str, object]:
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            started = time.perf_counter()
             response = await client.get(f"{API_BASE}{path}", params=params)
+            log_event(
+                "provider.http",
+                layer="backend",
+                provider="assrt",
+                method="GET",
+                path=path,
+                status_code=response.status_code,
+                duration_ms=round((time.perf_counter() - started) * 1000),
+                params={key: value for key, value in params.items() if key != "token"},
+            )
             response.raise_for_status()
         payload = response.json()
         if payload.get("status") not in {0, "0"}:

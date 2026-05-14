@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -48,6 +49,31 @@ def test_search_route_delegates_to_controller(tmp_path: Path, mocker) -> None:
     assert request.title == "Inception"
     assert request.source_language == "en"
     assert request.target_language == "zht"
+    assert request.correlation_id is None
+
+
+def test_client_log_route_writes_structured_event(tmp_path: Path, monkeypatch) -> None:
+    log_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("MEOCOSUB2_EVENT_LOG_PATH", str(log_path))
+    server = make_server(tmp_path / "config.toml")
+
+    with TestClient(server.app) as client:
+        response = client.post(
+            "/api/log/client",
+            json={
+                "event": "ui.search.submitted",
+                "correlationId": "search-123",
+                "data": {"token": "secret", "title": "Fate"},
+            },
+        )
+
+    assert response.status_code == 200
+    record = json.loads(log_path.read_text(encoding="utf-8"))
+    assert record["layer"] == "frontend"
+    assert record["event"] == "ui.search.submitted"
+    assert record["correlation_id"] == "search-123"
+    assert record["data"]["token"] == "[redacted]"
+    assert record["data"]["title"] == "Fate"
 
 
 def test_prepare_start_and_stop_routes_delegate_to_controller(tmp_path: Path, mocker) -> None:
