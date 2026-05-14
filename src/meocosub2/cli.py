@@ -19,7 +19,6 @@ from rich.table import Table
 
 from meocosub2 import __version__
 from meocosub2.config import AppConfig, load_config
-from meocosub2.event_log import log_event
 from meocosub2.opensubtitles.client import OpenSubtitlesClient
 from meocosub2.overlay.server import OverlayServer
 from meocosub2.subtitles import align_subtitles, load_subtitle_file
@@ -261,7 +260,6 @@ def gui() -> None:
 @app.command()
 def serve() -> None:
     config = _get_config()
-    log_event("backend.serve.start", layer="backend", port=config.overlay_port)
     asyncio.run(_serve_gui(config))
 
 

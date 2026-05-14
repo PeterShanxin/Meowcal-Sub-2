@@ -6,17 +6,15 @@ import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from meocosub2.config import AppConfig, overlay_style_payload
 from meocosub2.capture import available_ocr_languages
 from meocosub2.errors import SubtitleSourceError, TranslationError
-from meocosub2.event_log import log_event
 from meocosub2.languages import languages_payload
 from meocosub2.models import SearchRequest
 from meocosub2.overlay.controller import GuiController
@@ -29,15 +27,6 @@ class SearchBody(BaseModel):
     title: str
     sourceLanguage: str | None = None
     targetLanguage: str | None = None
-    clientEventId: str | None = None
-    correlationId: str | None = None
-
-
-class ClientLogBody(BaseModel):
-    event: str
-    level: Literal["debug", "info", "warning", "error"] = "info"
-    correlationId: str | None = None
-    data: dict[str, object] = Field(default_factory=dict)
 
 
 class PrepareSessionBody(BaseModel):
@@ -119,17 +108,6 @@ class OverlayServer:
         async def api_get_state() -> dict[str, object]:
             return self.controller.state_snapshot()
 
-        @self.app.post("/api/log/client")
-        async def api_log_client(body: ClientLogBody) -> dict[str, str]:
-            log_event(
-                body.event,
-                layer="frontend",
-                level=body.level,
-                correlation_id=body.correlationId,
-                data=body.data,
-            )
-            return {"status": "logged"}
-
         @self.app.post("/api/search")
         async def api_search(body: SearchBody) -> dict[str, object]:
             try:
@@ -138,7 +116,6 @@ class OverlayServer:
                         title=body.title,
                         source_language=body.sourceLanguage or self.config.source_language,
                         target_language=body.targetLanguage or self.config.target_language,
-                        correlation_id=body.correlationId or body.clientEventId,
                     )
                 )
             except ValueError as exc:

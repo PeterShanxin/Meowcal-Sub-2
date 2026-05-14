@@ -27,22 +27,6 @@ import type {
   WorkItem,
 } from "./lib/types";
 
-function clientEventId(prefix: string): string {
-  if (crypto.randomUUID) return `${prefix}-${crypto.randomUUID()}`;
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  const random = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `${prefix}-${random}`;
-}
-
-function logClientEvent(
-  event: string,
-  data: Record<string, unknown> = {},
-  correlationId?: string,
-): void {
-  void api.logClient({ event, correlationId, data }).catch(() => undefined);
-}
-
 export function App(): JSX.Element {
   useAppWebSocket();
   const snapshot = useStore((s) => s.snapshot);
@@ -239,18 +223,11 @@ export function App(): JSX.Element {
 
   const runSearch = useCallback(async (title: string) => {
     if (!title.trim()) return;
-    const trimmedTitle = title.trim();
-    const correlationId = clientEventId("search");
-    lastSearchedQuery.current = trimmedTitle;
+    lastSearchedQuery.current = title.trim();
     searchAbort.current?.abort();
     const ctrl = new AbortController();
     searchAbort.current = ctrl;
     setSearching(true);
-    logClientEvent("ui.search.submitted", {
-      title: trimmedTitle,
-      sourceLanguage: config?.languages.source ?? snapshot?.source_language,
-      targetLanguage: config?.languages.target ?? snapshot?.target_language,
-    }, correlationId);
     store.set({
       cursorIndex: -1,
       selectedWorkId: null,
@@ -261,32 +238,19 @@ export function App(): JSX.Element {
       selectedTargetId: null,
     });
     try {
-      const res = await api.search(
-        trimmedTitle,
-        config?.languages.source,
-        config?.languages.target,
-        correlationId,
-      );
+      const res = await api.search(title);
       const fresh = await api.getState();
       store.set({ snapshot: fresh, config: fresh.config });
-      logClientEvent("ui.search.completed", {
-        results: res.results.length,
-        matches: res.matches.length,
-        works: res.works.length,
-        warnings: res.warnings.length,
-      }, correlationId);
+      void res;
     } catch (err) {
       store.set({ error: err instanceof Error ? err.message : String(err) });
-      logClientEvent("ui.search.failed", {
-        error: err instanceof Error ? err.message : String(err),
-      }, correlationId);
     } finally {
       if (searchAbort.current === ctrl) {
         setSearching(false);
         searchAbort.current = null;
       }
     }
-  }, [config?.languages.source, config?.languages.target, snapshot?.source_language, snapshot?.target_language]);
+  }, []);
 
   const onQueryChange = useCallback((v: string) => {
     store.set({ query: v, cursorIndex: -1 });
@@ -324,14 +288,12 @@ export function App(): JSX.Element {
 
   const onTabChange = useCallback(
     (t: PaletteTabId) => {
-      logClientEvent("ui.palette.tab_changed", { tab: t });
       store.set({ tab: t, cursorIndex: cursorForTab(t) });
     },
     [cursorForTab],
   );
 
   const advanceToSourceTab = useCallback((workId: string, matchId: string) => {
-    logClientEvent("ui.title.selected", { workId, matchId });
     store.set({
       selectedWorkId: workId,
       selectedEpisodeMatchId: matchId,
@@ -427,12 +389,10 @@ export function App(): JSX.Element {
   );
 
   const onPickSource = useCallback((id: string) => {
-    logClientEvent("ui.source.selected", { resultId: id });
     store.set({ selectedSourceId: id, tab: "target", cursorIndex: -1 });
   }, []);
 
   const onPickTarget = useCallback(async (id: string) => {
-    const correlationId = clientEventId("prepare");
     store.set({ selectedTargetId: id, tab: "cmd", cursorIndex: -1 });
     const currentEpisode = store.get().selectedEpisodeMatchId;
     const currentSource = store.get().selectedSourceId;
@@ -444,12 +404,6 @@ export function App(): JSX.Element {
       id === "__ocr__" ? "ocr_fallback" : "subtitle_pair";
     const targetResultId =
       id === "__local__" || id === "__ocr__" ? null : id;
-    logClientEvent("ui.target.selected", {
-      matchId: currentEpisode,
-      sourceResultId: currentSource,
-      targetResultId,
-      mode,
-    }, correlationId);
     try {
       await api.prepareSession({
         mode,
@@ -459,32 +413,20 @@ export function App(): JSX.Element {
       });
       const fresh = await api.getState();
       store.set({ snapshot: fresh, config: fresh.config });
-      logClientEvent("ui.session.prepare_completed", { mode }, correlationId);
     } catch (err) {
       store.set({ error: err instanceof Error ? err.message : String(err) });
-      logClientEvent("ui.session.prepare_failed", {
-        error: err instanceof Error ? err.message : String(err),
-      }, correlationId);
     }
   }, []);
 
   const startSync = useCallback(async () => {
-    const correlationId = clientEventId("start");
-    logClientEvent("ui.session.start_clicked", {
-      sessionId: snapshot?.prepared_session?.session_id,
-    }, correlationId);
     try {
       await api.startSession();
       const fresh = await api.getState();
       store.set({ snapshot: fresh, config: fresh.config });
-      logClientEvent("ui.session.start_completed", {}, correlationId);
     } catch (err) {
       store.set({ error: err instanceof Error ? err.message : String(err) });
-      logClientEvent("ui.session.start_failed", {
-        error: err instanceof Error ? err.message : String(err),
-      }, correlationId);
     }
-  }, [snapshot?.prepared_session?.session_id]);
+  }, []);
 
   const onChangeLang = useCallback(async (type: "source" | "target", code: string) => {
     const current = store.get().config;
@@ -493,7 +435,6 @@ export function App(): JSX.Element {
       ...current,
       languages: { ...current.languages, [type]: code },
     };
-    logClientEvent("ui.language.changed", { type, code });
     try {
       const saved = await api.putConfig(next);
       store.set({ config: saved });
@@ -513,7 +454,6 @@ export function App(): JSX.Element {
         subdl: { enabled: true },
       },
     };
-    logClientEvent("ui.subtitle_source.enabled", { provider: "subdl" });
     try {
       const saved = await api.putConfig(next);
       store.set({ config: saved });
@@ -523,8 +463,6 @@ export function App(): JSX.Element {
   }, []);
 
   const clearSession = useCallback(async () => {
-    const correlationId = clientEventId("stop");
-    logClientEvent("ui.session.stop_clicked", {}, correlationId);
     try {
       await api.stopSession();
     } catch {
@@ -537,24 +475,20 @@ export function App(): JSX.Element {
       // ignore
     }
     store.resetSelection();
-    logClientEvent("ui.session.stop_completed", {}, correlationId);
   }, []);
 
   const openSettings = useCallback(() => {
     if (store.get().config) {
-      logClientEvent("ui.settings.opened");
       store.set({ manualView: "settings" });
     }
   }, []);
 
   const closeSettings = useCallback(() => {
-    logClientEvent("ui.settings.closed");
     store.set({ manualView: null });
   }, []);
 
   const onCommand = useCallback(
     (id: string) => {
-      logClientEvent("ui.command.selected", { commandId: id });
       if (id === "c1") void startSync();
       else if (id === "c2") void tauri.openAreaSelector();
       else if (id === "c3") openSettings();

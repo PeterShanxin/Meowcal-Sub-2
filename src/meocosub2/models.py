@@ -32,7 +32,6 @@ class SearchRequest:
     title: str
     source_language: str
     target_language: str
-    correlation_id: str | None = None
 
 
 @dataclass

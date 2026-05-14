@@ -6,7 +6,6 @@ import asyncio
 import html
 import logging
 import re
-import time
 import unicodedata
 from dataclasses import dataclass
 from html.parser import HTMLParser
@@ -17,7 +16,6 @@ import httpx
 from rapidfuzz import fuzz
 
 from meocosub2.errors import OpenSubtitlesError
-from meocosub2.event_log import log_event
 from meocosub2.languages import normalize_source_language
 from meocosub2.opensubtitles.types import FeatureCandidate, SearchCatalog, SearchResult
 
@@ -107,19 +105,7 @@ class OpenSubtitlesClient:
 
     async def _request(self, method: str, path: str, **kwargs: object) -> httpx.Response:
         for attempt in range(MAX_RETRIES + 1):
-            started = time.perf_counter()
             response = await self._client.request(method, path, **kwargs)
-            log_event(
-                "provider.http",
-                layer="backend",
-                provider="opensubtitles",
-                method=method,
-                path=path,
-                status_code=response.status_code,
-                duration_ms=round((time.perf_counter() - started) * 1000),
-                attempt=attempt + 1,
-                params=kwargs.get("params"),
-            )
             if response.status_code != 429:
                 return response
             if attempt >= MAX_RETRIES:
