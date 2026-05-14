@@ -20,6 +20,16 @@ class SubtitlePair:
 
 
 @dataclass
+class SourceSubtitleCandidate:
+    result_id: str
+    file_name: str
+    provider: str
+    language: str
+    path: str
+    pair: SubtitlePair
+
+
+@dataclass
 class MatchResult:
     line_index: int
     score: float
@@ -51,8 +61,15 @@ class PreparedSession:
     target_language: str
     resolved_source_language: str
     source_language_mode: Literal["exact", "family_fallback"]
-    session_mode: Literal["subtitle_pair", "ocr_fallback"] = "subtitle_pair"
-    target_match_mode: Literal["subtitle_file", "local_translation", "target_subtitle_match", "direct_translation"] = "subtitle_file"
+    session_mode: Literal["subtitle_pair", "ocr_fallback", "auto_candidates"] = "subtitle_pair"
+    target_match_mode: Literal[
+        "subtitle_file",
+        "local_translation",
+        "target_subtitle_match",
+        "direct_translation",
+        "auto_subtitle_file",
+        "auto_live_translation",
+    ] = "subtitle_file"
     feature_id: str | None = None
     source_file_id: str | None = None
     source_file_name: str | None = None
@@ -66,6 +83,8 @@ class PreparedSession:
     target_line_count: int = 0
     translated_line_count: int = 0
     used_translation: bool = False
+    source_candidate_count: int = 0
+    target_candidate_count: int = 0
 
 
 @dataclass
@@ -95,7 +114,8 @@ class AppWebSocketEvent:
 
 @dataclass
 class PreparedRuntime:
-    session_mode: Literal["subtitle_pair", "ocr_fallback"]
+    session_mode: Literal["subtitle_pair", "ocr_fallback", "auto_candidates"]
     pair: SubtitlePair | None = None
     target_lines: list[SubtitleLine] = field(default_factory=list)
     feature_id: str | None = None
+    source_candidates: list[SourceSubtitleCandidate] = field(default_factory=list)

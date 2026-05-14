@@ -56,12 +56,14 @@ export interface BackendPreparedSession {
   target_language: string;
   resolved_source_language: string;
   source_language_mode: "exact" | "family_fallback";
-  session_mode: "subtitle_pair" | "ocr_fallback";
+  session_mode: "subtitle_pair" | "ocr_fallback" | "auto_candidates";
   target_match_mode:
     | "subtitle_file"
     | "local_translation"
     | "target_subtitle_match"
-    | "direct_translation";
+    | "direct_translation"
+    | "auto_subtitle_file"
+    | "auto_live_translation";
   feature_id: string | null;
   source_file_id: string | null;
   source_file_name: string | null;
@@ -75,6 +77,8 @@ export interface BackendPreparedSession {
   target_line_count: number;
   translated_line_count: number;
   used_translation: boolean;
+  source_candidate_count: number;
+  target_candidate_count: number;
 }
 
 export interface BackendProgress {

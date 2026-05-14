@@ -330,18 +330,40 @@ export function App(): JSX.Element {
     [cursorForTab],
   );
 
+  const prepareAutoSession = useCallback(async (matchId: string) => {
+    const correlationId = clientEventId("prepare");
+    logClientEvent("ui.session.auto_prepare_requested", { matchId }, correlationId);
+    store.set({ tab: "cmd", cursorIndex: -1, selectedSourceId: null, selectedTargetId: null });
+    try {
+      await api.prepareSession({
+        mode: "auto_candidates",
+        matchId,
+      });
+      const fresh = await api.getState();
+      store.set({ snapshot: fresh, config: fresh.config });
+      logClientEvent("ui.session.prepare_completed", { mode: "auto_candidates" }, correlationId);
+    } catch (err) {
+      store.set({ error: err instanceof Error ? err.message : String(err) });
+      logClientEvent("ui.session.prepare_failed", {
+        mode: "auto_candidates",
+        error: err instanceof Error ? err.message : String(err),
+      }, correlationId);
+    }
+  }, []);
+
   const advanceToSourceTab = useCallback((workId: string, matchId: string) => {
-    logClientEvent("ui.title.selected", { workId, matchId });
+    logClientEvent("ui.title.selected", { workId, matchId, mode: "auto_candidates" });
     store.set({
       selectedWorkId: workId,
       selectedEpisodeMatchId: matchId,
       selectedSourceId: null,
       selectedTargetId: null,
-      tab: "source",
+      tab: "cmd",
       query: "",
       cursorIndex: -1,
     });
-  }, []);
+    void prepareAutoSession(matchId);
+  }, [prepareAutoSession]);
 
   const onToggleExpandWork = useCallback(
     (id: string) => {
@@ -626,8 +648,10 @@ export function App(): JSX.Element {
       void startSync();
     } else if (episodeMatchId && selectedSourceId && selectedTargetId) {
       void onPickTarget(selectedTargetId); // re-prepare if user changed mind
+    } else if (episodeMatchId) {
+      void prepareAutoSession(episodeMatchId);
     }
-  }, [phase, tab, query, runSearch, startSync, episodeMatchId, selectedSourceId, selectedTargetId, onPickTarget]);
+  }, [phase, tab, query, runSearch, startSync, episodeMatchId, selectedSourceId, selectedTargetId, onPickTarget, prepareAutoSession]);
 
   const onMoveCursor = useCallback(
     (dir: "up" | "down" | "left" | "right") => {

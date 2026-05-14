@@ -141,6 +141,30 @@ def test_prepare_route_supports_ocr_fallback_mode(tmp_path: Path, mocker) -> Non
     )
 
 
+def test_prepare_route_supports_auto_candidate_mode(tmp_path: Path, mocker) -> None:
+    server = make_server(tmp_path / "config.toml")
+    prepare = mocker.patch.object(
+        server.controller,
+        "prepare_session",
+        new=mocker.AsyncMock(return_value={"session_id": "auto01", "session_mode": "auto_candidates"}),
+    )
+
+    with TestClient(server.app) as client:
+        response = client.post(
+            "/api/session/prepare",
+            json={"mode": "auto_candidates", "matchId": "match-1"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["session"]["session_mode"] == "auto_candidates"
+    prepare.assert_awaited_once_with(
+        mode="auto_candidates",
+        feature_id="match-1",
+        source_file_id=None,
+        target_file_id=None,
+    )
+
+
 def test_start_route_returns_conflict_on_runtime_error(tmp_path: Path, mocker) -> None:
     server = make_server(tmp_path / "config.toml")
     mocker.patch.object(
