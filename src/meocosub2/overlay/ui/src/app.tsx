@@ -349,6 +349,14 @@ export function App(): JSX.Element {
         matchId,
       });
       const fresh = await api.getState();
+      if (
+        autoPrepareInFlight.current !== matchId ||
+        store.get().selectedEpisodeMatchId !== matchId ||
+        fresh.prepared_session?.feature_id !== matchId
+      ) {
+        logClientEvent("ui.session.prepare_stale_ignored", { matchId }, correlationId);
+        return;
+      }
       store.set({ snapshot: fresh, config: fresh.config });
       logClientEvent("ui.session.prepare_completed", { mode: "auto_candidates" }, correlationId);
     } catch (err) {

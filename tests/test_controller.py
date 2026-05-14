@@ -251,10 +251,114 @@ async def test_prepare_auto_candidate_session_downloads_top_sources_and_best_tar
     assert payload["source_candidate_count"] == 2
     assert payload["target_candidate_count"] == 1
     assert payload["source_file_id"] is None
+    assert payload["source_file_name"] is None
+    assert payload["source_summary"] == "2 source candidates"
     assert payload["target_file_id"] == "target"
     assert controller._prepared_runtime is not None
     assert len(controller._prepared_runtime.source_candidates) == 2
     assert download.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_prepare_auto_candidate_session_combines_source_and_target_warnings(tmp_path: Path, mocker) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+    mocker.patch(
+        "meocosub2.overlay.controller.make_foundry_ready",
+        return_value=type("Status", (), {"phase": "ready", "notes": "Ready."})(),
+    )
+    source_path = tmp_path / "source.srt"
+    source_path.write_text("1\n00:00:01,000 --> 00:00:02,000\nhello there\n", encoding="utf-8")
+    controller._search_catalog = AggregatedSearchCatalog(
+        matches=[
+            AggregatedTitleMatch(
+                id="match-1",
+                title="Fate/strange Fake",
+                year=2024,
+                imdb_id=None,
+                tmdb_id=None,
+                media_type="episode",
+                subtitles_count=1,
+                match_score=250,
+                provider_count=1,
+                providers=("subdl",),
+                provider_labels=("SubDL",),
+            )
+        ],
+        results=[
+            AggregatedSubtitleResult(
+                result_id="source-zh",
+                match_id="match-1",
+                provider="subdl",
+                provider_label="SubDL",
+                title="Episode 1",
+                year=2024,
+                imdb_id=None,
+                tmdb_id=None,
+                media_type="episode",
+                language="zh",
+                download_count=50,
+                file_name="source.srt",
+                provider_rank=0,
+                provider_result=object(),
+            ),
+        ],
+    )
+    controller._state.title = "Fate/strange Fake"
+    controller._state.source_language = "zht"
+    controller._state.target_language = "en"
+    controller._state.search_matches = [{"id": "match-1", "title": "Fate/strange Fake", "mediaType": "episode"}]
+    mocker.patch.object(controller._aggregator, "download", return_value=source_path)
+
+    await controller.prepare_session(mode="auto_candidates", feature_id="match-1")
+
+    warning = controller.state_snapshot()["warning_message"]
+    assert "Chinese-family source subtitle candidates" in warning
+    assert "No target subtitle matched" in warning
+
+
+def test_auto_candidate_ranking_prefers_exact_language_before_family_fallback(tmp_path: Path) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+    controller._search_catalog = AggregatedSearchCatalog(
+        matches=[],
+        results=[
+            AggregatedSubtitleResult(
+                result_id="fallback-zh",
+                match_id="match-1",
+                provider="subdl",
+                provider_label="SubDL",
+                title="Episode 1",
+                year=2024,
+                imdb_id=None,
+                tmdb_id=None,
+                media_type="episode",
+                language="zh",
+                download_count=100,
+                file_name="fallback.srt",
+                provider_rank=0,
+                provider_result=object(),
+            ),
+            AggregatedSubtitleResult(
+                result_id="exact-zht",
+                match_id="match-1",
+                provider="opensubtitles",
+                provider_label="OpenSubtitles",
+                title="Episode 1",
+                year=2024,
+                imdb_id=None,
+                tmdb_id=None,
+                media_type="episode",
+                language="zht",
+                download_count=1,
+                file_name="exact.srt",
+                provider_rank=2,
+                provider_result=object(),
+            ),
+        ],
+    )
+
+    candidates = controller._candidate_results_for_feature("match-1", "zht", 1)
+
+    assert [item.result_id for item in candidates] == ["exact-zht"]
 
 
 @pytest.mark.asyncio

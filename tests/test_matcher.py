@@ -33,6 +33,14 @@ def test_match_returns_translated_text() -> None:
     assert result.target_text == "你好"
 
 
+def test_is_repeated_frame_reports_duplicate_normalized_ocr() -> None:
+    matcher = SubtitleMatcher([SubtitleLine(index=0, start_ms=0, end_ms=1000, text="Hello there")])
+
+    assert matcher.is_repeated_frame("Hello there") is False
+    assert matcher.match("Hello there") is not None
+    assert matcher.is_repeated_frame("Hello there!") is True
+
+
 def test_match_falls_back_to_source_text() -> None:
     matcher = SubtitleMatcher([SubtitleLine(index=0, start_ms=0, end_ms=1000, text="Hello there")])
     result = matcher.match("Hello there")

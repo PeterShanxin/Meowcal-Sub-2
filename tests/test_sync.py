@@ -210,6 +210,36 @@ async def test_auto_candidate_sync_loop_counts_repeat_frames_for_pending_lock(mo
 
 
 @pytest.mark.asyncio
+async def test_auto_candidate_sync_loop_does_not_promote_pending_on_new_nonmatch_frame(mocker) -> None:
+    candidates = [
+        SourceSubtitleCandidate(
+            result_id="right",
+            file_name="right.srt",
+            provider="OpenSubtitles",
+            language="en",
+            path="right.srt",
+            pair=SubtitlePair(
+                source_lines=[SubtitleLine(index=0, start_ms=0, end_ms=3000, text="The hero arrives now", translated="英雄到了")]
+            ),
+        )
+    ]
+    config = AppConfig(capture_interval_ms=50, fuzzy_threshold=65)
+    mocker.patch("meocosub2.sync.AUTO_LOCK_SCORE", 101)
+    mocker.patch("meocosub2.sync.asyncio.sleep", new=AsyncMock(side_effect=[None, asyncio.CancelledError()]))
+    mocker.patch("meocosub2.sync.capture_region", return_value=MagicMock())
+    mocker.patch("meocosub2.sync.ocr_image", new=AsyncMock(side_effect=["The hero arrives now", "completely different words"]))
+    broadcasts: list[str] = []
+
+    async def record(text: str) -> None:
+        broadcasts.append(text)
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_auto_candidate_sync_loop(candidates, config, broadcast=record)
+
+    assert broadcasts == []
+
+
+@pytest.mark.asyncio
 async def test_auto_candidate_sync_loop_ignores_repeated_frames_when_locked(mocker) -> None:
     candidates = [
         SourceSubtitleCandidate(

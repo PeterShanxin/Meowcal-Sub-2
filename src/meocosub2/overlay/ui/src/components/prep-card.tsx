@@ -21,7 +21,7 @@ export function PrepCard({
   target,
   prepared,
 }: PrepCardProps): JSX.Element {
-  const sourceFile = prepared?.source_file_name ?? source?.file ?? "—";
+  const sourceFile = prepared?.source_summary ?? prepared?.source_file_name ?? source?.file ?? "—";
   const isAutoTranslation = prepared?.target_match_mode === "auto_live_translation";
   const isLocalTranslation = prepared?.target_match_mode === "local_translation";
   const targetLabel =

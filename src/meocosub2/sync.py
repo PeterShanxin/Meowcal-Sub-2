@@ -216,7 +216,7 @@ async def run_auto_candidate_sync_loop(
                 ocr_text = await ocr_image(image, config.ocr_language)
 
                 if locked is not None:
-                    repeat_frame = _is_repeated_frame(locked.matcher, ocr_text)
+                    repeat_frame = locked.matcher.is_repeated_frame(ocr_text)
                     result = locked.matcher.match(ocr_text)
                     winner = locked if result is not None else None
                     if result is None:
@@ -236,6 +236,8 @@ async def run_auto_candidate_sync_loop(
                         locked_misses = 0
 
                 if locked is None:
+                    pending = _candidate_matcher_by_id(matchers, pending_id) if pending_id else None
+                    pending_repeat_frame = pending is not None and pending.matcher.is_repeated_frame(ocr_text)
                     winner, result = _best_candidate_match(matchers, ocr_text)
                     if winner is not None and result is not None:
                         if result.score >= AUTO_LOCK_SCORE:
@@ -257,9 +259,8 @@ async def run_auto_candidate_sync_loop(
                             pending_id = winner.candidate.result_id
                             pending_hits = 1
                             pending_result = result
-                    elif pending_id and pending_result is not None:
-                        pending = _candidate_matcher_by_id(matchers, pending_id)
-                        if pending is not None and _is_repeated_frame(pending.matcher, ocr_text):
+                    elif pending is not None and pending_result is not None:
+                        if pending_repeat_frame:
                             pending_hits += 1
                             if pending_hits >= AUTO_CONFIRM_HITS:
                                 locked = pending
@@ -296,7 +297,7 @@ async def run_auto_candidate_sync_loop(
             except Exception:
                 logger.exception("Auto sync loop #%d failed (ocr=%r)", iteration, ocr_text[:60])
 
-            elapsed = monotonic() - loop_start
+            debug_elapsed = monotonic() - loop_start
             if debug_broadcast is not None:
                 await debug_broadcast({
                     "iteration": iteration,
@@ -307,10 +308,10 @@ async def run_auto_candidate_sync_loop(
                     "candidateId": winner.candidate.result_id if winner else None,
                     "lockedCandidateId": locked.candidate.result_id if locked else None,
                     "lockedThisFrame": locked_this_frame,
-                    "elapsedMs": int(elapsed * 1000),
+                    "elapsedMs": int(debug_elapsed * 1000),
                 })
-            elapsed = monotonic() - loop_start
-            await asyncio.sleep(max(0, interval_s - elapsed))
+            sleep_elapsed = monotonic() - loop_start
+            await asyncio.sleep(max(0, interval_s - sleep_elapsed))
     finally:
         if client is not None:
             await client.close()
@@ -327,13 +328,6 @@ def _candidate_needs_live_translation(candidate: SourceSubtitleCandidate) -> boo
 
 def _candidate_line_has_translation(candidate: SourceSubtitleCandidate, line_index: int) -> bool:
     return any(line.index == line_index and bool(line.translated) for line in candidate.pair.source_lines)
-
-
-def _is_repeated_frame(matcher: SubtitleMatcher, ocr_text: str) -> bool:
-    normalized_ocr = matcher._normalize_for_match(ocr_text)
-    if len(normalized_ocr) < 3:
-        return False
-    return matcher._hash_text(normalized_ocr) == matcher._last_frame_hash
 
 
 class _CandidateMatcher:

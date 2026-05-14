@@ -73,6 +73,7 @@ class PreparedSession:
     feature_id: str | None = None
     source_file_id: str | None = None
     source_file_name: str | None = None
+    source_summary: str | None = None
     source_provider: str | None = None
     source_path: str | None = None
     source_line_count: int = 0

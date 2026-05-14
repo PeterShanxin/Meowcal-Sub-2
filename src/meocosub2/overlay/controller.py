@@ -27,6 +27,7 @@ from meocosub2.foundry import foundry_status, make_foundry_ready
 from meocosub2.languages import (
     is_chinese_family,
     language_label,
+    normalize_source_language,
     normalize_ocr_language,
     source_language_mode,
     source_result_matches_requested_language,
@@ -603,7 +604,8 @@ class GuiController:
             target_match_mode="auto_subtitle_file" if target_lines else "auto_live_translation",
             feature_id=feature_id,
             source_file_id=None,
-            source_file_name=f"{len(source_candidates)} source candidates",
+            source_file_name=None,
+            source_summary=f"{len(source_candidates)} source candidates",
             source_provider=", ".join(dict.fromkeys(candidate.provider for candidate in source_candidates)),
             source_path=None,
             source_line_count=sum(len(candidate.pair.source_lines) for candidate in source_candidates),
@@ -633,10 +635,12 @@ class GuiController:
             self._state.prepared_session = session
             self._state.status = "idle"
             self._state.progress = AppProgress(stage="ready", message="Automatic subtitle session prepared.", current=1, total=1)
+            warnings = []
             if session.source_language_mode != "exact":
-                self._state.warning_message = "Using Chinese-family source subtitle candidates because no exact source language match was available."
-            elif target_entry is None:
-                self._state.warning_message = "No target subtitle matched the requested language. The session will translate matched source lines live."
+                warnings.append("Using Chinese-family source subtitle candidates because no exact source language match was available.")
+            if target_entry is None:
+                warnings.append("No target subtitle matched the requested language. The session will translate matched source lines live.")
+            self._state.warning_message = " ".join(warnings)
         await self._emit_app_state()
         await self._emit_app_progress()
         return asdict(session)
@@ -874,7 +878,16 @@ class GuiController:
             if str(result.match_id) == str(feature_id)
             and source_result_matches_requested_language(language, result.language)
         ]
-        matches.sort(key=lambda result: (result.provider_rank, -result.match_score, -result.download_count, result.result_id))
+        requested = normalize_source_language(language)
+        matches.sort(
+            key=lambda result: (
+                normalize_source_language(result.language) != requested,
+                result.provider_rank,
+                -result.match_score,
+                -result.download_count,
+                result.result_id,
+            )
+        )
         return matches[:limit]
 
     async def _set_progress(self, stage: str, message: str, current: int, total: int) -> None:

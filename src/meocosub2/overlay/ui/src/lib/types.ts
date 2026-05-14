@@ -67,6 +67,7 @@ export interface BackendPreparedSession {
   feature_id: string | null;
   source_file_id: string | null;
   source_file_name: string | null;
+  source_summary: string | null;
   source_provider: string | null;
   source_path: string | null;
   source_line_count: number;
