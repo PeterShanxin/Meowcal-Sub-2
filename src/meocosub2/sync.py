@@ -189,6 +189,7 @@ async def run_auto_candidate_sync_loop(
     locked: _CandidateMatcher | None = None
     pending_id = ""
     pending_hits = 0
+    pending_result: MatchResult | None = None
     locked_misses = 0
     last_displayed_key = ""
     region = tuple(config.capture_region) if config.capture_region else (0, 800, 1920, 200)
@@ -230,6 +231,7 @@ async def run_auto_candidate_sync_loop(
                             locked = None
                             pending_id = ""
                             pending_hits = 0
+                            pending_result = None
                     else:
                         locked_misses = 0
 
@@ -241,21 +243,41 @@ async def run_auto_candidate_sync_loop(
                             locked_this_frame = True
                             pending_id = ""
                             pending_hits = 0
+                            pending_result = None
                         elif winner.candidate.result_id == pending_id:
                             pending_hits += 1
+                            pending_result = result
                             if pending_hits >= AUTO_CONFIRM_HITS:
                                 locked = winner
                                 locked_this_frame = True
                                 pending_id = ""
                                 pending_hits = 0
+                                pending_result = None
                         else:
                             pending_id = winner.candidate.result_id
                             pending_hits = 1
+                            pending_result = result
+                    elif pending_id and pending_result is not None:
+                        pending = _candidate_matcher_by_id(matchers, pending_id)
+                        if pending is not None and _is_repeated_frame(pending.matcher, ocr_text):
+                            pending_hits += 1
+                            if pending_hits >= AUTO_CONFIRM_HITS:
+                                locked = pending
+                                winner = pending
+                                result = pending_result
+                                locked_this_frame = True
+                                pending_id = ""
+                                pending_hits = 0
+                                pending_result = None
 
                 can_display = result is not None and locked is not None and winner is locked
                 if can_display:
                     display_text = result.target_text
-                    if winner is not None and _candidate_needs_live_translation(winner.candidate) and client is not None:
+                    if (
+                        winner is not None
+                        and not _candidate_line_has_translation(winner.candidate, result.line_index)
+                        and client is not None
+                    ):
                         display_text = await _translate_cached(result.source_text, config, client, model, translation_cache)
                     display_key = f"{winner.candidate.result_id if winner else ''}:{result.line_index}:{display_text}"
                     if display_text and display_key != last_displayed_key:
@@ -303,6 +325,10 @@ def _candidate_needs_live_translation(candidate: SourceSubtitleCandidate) -> boo
     return any(not line.translated for line in candidate.pair.source_lines)
 
 
+def _candidate_line_has_translation(candidate: SourceSubtitleCandidate, line_index: int) -> bool:
+    return any(line.index == line_index and bool(line.translated) for line in candidate.pair.source_lines)
+
+
 def _is_repeated_frame(matcher: SubtitleMatcher, ocr_text: str) -> bool:
     normalized_ocr = matcher._normalize_for_match(ocr_text)
     if len(normalized_ocr) < 3:
@@ -330,6 +356,16 @@ def _best_candidate_match(
             best_candidate = candidate
             best_result = result
     return best_candidate, best_result
+
+
+def _candidate_matcher_by_id(
+    matchers: list[_CandidateMatcher],
+    result_id: str,
+) -> _CandidateMatcher | None:
+    for matcher in matchers:
+        if matcher.candidate.result_id == result_id:
+            return matcher
+    return None
 
 
 async def _translate_cached(
