@@ -40,6 +40,13 @@ export interface PrepareBody {
   targetResultId?: string | null;
 }
 
+export interface ClientLogBody {
+  event: string;
+  level?: "debug" | "info" | "warning" | "error";
+  correlationId?: string | null;
+  data?: Record<string, unknown>;
+}
+
 export const api = {
   getState: () => request<BackendSnapshot>("GET", "/api/state"),
   getConfig: () => request<BackendSnapshot["config"]>("GET", "/api/config"),
@@ -58,8 +65,11 @@ export const api = {
     title: string,
     sourceLanguage?: string,
     targetLanguage?: string,
+    correlationId?: string,
   ): Promise<SearchResponse> =>
-    request("POST", "/api/search", { title, sourceLanguage, targetLanguage }),
+    request("POST", "/api/search", { title, sourceLanguage, targetLanguage, correlationId }),
+  logClient: (body: ClientLogBody) =>
+    request<{ status: string }>("POST", "/api/log/client", body),
   prepareSession: (body: PrepareBody) =>
     request<{ session: BackendSnapshot["prepared_session"] }>(
       "POST",
