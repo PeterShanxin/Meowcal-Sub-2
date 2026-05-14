@@ -23,9 +23,68 @@ If WScript.Arguments.Count > 0 Then
   End If
 End If
 
-Function JsonEscape(value)
-  JsonEscape = Replace(Replace(Replace(value, "\", "\\"), Chr(34), "\" & Chr(34)), vbCrLf, "\n")
+Function Pad2(value)
+  Pad2 = Right("0" & CStr(value), 2)
 End Function
+
+Function Pad4(value)
+  Pad4 = Right("0000" & CStr(value), 4)
+End Function
+
+Function Hex4(value)
+  Hex4 = Right("0000" & Hex(value), 4)
+End Function
+
+Function JsonEscape(value)
+  Dim text, result, i, ch, code
+  text = CStr(value)
+  result = ""
+  For i = 1 To Len(text)
+    ch = Mid(text, i, 1)
+    code = AscW(ch)
+    If code < 0 Then code = code + 65536
+    Select Case code
+      Case 34
+        result = result & "\" & Chr(34)
+      Case 92
+        result = result & "\\"
+      Case 8
+        result = result & "\b"
+      Case 9
+        result = result & "\t"
+      Case 10
+        result = result & "\n"
+      Case 12
+        result = result & "\f"
+      Case 13
+        result = result & "\r"
+      Case 0 To 31
+        result = result & "\u" & Hex4(code)
+      Case 127 To 65535
+        result = result & "\u" & Hex4(code)
+      Case Else
+        result = result & ch
+    End Select
+  Next
+  JsonEscape = result
+End Function
+
+Sub GetUtcClock(ByRef isoTimestamp, ByRef epochMs)
+  Dim utc, utcDate
+  isoTimestamp = ""
+  epochMs = ""
+  For Each utc In GetObject("winmgmts:\\.\root\cimv2").ExecQuery("SELECT Year,Month,Day,Hour,Minute,Second FROM Win32_UTCTime")
+    utcDate = DateSerial(utc.Year, utc.Month, utc.Day) + TimeSerial(utc.Hour, utc.Minute, utc.Second)
+    isoTimestamp = Pad4(utc.Year) & "-" & Pad2(utc.Month) & "-" & Pad2(utc.Day) & "T" & Pad2(utc.Hour) & ":" & Pad2(utc.Minute) & ":" & Pad2(utc.Second) & "Z"
+    epochMs = CStr(DateDiff("s", DateSerial(1970, 1, 1), utcDate)) & "000"
+    Exit Sub
+  Next
+  If isoTimestamp = "" Then
+    utcDate = Now
+    isoTimestamp = Pad4(Year(utcDate)) & "-" & Pad2(Month(utcDate)) & "-" & Pad2(Day(utcDate)) & "T" & Pad2(Hour(utcDate)) & ":" & Pad2(Minute(utcDate)) & ":" & Pad2(Second(utcDate)) & "Z"
+    epochMs = CStr(DateDiff("s", DateSerial(1970, 1, 1), utcDate)) & "000"
+  End If
+End Sub
 
 Sub EnsureFolder(folderPath)
   If folderPath = "" Or fso.FolderExists(folderPath) Then Exit Sub
@@ -39,10 +98,12 @@ Sub EnsureLogDir()
 End Sub
 
 Sub LogEvent(eventName, fieldsJson)
+  Dim isoTimestamp, epochMs
   On Error Resume Next
   EnsureLogDir
+  GetUtcClock isoTimestamp, epochMs
   Set logFile = fso.OpenTextFile(eventLogPath, 8, True)
-  logFile.WriteLine "{""ts"":""" & JsonEscape(CStr(Now)) & """,""layer"":""launcher"",""level"":""info"",""event"":""" & JsonEscape(eventName) & """," & fieldsJson & "}"
+  logFile.WriteLine "{""ts"":""" & JsonEscape(isoTimestamp) & """,""ts_ms"":" & epochMs & ",""layer"":""launcher"",""level"":""info"",""event"":""" & JsonEscape(eventName) & """," & fieldsJson & "}"
   logFile.Close
   On Error GoTo 0
 End Sub
