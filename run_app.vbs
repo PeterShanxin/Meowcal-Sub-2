@@ -4,8 +4,14 @@ Set WshShell = CreateObject("WScript.Shell")
 repoRoot = fso.GetParentFolderName(WScript.ScriptFullName)
 shellPath = repoRoot & "\src-tauri\target\debug\meowcal-sub-2-shell.exe"
 webviewDataPath = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\com.meowcal.sub2\EBWebView"
-logDir = WshShell.ExpandEnvironmentStrings("%APPDATA%") & "\meowcal-sub-2\logs"
-eventLogPath = logDir & "\meowcal-sub-2.events.jsonl"
+eventLogOverride = WshShell.ExpandEnvironmentStrings("%MEOCOSUB2_EVENT_LOG_PATH%")
+If eventLogOverride <> "" And eventLogOverride <> "%MEOCOSUB2_EVENT_LOG_PATH%" Then
+  eventLogPath = eventLogOverride
+  logDir = fso.GetParentFolderName(eventLogPath)
+Else
+  logDir = WshShell.ExpandEnvironmentStrings("%APPDATA%") & "\meowcal-sub-2\logs"
+  eventLogPath = logDir & "\meowcal-sub-2.events.jsonl"
+End If
 uiDir = repoRoot & "\src\meocosub2\overlay\ui"
 uiBuiltMarker = repoRoot & "\src\meocosub2\overlay\static\index.html"
 
@@ -21,10 +27,15 @@ Function JsonEscape(value)
   JsonEscape = Replace(Replace(Replace(value, "\", "\\"), Chr(34), "\" & Chr(34)), vbCrLf, "\n")
 End Function
 
+Sub EnsureFolder(folderPath)
+  If folderPath = "" Or fso.FolderExists(folderPath) Then Exit Sub
+  parentPath = fso.GetParentFolderName(folderPath)
+  If parentPath <> "" And Not fso.FolderExists(parentPath) Then EnsureFolder parentPath
+  If Not fso.FolderExists(folderPath) Then fso.CreateFolder folderPath
+End Sub
+
 Sub EnsureLogDir()
-  appDir = WshShell.ExpandEnvironmentStrings("%APPDATA%") & "\meowcal-sub-2"
-  If Not fso.FolderExists(appDir) Then fso.CreateFolder appDir
-  If Not fso.FolderExists(logDir) Then fso.CreateFolder logDir
+  EnsureFolder logDir
 End Sub
 
 Sub LogEvent(eventName, fieldsJson)
