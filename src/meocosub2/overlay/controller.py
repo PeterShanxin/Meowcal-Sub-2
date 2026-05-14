@@ -8,6 +8,7 @@ import logging
 import os
 import subprocess
 import tempfile
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from pathlib import Path
@@ -19,6 +20,7 @@ CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 from meocosub2.capture import available_ocr_languages, resolve_ocr_language
 from meocosub2.config import AppConfig, config_to_payload, overlay_style_payload, save_config
 from meocosub2.errors import SubtitleSourceError, TranslationError
+from meocosub2.event_log import log_event
 from meocosub2.foundry import foundry_status, make_foundry_ready
 from meocosub2.languages import is_chinese_family, language_label, normalize_ocr_language, source_language_mode
 from meocosub2.models import AppProgress, AppStateSnapshot, PreparedRuntime, PreparedSession, SearchRequest
@@ -264,6 +266,11 @@ class GuiController:
 
     async def save_config_payload(self, payload: dict[str, object]) -> dict[str, object]:
         logger.info("Saving config")
+        log_event(
+            "config.save.requested",
+            layer="backend",
+            sections=sorted(str(key) for key in payload.keys()),
+        )
         from meocosub2.config import config_from_payload
 
         # Always merge against the in-memory config so partial dashboard saves do
@@ -281,7 +288,23 @@ class GuiController:
         return config_to_payload(self.config)
 
     async def search(self, request: SearchRequest) -> dict[str, object]:
-        logger.info("Search: title=%r source=%s target=%s", request.title, request.source_language, request.target_language)
+        correlation_id = request.correlation_id or f"search-{uuid4().hex[:12]}"
+        started = time.perf_counter()
+        logger.info(
+            "Search: title=%r source=%s target=%s correlation_id=%s",
+            request.title,
+            request.source_language,
+            request.target_language,
+            correlation_id,
+        )
+        log_event(
+            "search.requested",
+            layer="backend",
+            correlation_id=correlation_id,
+            title=request.title,
+            source_language=request.source_language,
+            target_language=request.target_language,
+        )
         async with self._lock:
             self._state.status = "searching"
             self._state.title = request.title
@@ -295,8 +318,18 @@ class GuiController:
 
         languages = _expand_search_languages(request.source_language, request.target_language)
         try:
-            catalog = await self._aggregator.search_catalog(request.title, languages)
+            catalog = await self._aggregator.search_catalog(request.title, languages, correlation_id=correlation_id)
         except Exception as exc:
+            log_event(
+                "search.failed",
+                layer="backend",
+                level="error",
+                correlation_id=correlation_id,
+                title=request.title,
+                duration_ms=round((time.perf_counter() - started) * 1000),
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
             await self._set_error(str(exc))
             raise
 
@@ -317,6 +350,17 @@ class GuiController:
             self._state.warning_message = _search_warning_message(request, catalog.warnings)
             self._prepared_runtime = None
         await self._emit_app_state()
+        log_event(
+            "search.completed",
+            layer="backend",
+            correlation_id=correlation_id,
+            title=request.title,
+            duration_ms=round((time.perf_counter() - started) * 1000),
+            results=len(payload),
+            matches=len(matches),
+            works=len(works),
+            warnings=len(catalog.warnings),
+        )
         return {
             "results": payload,
             "matches": matches,
@@ -337,6 +381,14 @@ class GuiController:
             feature_id,
             source_file_id,
             target_file_id,
+        )
+        log_event(
+            "session.prepare.requested",
+            layer="backend",
+            mode=mode,
+            match_id=feature_id,
+            source_result_id=source_file_id,
+            target_result_id=target_file_id,
         )
         if self._sync_task and not self._sync_task.done():
             await self._set_error("Stop the active session before preparing another one.")
@@ -533,6 +585,7 @@ class GuiController:
 
     async def start_session(self, session_id: str | None = None) -> dict[str, object]:
         logger.info("Start session: session_id=%s", session_id)
+        log_event("session.start.requested", layer="backend", session_id=session_id)
         if self._prepared_runtime is None or self._state.prepared_session is None:
             raise ValueError("Prepare a session before starting sync.")
         if session_id and session_id != self._state.prepared_session.session_id:
@@ -561,6 +614,7 @@ class GuiController:
 
     async def stop_session(self) -> dict[str, object]:
         logger.info("Stop session requested")
+        log_event("session.stop.requested", layer="backend")
         task = self._sync_task
         if task is None or task.done():
             async with self._lock:

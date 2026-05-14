@@ -3,6 +3,7 @@
 use reqwest::blocking::Client;
 use serde::Serialize;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -102,6 +103,41 @@ fn config_path() -> PathBuf {
     PathBuf::from(appdata).join("meowcal-sub-2").join("config.toml")
 }
 
+fn event_log_path() -> PathBuf {
+    if let Ok(path) = std::env::var("MEOCOSUB2_EVENT_LOG_PATH") {
+        return PathBuf::from(path);
+    }
+    let appdata = std::env::var("APPDATA").unwrap_or_else(|_| String::from("."));
+    PathBuf::from(appdata)
+        .join("meowcal-sub-2")
+        .join("logs")
+        .join("meowcal-sub-2.events.jsonl")
+}
+
+fn log_shell_event(event: &str, fields: serde_json::Value) {
+    let ts_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    let mut record = serde_json::Map::new();
+    record.insert("ts_ms".to_string(), serde_json::json!(ts_ms));
+    record.insert("layer".to_string(), serde_json::json!("tauri"));
+    record.insert("level".to_string(), serde_json::json!("info"));
+    record.insert("event".to_string(), serde_json::json!(event));
+    if let serde_json::Value::Object(extra) = fields {
+        for (key, value) in extra {
+            record.insert(key, value);
+        }
+    }
+    let path = event_log_path();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{}", serde_json::Value::Object(record));
+    }
+}
+
 fn overlay_port() -> u16 {
     let Ok(raw) = fs::read_to_string(config_path()) else {
         return 8765;
@@ -134,6 +170,13 @@ fn backend_ready() -> bool {
 
 fn spawn_backend(process: &BackendProcess) {
     let python = python_executable();
+    log_shell_event(
+        "backend.spawn.requested",
+        serde_json::json!({
+            "python": python.display().to_string(),
+            "using_repo_venv": python.exists(),
+        }),
+    );
     let mut command = if python.exists() {
         let mut command = Command::new(python);
         command.current_dir(repo_root());
@@ -151,8 +194,18 @@ fn spawn_backend(process: &BackendProcess) {
         command.creation_flags(CREATE_NO_WINDOW);
     }
 
-    if let Ok(child) = command.spawn() {
-        *process.0.lock().expect("backend process lock") = Some(child);
+    match command.spawn() {
+        Ok(child) => {
+            let pid = child.id();
+            log_shell_event("backend.spawn.started", serde_json::json!({ "pid": pid }));
+            *process.0.lock().expect("backend process lock") = Some(child);
+        }
+        Err(error) => {
+            log_shell_event(
+                "backend.spawn.failed",
+                serde_json::json!({ "error": error.to_string() }),
+            );
+        }
     }
 }
 
@@ -289,6 +342,7 @@ fn configure_capture_hud(app: &AppHandle, shell: &ShellState) -> Result<(), Stri
 
 #[tauri::command]
 fn open_area_selector(app: AppHandle) -> Result<(), String> {
+    log_shell_event("selector.open.requested", serde_json::json!({}));
     let window = app
         .get_webview_window("selector")
         .ok_or("Selector window not found")?;
@@ -299,6 +353,7 @@ fn open_area_selector(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn close_area_selector(app: AppHandle) -> Result<(), String> {
+    log_shell_event("selector.close.requested", serde_json::json!({}));
     let window = app
         .get_webview_window("selector")
         .ok_or("Selector window not found")?;
@@ -308,18 +363,21 @@ fn close_area_selector(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn hide_main_window(app: AppHandle) -> Result<(), String> {
+    log_shell_event("window.main.hide_requested", serde_json::json!({}));
     let window = main_window(&app)?;
     hide_window_to_tray(&window)
 }
 
 #[tauri::command]
 fn show_main_window(app: AppHandle) -> Result<(), String> {
+    log_shell_event("window.main.show_requested", serde_json::json!({}));
     show_main(&app);
     Ok(())
 }
 
 #[tauri::command]
 fn enter_live_mode(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), String> {
+    log_shell_event("window.live.enter_requested", serde_json::json!({}));
     let window = main_window(&app)?;
     let maximized = window.is_maximized().map_err(|e| e.to_string())?;
     if maximized {
@@ -368,6 +426,7 @@ fn enter_live_mode(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), S
 
 #[tauri::command]
 fn exit_live_mode(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), String> {
+    log_shell_event("window.live.exit_requested", serde_json::json!({}));
     let window = main_window(&app)?;
     window.set_always_on_top(false).map_err(|e| e.to_string())?;
     window.set_decorations(true).map_err(|e| e.to_string())?;
@@ -396,6 +455,7 @@ fn exit_live_mode(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), St
 
 #[tauri::command]
 fn show_capture_hud(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), String> {
+    log_shell_event("capture_hud.show_requested", serde_json::json!({}));
     if shell
         .capture_region
         .lock()
@@ -422,6 +482,7 @@ fn get_api_base() -> String {
 
 #[tauri::command]
 fn stop_translation(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), String> {
+    log_shell_event("session.stop.requested", serde_json::json!({ "source": "tauri" }));
     post_json("/api/session/stop", serde_json::json!({}))?;
     shell.hud_enabled.store(false, Ordering::SeqCst);
     shell.hud_hovering.store(false, Ordering::SeqCst);
@@ -442,6 +503,16 @@ fn set_capture_region(
     height: i32,
     device_scale_factor: f64,
 ) -> Result<(), String> {
+    log_shell_event(
+        "capture_region.set_requested",
+        serde_json::json!({
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
+            "device_scale_factor": device_scale_factor,
+        }),
+    );
     let region = [
         (x as f64 * device_scale_factor).round() as i32,
         (y as f64 * device_scale_factor).round() as i32,
@@ -508,8 +579,11 @@ fn emit_splash_status(app: &AppHandle, text: &str) {
 fn run_backend_boot(app: &AppHandle) {
     // The Tauri shell is a wrapper around the same served dashboard path used in
     // the browser, so boot success is defined by the local backend becoming ready.
+    let started = std::time::Instant::now();
+    log_shell_event("backend.boot.start", serde_json::json!({}));
     emit_splash_status(app, "Checking backend...");
     if backend_ready() {
+        log_shell_event("backend.boot.ready_existing", serde_json::json!({ "duration_ms": started.elapsed().as_millis() }));
         navigate_main_to_backend(app);
         return;
     }
@@ -517,8 +591,10 @@ fn run_backend_boot(app: &AppHandle) {
     spawn_backend(app.state::<BackendProcess>().inner());
     emit_splash_status(app, "Waiting for backend (up to 60s)...");
     if wait_for_backend(Duration::from_secs(60)) {
+        log_shell_event("backend.boot.ready", serde_json::json!({ "duration_ms": started.elapsed().as_millis() }));
         navigate_main_to_backend(app);
     } else {
+        log_shell_event("backend.boot.failed", serde_json::json!({ "duration_ms": started.elapsed().as_millis() }));
         let _ = app.emit_to("main", "splash-error", serde_json::json!({}));
     }
 }
@@ -537,6 +613,7 @@ fn navigate_main_to_backend(app: &AppHandle) {
         .map(|duration| duration.as_millis().to_string())
         .unwrap_or_else(|_| "0".to_string());
     url.query_pairs_mut().append_pair("desktopLaunch", &launch_id);
+    log_shell_event("window.main.navigate", serde_json::json!({ "url": url.as_str() }));
     let _ = window.navigate(url);
     let _ = window.set_focus();
 }
@@ -560,6 +637,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            log_shell_event("app.single_instance.focus_requested", serde_json::json!({}));
             show_main(app);
         }))
         .manage(backend_process.clone())
@@ -577,6 +655,7 @@ fn main() {
             set_capture_region,
         ])
         .setup(move |app| {
+            log_shell_event("app.setup.start", serde_json::json!({}));
             if let Some(main) = app.get_webview_window("main") {
                 let _ = main.set_decorations(true);
             }
@@ -588,6 +667,7 @@ fn main() {
 
             let app_handle_for_retry = app.handle().clone();
             app.listen_any("splash-retry", move |_event| {
+                log_shell_event("backend.boot.retry_requested", serde_json::json!({}));
                 let handle = app_handle_for_retry.clone();
                 std::thread::spawn(move || {
                     run_backend_boot(&handle);
@@ -611,14 +691,19 @@ fn main() {
                 .tooltip("Meowcal Sub 2")
                 .menu(&menu)
                 .on_menu_event(move |tray, event| match event.id.as_ref() {
-                    "show" => show_main(tray.app_handle()),
+                    "show" => {
+                        log_shell_event("tray.show.selected", serde_json::json!({}));
+                        show_main(tray.app_handle())
+                    }
                     "select-area" => {
+                        log_shell_event("tray.select_area.selected", serde_json::json!({}));
                         if let Some(window) = tray.app_handle().get_webview_window("selector") {
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
                     }
                     "stop" => {
+                        log_shell_event("tray.stop.selected", serde_json::json!({}));
                         let app_handle = tray.app_handle().clone();
                         let _ = post_json("/api/session/stop", serde_json::json!({}));
                         {
@@ -632,6 +717,7 @@ fn main() {
                         show_main(&app_handle);
                     }
                     "exit" => {
+                        log_shell_event("tray.exit.selected", serde_json::json!({}));
                         tray.app_handle().exit(0);
                     }
                     _ => {}
@@ -643,6 +729,7 @@ fn main() {
                         ..
                     } = event
                     {
+                        log_shell_event("tray.icon.clicked", serde_json::json!({ "button": "left" }));
                         show_main(tray.app_handle());
                     }
                 })
@@ -652,6 +739,7 @@ fn main() {
                 let app_handle = handle.clone();
                 main.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        log_shell_event("window.main.close_intercepted", serde_json::json!({}));
                         api.prevent_close();
                         if let Ok(window) = main_window(&app_handle) {
                             let _ = hide_window_to_tray(&window);

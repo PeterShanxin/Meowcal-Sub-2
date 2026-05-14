@@ -4,6 +4,8 @@ Set WshShell = CreateObject("WScript.Shell")
 repoRoot = fso.GetParentFolderName(WScript.ScriptFullName)
 shellPath = repoRoot & "\src-tauri\target\debug\meowcal-sub-2-shell.exe"
 webviewDataPath = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\com.meowcal.sub2\EBWebView"
+logDir = WshShell.ExpandEnvironmentStrings("%APPDATA%") & "\meowcal-sub-2\logs"
+eventLogPath = logDir & "\meowcal-sub-2.events.jsonl"
 uiDir = repoRoot & "\src\meocosub2\overlay\ui"
 uiBuiltMarker = repoRoot & "\src\meocosub2\overlay\static\index.html"
 
@@ -15,8 +17,28 @@ If WScript.Arguments.Count > 0 Then
   End If
 End If
 
+Function JsonEscape(value)
+  JsonEscape = Replace(Replace(Replace(value, "\", "\\"), Chr(34), "\" & Chr(34)), vbCrLf, "\n")
+End Function
+
+Sub EnsureLogDir()
+  appDir = WshShell.ExpandEnvironmentStrings("%APPDATA%") & "\meowcal-sub-2"
+  If Not fso.FolderExists(appDir) Then fso.CreateFolder appDir
+  If Not fso.FolderExists(logDir) Then fso.CreateFolder logDir
+End Sub
+
+Sub LogEvent(eventName, fieldsJson)
+  On Error Resume Next
+  EnsureLogDir
+  Set logFile = fso.OpenTextFile(eventLogPath, 8, True)
+  logFile.WriteLine "{""ts"":""" & JsonEscape(CStr(Now)) & """,""layer"":""launcher"",""level"":""info"",""event"":""" & JsonEscape(eventName) & """," & fieldsJson & "}"
+  logFile.Close
+  On Error GoTo 0
+End Sub
+
 Sub RunCleanup()
   Dim command
+  LogEvent "launcher.cleanup.start", """repoRoot"":""" & JsonEscape(repoRoot) & """"
   command = "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command " & Chr(34) & _
     "$ErrorActionPreference='SilentlyContinue'; " & _
     "for($i = 0; $i -lt 2; $i++) { " & _
@@ -26,6 +48,7 @@ Sub RunCleanup()
     "Start-Sleep -Milliseconds 300 " & _
     "}" & Chr(34)
   WshShell.Run command, 0, True
+  LogEvent "launcher.cleanup.done", """port"":8765"
 End Sub
 
 Function CheckFolderNewer(folderPath, exeTime)
@@ -130,6 +153,7 @@ Function IsUIRebuildNeeded()
 End Function
 
 WshShell.CurrentDirectory = repoRoot
+LogEvent "launcher.start", """repoRoot"":""" & JsonEscape(repoRoot) & """,""forceRebuild"":" & LCase(CStr(forceRebuild))
 RunCleanup
 
 ' Only wipe WebView cache on explicit --rebuild (forces full WebView reinit otherwise)
@@ -137,20 +161,27 @@ If forceRebuild And fso.FolderExists(webviewDataPath) Then
   On Error Resume Next
   fso.DeleteFolder webviewDataPath, True
   On Error GoTo 0
+  LogEvent "launcher.webview_cache.deleted", """path"":""" & JsonEscape(webviewDataPath) & """"
 End If
 
 If forceRebuild Or IsUIRebuildNeeded() Then
   WshShell.CurrentDirectory = uiDir
+  LogEvent "launcher.ui_build.start", """cwd"":""" & JsonEscape(uiDir) & """"
   WshShell.Run "cmd /c npm run build", 1, True
+  LogEvent "launcher.ui_build.done", """cwd"":""" & JsonEscape(uiDir) & """"
 End If
 
 If forceRebuild Or IsRebuildNeeded() Then
   WshShell.CurrentDirectory = repoRoot & "\src-tauri"
+  LogEvent "launcher.shell_build.start", """cwd"":""" & JsonEscape(WshShell.CurrentDirectory) & """"
   buildResult = WshShell.Run("cmd /c cargo build 2>&1 && echo BUILD_OK || echo BUILD_FAILED", 1, True)
+  LogEvent "launcher.shell_build.done", """exitCode"":" & CStr(buildResult)
 End If
 
 If fso.FileExists(shellPath) Then
+  LogEvent "launcher.shell.launch", """path"":""" & JsonEscape(shellPath) & """"
   WshShell.Run Chr(34) & shellPath & Chr(34), 0, False
 Else
+  LogEvent "launcher.shell.missing", """path"":""" & JsonEscape(shellPath) & """"
   MsgBox "Binary not found — run with --rebuild to force a build.", vbCritical, "Meowcal Sub 2"
 End If

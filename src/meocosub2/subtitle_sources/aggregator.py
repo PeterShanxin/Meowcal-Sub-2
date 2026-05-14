@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Iterable
 
 from meocosub2.config import AppConfig
 from meocosub2.errors import SubtitleSourceError
+from meocosub2.event_log import event_correlation, log_event
 from meocosub2.subtitle_sources.assrt import AssrtProvider
 from meocosub2.subtitle_sources.opensubtitles import OpenSubtitlesProvider
 from meocosub2.subtitle_sources.subdl import SubdlProvider
@@ -89,13 +91,29 @@ class SubtitleSearchAggregator:
             tmdb_client = TMDbClient(config.tmdb_api_key)
         self._tmdb_client = tmdb_client
 
-    async def search_catalog(self, query: str, languages: str) -> AggregatedSearchCatalog:
+    async def search_catalog(
+        self,
+        query: str,
+        languages: str,
+        correlation_id: str | None = None,
+    ) -> AggregatedSearchCatalog:
         clean_title, query_year = split_query_year(query)
         dispatch_query = _rewrite_query_alias(clean_title or query)
-        responses = await asyncio.gather(
-            *(provider.search_catalog(dispatch_query, languages) for provider in self.providers),
-            return_exceptions=True,
+        started = time.perf_counter()
+        log_event(
+            "aggregator.search.start",
+            layer="backend",
+            correlation_id=correlation_id,
+            query=dispatch_query,
+            languages=languages,
+            providers=[provider.provider_code for provider in self.providers],
+            tmdb_enabled=bool(self._tmdb_client and self._tmdb_client.enabled),
         )
+        with event_correlation(correlation_id):
+            responses = await asyncio.gather(
+                *(self._search_provider(provider, dispatch_query, languages, correlation_id) for provider in self.providers),
+                return_exceptions=True,
+            )
 
         catalogs: list[ProviderSearchCatalog] = []
         warnings: list[str] = []
@@ -110,17 +128,88 @@ class SubtitleSearchAggregator:
         if not catalogs:
             raise SubtitleSourceError("All subtitle sources failed.")
 
+        merge_started = time.perf_counter()
         aggregated = self._merge_catalogs(catalogs, languages, query_year, dispatch_query)
+        log_event(
+            "aggregator.merge.done",
+            layer="backend",
+            correlation_id=correlation_id,
+            duration_ms=round((time.perf_counter() - merge_started) * 1000),
+            results=len(aggregated.results),
+            matches=len(aggregated.matches),
+            works=len(aggregated.works),
+        )
         aggregated.warnings.extend(warnings)
         if not aggregated.results and errors:
             raise SubtitleSourceError("; ".join(errors))
         aggregated.warnings.extend(errors)
         if self._tmdb_client is not None and self._tmdb_client.enabled and aggregated.works:
-            aggregated.works = await self._merge_works_via_tmdb(aggregated.works, dispatch_query)
-            aggregated.works = await self._apply_tmdb_season_skeleton(aggregated.works)
-            aggregated.works = await self._apply_tmdb_posters(aggregated.works)
+            tmdb_started = time.perf_counter()
+            aggregated.works = await self._merge_works_via_tmdb(aggregated.works, dispatch_query, correlation_id)
+            aggregated.works = await self._apply_tmdb_season_skeleton(aggregated.works, correlation_id)
+            aggregated.works = await self._apply_tmdb_posters(aggregated.works, correlation_id)
+            log_event(
+                "aggregator.tmdb.done",
+                layer="backend",
+                correlation_id=correlation_id,
+                duration_ms=round((time.perf_counter() - tmdb_started) * 1000),
+                works=len(aggregated.works),
+            )
         aggregated.works = self._sort_works(aggregated.works, dispatch_query, query_year)
+        log_event(
+            "aggregator.search.done",
+            layer="backend",
+            correlation_id=correlation_id,
+            duration_ms=round((time.perf_counter() - started) * 1000),
+            results=len(aggregated.results),
+            matches=len(aggregated.matches),
+            works=len(aggregated.works),
+            warnings=len(aggregated.warnings),
+            errors=len(errors),
+        )
         return aggregated
+
+    async def _search_provider(
+        self,
+        provider: SubtitleSourceProvider,
+        query: str,
+        languages: str,
+        correlation_id: str | None,
+    ) -> ProviderSearchCatalog:
+        started = time.perf_counter()
+        log_event(
+            "provider.search.start",
+            layer="backend",
+            correlation_id=correlation_id,
+            provider=provider.provider_code,
+            query=query,
+            languages=languages,
+        )
+        try:
+            catalog = await provider.search_catalog(query, languages)
+        except Exception as exc:
+            log_event(
+                "provider.search.error",
+                layer="backend",
+                level="error",
+                correlation_id=correlation_id,
+                provider=provider.provider_code,
+                duration_ms=round((time.perf_counter() - started) * 1000),
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+            raise
+        log_event(
+            "provider.search.done",
+            layer="backend",
+            correlation_id=correlation_id,
+            provider=provider.provider_code,
+            duration_ms=round((time.perf_counter() - started) * 1000),
+            matches=len(catalog.matches),
+            results=len(catalog.results),
+            warnings=len(catalog.warnings),
+        )
+        return catalog
 
     async def download(self, result: AggregatedSubtitleResult) -> Path:
         provider = next(item for item in self.providers if item.provider_code == result.provider)
@@ -545,6 +634,7 @@ class SubtitleSearchAggregator:
         self,
         works: list[AggregatedWork],
         dispatch_query: str,
+        correlation_id: str | None = None,
     ) -> list[AggregatedWork]:
         """Enrich each series work with TMDb identity and fold duplicates.
 
@@ -558,6 +648,7 @@ class SubtitleSearchAggregator:
         if not series_indices:
             return works
 
+        started = time.perf_counter()
         lookups = [self._lookup_series_identity(works[i], dispatch_query) for i in series_indices]
         identities = await asyncio.gather(*lookups, return_exceptions=True)
 
@@ -576,6 +667,15 @@ class SubtitleSearchAggregator:
 
         # Flush cache in the background so the next search benefits.
         self._tmdb_client.cache.flush()
+        log_event(
+            "tmdb.identity.done",
+            layer="backend",
+            correlation_id=correlation_id,
+            duration_ms=round((time.perf_counter() - started) * 1000),
+            series=len(series_indices),
+            hits=sum(1 for identity in identities if not isinstance(identity, Exception) and identity is not None),
+            errors=sum(1 for identity in identities if isinstance(identity, Exception)),
+        )
 
         # Group by tmdb_id; fold duplicates into the best primary.
         by_tmdb: dict[str, list[int]] = {}
@@ -616,10 +716,13 @@ class SubtitleSearchAggregator:
     async def _apply_tmdb_season_skeleton(
         self,
         works: list[AggregatedWork],
+        correlation_id: str | None = None,
     ) -> list[AggregatedWork]:
         """Fetch full episode catalog from TMDb and scaffold skeleton seasons."""
         if self._tmdb_client is None or not self._tmdb_client.enabled:
             return works
+
+        started = time.perf_counter()
 
         async def enrich(work: AggregatedWork) -> AggregatedWork:
             if work.media_type != "series" or not work.tmdb_id:
@@ -661,6 +764,15 @@ class SubtitleSearchAggregator:
             )
 
         results = await asyncio.gather(*[enrich(w) for w in works], return_exceptions=True)
+        log_event(
+            "tmdb.season_skeleton.done",
+            layer="backend",
+            correlation_id=correlation_id,
+            duration_ms=round((time.perf_counter() - started) * 1000),
+            works=len(works),
+            enriched=sum(1 for result in results if not isinstance(result, Exception)),
+            errors=sum(1 for result in results if isinstance(result, Exception)),
+        )
         return [
             r if not isinstance(r, Exception) else works[i]
             for i, r in enumerate(results)
@@ -669,9 +781,12 @@ class SubtitleSearchAggregator:
     async def _apply_tmdb_posters(
         self,
         works: list[AggregatedWork],
+        correlation_id: str | None = None,
     ) -> list[AggregatedWork]:
         if self._tmdb_client is None or not self._tmdb_client.enabled:
             return works
+
+        started = time.perf_counter()
 
         async def enrich(work: AggregatedWork) -> AggregatedWork:
             if work.poster_url or not work.tmdb_id:
@@ -686,6 +801,15 @@ class SubtitleSearchAggregator:
             return replace(work, poster_url=poster_url)
 
         results = await asyncio.gather(*[enrich(w) for w in works], return_exceptions=True)
+        log_event(
+            "tmdb.posters.done",
+            layer="backend",
+            correlation_id=correlation_id,
+            duration_ms=round((time.perf_counter() - started) * 1000),
+            works=len(works),
+            enriched=sum(1 for result in results if not isinstance(result, Exception)),
+            errors=sum(1 for result in results if isinstance(result, Exception)),
+        )
         return [
             r if not isinstance(r, Exception) else works[i]
             for i, r in enumerate(results)
