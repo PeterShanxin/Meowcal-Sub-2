@@ -73,6 +73,10 @@ def test_canonical_title_preserves_apostrophe_boundaries() -> None:
     assert canonical_title("Rock'n'Roll") == "rock n roll"
 
 
+def test_canonical_title_keeps_possessive_queries_exact() -> None:
+    assert canonical_title("Schindler's List") == "schindlers list"
+
+
 def test_canonical_title_empty_and_none() -> None:
     assert canonical_title(None) == ""
     assert canonical_title("") == ""

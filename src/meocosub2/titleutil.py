@@ -13,6 +13,8 @@ def canonical_title(text: str | None) -> str:
     normalized = unicodedata.normalize("NFKD", html.unescape(text))
     without_combining = "".join(ch for ch in normalized if not unicodedata.combining(ch))
     cleaned = without_combining.casefold().replace("&", " and ")
+    cleaned = re.sub(r"(?<=[a-z0-9])['`]n['`](?=[a-z0-9])", " n ", cleaned)
+    cleaned = re.sub(r"(?<=[a-z0-9])['`](?=[a-z0-9])", "", cleaned)
     cleaned = re.sub(r"[\"'`]", " ", cleaned)
     cleaned = re.sub(r"[\W_]+", " ", cleaned, flags=re.UNICODE)
     return re.sub(r"\s+", " ", cleaned).strip()
