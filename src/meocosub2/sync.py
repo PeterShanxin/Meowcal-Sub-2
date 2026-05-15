@@ -183,6 +183,7 @@ async def run_auto_candidate_sync_loop(
                 candidate.pair.source_lines,
                 config.fuzzy_threshold,
                 config.match_window_size,
+                config.match_window_backward,
                 target_language=config.target_language,
             ),
         )
