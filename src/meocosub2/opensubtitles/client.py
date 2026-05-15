@@ -7,7 +7,6 @@ import html
 import logging
 import re
 import time
-import unicodedata
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
@@ -20,6 +19,7 @@ from meocosub2.errors import OpenSubtitlesError
 from meocosub2.event_log import log_event
 from meocosub2.languages import normalize_source_language
 from meocosub2.opensubtitles.types import FeatureCandidate, SearchCatalog, SearchResult
+from meocosub2.titleutil import canonical_title
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,10 @@ MAX_SUBTITLE_RESULTS_PER_QUERY = 200
 MAX_SUBTITLE_PAGES_PER_QUERY = 4
 MAX_PARALLEL_SUBTITLE_FETCHES = 5
 MAX_SEARCH_RESULTS = 400
-STRONG_MATCH_THRESHOLD = 185.0
+_TITLE_BONUS_EXACT = 120.0    # added when canonical alias == canonical title
+_TITLE_BONUS_PREFIX = 72.0    # added when one is a prefix of the other
+_TITLE_BONUS_SUBSTR = 42.0    # added when one contains the other
+STRONG_MATCH_THRESHOLD = 185.0  # exact title ratio plus _TITLE_BONUS_EXACT exceeds this
 ORG_SEARCH_URL = "https://www.opensubtitles.org/en/search2/moviename-{query}/sublanguageid-all"
 ORG_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0 Safari/537.36"
 PAREN_YEAR_SUFFIX_PATTERN = re.compile(r"^(?P<title>.+?)\s*\((?P<year>19\d{2}|20\d{2}|21\d{2})\)\s*$")
@@ -171,7 +174,7 @@ class OpenSubtitlesClient:
                     alias_bonus = min(
                         60.0,
                         self._score_alias_values(
-                            self._canonical_title(extra_query),
+                            canonical_title(extra_query),
                             [result.parent_title or "", result.title, result.movie_name or ""],
                         )
                         * min(1.0, query_alignment / 180.0)
@@ -258,7 +261,7 @@ class OpenSubtitlesClient:
         feature_hint_alias: str | None = None,
     ) -> list[FeatureCandidate]:
         features_by_id: dict[int, FeatureCandidate] = {}
-        hint_alias = self._canonical_title(feature_hint_alias or "")
+        hint_alias = canonical_title(feature_hint_alias or "")
         for query_index, query_variant in enumerate(queries[:MAX_QUERY_VARIANTS]):
             params: dict[str, str] = {"query": query_variant, "full_search": "true"}
             feature_type = self._feature_type_filter(intent.media_type)
@@ -437,11 +440,11 @@ class OpenSubtitlesClient:
         cleaned_query = re.sub(r"\s+", " ", working_query).strip(" -_:/")
         query_value = cleaned_query or original_query
         aliases = tuple(self._build_query_variants(query_value))
-        normalized_aliases = tuple(self._canonical_title(alias) for alias in aliases)
+        normalized_aliases = tuple(canonical_title(alias) for alias in aliases)
         return SearchIntent(
             original_query=original_query,
             query=query_value,
-            normalized_query=self._canonical_title(query_value),
+            normalized_query=canonical_title(query_value),
             aliases=aliases,
             normalized_aliases=normalized_aliases,
             media_type=media_type,
@@ -464,7 +467,7 @@ class OpenSubtitlesClient:
         if relaxed:
             variants.append(relaxed)
 
-        tokens = self._canonical_title(query).split()
+        tokens = canonical_title(query).split()
         if tokens:
             variants.append(" ".join(token.capitalize() for token in tokens))
         if tokens == ["fate", "fake"]:
@@ -554,14 +557,6 @@ class OpenSubtitlesClient:
             best = max(best, self._score_alias_values(alias, values))
         return best
 
-    def _canonical_title(self, value: str) -> str:
-        normalized = unicodedata.normalize("NFKD", html.unescape(value or ""))
-        text = "".join(character for character in normalized if not unicodedata.combining(character))
-        text = text.casefold().replace("&", " and ")
-        text = re.sub(r"[\"'`]", "", text)
-        text = re.sub(r"[\W_]+", " ", text, flags=re.UNICODE)
-        return re.sub(r"\s+", " ", text).strip()
-
     def _dedupe_queries(self, values: list[str]) -> list[str]:
         seen: set[str] = set()
         deduped: list[str] = []
@@ -594,7 +589,7 @@ class OpenSubtitlesClient:
     def _score_alias_values(self, alias: str, values: list[str]) -> float:
         best = 0.0
         for value in values:
-            normalized_value = self._canonical_title(value)
+            normalized_value = canonical_title(value)
             if not normalized_value:
                 continue
             score = max(
@@ -602,11 +597,11 @@ class OpenSubtitlesClient:
                 fuzz.token_set_ratio(alias, normalized_value),
             )
             if normalized_value == alias:
-                score += 120.0
+                score += _TITLE_BONUS_EXACT
             elif normalized_value.startswith(alias) or alias.startswith(normalized_value):
-                score += 72.0
+                score += _TITLE_BONUS_PREFIX
             elif alias in normalized_value or normalized_value in alias:
-                score += 42.0
+                score += _TITLE_BONUS_SUBSTR
             best = max(best, score)
         return best
 
@@ -624,7 +619,7 @@ class OpenSubtitlesClient:
                 intent.normalized_query
                 and result.season is not None
                 and result.episode is not None
-                and self._canonical_title(result.movie_name or "").startswith(intent.normalized_query)
+                and canonical_title(result.movie_name or "").startswith(intent.normalized_query)
             ):
                 return True
         return False

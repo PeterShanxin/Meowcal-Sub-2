@@ -5,7 +5,7 @@ from meocosub2.errors import SubtitleSourceError
 from meocosub2.subtitle_sources.aggregator import SubtitleSearchAggregator
 from meocosub2.subtitle_sources.subdl import SubdlProvider
 from meocosub2.subtitle_sources.types import AggregatedWork, ProviderSearchCatalog, ProviderSubtitleMatch, ProviderSubtitleResult
-from meocosub2.subtitle_sources.utils import map_subdl_language
+from meocosub2.subtitle_sources.utils import canonical_title, map_subdl_language
 
 
 class FakeProvider:
@@ -47,6 +47,39 @@ class QueryRecorderProvider(FakeProvider):
 )
 def test_map_subdl_language_normalizes_separator_variants(value: str, expected: str) -> None:
     assert map_subdl_language(value) == expected
+
+
+def test_canonical_title_strips_accents_and_lowercases() -> None:
+    assert canonical_title("Café au Lait") == "cafe au lait"
+
+
+def test_canonical_title_converts_ampersand_to_and() -> None:
+    assert canonical_title("Lock & Stock") == "lock and stock"
+
+
+def test_canonical_title_unescapes_html_entities() -> None:
+    assert canonical_title("Lock &amp; Stock") == "lock and stock"
+
+
+def test_canonical_title_removes_underscores() -> None:
+    assert canonical_title("my_movie_title") == "my movie title"
+
+
+def test_canonical_title_removes_quotes() -> None:
+    assert canonical_title("He Said 'Hi'") == "he said hi"
+
+
+def test_canonical_title_preserves_apostrophe_boundaries() -> None:
+    assert canonical_title("Rock'n'Roll") == "rock n roll"
+
+
+def test_canonical_title_keeps_possessive_queries_exact() -> None:
+    assert canonical_title("Schindler's List") == "schindlers list"
+
+
+def test_canonical_title_empty_and_none() -> None:
+    assert canonical_title(None) == ""
+    assert canonical_title("") == ""
 
 
 def test_subdl_parse_page_subtitles_keeps_big_5_code_results_for_chinese_requests() -> None:

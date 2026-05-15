@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 import re
-import unicodedata
 import zipfile
 from pathlib import Path
 from typing import Iterable
@@ -12,6 +11,7 @@ from typing import Iterable
 from rapidfuzz import fuzz
 
 from meocosub2.languages import is_chinese_family, normalize_source_language
+from meocosub2.titleutil import canonical_title
 
 SUBTITLE_EXTENSIONS = (".srt", ".ass", ".ssa", ".vtt")
 EPISODE_PATTERN = re.compile(r"\bS(?P<season>\d{1,2})E(?P<episode>\d{1,3})\b", re.IGNORECASE)
@@ -116,15 +116,6 @@ ASSRT_LANG_MAP = {
 PROVIDER_RANK = {"subdl": 0, "assrt": 1, "opensubtitles": 2}
 
 
-def canonical_title(text: str | None) -> str:
-    if not text:
-        return ""
-    normalized = unicodedata.normalize("NFKD", text)
-    ascii_text = "".join(ch for ch in normalized if not unicodedata.combining(ch))
-    cleaned = ascii_text.casefold().replace("/", " ").replace("_", " ")
-    cleaned = re.sub(r"[^\w\s]", " ", cleaned)
-    cleaned = re.sub(r"\s+", " ", cleaned)
-    return cleaned.strip()
 
 
 def title_similarity(query: str, candidates: Iterable[str]) -> float:
