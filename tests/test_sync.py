@@ -106,6 +106,41 @@ async def test_auto_candidate_sync_loop_locks_from_one_strong_frame(mocker) -> N
 
 
 @pytest.mark.asyncio
+async def test_auto_candidate_sync_loop_uses_configured_backward_window(mocker) -> None:
+    candidates = [
+        SourceSubtitleCandidate(
+            result_id="right",
+            file_name="right.srt",
+            provider="OpenSubtitles",
+            language="en",
+            path="right.srt",
+            pair=SubtitlePair(
+                source_lines=[SubtitleLine(index=0, start_ms=0, end_ms=3000, text="The hero arrives now", translated="英雄到了")]
+            ),
+        )
+    ]
+    config = AppConfig(capture_interval_ms=50, fuzzy_threshold=65, match_window_backward=42)
+    real_matcher = sync_module.SubtitleMatcher
+    created_args = []
+
+    def make_matcher(*args, **kwargs):
+        created_args.append((args, kwargs))
+        return real_matcher(*args, **kwargs)
+
+    mocker.patch("meocosub2.sync.SubtitleMatcher", side_effect=make_matcher)
+    mocker.patch("meocosub2.sync.capture_region", return_value=MagicMock())
+    mocker.patch("meocosub2.sync.ocr_image", new=AsyncMock(return_value="The hero arrives now"))
+
+    async def stop_after_one(_text: str) -> None:
+        raise asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_auto_candidate_sync_loop(candidates, config, broadcast=stop_after_one)
+
+    assert created_args[0][0][3] == 42
+
+
+@pytest.mark.asyncio
 async def test_auto_candidate_sync_loop_translates_source_only_locked_candidate(mocker) -> None:
     candidates = [
         SourceSubtitleCandidate(
