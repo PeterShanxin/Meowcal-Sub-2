@@ -360,6 +360,13 @@ export function App(): JSX.Element {
       store.set({ snapshot: fresh, config: fresh.config });
       logClientEvent("ui.session.prepare_completed", { mode: "auto_candidates" }, correlationId);
     } catch (err) {
+      if (
+        autoPrepareInFlight.current !== matchId ||
+        store.get().selectedEpisodeMatchId !== matchId
+      ) {
+        logClientEvent("ui.session.prepare_stale_ignored", { matchId }, correlationId);
+        return;
+      }
       store.set({ error: err instanceof Error ? err.message : String(err) });
       logClientEvent("ui.session.prepare_failed", {
         mode: "auto_candidates",

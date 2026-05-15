@@ -389,9 +389,9 @@ async def test_prepare_auto_candidate_session_ignores_stale_completion(tmp_path:
 
     mocker.patch.object(controller, "_set_progress", side_effect=switch_selection_once)
 
-    payload = await controller.prepare_session(mode="auto_candidates", feature_id="match-old")
+    with pytest.raises(RuntimeError, match="Stale auto-prepare result"):
+        await controller.prepare_session(mode="auto_candidates", feature_id="match-old")
 
-    assert payload["feature_id"] == "match-old"
     assert controller.state_snapshot()["selected_feature_id"] == "match-new"
     assert controller.state_snapshot()["prepared_session"] is None
     assert controller._prepared_runtime is None

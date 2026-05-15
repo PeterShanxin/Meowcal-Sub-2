@@ -632,7 +632,7 @@ class GuiController:
                     feature_id,
                     self._state.selected_feature_id,
                 )
-                return asdict(session)
+                raise RuntimeError("Stale auto-prepare result ignored because another title is selected.")
             self._prepared_runtime = PreparedRuntime(
                 session_mode="auto_candidates",
                 target_lines=target_lines,
