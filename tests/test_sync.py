@@ -5,6 +5,7 @@ import pytest
 
 import meocosub2.sync as sync_module
 from meocosub2.config import AppConfig
+from meocosub2.errors import TranslationError
 from meocosub2.models import SourceSubtitleCandidate, SubtitleLine, SubtitlePair
 from meocosub2.sync import run_auto_candidate_sync_loop, run_ocr_fallback_loop, run_sync_loop
 
@@ -143,6 +144,30 @@ async def test_auto_candidate_sync_loop_translates_source_only_locked_candidate(
         await run_auto_candidate_sync_loop(candidates, config, broadcast=stop_after_one)
 
     translate.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_auto_candidate_sync_loop_propagates_live_translation_failure(mocker) -> None:
+    candidates = [
+        SourceSubtitleCandidate(
+            result_id="source-only",
+            file_name="source-only.srt",
+            provider="OpenSubtitles",
+            language="en",
+            path="source-only.srt",
+            pair=SubtitlePair(
+                source_lines=[SubtitleLine(index=0, start_ms=0, end_ms=3000, text="The hero arrives now")]
+            ),
+        )
+    ]
+    config = AppConfig(capture_interval_ms=50, fuzzy_threshold=65)
+    mocker.patch("meocosub2.sync.open_translation_client", new=AsyncMock(side_effect=TranslationError("Foundry unavailable")))
+    mocker.patch("meocosub2.sync.capture_region", return_value=MagicMock())
+    mocker.patch("meocosub2.sync.ocr_image", new=AsyncMock(return_value="The hero arrives now"))
+    mocker.patch("meocosub2.sync.asyncio.sleep", new=AsyncMock(side_effect=asyncio.CancelledError()))
+
+    with pytest.raises(TranslationError, match="Foundry unavailable"):
+        await run_auto_candidate_sync_loop(candidates, config, broadcast=AsyncMock())
 
 
 @pytest.mark.asyncio

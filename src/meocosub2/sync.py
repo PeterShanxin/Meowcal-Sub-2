@@ -10,6 +10,7 @@ from time import monotonic
 
 from meocosub2.capture import capture_region, ocr_image
 from meocosub2.config import AppConfig
+from meocosub2.errors import TranslationError
 from meocosub2.matcher import SubtitleMatcher
 from meocosub2.models import MatchResult, SourceSubtitleCandidate, SubtitleLine, SubtitlePair
 from meocosub2.textnorm import clean_cjk_text
@@ -290,6 +291,9 @@ async def run_auto_candidate_sync_loop(
                         await broadcast(display_text)
                         last_displayed_key = display_key
             except asyncio.CancelledError:
+                raise
+            except TranslationError:
+                logger.exception("Auto sync loop #%d translation failed (ocr=%r)", iteration, ocr_text[:60])
                 raise
             except Exception:
                 logger.exception("Auto sync loop #%d failed (ocr=%r)", iteration, ocr_text[:60])
