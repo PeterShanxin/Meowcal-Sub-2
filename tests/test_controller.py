@@ -316,6 +316,87 @@ async def test_prepare_auto_candidate_session_combines_source_and_target_warning
     assert "No target subtitle matched" in warning
 
 
+@pytest.mark.asyncio
+async def test_prepare_auto_candidate_session_ignores_stale_completion(tmp_path: Path, mocker) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+    mocker.patch(
+        "meocosub2.overlay.controller.make_foundry_ready",
+        return_value=type("Status", (), {"phase": "ready", "notes": "Ready."})(),
+    )
+    source_path = tmp_path / "source.srt"
+    source_path.write_text("1\n00:00:01,000 --> 00:00:02,000\nhello there\n", encoding="utf-8")
+    controller._search_catalog = AggregatedSearchCatalog(
+        matches=[
+            AggregatedTitleMatch(
+                id="match-old",
+                title="Old",
+                year=2024,
+                imdb_id=None,
+                tmdb_id=None,
+                media_type="episode",
+                subtitles_count=1,
+                match_score=250,
+                provider_count=1,
+                providers=("subdl",),
+                provider_labels=("SubDL",),
+            ),
+            AggregatedTitleMatch(
+                id="match-new",
+                title="New",
+                year=2024,
+                imdb_id=None,
+                tmdb_id=None,
+                media_type="episode",
+                subtitles_count=1,
+                match_score=250,
+                provider_count=1,
+                providers=("subdl",),
+                provider_labels=("SubDL",),
+            ),
+        ],
+        results=[
+            AggregatedSubtitleResult(
+                result_id="source-old",
+                match_id="match-old",
+                provider="subdl",
+                provider_label="SubDL",
+                title="Old",
+                year=2024,
+                imdb_id=None,
+                tmdb_id=None,
+                media_type="episode",
+                language="en",
+                download_count=50,
+                file_name="source.srt",
+                provider_rank=0,
+                provider_result=object(),
+            ),
+        ],
+    )
+    controller._state.title = "Fate/strange Fake"
+    controller._state.source_language = "en"
+    controller._state.target_language = "zh"
+    controller._state.search_matches = [
+        {"id": "match-old", "title": "Old", "mediaType": "episode"},
+        {"id": "match-new", "title": "New", "mediaType": "episode"},
+    ]
+    mocker.patch.object(controller._aggregator, "download", return_value=source_path)
+    original_set_progress = controller._set_progress
+
+    async def switch_selection_once(stage: str, message: str, current: int, total: int) -> None:
+        await original_set_progress(stage, message, current, total)
+        controller._state.selected_feature_id = "match-new"
+
+    mocker.patch.object(controller, "_set_progress", side_effect=switch_selection_once)
+
+    payload = await controller.prepare_session(mode="auto_candidates", feature_id="match-old")
+
+    assert payload["feature_id"] == "match-old"
+    assert controller.state_snapshot()["selected_feature_id"] == "match-new"
+    assert controller.state_snapshot()["prepared_session"] is None
+    assert controller._prepared_runtime is None
+
+
 def test_auto_candidate_ranking_prefers_exact_language_before_family_fallback(tmp_path: Path) -> None:
     controller = make_controller(tmp_path / "config.toml")
     controller._search_catalog = AggregatedSearchCatalog(

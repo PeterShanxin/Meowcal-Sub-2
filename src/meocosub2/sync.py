@@ -197,13 +197,9 @@ async def run_auto_candidate_sync_loop(
     client = None
     model = None
     translation_cache: OrderedDict[str, str] = OrderedDict()
-    needs_live_translation = any(_candidate_needs_live_translation(candidate) for candidate in candidates)
     iteration = 0
 
     try:
-        if needs_live_translation:
-            client, model = await open_translation_client(config)
-
         while True:
             iteration += 1
             loop_start = monotonic()
@@ -277,8 +273,9 @@ async def run_auto_candidate_sync_loop(
                     if (
                         winner is not None
                         and not _candidate_line_has_translation(winner.candidate, result.line_index)
-                        and client is not None
                     ):
+                        if client is None:
+                            client, model = await open_translation_client(config)
                         display_text = await _translate_cached(result.source_text, config, client, model, translation_cache)
                     display_key = f"{winner.candidate.result_id if winner else ''}:{result.line_index}:{display_text}"
                     if display_text and display_key != last_displayed_key:
@@ -320,10 +317,6 @@ async def run_auto_candidate_sync_loop(
 def _normalize_live_ocr_text(text: str) -> str:
     normalized = SubtitleMatcher.normalize_text(text)
     return clean_cjk_text(normalized)
-
-
-def _candidate_needs_live_translation(candidate: SourceSubtitleCandidate) -> bool:
-    return any(not line.translated for line in candidate.pair.source_lines)
 
 
 def _candidate_line_has_translation(candidate: SourceSubtitleCandidate, line_index: int) -> bool:

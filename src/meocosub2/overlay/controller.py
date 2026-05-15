@@ -626,6 +626,13 @@ class GuiController:
         )
 
         async with self._lock:
+            if str(self._state.selected_feature_id) != str(feature_id):
+                logger.debug(
+                    "Ignoring stale auto-prepare completion for feature_id=%s selected_feature_id=%s",
+                    feature_id,
+                    self._state.selected_feature_id,
+                )
+                return asdict(session)
             self._prepared_runtime = PreparedRuntime(
                 session_mode="auto_candidates",
                 target_lines=target_lines,

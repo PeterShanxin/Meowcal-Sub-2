@@ -164,7 +164,7 @@ async def test_auto_candidate_sync_loop_uses_existing_translation_before_live_tr
     ]
     config = AppConfig(capture_interval_ms=50, fuzzy_threshold=65)
     fake_client = type("FakeClient", (), {"close": AsyncMock()})()
-    mocker.patch("meocosub2.sync.open_translation_client", new=AsyncMock(return_value=(fake_client, "model")))
+    open_client = mocker.patch("meocosub2.sync.open_translation_client", new=AsyncMock(return_value=(fake_client, "model")))
     translate = mocker.patch("meocosub2.sync.translate_text", new=AsyncMock(return_value="模型翻譯"))
     mocker.patch("meocosub2.sync.capture_region", return_value=MagicMock())
     mocker.patch("meocosub2.sync.ocr_image", new=AsyncMock(return_value="The hero arrives now"))
@@ -177,6 +177,7 @@ async def test_auto_candidate_sync_loop_uses_existing_translation_before_live_tr
         await run_auto_candidate_sync_loop(candidates, config, broadcast=stop_after_one)
 
     translate.assert_not_awaited()
+    open_client.assert_not_awaited()
 
 
 @pytest.mark.asyncio
