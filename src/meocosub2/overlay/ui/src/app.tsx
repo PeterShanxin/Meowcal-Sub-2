@@ -78,6 +78,7 @@ export function App(): JSX.Element {
   const backgroundRef = useRef<HTMLDivElement>(null);
   const searchAbort = useRef<AbortController | null>(null);
   const lastSearchedQuery = useRef<string>("");
+  const autoPrepareInFlight = useRef<string | null>(null);
 
   // Bootstrap: initial state + config + foundry status
   useEffect(() => {
@@ -330,25 +331,74 @@ export function App(): JSX.Element {
     [cursorForTab],
   );
 
-  const advanceToSourceTab = useCallback((workId: string, matchId: string) => {
-    logClientEvent("ui.title.selected", { workId, matchId });
+  const prepareAutoSession = useCallback(async (matchId: string) => {
+    const prepared = store.get().snapshot?.prepared_session;
+    if (
+      autoPrepareInFlight.current === matchId ||
+      (prepared?.session_mode === "auto_candidates" && prepared.feature_id === matchId)
+    ) {
+      return;
+    }
+    autoPrepareInFlight.current = matchId;
+    const correlationId = clientEventId("prepare");
+    logClientEvent("ui.session.auto_prepare_requested", { matchId }, correlationId);
+    store.set({ tab: "cmd", cursorIndex: -1, selectedSourceId: null, selectedTargetId: null });
+    try {
+      await api.prepareSession({
+        mode: "auto_candidates",
+        matchId,
+      });
+      const fresh = await api.getState();
+      if (
+        autoPrepareInFlight.current !== matchId ||
+        store.get().selectedEpisodeMatchId !== matchId ||
+        fresh.prepared_session?.feature_id !== matchId
+      ) {
+        logClientEvent("ui.session.prepare_stale_ignored", { matchId }, correlationId);
+        return;
+      }
+      store.set({ snapshot: fresh, config: fresh.config });
+      logClientEvent("ui.session.prepare_completed", { mode: "auto_candidates" }, correlationId);
+    } catch (err) {
+      if (
+        autoPrepareInFlight.current !== matchId ||
+        store.get().selectedEpisodeMatchId !== matchId
+      ) {
+        logClientEvent("ui.session.prepare_stale_ignored", { matchId }, correlationId);
+        return;
+      }
+      store.set({ error: err instanceof Error ? err.message : String(err) });
+      logClientEvent("ui.session.prepare_failed", {
+        mode: "auto_candidates",
+        error: err instanceof Error ? err.message : String(err),
+      }, correlationId);
+    } finally {
+      if (autoPrepareInFlight.current === matchId) {
+        autoPrepareInFlight.current = null;
+      }
+    }
+  }, []);
+
+  const confirmTitleForAutoPrepare = useCallback((workId: string, matchId: string) => {
+    logClientEvent("ui.title.selected", { workId, matchId, mode: "auto_candidates" });
     store.set({
       selectedWorkId: workId,
       selectedEpisodeMatchId: matchId,
       selectedSourceId: null,
       selectedTargetId: null,
-      tab: "source",
+      tab: "cmd",
       query: "",
       cursorIndex: -1,
     });
-  }, []);
+    void prepareAutoSession(matchId);
+  }, [prepareAutoSession]);
 
   const onToggleExpandWork = useCallback(
     (id: string) => {
       const work = filteredWorks.find((w) => w.id === id);
       if (!work) return;
       if (!work.expandable) {
-        if (work.primaryMatchId) advanceToSourceTab(id, work.primaryMatchId);
+        if (work.primaryMatchId) confirmTitleForAutoPrepare(id, work.primaryMatchId);
         return;
       }
       store.set((s) => {
@@ -361,7 +411,7 @@ export function App(): JSX.Element {
         };
       });
     },
-    [filteredWorks, advanceToSourceTab],
+    [filteredWorks, confirmTitleForAutoPrepare],
   );
 
   const onToggleExpandSeason = useCallback(
@@ -388,9 +438,9 @@ export function App(): JSX.Element {
         onToggleExpandWork(id);
         return;
       }
-      if (work.primaryMatchId) advanceToSourceTab(id, work.primaryMatchId);
+      if (work.primaryMatchId) confirmTitleForAutoPrepare(id, work.primaryMatchId);
     },
-    [filteredWorks, onToggleExpandWork, advanceToSourceTab],
+    [filteredWorks, onToggleExpandWork, confirmTitleForAutoPrepare],
   );
 
   const onTitleMediaFilterChange = useCallback((filter: TitleMediaFilter) => {
@@ -422,8 +472,8 @@ export function App(): JSX.Element {
   }, []);
 
   const onPickEpisode = useCallback(
-    (workId: string, matchId: string) => advanceToSourceTab(workId, matchId),
-    [advanceToSourceTab],
+    (workId: string, matchId: string) => confirmTitleForAutoPrepare(workId, matchId),
+    [confirmTitleForAutoPrepare],
   );
 
   const onPickSource = useCallback((id: string) => {
@@ -626,8 +676,10 @@ export function App(): JSX.Element {
       void startSync();
     } else if (episodeMatchId && selectedSourceId && selectedTargetId) {
       void onPickTarget(selectedTargetId); // re-prepare if user changed mind
+    } else if (episodeMatchId) {
+      void prepareAutoSession(episodeMatchId);
     }
-  }, [phase, tab, query, runSearch, startSync, episodeMatchId, selectedSourceId, selectedTargetId, onPickTarget]);
+  }, [phase, tab, query, runSearch, startSync, episodeMatchId, selectedSourceId, selectedTargetId, onPickTarget, prepareAutoSession]);
 
   const onMoveCursor = useCallback(
     (dir: "up" | "down" | "left" | "right") => {

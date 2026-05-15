@@ -175,11 +175,11 @@ export function Palette(props: PaletteProps): JSX.Element {
 
   const canStart = phase === "prep";
   const canPrepare =
-    hasSelectedEpisode && selectedSourceId && selectedTargetId && phase !== "prep";
+    hasSelectedEpisode && phase !== "prep";
   const primaryLabel = canStart
     ? "Start sync"
     : canPrepare
-      ? "Prepare session"
+      ? "Prepare automatically"
       : null;
 
   return (
@@ -436,9 +436,7 @@ export function Palette(props: PaletteProps): JSX.Element {
           <span>
             {!hasSelectedEpisode
               ? "Pick a title to continue"
-              : !selectedSourceId
-                ? "Pick a source subtitle"
-                : "Pick a target (or use local translation)"}
+              : "Auto-selecting source and target subtitles"}
           </span>
         )}
       </div>

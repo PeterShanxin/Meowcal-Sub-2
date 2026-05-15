@@ -3,9 +3,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+import meocosub2.sync as sync_module
 from meocosub2.config import AppConfig
-from meocosub2.models import SubtitleLine, SubtitlePair
-from meocosub2.sync import run_ocr_fallback_loop, run_sync_loop
+from meocosub2.errors import TranslationError
+from meocosub2.models import SourceSubtitleCandidate, SubtitleLine, SubtitlePair
+from meocosub2.sync import run_auto_candidate_sync_loop, run_ocr_fallback_loop, run_sync_loop
 
 
 def make_pair() -> SubtitlePair:
@@ -65,6 +67,232 @@ async def test_sync_loop_uses_default_region_and_sleeps_remaining_interval(mocke
         await run_sync_loop(pair, config, broadcast=AsyncMock())
     capture.assert_called_once_with((0, 800, 1920, 200))
     sleep.assert_awaited_once_with(1.0)
+
+
+@pytest.mark.asyncio
+async def test_auto_candidate_sync_loop_locks_from_one_strong_frame(mocker) -> None:
+    candidates = [
+        SourceSubtitleCandidate(
+            result_id="wrong",
+            file_name="wrong.srt",
+            provider="SubDL",
+            language="en",
+            path="wrong.srt",
+            pair=SubtitlePair(
+                source_lines=[SubtitleLine(index=0, start_ms=0, end_ms=3000, text="A distant unrelated line", translated="錯誤")]
+            ),
+        ),
+        SourceSubtitleCandidate(
+            result_id="right",
+            file_name="right.srt",
+            provider="OpenSubtitles",
+            language="en",
+            path="right.srt",
+            pair=SubtitlePair(
+                source_lines=[SubtitleLine(index=0, start_ms=0, end_ms=3000, text="The hero arrives now", translated="英雄到了")]
+            ),
+        ),
+    ]
+    config = AppConfig(capture_interval_ms=50, fuzzy_threshold=65)
+    mocker.patch("meocosub2.sync.capture_region", return_value=MagicMock())
+    mocker.patch("meocosub2.sync.ocr_image", new=AsyncMock(return_value="The hero arrives now"))
+
+    async def stop_after_one(text: str) -> None:
+        assert text == "英雄到了"
+        raise asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_auto_candidate_sync_loop(candidates, config, broadcast=stop_after_one)
+
+
+@pytest.mark.asyncio
+async def test_auto_candidate_sync_loop_translates_source_only_locked_candidate(mocker) -> None:
+    candidates = [
+        SourceSubtitleCandidate(
+            result_id="translated",
+            file_name="translated.srt",
+            provider="SubDL",
+            language="en",
+            path="translated.srt",
+            pair=SubtitlePair(
+                source_lines=[SubtitleLine(index=0, start_ms=0, end_ms=3000, text="A distant unrelated line", translated="已有翻譯")]
+            ),
+        ),
+        SourceSubtitleCandidate(
+            result_id="source-only",
+            file_name="source-only.srt",
+            provider="OpenSubtitles",
+            language="en",
+            path="source-only.srt",
+            pair=SubtitlePair(
+                source_lines=[SubtitleLine(index=0, start_ms=0, end_ms=3000, text="The hero arrives now")]
+            ),
+        ),
+    ]
+    config = AppConfig(capture_interval_ms=50, fuzzy_threshold=65)
+    fake_client = type("FakeClient", (), {"close": AsyncMock()})()
+    mocker.patch("meocosub2.sync.open_translation_client", new=AsyncMock(return_value=(fake_client, "model")))
+    translate = mocker.patch("meocosub2.sync.translate_text", new=AsyncMock(return_value="英雄到了"))
+    mocker.patch("meocosub2.sync.capture_region", return_value=MagicMock())
+    mocker.patch("meocosub2.sync.ocr_image", new=AsyncMock(return_value="The hero arrives now"))
+
+    async def stop_after_one(text: str) -> None:
+        assert text == "英雄到了"
+        raise asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_auto_candidate_sync_loop(candidates, config, broadcast=stop_after_one)
+
+    translate.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_auto_candidate_sync_loop_propagates_live_translation_failure(mocker) -> None:
+    candidates = [
+        SourceSubtitleCandidate(
+            result_id="source-only",
+            file_name="source-only.srt",
+            provider="OpenSubtitles",
+            language="en",
+            path="source-only.srt",
+            pair=SubtitlePair(
+                source_lines=[SubtitleLine(index=0, start_ms=0, end_ms=3000, text="The hero arrives now")]
+            ),
+        )
+    ]
+    config = AppConfig(capture_interval_ms=50, fuzzy_threshold=65)
+    mocker.patch("meocosub2.sync.open_translation_client", new=AsyncMock(side_effect=TranslationError("Foundry unavailable")))
+    mocker.patch("meocosub2.sync.capture_region", return_value=MagicMock())
+    mocker.patch("meocosub2.sync.ocr_image", new=AsyncMock(return_value="The hero arrives now"))
+    mocker.patch("meocosub2.sync.asyncio.sleep", new=AsyncMock(side_effect=asyncio.CancelledError()))
+
+    with pytest.raises(TranslationError, match="Foundry unavailable"):
+        await run_auto_candidate_sync_loop(candidates, config, broadcast=AsyncMock())
+
+
+@pytest.mark.asyncio
+async def test_auto_candidate_sync_loop_uses_existing_translation_before_live_translation(mocker) -> None:
+    candidates = [
+        SourceSubtitleCandidate(
+            result_id="partial",
+            file_name="partial.srt",
+            provider="SubDL",
+            language="en",
+            path="partial.srt",
+            pair=SubtitlePair(
+                source_lines=[
+                    SubtitleLine(index=0, start_ms=0, end_ms=3000, text="The hero arrives now", translated="英雄到了"),
+                    SubtitleLine(index=1, start_ms=3000, end_ms=6000, text="Unaligned source line"),
+                ]
+            ),
+        )
+    ]
+    config = AppConfig(capture_interval_ms=50, fuzzy_threshold=65)
+    fake_client = type("FakeClient", (), {"close": AsyncMock()})()
+    open_client = mocker.patch("meocosub2.sync.open_translation_client", new=AsyncMock(return_value=(fake_client, "model")))
+    translate = mocker.patch("meocosub2.sync.translate_text", new=AsyncMock(return_value="模型翻譯"))
+    mocker.patch("meocosub2.sync.capture_region", return_value=MagicMock())
+    mocker.patch("meocosub2.sync.ocr_image", new=AsyncMock(return_value="The hero arrives now"))
+
+    async def stop_after_one(text: str) -> None:
+        assert text == "英雄到了"
+        raise asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_auto_candidate_sync_loop(candidates, config, broadcast=stop_after_one)
+
+    translate.assert_not_awaited()
+    open_client.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_auto_candidate_sync_loop_counts_repeat_frames_for_pending_lock(mocker) -> None:
+    candidates = [
+        SourceSubtitleCandidate(
+            result_id="right",
+            file_name="right.srt",
+            provider="OpenSubtitles",
+            language="en",
+            path="right.srt",
+            pair=SubtitlePair(
+                source_lines=[SubtitleLine(index=0, start_ms=0, end_ms=3000, text="The hero arrives now", translated="英雄到了")]
+            ),
+        )
+    ]
+    config = AppConfig(capture_interval_ms=50, fuzzy_threshold=65)
+    mocker.patch("meocosub2.sync.AUTO_LOCK_SCORE", 101)
+    mocker.patch("meocosub2.sync.asyncio.sleep", new=AsyncMock(side_effect=[None, asyncio.CancelledError()]))
+    mocker.patch("meocosub2.sync.capture_region", return_value=MagicMock())
+    mocker.patch("meocosub2.sync.ocr_image", new=AsyncMock(side_effect=["The hero arrives now", "The hero arrives now"]))
+    broadcasts: list[str] = []
+
+    async def record(text: str) -> None:
+        broadcasts.append(text)
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_auto_candidate_sync_loop(candidates, config, broadcast=record)
+
+    assert broadcasts == ["英雄到了"]
+
+
+@pytest.mark.asyncio
+async def test_auto_candidate_sync_loop_does_not_promote_pending_on_new_nonmatch_frame(mocker) -> None:
+    candidates = [
+        SourceSubtitleCandidate(
+            result_id="right",
+            file_name="right.srt",
+            provider="OpenSubtitles",
+            language="en",
+            path="right.srt",
+            pair=SubtitlePair(
+                source_lines=[SubtitleLine(index=0, start_ms=0, end_ms=3000, text="The hero arrives now", translated="英雄到了")]
+            ),
+        )
+    ]
+    config = AppConfig(capture_interval_ms=50, fuzzy_threshold=65)
+    mocker.patch("meocosub2.sync.AUTO_LOCK_SCORE", 101)
+    mocker.patch("meocosub2.sync.asyncio.sleep", new=AsyncMock(side_effect=[None, asyncio.CancelledError()]))
+    mocker.patch("meocosub2.sync.capture_region", return_value=MagicMock())
+    mocker.patch("meocosub2.sync.ocr_image", new=AsyncMock(side_effect=["The hero arrives now", "completely different words"]))
+    broadcasts: list[str] = []
+
+    async def record(text: str) -> None:
+        broadcasts.append(text)
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_auto_candidate_sync_loop(candidates, config, broadcast=record)
+
+    assert broadcasts == []
+
+
+@pytest.mark.asyncio
+async def test_auto_candidate_sync_loop_ignores_repeated_frames_when_locked(mocker) -> None:
+    candidates = [
+        SourceSubtitleCandidate(
+            result_id="right",
+            file_name="right.srt",
+            provider="OpenSubtitles",
+            language="en",
+            path="right.srt",
+            pair=SubtitlePair(
+                source_lines=[SubtitleLine(index=0, start_ms=0, end_ms=3000, text="The hero arrives now", translated="英雄到了")]
+            ),
+        )
+    ]
+    config = AppConfig(capture_interval_ms=50, fuzzy_threshold=65)
+    mocker.patch("meocosub2.sync.AUTO_UNLOCK_MISSES", 1)
+    best = mocker.patch("meocosub2.sync._best_candidate_match", wraps=sync_module._best_candidate_match)
+    mocker.patch("meocosub2.sync.asyncio.sleep", new=AsyncMock(side_effect=[None, None, asyncio.CancelledError()]))
+    mocker.patch("meocosub2.sync.capture_region", return_value=MagicMock())
+    mocker.patch("meocosub2.sync.ocr_image", new=AsyncMock(side_effect=["The hero arrives now", "The hero arrives now", "The hero arrives now"]))
+
+    async def record(_text: str) -> None:
+        return None
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_auto_candidate_sync_loop(candidates, config, broadcast=record)
+
+    assert best.call_count == 1
 
 
 @pytest.mark.asyncio

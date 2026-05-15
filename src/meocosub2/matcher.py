@@ -51,6 +51,12 @@ class SubtitleMatcher:
     def _hash_text(self, text: str) -> str:
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
+    def is_repeated_frame(self, ocr_text: str) -> bool:
+        normalized_ocr = self._normalize_for_match(ocr_text)
+        if len(normalized_ocr) < 3:
+            return False
+        return self._hash_text(normalized_ocr) == self._last_frame_hash
+
     def _search_indices(self) -> range:
         if self._last_match_position is None:
             return range(0, min(len(self.subtitles), 50))

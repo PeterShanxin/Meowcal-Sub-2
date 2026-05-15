@@ -16,14 +16,23 @@ from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+AUTO_SOURCE_CANDIDATE_LIMIT = 3
+AUTO_TARGET_CANDIDATE_LIMIT = 1
 
 from meocosub2.capture import available_ocr_languages, resolve_ocr_language
 from meocosub2.config import AppConfig, config_to_payload, overlay_style_payload, save_config
 from meocosub2.errors import SubtitleSourceError, TranslationError
 from meocosub2.event_log import log_event
 from meocosub2.foundry import foundry_status, make_foundry_ready
-from meocosub2.languages import is_chinese_family, language_label, normalize_ocr_language, source_language_mode
-from meocosub2.models import AppProgress, AppStateSnapshot, PreparedRuntime, PreparedSession, SearchRequest
+from meocosub2.languages import (
+    is_chinese_family,
+    language_label,
+    normalize_source_language,
+    normalize_ocr_language,
+    source_language_mode,
+    source_result_matches_requested_language,
+)
+from meocosub2.models import AppProgress, AppStateSnapshot, PreparedRuntime, PreparedSession, SearchRequest, SourceSubtitleCandidate, SubtitlePair
 from meocosub2.subtitle_sources import (
     AggregatedSearchCatalog,
     AggregatedSubtitleResult,
@@ -32,7 +41,7 @@ from meocosub2.subtitle_sources import (
     SubtitleSearchAggregator,
 )
 from meocosub2.subtitles import align_subtitles, assign_target_translations, load_subtitle_file
-from meocosub2.sync import run_ocr_fallback_loop, run_sync_loop
+from meocosub2.sync import run_auto_candidate_sync_loop, run_ocr_fallback_loop, run_sync_loop
 from meocosub2.translator import translate_lines
 
 
@@ -393,8 +402,10 @@ class GuiController:
         if self._sync_task and not self._sync_task.done():
             await self._set_error("Stop the active session before preparing another one.")
             raise RuntimeError("A session is already running.")
-        if mode not in {"subtitle_pair", "ocr_fallback"}:
+        if mode not in {"subtitle_pair", "ocr_fallback", "auto_candidates"}:
             raise ValueError(f"Unsupported session mode: {mode}")
+        if mode == "auto_candidates":
+            return await self._prepare_auto_candidate_session(feature_id or self._state.selected_feature_id)
         if mode == "ocr_fallback":
             return await self._prepare_ocr_fallback_session(feature_id or self._state.selected_feature_id, target_file_id)
         if source_file_id is None:
@@ -500,6 +511,143 @@ class GuiController:
             self._state.progress = AppProgress(stage="ready", message="Session prepared.", current=1, total=1)
             if session.source_language_mode != "exact":
                 self._state.warning_message = "Using a Chinese-family source subtitle fallback because no exact source language match was available."
+        await self._emit_app_state()
+        await self._emit_app_progress()
+        return asdict(session)
+
+    async def _prepare_auto_candidate_session(self, feature_id: str | None) -> dict[str, object]:
+        if feature_id is None:
+            raise ValueError("Select a matched title before preparing an automatic session.")
+        feature = self._find_search_match(feature_id)
+        if feature is None:
+            raise ValueError("Selected title was not found in the current search matches.")
+
+        source_entries = self._candidate_results_for_feature(
+            feature_id,
+            self._state.source_language,
+            AUTO_SOURCE_CANDIDATE_LIMIT,
+        )
+        target_entries = self._candidate_results_for_feature(
+            feature_id,
+            self._state.target_language,
+            AUTO_TARGET_CANDIDATE_LIMIT,
+        )
+        target_entry = target_entries[0] if target_entries else None
+        if not source_entries:
+            return await self._prepare_ocr_fallback_session(feature_id, target_entry.result_id if target_entry else None)
+
+        total_downloads = len(source_entries) + (1 if target_entry is not None else 0)
+        async with self._lock:
+            self._state.status = "preparing"
+            self._state.selected_feature_id = feature_id
+            self._state.selected_source_file_id = None
+            self._state.selected_target_file_id = target_entry.result_id if target_entry else None
+            self._state.error_message = ""
+            self._state.warning_message = ""
+            self._state.progress = AppProgress(
+                stage="download",
+                message="Downloading subtitle candidates...",
+                current=0,
+                total=total_downloads,
+            )
+        await self._emit_app_state()
+        await self._emit_app_progress()
+
+        try:
+            downloaded = 0
+            source_candidates: list[SourceSubtitleCandidate] = []
+            target_path: Path | None = None
+            target_lines = []
+
+            for entry in source_entries:
+                source_path = await self._aggregator.download(entry)
+                downloaded += 1
+                await self._set_progress("download", "Downloaded source subtitle candidates.", downloaded, total_downloads)
+                source_lines = load_subtitle_file(source_path)
+                source_candidates.append(
+                    SourceSubtitleCandidate(
+                        result_id=entry.result_id,
+                        file_name=entry.file_name,
+                        provider=entry.provider_label or entry.provider,
+                        language=entry.language,
+                        path=str(source_path),
+                        pair=SubtitlePair(source_lines=source_lines),
+                    )
+                )
+
+            if target_entry is not None:
+                target_path = await self._aggregator.download(target_entry)
+                downloaded += 1
+                await self._set_progress("download", "Downloaded target subtitles.", downloaded, total_downloads)
+                target_lines = load_subtitle_file(target_path)
+                for candidate in source_candidates:
+                    candidate.pair.target_lines = target_lines
+                    assign_target_translations(candidate.pair.source_lines, target_lines)
+            else:
+                warm_status = await asyncio.to_thread(make_foundry_ready, self.config)
+                if warm_status.phase != "ready":
+                    raise TranslationError(warm_status.notes)
+        except Exception as exc:
+            await self._set_error(str(exc))
+            raise
+
+        title = str(feature.get("displayLabel") or feature.get("title") or self._state.title)
+        primary_source = source_entries[0]
+        session = PreparedSession(
+            session_id=uuid4().hex[:8],
+            title=title,
+            source_language=self._state.source_language,
+            target_language=self._state.target_language,
+            resolved_source_language=primary_source.language,
+            source_language_mode=source_language_mode(self._state.source_language, primary_source.language),
+            session_mode="auto_candidates",
+            target_match_mode="auto_subtitle_file" if target_lines else "auto_live_translation",
+            feature_id=feature_id,
+            source_file_id=None,
+            source_file_name=None,
+            source_summary=f"{len(source_candidates)} source candidates",
+            source_provider=", ".join(dict.fromkeys(candidate.provider for candidate in source_candidates)),
+            source_path=None,
+            source_line_count=sum(len(candidate.pair.source_lines) for candidate in source_candidates),
+            target_file_id=target_entry.result_id if target_entry else None,
+            target_file_name=target_entry.file_name if target_entry else None,
+            target_provider=(target_entry.provider_label or target_entry.provider) if target_entry else None,
+            target_path=str(target_path) if target_path is not None else None,
+            target_line_count=len(target_lines),
+            translated_line_count=sum(
+                1
+                for candidate in source_candidates
+                for line in candidate.pair.source_lines
+                if line.translated
+            ),
+            used_translation=not bool(target_lines),
+            source_candidate_count=len(source_candidates),
+            target_candidate_count=len(target_entries),
+        )
+
+        async with self._lock:
+            if str(self._state.selected_feature_id) != str(feature_id):
+                logger.debug(
+                    "Ignoring stale auto-prepare completion for feature_id=%s selected_feature_id=%s",
+                    feature_id,
+                    self._state.selected_feature_id,
+                )
+                raise RuntimeError("Stale auto-prepare result ignored because another title is selected.")
+            self._prepared_runtime = PreparedRuntime(
+                session_mode="auto_candidates",
+                target_lines=target_lines,
+                feature_id=feature_id,
+                source_candidates=source_candidates,
+            )
+            self._state.prepared_session = session
+            self._state.status = "idle"
+            self._state.progress = AppProgress(stage="ready", message="Automatic subtitle session prepared.", current=1, total=1)
+            warnings = []
+            if session.source_language_mode != "exact":
+                warnings.append("Using Chinese-family source subtitle candidates because no exact source language match was available.")
+            if target_entry is None:
+                warnings.append("No target subtitle matched the requested language. The session will translate matched source lines live.")
+            self._state.warning_message = " ".join(warnings)
         await self._emit_app_state()
         await self._emit_app_progress()
         return asdict(session)
@@ -680,6 +828,13 @@ class GuiController:
                 # Debug events ride alongside the normal broadcast path so the
                 # dashboard panel can inspect OCR timing without changing sync behavior.
                 await run_sync_loop(runtime.pair, config, self.broadcast_overlay_subtitle, debug_broadcast=debug_cb)
+            elif runtime.session_mode == "auto_candidates":
+                await run_auto_candidate_sync_loop(
+                    runtime.source_candidates,
+                    config,
+                    self.broadcast_overlay_subtitle,
+                    debug_broadcast=debug_cb,
+                )
             else:
                 await run_ocr_fallback_loop(runtime.target_lines, config, self.broadcast_overlay_subtitle, debug_broadcast=debug_cb)
         except asyncio.CancelledError:
@@ -715,6 +870,32 @@ class GuiController:
 
     def _result_matches_feature(self, result: dict[str, object], feature_id: str) -> bool:
         return str(result.get("matchId") or "") == str(feature_id)
+
+    def _candidate_results_for_feature(
+        self,
+        feature_id: str,
+        language: str,
+        limit: int,
+    ) -> list[AggregatedSubtitleResult]:
+        if self._search_catalog is None:
+            return []
+        matches = [
+            result
+            for result in self._search_catalog.results
+            if str(result.match_id) == str(feature_id)
+            and source_result_matches_requested_language(language, result.language)
+        ]
+        requested = normalize_source_language(language)
+        matches.sort(
+            key=lambda result: (
+                normalize_source_language(result.language) != requested,
+                result.provider_rank,
+                -result.match_score,
+                -result.download_count,
+                result.result_id,
+            )
+        )
+        return matches[:limit]
 
     async def _set_progress(self, stage: str, message: str, current: int, total: int) -> None:
         async with self._lock:
