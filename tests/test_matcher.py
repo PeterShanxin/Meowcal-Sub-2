@@ -150,3 +150,19 @@ def test_match_handles_spaced_cjk_and_script_variants() -> None:
     result = matcher.match("之 前 拿 到 的 資 料 ， 我 都 看 過 了")
     assert result is not None
     assert result.target_text == "I already read it."
+
+
+def test_is_repeated_frame_recognizes_short_cjk_repeat() -> None:
+    matcher = SubtitleMatcher([SubtitleLine(index=0, start_ms=0, end_ms=1000, text="是。")])
+    # First call seeds the hash via match().
+    assert matcher.match("是") is not None
+    # Same 1-char CJK frame must be flagged as a repeat, mirroring match()'s
+    # min-length rule — otherwise the auto-candidate loop counts the duplicate
+    # as a miss and unlocks the locked subtitle prematurely.
+    assert matcher.is_repeated_frame("是") is True
+
+
+def test_is_repeated_frame_rejects_short_ascii() -> None:
+    matcher = SubtitleMatcher(make_lines())
+    matcher._last_frame_hash = matcher._hash_text("hi")
+    assert matcher.is_repeated_frame("hi") is False

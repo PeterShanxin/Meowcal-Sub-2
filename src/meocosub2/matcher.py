@@ -52,9 +52,16 @@ class SubtitleMatcher:
     def _hash_text(self, text: str) -> str:
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
+    @staticmethod
+    def _is_too_short(normalized_ocr: str) -> bool:
+        # Single CJK chars are word-meaningful (e.g. "好"); ASCII <3 chars is usually noise.
+        ocr_is_cjk = any(is_cjk_compactable_char(ch) for ch in normalized_ocr)
+        min_length = 1 if ocr_is_cjk else 3
+        return len(normalized_ocr) < min_length
+
     def is_repeated_frame(self, ocr_text: str) -> bool:
         normalized_ocr = self._normalize_for_match(ocr_text)
-        if len(normalized_ocr) < 3:
+        if self._is_too_short(normalized_ocr):
             return False
         return self._hash_text(normalized_ocr) == self._last_frame_hash
 
@@ -92,10 +99,7 @@ class SubtitleMatcher:
 
     def match(self, ocr_text: str) -> MatchResult | None:
         normalized_ocr = self._normalize_for_match(ocr_text)
-        # Single CJK chars are word-meaningful (e.g. "好"); ASCII <3 chars is usually noise.
-        ocr_is_cjk = any(is_cjk_compactable_char(ch) for ch in normalized_ocr)
-        min_length = 1 if ocr_is_cjk else 3
-        if len(normalized_ocr) < min_length:
+        if self._is_too_short(normalized_ocr):
             logger.debug("MATCH skip: normalized too short (%d chars) for %r", len(normalized_ocr), ocr_text[:40])
             return None
 
@@ -105,6 +109,7 @@ class SubtitleMatcher:
         self._last_frame_hash = current_hash
 
         # token_set_ratio degenerates on space-stripped CJK (single token); WRatio handles OCR char drops better.
+        ocr_is_cjk = any(is_cjk_compactable_char(ch) for ch in normalized_ocr)
         scorer = fuzz.WRatio if ocr_is_cjk else fuzz.token_set_ratio
 
         window = self._search_indices()
