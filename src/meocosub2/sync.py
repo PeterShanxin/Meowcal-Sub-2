@@ -37,6 +37,7 @@ async def run_sync_loop(
         pair.source_lines,
         config.fuzzy_threshold,
         config.match_window_size,
+        config.match_window_backward,
         target_language=config.target_language,
     )
     last_displayed_index = -1
@@ -91,7 +92,7 @@ async def run_ocr_fallback_loop(
     broadcast: Callable[[str], Awaitable[None]],
     debug_broadcast: Callable[[dict[str, object]], Awaitable[None]] | None = None,
 ) -> None:
-    matcher = SubtitleMatcher(target_lines, config.fuzzy_threshold, config.match_window_size, target_language=config.target_language) if target_lines else None
+    matcher = SubtitleMatcher(target_lines, config.fuzzy_threshold, config.match_window_size, config.match_window_backward, target_language=config.target_language) if target_lines else None
     translation_context: deque[str] = deque(maxlen=3)
     translation_cache: OrderedDict[str, str] = OrderedDict()
     last_ocr_key = ""
@@ -182,6 +183,7 @@ async def run_auto_candidate_sync_loop(
                 candidate.pair.source_lines,
                 config.fuzzy_threshold,
                 config.match_window_size,
+                config.match_window_backward,
                 target_language=config.target_language,
             ),
         )
