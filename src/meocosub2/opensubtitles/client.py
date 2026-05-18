@@ -244,7 +244,7 @@ class OpenSubtitlesClient:
                 result.match_score = max(result.match_score, feature.match_score + self._score_search_result(intent, result))
                 self._store_result(collected, result)
 
-        if len(collected) < MAX_SEARCH_RESULTS or not self._has_strong_results(list(collected.values())):
+        if not self._has_strong_results(list(collected.values())):
             for query_index, query_variant in enumerate(queries[:MAX_QUERY_VARIANTS]):
                 direct_results = await self._search_direct_subtitles(intent, languages, query_variant)
                 query_bonus = max(0.0, 10.0 - (query_index * 2.0))

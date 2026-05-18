@@ -72,6 +72,8 @@ QUERY_ALIASES = {
     "fate faker": "Fate/strange Fake",
     "fate strange faker": "Fate/strange Fake",
 }
+MAX_TMDB_EAGER_WORKS = 24
+MAX_TMDB_EAGER_WORKS_FOR_GENERIC_QUERY = 12
 
 
 class SubtitleSearchAggregator:
@@ -145,15 +147,21 @@ class SubtitleSearchAggregator:
         aggregated.warnings.extend(errors)
         if self._tmdb_client is not None and self._tmdb_client.enabled and aggregated.works:
             tmdb_started = time.perf_counter()
-            aggregated.works = await self._merge_works_via_tmdb(aggregated.works, dispatch_query, correlation_id)
-            aggregated.works = await self._apply_tmdb_season_skeleton(aggregated.works, correlation_id)
-            aggregated.works = await self._apply_tmdb_posters(aggregated.works, correlation_id)
+            eager_limit = self._tmdb_eager_limit(dispatch_query, aggregated.works)
+            eager_works = aggregated.works[:eager_limit]
+            deferred_works = aggregated.works[eager_limit:]
+            eager_works = await self._merge_works_via_tmdb(eager_works, dispatch_query, correlation_id)
+            eager_works = await self._apply_tmdb_season_skeleton(eager_works, correlation_id)
+            eager_works = await self._apply_tmdb_posters(eager_works, correlation_id)
+            aggregated.works = [*eager_works, *deferred_works]
             log_event(
                 "aggregator.tmdb.done",
                 layer="backend",
                 correlation_id=correlation_id,
                 duration_ms=round((time.perf_counter() - tmdb_started) * 1000),
                 works=len(aggregated.works),
+                enriched_works=len(eager_works),
+                deferred_works=len(deferred_works),
             )
         aggregated.works = self._sort_works(aggregated.works, dispatch_query, query_year)
         log_event(
@@ -168,6 +176,14 @@ class SubtitleSearchAggregator:
             errors=len(errors),
         )
         return aggregated
+
+    def _tmdb_eager_limit(self, query: str, works: list[AggregatedWork]) -> int:
+        if len(works) <= MAX_TMDB_EAGER_WORKS:
+            return len(works)
+        query_tokens = canonical_title(query).split()
+        if len(query_tokens) <= 1:
+            return min(len(works), MAX_TMDB_EAGER_WORKS_FOR_GENERIC_QUERY)
+        return min(len(works), MAX_TMDB_EAGER_WORKS)
 
     async def _search_provider(
         self,

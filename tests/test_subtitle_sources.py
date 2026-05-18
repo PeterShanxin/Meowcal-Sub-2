@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from meocosub2.config import AppConfig
@@ -109,6 +111,48 @@ def test_subdl_parse_page_subtitles_keeps_big_5_code_results_for_chinese_request
     assert len(results) == 1
     assert results[0].language == "zht"
     assert results[0].file_name == "[Crazy-SoL]OverlordIIIEp01-13"
+
+
+@pytest.mark.asyncio
+async def test_subdl_fetches_title_details_in_parallel(monkeypatch) -> None:
+    provider = SubdlProvider(AppConfig())
+    active = 0
+    max_active = 0
+
+    async def fake_fetch_next_data(url: str, client=None) -> dict[str, object]:
+        nonlocal active, max_active
+        if "/en/search/" in url:
+            return {
+                "list": [
+                    {"sd_id": f"sd{i}", "slug": f"title-{i}", "name": f"Title {i}", "type": "movie", "year": 2024}
+                    for i in range(3)
+                ]
+            }
+        active += 1
+        max_active = max(max_active, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        subtitle_id = url.rsplit("/", 1)[-1]
+        return {
+            "movieInfo": {"type": "movie", "name": subtitle_id, "year": 2024},
+            "groupedSubtitles": {
+                "english": [
+                    {
+                        "id": subtitle_id,
+                        "title": subtitle_id,
+                        "downloads": 1,
+                        "link": f"{subtitle_id}.zip",
+                    }
+                ]
+            },
+        }
+
+    monkeypatch.setattr(provider, "_fetch_next_data", fake_fetch_next_data)
+
+    catalog = await provider.search_catalog("from", "en")
+
+    assert max_active > 1
+    assert len(catalog.results) == 3
 
 
 def test_aggregator_work_sort_prefers_exact_series_and_franchise_movies() -> None:
