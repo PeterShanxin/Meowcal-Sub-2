@@ -181,7 +181,7 @@ class SubtitleSearchAggregator:
         if len(works) <= MAX_TMDB_EAGER_WORKS:
             return len(works)
         query_tokens = canonical_title(query).split()
-        if len(query_tokens) <= 1:
+        if len(query_tokens) <= 1 and not _contains_cjk_title_text(query):
             return min(len(works), MAX_TMDB_EAGER_WORKS_FOR_GENERIC_QUERY)
         return min(len(works), MAX_TMDB_EAGER_WORKS)
 
@@ -1155,6 +1155,16 @@ def _humanize_downloads(count: int) -> str:
 
 def _rewrite_query_alias(query: str) -> str:
     return QUERY_ALIASES.get(canonical_title(query), query)
+
+
+def _contains_cjk_title_text(query: str) -> bool:
+    return any(
+        "\u3400" <= char <= "\u4dbf"
+        or "\u4e00" <= char <= "\u9fff"
+        or "\u3040" <= char <= "\u30ff"
+        or "\uac00" <= char <= "\ud7af"
+        for char in query
+    )
 
 
 def _work_year_rank(work: AggregatedWork, query_year: int | None) -> int:

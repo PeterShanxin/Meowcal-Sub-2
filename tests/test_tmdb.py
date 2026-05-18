@@ -9,7 +9,7 @@ import pytest
 import respx
 
 from meocosub2.config import AppConfig
-from meocosub2.subtitle_sources.aggregator import SubtitleSearchAggregator
+from meocosub2.subtitle_sources.aggregator import MAX_TMDB_EAGER_WORKS, SubtitleSearchAggregator
 from meocosub2.subtitle_sources.season_skeleton import build_season_skeleton
 from meocosub2.subtitle_sources.tmdb import TMDbCache, TMDbClient, TMDbSeries
 from meocosub2.subtitle_sources.types import (
@@ -407,6 +407,46 @@ async def test_aggregator_limits_tmdb_eager_enrichment_for_generic_queries() -> 
     assert len(stub.searches) == 30
     assert sum(1 for work in catalog.works if work.tmdb_id) == 30
     assert len(stub.details_queries) == 12
+
+
+@pytest.mark.asyncio
+async def test_aggregator_keeps_cjk_title_queries_out_of_generic_tmdb_limit() -> None:
+    matches = [
+        ProviderSubtitleMatch(
+            id=f"match-{index}",
+            provider="opensubtitles",
+            provider_label="OpenSubtitles",
+            title=f"作品{index}",
+            year=2020,
+            imdb_id=None,
+            tmdb_id=None,
+            media_type="tvshow",
+            subtitles_count=10,
+            match_score=1000 - index,
+        )
+        for index in range(30)
+    ]
+    search_hits = {
+        f"作品{index}": TMDbSeries(
+            tmdb_id=20_000 + index,
+            imdb_id=None,
+            name=f"作品{index}",
+            original_name=f"作品{index}",
+            first_air_year=2020,
+        )
+        for index in range(30)
+    }
+    stub = _StubTMDb(search_hits=search_hits)
+    aggregator = SubtitleSearchAggregator(AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub)
+    aggregator.providers = (
+        _FakeProvider("opensubtitles", "OpenSubtitles", ProviderSearchCatalog(matches=matches, results=[])),
+    )
+
+    catalog = await aggregator.search_catalog("你的名字", "zhs")
+
+    assert len(stub.searches) == 30
+    assert sum(1 for work in catalog.works if work.tmdb_id) == 30
+    assert len(stub.details_queries) == MAX_TMDB_EAGER_WORKS
 
 
 @pytest.mark.asyncio
