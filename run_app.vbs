@@ -58,12 +58,12 @@ Function JsonEscape(value)
         result = result & "\f"
       Case 13
         result = result & "\r"
-      Case 0 To 31
-        result = result & "\u" & Hex4(code)
-      Case 127 To 65535
-        result = result & "\u" & Hex4(code)
       Case Else
-        result = result & ch
+        If (code >= 0 And code <= 31) Or (code >= 127 And code <= 65535) Then
+          result = result & "\u" & Hex4(code)
+        Else
+          result = result & ch
+        End If
     End Select
   Next
   JsonEscape = result
