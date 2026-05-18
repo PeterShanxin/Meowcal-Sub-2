@@ -69,10 +69,11 @@ class SubdlProvider:
                     )
                 )
             sem = asyncio.Semaphore(MAX_PARALLEL_TITLE_FETCHES)
+            season_sem = asyncio.Semaphore(MAX_PARALLEL_SEASON_FETCHES)
 
             async def collect(item: dict[str, object]) -> list[ProviderSubtitleResult]:
                 async with sem:
-                    return await self._collect_title_results(item, requested_languages, client)
+                    return await self._collect_title_results(item, requested_languages, client, season_sem)
 
             for item_results in await asyncio.gather(*(collect(item) for item in selected_items)):
                 results.extend(item_results)
@@ -95,6 +96,7 @@ class SubdlProvider:
         item: dict[str, object],
         requested_languages: set[str],
         client: httpx.AsyncClient | None = None,
+        season_sem: asyncio.Semaphore | None = None,
     ) -> list[ProviderSubtitleResult]:
         slug = str(item.get("slug") or "")
         sd_id = str(item.get("sd_id") or "")
@@ -119,7 +121,7 @@ class SubdlProvider:
                     continue
                 season_urls.append(f"{BASE_URL}/en/subtitle/{sd_id}/{slug}/{season_slug}")
 
-            sem = asyncio.Semaphore(MAX_PARALLEL_SEASON_FETCHES)
+            sem = season_sem or asyncio.Semaphore(MAX_PARALLEL_SEASON_FETCHES)
 
             async def fetch_season(url: str) -> dict[str, object]:
                 async with sem:

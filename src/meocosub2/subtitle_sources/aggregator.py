@@ -147,10 +147,10 @@ class SubtitleSearchAggregator:
         aggregated.warnings.extend(errors)
         if self._tmdb_client is not None and self._tmdb_client.enabled and aggregated.works:
             tmdb_started = time.perf_counter()
-            eager_limit = self._tmdb_eager_limit(dispatch_query, aggregated.works)
-            eager_works = aggregated.works[:eager_limit]
-            deferred_works = aggregated.works[eager_limit:]
-            eager_works = await self._merge_works_via_tmdb(eager_works, dispatch_query, correlation_id)
+            identified_works = await self._merge_works_via_tmdb(aggregated.works, dispatch_query, correlation_id)
+            eager_limit = self._tmdb_eager_limit(dispatch_query, identified_works)
+            eager_works = identified_works[:eager_limit]
+            deferred_works = identified_works[eager_limit:]
             eager_works = await self._apply_tmdb_season_skeleton(eager_works, correlation_id)
             eager_works = await self._apply_tmdb_posters(eager_works, correlation_id)
             aggregated.works = [*eager_works, *deferred_works]

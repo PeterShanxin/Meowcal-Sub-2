@@ -52,6 +52,7 @@ class _StubTMDb:
         self.cache = _NullCache()
         self.searches: list[str] = []
         self.imdb_queries: list[str] = []
+        self.details_queries: list[int] = []
 
     async def search_tv(self, query: str, year_hint: int | None = None) -> TMDbSeries | None:
         self.searches.append(query)
@@ -62,6 +63,7 @@ class _StubTMDb:
         return self._imdb_hits.get(imdb_id)
 
     async def fetch_series_details(self, tmdb_id: int) -> dict | None:
+        self.details_queries.append(tmdb_id)
         return self._series_details.get(tmdb_id)
 
     async def fetch_season(self, tmdb_id: int, season_number: int) -> list[dict]:
@@ -402,8 +404,70 @@ async def test_aggregator_limits_tmdb_eager_enrichment_for_generic_queries() -> 
 
     catalog = await aggregator.search_catalog("from", "en")
 
-    assert len(stub.searches) == 12
-    assert sum(1 for work in catalog.works if work.tmdb_id) == 12
+    assert len(stub.searches) == 30
+    assert sum(1 for work in catalog.works if work.tmdb_id) == 30
+    assert len(stub.details_queries) == 12
+
+
+@pytest.mark.asyncio
+async def test_aggregator_deduplicates_tmdb_before_limiting_eager_enrichment() -> None:
+    matches = [
+        ProviderSubtitleMatch(
+            id=f"match-{index}",
+            provider="opensubtitles",
+            provider_label="OpenSubtitles",
+            title=title,
+            year=2020,
+            imdb_id=None,
+            tmdb_id=None,
+            media_type="tvshow",
+            subtitles_count=10,
+            match_score=1000 - index,
+        )
+        for index, title in enumerate(
+            [
+                *[f"Series {index}" for index in range(12)],
+                "Shared Alternate Title",
+                *[f"Series {index}" for index in range(13, 30)],
+            ]
+        )
+    ]
+    search_hits = {
+        f"series {index}": TMDbSeries(
+            tmdb_id=10_000 + index,
+            imdb_id=None,
+            name=f"Series {index}",
+            original_name=f"Series {index}",
+            first_air_year=2020,
+        )
+        for index in range(30)
+        if index != 12
+    }
+    search_hits["series 0"] = TMDbSeries(
+        tmdb_id=50_000,
+        imdb_id=None,
+        name="Shared Canonical",
+        original_name="Shared Canonical",
+        first_air_year=2020,
+    )
+    search_hits["shared alternate title"] = TMDbSeries(
+        tmdb_id=50_000,
+        imdb_id=None,
+        name="Shared Canonical",
+        original_name="Shared Canonical",
+        first_air_year=2020,
+    )
+    stub = _StubTMDb(search_hits=search_hits)
+    aggregator = SubtitleSearchAggregator(AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub)
+    aggregator.providers = (
+        _FakeProvider("opensubtitles", "OpenSubtitles", ProviderSearchCatalog(matches=matches, results=[])),
+    )
+
+    catalog = await aggregator.search_catalog("from", "en")
+
+    shared_cards = [work for work in catalog.works if work.tmdb_id == "50000"]
+    assert len(shared_cards) == 1
+    assert shared_cards[0].total_subtitles == 20
 
 
 @pytest.mark.asyncio
