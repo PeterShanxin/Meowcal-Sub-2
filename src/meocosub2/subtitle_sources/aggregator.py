@@ -148,9 +148,10 @@ class SubtitleSearchAggregator:
         if self._tmdb_client is not None and self._tmdb_client.enabled and aggregated.works:
             tmdb_started = time.perf_counter()
             identified_works = await self._merge_works_via_tmdb(aggregated.works, dispatch_query, correlation_id)
-            eager_limit = self._tmdb_eager_limit(dispatch_query, identified_works)
-            eager_works = identified_works[:eager_limit]
-            deferred_works = identified_works[eager_limit:]
+            ranked_works = self._sort_works(identified_works, dispatch_query, query_year)
+            eager_limit = self._tmdb_eager_limit(dispatch_query, ranked_works)
+            eager_works = ranked_works[:eager_limit]
+            deferred_works = ranked_works[eager_limit:]
             eager_works = await self._apply_tmdb_season_skeleton(eager_works, correlation_id)
             eager_works = await self._apply_tmdb_posters(eager_works, correlation_id)
             aggregated.works = [*eager_works, *deferred_works]
