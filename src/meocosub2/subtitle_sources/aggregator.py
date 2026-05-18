@@ -156,6 +156,14 @@ class SubtitleSearchAggregator:
                 works=len(aggregated.works),
             )
         aggregated.works = self._sort_works(aggregated.works, dispatch_query, query_year)
+        episode_coverage = _episode_coverage_summary(aggregated.works)
+        if episode_coverage:
+            log_event(
+                "aggregator.episode_coverage",
+                layer="backend",
+                correlation_id=correlation_id,
+                works=episode_coverage,
+            )
         log_event(
             "aggregator.search.done",
             layer="backend",
@@ -1105,6 +1113,36 @@ def _collect_providers(
     providers = tuple(sorted(provider_set, key=lambda code: (-PROVIDER_RANK.get(code, -1), code)))
     labels = tuple(sorted(label_set))
     return providers, labels
+
+
+def _episode_coverage_summary(works: list[AggregatedWork], limit: int = 5) -> list[dict[str, object]]:
+    summary: list[dict[str, object]] = []
+    for work in works:
+        if work.media_type != "series" or not work.seasons:
+            continue
+        exact_episodes = 0
+        skeleton_episodes = 0
+        season_packs = 0
+        for season in work.seasons:
+            for episode in season.episodes:
+                if episode.episode is None:
+                    season_packs += 1
+                elif episode.match_id.startswith("skeleton:"):
+                    skeleton_episodes += 1
+                else:
+                    exact_episodes += 1
+        summary.append(
+            {
+                "work_id": work.id,
+                "title": work.title,
+                "exact_episodes": exact_episodes,
+                "skeleton_episodes": skeleton_episodes,
+                "season_packs": season_packs,
+            }
+        )
+        if len(summary) >= limit:
+            break
+    return summary
 
 
 def _top_download_count(

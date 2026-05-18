@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import time
+import unicodedata
 from pathlib import Path
 from urllib.parse import quote
 
@@ -19,7 +20,12 @@ from meocosub2.subtitle_sources.types import (
     ProviderSubtitleMatch,
     ProviderSubtitleResult,
 )
-from meocosub2.subtitle_sources.utils import extract_zip_bytes, map_subdl_language, title_similarity
+from meocosub2.subtitle_sources.utils import (
+    extract_episode_info,
+    extract_zip_bytes,
+    map_subdl_language,
+    title_similarity,
+)
 
 NEXT_DATA_PATTERN = re.compile(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>')
 BASE_URL = "https://subdl.com"
@@ -27,6 +33,7 @@ DOWNLOAD_URL = "https://dl.subdl.com/subtitle/{link}"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0 Safari/537.36"
 MAX_TITLES = 5
 MAX_SUBTITLES = 40
+MAX_REASONABLE_EPISODE = 999
 
 
 class SubdlProvider:
@@ -122,8 +129,7 @@ class SubdlProvider:
                 )
             )
 
-        subtitles.sort(key=lambda item: (item.match_score, item.download_count), reverse=True)
-        return subtitles[:MAX_SUBTITLES]
+        return self._limit_subtitles(subtitles)
 
     def _parse_page_subtitles(
         self,
@@ -148,8 +154,7 @@ class SubdlProvider:
             for entry in entries:
                 if not isinstance(entry, dict):
                     continue
-                season = self._coerce_int(entry.get("season"))
-                episode = self._coerce_int(entry.get("episode"))
+                season, episode = self._episode_fields(entry)
                 file_name = str(entry.get("title") or entry.get("link") or f"{title}.zip")
                 subtitle_title = str(entry.get("title") or title)
                 results.append(
@@ -204,6 +209,66 @@ class SubdlProvider:
             return int(value) if value not in {None, ""} else None
         except (TypeError, ValueError):
             return None
+
+    def _episode_fields(self, entry: dict[str, object]) -> tuple[int | None, int | None]:
+        raw_season = self._coerce_positive_int(entry.get("season"))
+        raw_episode = self._coerce_positive_int(entry.get("episode"))
+        if raw_episode is not None and raw_episode > MAX_REASONABLE_EPISODE:
+            raw_episode = None
+
+        inferred_season, inferred_episode = extract_episode_info(*self._episode_text_values(entry))
+        if inferred_episode is not None:
+            return inferred_season or raw_season, inferred_episode
+        return raw_season, raw_episode
+
+    def _coerce_positive_int(self, value: object) -> int | None:
+        number = self._coerce_int(value)
+        return number if number is not None and number > 0 else None
+
+    def _episode_text_values(self, entry: dict[str, object]) -> list[str]:
+        values: list[str] = []
+        for key in ("title", "link", "slug"):
+            value = entry.get(key)
+            if value:
+                values.append(unicodedata.normalize("NFKC", str(value)))
+        values.extend(unicodedata.normalize("NFKC", item) for item in self._string_list(entry.get("releases")))
+        return values
+
+    def _limit_subtitles(self, subtitles: list[ProviderSubtitleResult]) -> list[ProviderSubtitleResult]:
+        ranked = sorted(subtitles, key=self._subtitle_rank, reverse=True)
+        selected: list[ProviderSubtitleResult] = []
+        selected_ids: set[str] = set()
+        episode_representatives: dict[tuple[int, int], ProviderSubtitleResult] = {}
+
+        for subtitle in ranked:
+            if subtitle.season is None or subtitle.episode is None:
+                continue
+            episode_representatives.setdefault((subtitle.season, subtitle.episode), subtitle)
+
+        for key in sorted(episode_representatives):
+            self._add_limited(selected, selected_ids, episode_representatives[key])
+            if len(selected) >= MAX_SUBTITLES:
+                return selected
+
+        for subtitle in ranked:
+            self._add_limited(selected, selected_ids, subtitle)
+            if len(selected) >= MAX_SUBTITLES:
+                break
+        return selected
+
+    def _add_limited(
+        self,
+        selected: list[ProviderSubtitleResult],
+        selected_ids: set[str],
+        subtitle: ProviderSubtitleResult,
+    ) -> None:
+        if subtitle.id in selected_ids:
+            return
+        selected.append(subtitle)
+        selected_ids.add(subtitle.id)
+
+    def _subtitle_rank(self, subtitle: ProviderSubtitleResult) -> tuple[float, int]:
+        return (subtitle.match_score, subtitle.download_count)
 
     def _string_list(self, value: object) -> list[str]:
         if not isinstance(value, list):
