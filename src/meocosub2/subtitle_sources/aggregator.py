@@ -145,10 +145,12 @@ class SubtitleSearchAggregator:
         if not aggregated.results and errors:
             raise SubtitleSourceError("; ".join(errors))
         aggregated.warnings.extend(errors)
+        works_are_ranked = False
         if self._tmdb_client is not None and self._tmdb_client.enabled and aggregated.works:
             tmdb_started = time.perf_counter()
             identified_works = await self._merge_works_via_tmdb(aggregated.works, dispatch_query, correlation_id)
             ranked_works = self._sort_works(identified_works, dispatch_query, query_year)
+            works_are_ranked = True
             eager_limit = self._tmdb_eager_limit(dispatch_query, ranked_works)
             eager_works = ranked_works[:eager_limit]
             deferred_works = ranked_works[eager_limit:]
@@ -164,7 +166,8 @@ class SubtitleSearchAggregator:
                 enriched_works=len(eager_works),
                 deferred_works=len(deferred_works),
             )
-        aggregated.works = self._sort_works(aggregated.works, dispatch_query, query_year)
+        if not works_are_ranked:
+            aggregated.works = self._sort_works(aggregated.works, dispatch_query, query_year)
         log_event(
             "aggregator.search.done",
             layer="backend",
