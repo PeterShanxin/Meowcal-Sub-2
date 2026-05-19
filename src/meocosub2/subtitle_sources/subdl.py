@@ -245,8 +245,8 @@ class SubdlProvider:
                 continue
             episode_representatives.setdefault((subtitle.season, subtitle.episode), subtitle)
 
-        for key in sorted(episode_representatives):
-            self._add_limited(selected, selected_ids, episode_representatives[key])
+        for subtitle in episode_representatives.values():
+            self._add_limited(selected, selected_ids, subtitle)
             if len(selected) >= MAX_SUBTITLES:
                 return selected
 

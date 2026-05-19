@@ -225,6 +225,22 @@ def test_subdl_limit_subtitles_keeps_episode_coverage_before_duplicates() -> Non
     assert (2, 1) in retained_episode_keys
 
 
+def test_subdl_limit_subtitles_keeps_best_ranked_episode_representatives() -> None:
+    provider = SubdlProvider(AppConfig())
+    subtitles = [
+        _subdl_result(f"low-{episode}", season=1, episode=episode, score=1.0, downloads=episode)
+        for episode in range(1, 41)
+    ]
+    subtitles.append(_subdl_result("high-late-season", season=4, episode=10, score=99.0, downloads=100))
+
+    limited = provider._limit_subtitles(subtitles)
+
+    retained_episode_keys = {(item.season, item.episode) for item in limited}
+    assert len(limited) == 40
+    assert (4, 10) in retained_episode_keys
+    assert (1, 1) not in retained_episode_keys
+
+
 def _subdl_result(
     result_id: str,
     *,
