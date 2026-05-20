@@ -208,6 +208,67 @@ def test_subdl_parse_page_subtitles_corrects_unreasonable_episode_field_from_rel
     assert results[0].episode == 1
 
 
+def test_subdl_parse_page_subtitles_keeps_valid_structured_episode_over_text() -> None:
+    provider = SubdlProvider(AppConfig())
+
+    results = provider._parse_page_subtitles(
+        title="From",
+        year=2022,
+        match_id="subdl-match-sd1656864",
+        requested_languages={"en"},
+        page_props={
+            "groupedSubtitles": {
+                "english": [
+                    {
+                        "id": 4000001,
+                        "title": "From.S01E01-E10.Pack",
+                        "season": 1,
+                        "episode": 5,
+                        "downloads": 3,
+                        "link": "4000001-1.zip",
+                        "releases": ["From.S01E01-E10.Mixed"],
+                    }
+                ]
+            }
+        },
+    )
+
+    assert len(results) == 1
+    assert results[0].media_type == "episode"
+    assert results[0].season == 1
+    assert results[0].episode == 5
+
+
+def test_subdl_parse_page_subtitles_preserves_inferred_season_zero_special() -> None:
+    provider = SubdlProvider(AppConfig())
+
+    results = provider._parse_page_subtitles(
+        title="From",
+        year=2022,
+        match_id="subdl-match-sd1656864",
+        requested_languages={"en"},
+        page_props={
+            "groupedSubtitles": {
+                "english": [
+                    {
+                        "id": 4000002,
+                        "title": "From.S00E01.Special",
+                        "season": 0,
+                        "episode": 0,
+                        "downloads": 2,
+                        "link": "4000002-1.zip",
+                    }
+                ]
+            }
+        },
+    )
+
+    assert len(results) == 1
+    assert results[0].media_type == "episode"
+    assert results[0].season == 0
+    assert results[0].episode == 1
+
+
 def test_subdl_limit_subtitles_keeps_episode_coverage_before_duplicates() -> None:
     provider = SubdlProvider(AppConfig())
     subtitles = [

@@ -211,15 +211,22 @@ class SubdlProvider:
             return None
 
     def _episode_fields(self, entry: dict[str, object]) -> tuple[int | None, int | None]:
-        raw_season = self._coerce_positive_int(entry.get("season"))
+        raw_season = self._coerce_non_negative_int(entry.get("season"))
         raw_episode = self._coerce_positive_int(entry.get("episode"))
         if raw_episode is not None and raw_episode > MAX_REASONABLE_EPISODE:
             raw_episode = None
+        if raw_episode is not None:
+            return raw_season, raw_episode
 
         inferred_season, inferred_episode = extract_episode_info(*self._episode_text_values(entry))
         if inferred_episode is not None:
-            return inferred_season or raw_season, inferred_episode
+            season = inferred_season if inferred_season is not None else raw_season
+            return season, inferred_episode
         return raw_season, raw_episode
+
+    def _coerce_non_negative_int(self, value: object) -> int | None:
+        number = self._coerce_int(value)
+        return number if number is not None and number >= 0 else None
 
     def _coerce_positive_int(self, value: object) -> int | None:
         number = self._coerce_int(value)
