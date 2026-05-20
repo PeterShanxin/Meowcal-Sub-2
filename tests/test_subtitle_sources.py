@@ -1,9 +1,11 @@
+import asyncio
+
 import pytest
 
 from meocosub2.config import AppConfig
 from meocosub2.errors import SubtitleSourceError
 from meocosub2.subtitle_sources.aggregator import SubtitleSearchAggregator
-from meocosub2.subtitle_sources.subdl import SubdlProvider
+from meocosub2.subtitle_sources.subdl import MAX_PARALLEL_SEASON_FETCHES, SubdlProvider
 from meocosub2.subtitle_sources.types import AggregatedWork, ProviderSearchCatalog, ProviderSubtitleMatch, ProviderSubtitleResult
 from meocosub2.subtitle_sources.utils import canonical_title, map_subdl_language
 
@@ -328,6 +330,101 @@ def _subdl_result(
         match_score=score,
         download_ref=f"{result_id}.zip",
     )
+
+@pytest.mark.asyncio
+async def test_subdl_fetches_title_details_in_parallel(monkeypatch) -> None:
+    provider = SubdlProvider(AppConfig())
+    active = 0
+    max_active = 0
+
+    async def fake_fetch_next_data(url: str, client=None) -> dict[str, object]:
+        nonlocal active, max_active
+        if "/en/search/" in url:
+            return {
+                "list": [
+                    {"sd_id": f"sd{i}", "slug": f"title-{i}", "name": f"Title {i}", "type": "movie", "year": 2024}
+                    for i in range(3)
+                ]
+            }
+        active += 1
+        max_active = max(max_active, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        subtitle_id = url.rsplit("/", 1)[-1]
+        return {
+            "movieInfo": {"type": "movie", "name": subtitle_id, "year": 2024},
+            "groupedSubtitles": {
+                "english": [
+                    {
+                        "id": subtitle_id,
+                        "title": subtitle_id,
+                        "downloads": 1,
+                        "link": f"{subtitle_id}.zip",
+                    }
+                ]
+            },
+        }
+
+    monkeypatch.setattr(provider, "_fetch_next_data", fake_fetch_next_data)
+
+    catalog = await provider.search_catalog("from", "en")
+
+    assert max_active > 1
+    assert len(catalog.results) == 3
+
+
+@pytest.mark.asyncio
+async def test_subdl_caps_season_fetches_across_parallel_titles(monkeypatch) -> None:
+    provider = SubdlProvider(AppConfig())
+    active_seasons = 0
+    max_active_seasons = 0
+
+    async def fake_fetch_next_data(url: str, client=None) -> dict[str, object]:
+        nonlocal active_seasons, max_active_seasons
+        if "/en/search/" in url:
+            return {
+                "list": [
+                    {"sd_id": f"sd{i}", "slug": f"title-{i}", "name": f"Title {i}", "type": "tv", "year": 2024}
+                    for i in range(3)
+                ]
+            }
+        parts = url.rstrip("/").split("/")
+        if parts[-1].startswith("title-"):
+            return {
+                "movieInfo": {
+                    "type": "tv",
+                    "name": parts[-1],
+                    "year": 2024,
+                    "seasons": [{"number": season} for season in range(1, 7)],
+                }
+            }
+
+        active_seasons += 1
+        max_active_seasons = max(max_active_seasons, active_seasons)
+        await asyncio.sleep(0.01)
+        active_seasons -= 1
+        subtitle_id = "-".join(parts[-3:])
+        return {
+            "groupedSubtitles": {
+                "english": [
+                    {
+                        "id": subtitle_id,
+                        "title": subtitle_id,
+                        "season": int(parts[-1]),
+                        "episode": 1,
+                        "downloads": 1,
+                        "link": f"{subtitle_id}.zip",
+                    }
+                ]
+            }
+        }
+
+    monkeypatch.setattr(provider, "_fetch_next_data", fake_fetch_next_data)
+
+    catalog = await provider.search_catalog("from", "en")
+
+    assert 1 < max_active_seasons <= MAX_PARALLEL_SEASON_FETCHES
+    assert len(catalog.results) == 18
 
 def test_aggregator_work_sort_prefers_exact_series_and_franchise_movies() -> None:
     aggregator = SubtitleSearchAggregator(AppConfig())

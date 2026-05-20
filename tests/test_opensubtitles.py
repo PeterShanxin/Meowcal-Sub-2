@@ -355,6 +355,32 @@ async def test_search_uses_feature_pipeline_and_alias_variants(client: OpenSubti
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_search_skips_direct_fallback_after_strong_feature_results(client: OpenSubtitlesClient) -> None:
+    respx.get(f"{BASE_URL}/features").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=FEATURE_TVSHOW_RESPONSE
+            if request.url.params.get("query") in {"Fate strange Fake", "Fate/strange Fake"}
+            else EMPTY_RESPONSE,
+        )
+    )
+    subtitle_route = respx.get(f"{BASE_URL}/subtitles").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=TVSHOW_SUBTITLE_RESPONSE
+            if request.url.params.get("parent_feature_id") == "2239923"
+            else EMPTY_RESPONSE,
+        )
+    )
+
+    results = await client.search("Fate/Fake", languages="en")
+
+    assert results
+    assert not any(call.request.url.params.get("query") for call in subtitle_route.calls)
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_search_catalog_returns_feature_matches_even_without_subtitle_results(client: OpenSubtitlesClient) -> None:
     respx.get(f"{BASE_URL}/features").mock(
         side_effect=lambda request: httpx.Response(

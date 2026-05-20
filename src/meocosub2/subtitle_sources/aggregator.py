@@ -72,6 +72,8 @@ QUERY_ALIASES = {
     "fate faker": "Fate/strange Fake",
     "fate strange faker": "Fate/strange Fake",
 }
+MAX_TMDB_EAGER_WORKS = 24
+MAX_TMDB_EAGER_WORKS_FOR_GENERIC_QUERY = 12
 
 
 class SubtitleSearchAggregator:
@@ -143,19 +145,29 @@ class SubtitleSearchAggregator:
         if not aggregated.results and errors:
             raise SubtitleSourceError("; ".join(errors))
         aggregated.warnings.extend(errors)
+        works_are_ranked = False
         if self._tmdb_client is not None and self._tmdb_client.enabled and aggregated.works:
             tmdb_started = time.perf_counter()
-            aggregated.works = await self._merge_works_via_tmdb(aggregated.works, dispatch_query, correlation_id)
-            aggregated.works = await self._apply_tmdb_season_skeleton(aggregated.works, correlation_id)
-            aggregated.works = await self._apply_tmdb_posters(aggregated.works, correlation_id)
+            identified_works = await self._merge_works_via_tmdb(aggregated.works, dispatch_query, correlation_id)
+            ranked_works = self._sort_works(identified_works, dispatch_query, query_year)
+            works_are_ranked = True
+            eager_limit = self._tmdb_eager_limit(dispatch_query, ranked_works)
+            eager_works = ranked_works[:eager_limit]
+            deferred_works = ranked_works[eager_limit:]
+            eager_works = await self._apply_tmdb_season_skeleton(eager_works, correlation_id)
+            eager_works = await self._apply_tmdb_posters(eager_works, correlation_id)
+            aggregated.works = [*eager_works, *deferred_works]
             log_event(
                 "aggregator.tmdb.done",
                 layer="backend",
                 correlation_id=correlation_id,
                 duration_ms=round((time.perf_counter() - tmdb_started) * 1000),
                 works=len(aggregated.works),
+                enriched_works=len(eager_works),
+                deferred_works=len(deferred_works),
             )
-        aggregated.works = self._sort_works(aggregated.works, dispatch_query, query_year)
+        if not works_are_ranked:
+            aggregated.works = self._sort_works(aggregated.works, dispatch_query, query_year)
         episode_coverage = _episode_coverage_summary(aggregated.works)
         if episode_coverage:
             log_event(
@@ -176,6 +188,13 @@ class SubtitleSearchAggregator:
             errors=len(errors),
         )
         return aggregated
+
+    def _tmdb_eager_limit(self, query: str, works: list[AggregatedWork]) -> int:
+        if len(works) <= MAX_TMDB_EAGER_WORKS:
+            return len(works)
+        if _is_generic_tmdb_query(query):
+            return min(len(works), MAX_TMDB_EAGER_WORKS_FOR_GENERIC_QUERY)
+        return min(len(works), MAX_TMDB_EAGER_WORKS)
 
     async def _search_provider(
         self,
@@ -1177,6 +1196,14 @@ def _humanize_downloads(count: int) -> str:
 
 def _rewrite_query_alias(query: str) -> str:
     return QUERY_ALIASES.get(canonical_title(query), query)
+
+
+def _is_generic_tmdb_query(query: str) -> bool:
+    query_tokens = canonical_title(query).split()
+    if len(query_tokens) != 1:
+        return False
+    token = query_tokens[0]
+    return token.isascii() and token.isalnum() and len(token) <= 4
 
 
 def _work_year_rank(work: AggregatedWork, query_year: int | None) -> int:

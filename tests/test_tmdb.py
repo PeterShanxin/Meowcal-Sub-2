@@ -9,7 +9,11 @@ import pytest
 import respx
 
 from meocosub2.config import AppConfig
-from meocosub2.subtitle_sources.aggregator import SubtitleSearchAggregator
+from meocosub2.subtitle_sources.aggregator import (
+    MAX_TMDB_EAGER_WORKS,
+    MAX_TMDB_EAGER_WORKS_FOR_GENERIC_QUERY,
+    SubtitleSearchAggregator,
+)
 from meocosub2.subtitle_sources.season_skeleton import build_season_skeleton
 from meocosub2.subtitle_sources.tmdb import TMDbCache, TMDbClient, TMDbSeries
 from meocosub2.subtitle_sources.types import (
@@ -52,6 +56,7 @@ class _StubTMDb:
         self.cache = _NullCache()
         self.searches: list[str] = []
         self.imdb_queries: list[str] = []
+        self.details_queries: list[int] = []
 
     async def search_tv(self, query: str, year_hint: int | None = None) -> TMDbSeries | None:
         self.searches.append(query)
@@ -62,6 +67,7 @@ class _StubTMDb:
         return self._imdb_hits.get(imdb_id)
 
     async def fetch_series_details(self, tmdb_id: int) -> dict | None:
+        self.details_queries.append(tmdb_id)
         return self._series_details.get(tmdb_id)
 
     async def fetch_season(self, tmdb_id: int, season_number: int) -> list[dict]:
@@ -365,6 +371,275 @@ async def test_aggregator_applies_skeleton_for_single_series_without_tmdb_id() -
 
     assert by_season[3].episodes[0].match_id == "skeleton:3:1"
     assert by_season[4].episodes[0].match_id == "skeleton:4:1"
+
+
+@pytest.mark.asyncio
+async def test_aggregator_limits_tmdb_eager_enrichment_for_generic_queries() -> None:
+    matches = [
+        ProviderSubtitleMatch(
+            id=f"match-{index}",
+            provider="opensubtitles",
+            provider_label="OpenSubtitles",
+            title=f"Series {index}",
+            year=2020,
+            imdb_id=None,
+            tmdb_id=None,
+            media_type="tvshow",
+            subtitles_count=10,
+            match_score=1000 - index,
+        )
+        for index in range(30)
+    ]
+    search_hits = {
+        f"series {index}": TMDbSeries(
+            tmdb_id=10_000 + index,
+            imdb_id=None,
+            name=f"Series {index}",
+            original_name=f"Series {index}",
+            first_air_year=2020,
+        )
+        for index in range(30)
+    }
+    stub = _StubTMDb(search_hits=search_hits)
+    aggregator = SubtitleSearchAggregator(AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub)
+    aggregator.providers = (
+        _FakeProvider("opensubtitles", "OpenSubtitles", ProviderSearchCatalog(matches=matches, results=[])),
+    )
+
+    catalog = await aggregator.search_catalog("from", "en")
+
+    assert len(stub.searches) == 30
+    assert sum(1 for work in catalog.works if work.tmdb_id) == 30
+    assert len(stub.details_queries) == MAX_TMDB_EAGER_WORKS_FOR_GENERIC_QUERY
+
+
+@pytest.mark.asyncio
+async def test_aggregator_keeps_cjk_title_queries_out_of_generic_tmdb_limit() -> None:
+    matches = [
+        ProviderSubtitleMatch(
+            id=f"match-{index}",
+            provider="opensubtitles",
+            provider_label="OpenSubtitles",
+            title=f"作品{index}",
+            year=2020,
+            imdb_id=None,
+            tmdb_id=None,
+            media_type="tvshow",
+            subtitles_count=10,
+            match_score=1000 - index,
+        )
+        for index in range(30)
+    ]
+    search_hits = {
+        f"作品{index}": TMDbSeries(
+            tmdb_id=20_000 + index,
+            imdb_id=None,
+            name=f"作品{index}",
+            original_name=f"作品{index}",
+            first_air_year=2020,
+        )
+        for index in range(30)
+    }
+    stub = _StubTMDb(search_hits=search_hits)
+    aggregator = SubtitleSearchAggregator(AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub)
+    aggregator.providers = (
+        _FakeProvider("opensubtitles", "OpenSubtitles", ProviderSearchCatalog(matches=matches, results=[])),
+    )
+
+    catalog = await aggregator.search_catalog("你的名字", "zhs")
+
+    assert len(stub.searches) == 30
+    assert sum(1 for work in catalog.works if work.tmdb_id) == 30
+    assert len(stub.details_queries) == MAX_TMDB_EAGER_WORKS
+
+
+@pytest.mark.asyncio
+async def test_aggregator_keeps_non_segmented_script_queries_out_of_generic_tmdb_limit() -> None:
+    matches = [
+        ProviderSubtitleMatch(
+            id=f"match-{index}",
+            provider="opensubtitles",
+            provider_label="OpenSubtitles",
+            title=f"ละคร{index}",
+            year=2020,
+            imdb_id=None,
+            tmdb_id=None,
+            media_type="tvshow",
+            subtitles_count=10,
+            match_score=1000 - index,
+        )
+        for index in range(30)
+    ]
+    search_hits = {
+        f"ละคร{index}": TMDbSeries(
+            tmdb_id=25_000 + index,
+            imdb_id=None,
+            name=f"ละคร{index}",
+            original_name=f"ละคร{index}",
+            first_air_year=2020,
+        )
+        for index in range(30)
+    }
+    stub = _StubTMDb(search_hits=search_hits)
+    aggregator = SubtitleSearchAggregator(AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub)
+    aggregator.providers = (
+        _FakeProvider("opensubtitles", "OpenSubtitles", ProviderSearchCatalog(matches=matches, results=[])),
+    )
+
+    catalog = await aggregator.search_catalog("รัก", "th")
+
+    assert len(stub.searches) == 30
+    assert sum(1 for work in catalog.works if work.tmdb_id) == 30
+    assert len(stub.details_queries) == MAX_TMDB_EAGER_WORKS
+
+
+@pytest.mark.asyncio
+async def test_aggregator_ranks_works_before_tmdb_eager_enrichment_limit() -> None:
+    titles = [
+        *[f"Noise {index}" for index in range(20)],
+        "from",
+        *[f"Noise {index}" for index in range(20, 29)],
+    ]
+    matches = [
+        ProviderSubtitleMatch(
+            id=f"match-{index}",
+            provider="opensubtitles",
+            provider_label="OpenSubtitles",
+            title=title,
+            year=2020,
+            imdb_id=None,
+            tmdb_id=None,
+            media_type="tvshow",
+            subtitles_count=10,
+            match_score=1000 - index,
+        )
+        for index, title in enumerate(titles)
+    ]
+    search_hits = {
+        title.lower(): TMDbSeries(
+            tmdb_id=30_000 + index,
+            imdb_id=None,
+            name=title,
+            original_name=title,
+            first_air_year=2020,
+        )
+        for index, title in enumerate(titles)
+    }
+    stub = _StubTMDb(search_hits=search_hits)
+    aggregator = SubtitleSearchAggregator(AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub)
+    aggregator.providers = (
+        _FakeProvider("opensubtitles", "OpenSubtitles", ProviderSearchCatalog(matches=matches, results=[])),
+    )
+
+    catalog = await aggregator.search_catalog("from", "en")
+
+    assert catalog.works[0].title == "from"
+    assert 30_020 in stub.details_queries
+    assert len(stub.details_queries) == MAX_TMDB_EAGER_WORKS_FOR_GENERIC_QUERY
+
+
+@pytest.mark.asyncio
+async def test_aggregator_preserves_ranked_order_after_tmdb_eager_enrichment() -> None:
+    matches = [
+        ProviderSubtitleMatch(
+            id=f"match-{index}",
+            provider="opensubtitles",
+            provider_label="OpenSubtitles",
+            title=f"from {index}",
+            year=2020,
+            imdb_id=None,
+            tmdb_id=None,
+            media_type="tvshow",
+            subtitles_count=10,
+            match_score=1000 - index,
+        )
+        for index in range(30)
+    ]
+    search_hits = {
+        f"from {index}": TMDbSeries(
+            tmdb_id=40_000 + index,
+            imdb_id=None,
+            name=f"from {index}",
+            original_name=f"from {index}",
+            first_air_year=2020,
+        )
+        for index in range(30)
+    }
+    stub = _StubTMDb(
+        search_hits=search_hits,
+        series_details={40_001: {"number_of_seasons": 1}},
+        season_episodes={(40_001, 1): [{"episode_number": 1, "name": "Pilot"}]},
+    )
+    aggregator = SubtitleSearchAggregator(AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub)
+    aggregator.providers = (
+        _FakeProvider("opensubtitles", "OpenSubtitles", ProviderSearchCatalog(matches=matches, results=[])),
+    )
+
+    catalog = await aggregator.search_catalog("from", "en")
+
+    assert [work.title for work in catalog.works[:2]] == ["from 0", "from 1"]
+    assert catalog.works[1].total_episodes == 1
+
+
+@pytest.mark.asyncio
+async def test_aggregator_deduplicates_tmdb_before_limiting_eager_enrichment() -> None:
+    matches = [
+        ProviderSubtitleMatch(
+            id=f"match-{index}",
+            provider="opensubtitles",
+            provider_label="OpenSubtitles",
+            title=title,
+            year=2020,
+            imdb_id=None,
+            tmdb_id=None,
+            media_type="tvshow",
+            subtitles_count=10,
+            match_score=1000 - index,
+        )
+        for index, title in enumerate(
+            [
+                *[f"Series {index}" for index in range(12)],
+                "Shared Alternate Title",
+                *[f"Series {index}" for index in range(13, 30)],
+            ]
+        )
+    ]
+    search_hits = {
+        f"series {index}": TMDbSeries(
+            tmdb_id=10_000 + index,
+            imdb_id=None,
+            name=f"Series {index}",
+            original_name=f"Series {index}",
+            first_air_year=2020,
+        )
+        for index in range(30)
+        if index != 12
+    }
+    search_hits["series 0"] = TMDbSeries(
+        tmdb_id=50_000,
+        imdb_id=None,
+        name="Shared Canonical",
+        original_name="Shared Canonical",
+        first_air_year=2020,
+    )
+    search_hits["shared alternate title"] = TMDbSeries(
+        tmdb_id=50_000,
+        imdb_id=None,
+        name="Shared Canonical",
+        original_name="Shared Canonical",
+        first_air_year=2020,
+    )
+    stub = _StubTMDb(search_hits=search_hits)
+    aggregator = SubtitleSearchAggregator(AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub)
+    aggregator.providers = (
+        _FakeProvider("opensubtitles", "OpenSubtitles", ProviderSearchCatalog(matches=matches, results=[])),
+    )
+
+    catalog = await aggregator.search_catalog("from", "en")
+
+    shared_cards = [work for work in catalog.works if work.tmdb_id == "50000"]
+    assert len(shared_cards) == 1
+    assert shared_cards[0].total_subtitles == 20
 
 
 @pytest.mark.asyncio

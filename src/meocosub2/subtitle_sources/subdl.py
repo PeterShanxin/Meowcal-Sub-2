@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
@@ -33,6 +34,8 @@ DOWNLOAD_URL = "https://dl.subdl.com/subtitle/{link}"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0 Safari/537.36"
 MAX_TITLES = 5
 MAX_SUBTITLES = 40
+MAX_PARALLEL_TITLE_FETCHES = 3
+MAX_PARALLEL_SEASON_FETCHES = 4
 MAX_REASONABLE_EPISODE = 999
 
 
@@ -50,29 +53,37 @@ class SubdlProvider:
             return ProviderSearchCatalog(matches=[], results=[], warnings=["SubDL is disabled."])
 
         requested_languages = {code.strip() for code in languages.split(",") if code.strip()}
-        page = await self._fetch_next_data(f"{BASE_URL}/en/search/{quote(query)}")
-        items = page.get("list", [])
-        matches: list[ProviderSubtitleMatch] = []
-        results: list[ProviderSubtitleResult] = []
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
+            page = await self._fetch_next_data(f"{BASE_URL}/en/search/{quote(query)}", client)
+            items = page.get("list", [])
+            matches: list[ProviderSubtitleMatch] = []
+            results: list[ProviderSubtitleResult] = []
 
-        for item in items[:MAX_TITLES]:
-            if not isinstance(item, dict):
-                continue
-            matches.append(
-                ProviderSubtitleMatch(
-                    id=f"subdl-match-{item.get('sd_id')}",
-                    provider=self.provider_code,
-                    provider_label=self.provider_label,
-                    title=str(item.get("name") or item.get("original_name") or query),
-                    year=self._coerce_int(item.get("year")),
-                    imdb_id=None,
-                    tmdb_id=None,
-                    media_type="tvshow" if str(item.get("type")) == "tv" else "movie",
-                    subtitles_count=self._coerce_int(item.get("subtitles_count")) or 0,
-                    match_score=title_similarity(query, [str(item.get("name") or ""), str(item.get("original_name") or "")]),
+            selected_items = [item for item in items[:MAX_TITLES] if isinstance(item, dict)]
+            for item in selected_items:
+                matches.append(
+                    ProviderSubtitleMatch(
+                        id=f"subdl-match-{item.get('sd_id')}",
+                        provider=self.provider_code,
+                        provider_label=self.provider_label,
+                        title=str(item.get("name") or item.get("original_name") or query),
+                        year=self._coerce_int(item.get("year")),
+                        imdb_id=None,
+                        tmdb_id=None,
+                        media_type="tvshow" if str(item.get("type")) == "tv" else "movie",
+                        subtitles_count=self._coerce_int(item.get("subtitles_count")) or 0,
+                        match_score=title_similarity(query, [str(item.get("name") or ""), str(item.get("original_name") or "")]),
+                    )
                 )
-            )
-            results.extend(await self._collect_title_results(item, requested_languages))
+            sem = asyncio.Semaphore(MAX_PARALLEL_TITLE_FETCHES)
+            season_sem = asyncio.Semaphore(MAX_PARALLEL_SEASON_FETCHES)
+
+            async def collect(item: dict[str, object]) -> list[ProviderSubtitleResult]:
+                async with sem:
+                    return await self._collect_title_results(item, requested_languages, client, season_sem)
+
+            for item_results in await asyncio.gather(*(collect(item) for item in selected_items)):
+                results.extend(item_results)
 
         return ProviderSearchCatalog(matches=matches, results=results)
 
@@ -87,13 +98,19 @@ class SubdlProvider:
             response.raise_for_status()
             return extract_zip_bytes(response.content, extract_dir)
 
-    async def _collect_title_results(self, item: dict[str, object], requested_languages: set[str]) -> list[ProviderSubtitleResult]:
+    async def _collect_title_results(
+        self,
+        item: dict[str, object],
+        requested_languages: set[str],
+        client: httpx.AsyncClient | None = None,
+        season_sem: asyncio.Semaphore | None = None,
+    ) -> list[ProviderSubtitleResult]:
         slug = str(item.get("slug") or "")
         sd_id = str(item.get("sd_id") or "")
         if not slug or not sd_id:
             return []
 
-        detail = await self._fetch_next_data(f"{BASE_URL}/en/subtitle/{sd_id}/{slug}")
+        detail = await self._fetch_next_data(f"{BASE_URL}/en/subtitle/{sd_id}/{slug}", client)
         movie_info = detail.get("movieInfo", {})
         media_type = "tvshow" if str(movie_info.get("type")) == "tv" else "movie"
         title = str(movie_info.get("name") or item.get("name") or slug)
@@ -102,13 +119,22 @@ class SubdlProvider:
 
         if media_type == "tvshow" and movie_info.get("seasons"):
             seasons = movie_info.get("seasons") or []
+            season_urls: list[str] = []
             for season in seasons[:6]:
                 if not isinstance(season, dict):
                     continue
                 season_slug = str(season.get("number") or "")
                 if not season_slug:
                     continue
-                season_page = await self._fetch_next_data(f"{BASE_URL}/en/subtitle/{sd_id}/{slug}/{season_slug}")
+                season_urls.append(f"{BASE_URL}/en/subtitle/{sd_id}/{slug}/{season_slug}")
+
+            sem = season_sem or asyncio.Semaphore(MAX_PARALLEL_SEASON_FETCHES)
+
+            async def fetch_season(url: str) -> dict[str, object]:
+                async with sem:
+                    return await self._fetch_next_data(url, client)
+
+            for season_page in await asyncio.gather(*(fetch_season(url) for url in season_urls)):
                 subtitles.extend(
                     self._parse_page_subtitles(
                         title=title,
@@ -181,20 +207,22 @@ class SubdlProvider:
                 )
         return results
 
-    async def _fetch_next_data(self, url: str) -> dict[str, object]:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
-            started = time.perf_counter()
-            response = await client.get(url)
-            log_event(
-                "provider.http",
-                layer="backend",
-                provider="subdl",
-                method="GET",
-                path=self._safe_path(url),
-                status_code=response.status_code,
-                duration_ms=round((time.perf_counter() - started) * 1000),
-            )
-            response.raise_for_status()
+    async def _fetch_next_data(self, url: str, client: httpx.AsyncClient | None = None) -> dict[str, object]:
+        if client is None:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as scoped_client:
+                return await self._fetch_next_data(url, scoped_client)
+        started = time.perf_counter()
+        response = await client.get(url)
+        log_event(
+            "provider.http",
+            layer="backend",
+            provider="subdl",
+            method="GET",
+            path=self._safe_path(url),
+            status_code=response.status_code,
+            duration_ms=round((time.perf_counter() - started) * 1000),
+        )
+        response.raise_for_status()
         match = NEXT_DATA_PATTERN.search(response.text)
         if not match:
             raise SubtitleSourceError(f"SubDL page did not expose structured data: {url}")
