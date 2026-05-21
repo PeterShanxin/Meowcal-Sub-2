@@ -113,6 +113,224 @@ def test_subdl_parse_page_subtitles_keeps_big_5_code_results_for_chinese_request
     assert results[0].file_name == "[Crazy-SoL]OverlordIIIEp01-13"
 
 
+def test_subdl_parse_page_subtitles_infers_zero_episode_from_title() -> None:
+    provider = SubdlProvider(AppConfig())
+
+    results = provider._parse_page_subtitles(
+        title="From",
+        year=2022,
+        match_id="subdl-match-sd1656864",
+        requested_languages={"en"},
+        page_props={
+            "groupedSubtitles": {
+                "english": [
+                    {
+                        "id": 3409485,
+                        "title": "From.S03E02.WEB",
+                        "season": 3,
+                        "episode": 0,
+                        "downloads": 17,
+                        "link": "3409485-8332893.zip",
+                        "releases": ["From.S03E02.WEB"],
+                    }
+                ]
+            }
+        },
+    )
+
+    assert len(results) == 1
+    assert results[0].media_type == "episode"
+    assert results[0].season == 3
+    assert results[0].episode == 2
+    assert results[0].parent_title == "From"
+
+
+def test_subdl_parse_page_subtitles_normalizes_unicode_digits_for_episode_inference() -> None:
+    provider = SubdlProvider(AppConfig())
+
+    results = provider._parse_page_subtitles(
+        title="From",
+        year=2026,
+        match_id="subdl-match-sd1656864",
+        requested_languages={"en"},
+        page_props={
+            "groupedSubtitles": {
+                "english": [
+                    {
+                        "id": 3576745,
+                        "title": "[CoffeePrison] FROM S𝟬𝟰E𝟬𝟭 PRIME AMZN WEB",
+                        "season": 4,
+                        "episode": 0,
+                        "downloads": 5,
+                        "link": "3576745-8495217.zip",
+                        "releases": ["[CoffeePrison] FROM S𝟬𝟰E𝟬𝟭 PRIME AMZN WEB"],
+                    }
+                ]
+            }
+        },
+    )
+
+    assert len(results) == 1
+    assert results[0].media_type == "episode"
+    assert results[0].season == 4
+    assert results[0].episode == 1
+
+
+def test_subdl_parse_page_subtitles_corrects_unreasonable_episode_field_from_releases() -> None:
+    provider = SubdlProvider(AppConfig())
+
+    results = provider._parse_page_subtitles(
+        title="From",
+        year=2023,
+        match_id="subdl-match-sd1656864",
+        requested_languages={"en"},
+        page_props={
+            "groupedSubtitles": {
+                "english": [
+                    {
+                        "id": 3065884,
+                        "title": "FromS02E011080pWEB-DLDD+5.1H.264(RETAiL)",
+                        "season": 2,
+                        "episode": 11080,
+                        "downloads": 10,
+                        "link": "3065884-3074995.zip",
+                        "releases": [
+                            "From S02E01 1080p WEB-DL DD 5.1 H.264 (RETAiL)",
+                            "From S02E01 720p WEB-DL DD 5.1 H.264 (RETAiL)",
+                        ],
+                    }
+                ]
+            }
+        },
+    )
+
+    assert len(results) == 1
+    assert results[0].media_type == "episode"
+    assert results[0].season == 2
+    assert results[0].episode == 1
+
+
+def test_subdl_parse_page_subtitles_keeps_valid_structured_episode_over_text() -> None:
+    provider = SubdlProvider(AppConfig())
+
+    results = provider._parse_page_subtitles(
+        title="From",
+        year=2022,
+        match_id="subdl-match-sd1656864",
+        requested_languages={"en"},
+        page_props={
+            "groupedSubtitles": {
+                "english": [
+                    {
+                        "id": 4000001,
+                        "title": "From.S01E01-E10.Pack",
+                        "season": 1,
+                        "episode": 5,
+                        "downloads": 3,
+                        "link": "4000001-1.zip",
+                        "releases": ["From.S01E01-E10.Mixed"],
+                    }
+                ]
+            }
+        },
+    )
+
+    assert len(results) == 1
+    assert results[0].media_type == "episode"
+    assert results[0].season == 1
+    assert results[0].episode == 5
+
+
+def test_subdl_parse_page_subtitles_preserves_inferred_season_zero_special() -> None:
+    provider = SubdlProvider(AppConfig())
+
+    results = provider._parse_page_subtitles(
+        title="From",
+        year=2022,
+        match_id="subdl-match-sd1656864",
+        requested_languages={"en"},
+        page_props={
+            "groupedSubtitles": {
+                "english": [
+                    {
+                        "id": 4000002,
+                        "title": "From.S00E01.Special",
+                        "season": 0,
+                        "episode": 0,
+                        "downloads": 2,
+                        "link": "4000002-1.zip",
+                    }
+                ]
+            }
+        },
+    )
+
+    assert len(results) == 1
+    assert results[0].media_type == "episode"
+    assert results[0].season == 0
+    assert results[0].episode == 1
+
+
+def test_subdl_limit_subtitles_keeps_episode_coverage_before_duplicates() -> None:
+    provider = SubdlProvider(AppConfig())
+    subtitles = [
+        _subdl_result(f"dupe-{i}", season=1, episode=1, score=99.0, downloads=100 - i)
+        for i in range(45)
+    ]
+    subtitles.append(_subdl_result("episode-2", season=1, episode=2, score=10.0, downloads=1))
+    subtitles.append(_subdl_result("episode-3", season=2, episode=1, score=9.0, downloads=1))
+
+    limited = provider._limit_subtitles(subtitles)
+
+    assert len(limited) == 40
+    retained_episode_keys = {(item.season, item.episode) for item in limited}
+    assert (1, 2) in retained_episode_keys
+    assert (2, 1) in retained_episode_keys
+
+
+def test_subdl_limit_subtitles_keeps_best_ranked_episode_representatives() -> None:
+    provider = SubdlProvider(AppConfig())
+    subtitles = [
+        _subdl_result(f"low-{episode}", season=1, episode=episode, score=1.0, downloads=episode)
+        for episode in range(1, 41)
+    ]
+    subtitles.append(_subdl_result("high-late-season", season=4, episode=10, score=99.0, downloads=100))
+
+    limited = provider._limit_subtitles(subtitles)
+
+    retained_episode_keys = {(item.season, item.episode) for item in limited}
+    assert len(limited) == 40
+    assert (4, 10) in retained_episode_keys
+    assert (1, 1) not in retained_episode_keys
+
+
+def _subdl_result(
+    result_id: str,
+    *,
+    season: int,
+    episode: int,
+    score: float,
+    downloads: int,
+) -> ProviderSubtitleResult:
+    return ProviderSubtitleResult(
+        id=result_id,
+        match_id="subdl-match-sd1656864",
+        provider="subdl",
+        provider_label="SubDL",
+        title=f"From.S{season:02d}E{episode:02d}",
+        year=2022,
+        imdb_id=None,
+        media_type="episode",
+        season=season,
+        episode=episode,
+        parent_title="From",
+        language="en",
+        download_count=downloads,
+        file_name=f"{result_id}.zip",
+        match_score=score,
+        download_ref=f"{result_id}.zip",
+    )
+
 @pytest.mark.asyncio
 async def test_subdl_fetches_title_details_in_parallel(monkeypatch) -> None:
     provider = SubdlProvider(AppConfig())
@@ -207,7 +425,6 @@ async def test_subdl_caps_season_fetches_across_parallel_titles(monkeypatch) -> 
 
     assert 1 < max_active_seasons <= MAX_PARALLEL_SEASON_FETCHES
     assert len(catalog.results) == 18
-
 
 def test_aggregator_work_sort_prefers_exact_series_and_franchise_movies() -> None:
     aggregator = SubtitleSearchAggregator(AppConfig())
