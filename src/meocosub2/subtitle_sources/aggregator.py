@@ -60,7 +60,7 @@ IMPLICIT_EPISODE_PENALTY = 80.0
 WORK_RANK_EXACT_SERIES = 520
 WORK_RANK_EXACT_MOVIE_YEAR = 540
 WORK_RANK_PREFIX = 450
-WORK_RANK_EXACT_MOVIE = 420
+WORK_RANK_EXACT_MOVIE = 470
 WORK_RANK_CONTAINS = 380
 WORK_RANK_EXACT_MOVIE_WITH_SERIES = 330
 WORK_YEAR_EXACT_MOVIE = 500
@@ -685,8 +685,14 @@ class SubtitleSearchAggregator:
                 continue
             series = identity
             work = enriched[idx]
+            first_air_year = (
+                series.first_air_year
+                if series.first_air_year and (work.year is None or series.first_air_year < work.year)
+                else work.year
+            )
             enriched[idx] = replace(
                 work,
+                year=first_air_year,
                 imdb_id=work.imdb_id or series.imdb_id,
                 tmdb_id=work.tmdb_id or str(series.tmdb_id),
                 poster_url=work.poster_url or poster_url_from_path(series.poster_path),
@@ -864,6 +870,10 @@ class SubtitleSearchAggregator:
             hit = await self._tmdb_client.search_tv(query, year_hint=work.year)
             if hit:
                 return hit
+            if work.year is not None:
+                hit = await self._tmdb_client.search_tv(query)
+                if hit:
+                    return hit
         return None
 
     def _build_movie_work(
