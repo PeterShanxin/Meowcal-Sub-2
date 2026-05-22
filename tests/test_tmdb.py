@@ -55,12 +55,15 @@ class _StubTMDb:
         self._season_episodes = season_episodes or {}
         self.cache = _NullCache()
         self.searches: list[str] = []
+        self.search_hints: list[tuple[str, int | None]] = []
         self.imdb_queries: list[str] = []
         self.details_queries: list[int] = []
 
     async def search_tv(self, query: str, year_hint: int | None = None) -> TMDbSeries | None:
         self.searches.append(query)
-        return self._search_hits.get(query.lower())
+        self.search_hints.append((query, year_hint))
+        key = f"{query.lower()}|{year_hint or ''}"
+        return self._search_hits.get(key, self._search_hits.get(query.lower()))
 
     async def find_by_imdb(self, imdb_id: str) -> TMDbSeries | None:
         self.imdb_queries.append(imdb_id)
@@ -579,6 +582,55 @@ async def test_aggregator_preserves_ranked_order_after_tmdb_eager_enrichment() -
 
     assert [work.title for work in catalog.works[:2]] == ["from 0", "from 1"]
     assert catalog.works[1].total_episodes == 1
+
+
+@pytest.mark.asyncio
+async def test_aggregator_retries_tmdb_series_lookup_without_episode_year_hint() -> None:
+    from_series = TMDbSeries(
+        tmdb_id=124_364,
+        imdb_id="tt9813792",
+        name="From",
+        original_name="From",
+        first_air_year=2022,
+    )
+    stub = _StubTMDb(search_hits={"from|": from_series})
+    aggregator = SubtitleSearchAggregator(AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub)
+    aggregator.providers = (
+        _FakeProvider(
+            "assrt",
+            "ASSRT",
+            ProviderSearchCatalog(
+                matches=[],
+                results=[
+                    ProviderSubtitleResult(
+                        id="assrt-from-5",
+                        match_id="assrt-from-5",
+                        provider="assrt",
+                        provider_label="ASSRT",
+                        title="From",
+                        year=2026,
+                        imdb_id=None,
+                        tmdb_id=None,
+                        media_type="episode",
+                        season=4,
+                        episode=5,
+                        parent_title="From",
+                        language="zh",
+                        download_count=2,
+                        file_name="From.S04E05.zh.srt",
+                        match_score=220,
+                    ),
+                ],
+            ),
+        ),
+    )
+
+    catalog = await aggregator.search_catalog("from", "zh")
+
+    assert stub.search_hints[:2] == [("From", 2026), ("From", None)]
+    assert catalog.works[0].tmdb_id == "124364"
+    assert catalog.works[0].imdb_id == "tt9813792"
+    assert catalog.works[0].year == 2022
 
 
 @pytest.mark.asyncio

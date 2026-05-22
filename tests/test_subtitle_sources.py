@@ -4,6 +4,7 @@ import pytest
 
 from meocosub2.config import AppConfig
 from meocosub2.errors import SubtitleSourceError
+from meocosub2.subtitle_sources.assrt import AssrtProvider
 from meocosub2.subtitle_sources.aggregator import SubtitleSearchAggregator
 from meocosub2.subtitle_sources.subdl import MAX_PARALLEL_SEASON_FETCHES, SubdlProvider
 from meocosub2.subtitle_sources.types import AggregatedWork, ProviderSearchCatalog, ProviderSubtitleMatch, ProviderSubtitleResult
@@ -489,6 +490,164 @@ def test_aggregator_work_sort_prefers_exact_series_and_franchise_movies() -> Non
     assert [work.id for work in sorted_works[:3]] == ["anime-series", "anime-movie", "movie-2018"]
     assert aggregator._sort_works(works, "Overlord", query_year=2018)[0].id == "movie-2018"
     assert aggregator._sort_works(works, "Overlord", query_year=2015)[0].id == "anime-series"
+
+
+def test_aggregator_work_sort_prefers_exact_title_before_prefix_without_exact_series() -> None:
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    works = [
+        AggregatedWork(
+            id="prefix-movie",
+            title="From Paris with Love",
+            media_type="movie",
+            year=2010,
+            year_end=None,
+            imdb_id="tt1179034",
+            tmdb_id="26389",
+            providers=("opensubtitles",),
+            provider_labels=("OpenSubtitles",),
+            total_subtitles=344,
+            match_score=396.0,
+        ),
+        AggregatedWork(
+            id="exact-movie",
+            title="From",
+            media_type="movie",
+            year=2026,
+            year_end=None,
+            imdb_id=None,
+            tmdb_id="2964302",
+            providers=("opensubtitles",),
+            provider_labels=("OpenSubtitles",),
+            total_subtitles=5,
+            match_score=230.0,
+        ),
+    ]
+
+    assert aggregator._sort_works(works, "from")[0].id == "exact-movie"
+
+
+@pytest.mark.asyncio
+async def test_assrt_search_extracts_exact_english_parent_title_for_cjk_episode(mocker) -> None:
+    config = AppConfig(assrt_enabled=True, assrt_token="token")
+    provider = AssrtProvider(config)
+    mocker.patch.object(
+        provider,
+        "_request",
+        new=mocker.AsyncMock(
+            return_value={
+                "status": 0,
+                "sub": {
+                    "subs": [
+                        {
+                            "id": 1,
+                            "native_name": "梦魇绝镇 第四季 From (2026) S04E05",
+                            "videoname": "梦魇绝镇 第四季 From (2026) S04E05",
+                            "lang": {"desc": "简体中文", "langlist": {"langchs": 1}},
+                            "down_count": 2,
+                            "filelist": [{"f": "From.S04E05.zh.srt"}],
+                        },
+                        {
+                            "id": 2,
+                            "native_name": "怪奇物语：1985故事集 Stranger Things: Tales From '85 (2026) S01E02",
+                            "videoname": "Stranger Things: Tales From '85 (2026) S01E02",
+                            "lang": {"desc": "简体中文", "langlist": {"langchs": 1}},
+                            "down_count": 1,
+                            "filelist": [{"f": "Stranger.Things.Tales.From.85.S01E02.zh.srt"}],
+                        },
+                    ]
+                },
+            }
+        ),
+    )
+
+    catalog = await provider.search_catalog("from", "zh")
+
+    assert catalog.results[0].parent_title == "From"
+    assert catalog.results[0].title == "From"
+    assert catalog.results[0].media_type == "episode"
+    assert catalog.results[0].season == 4
+    assert catalog.results[0].episode == 5
+    assert catalog.results[1].parent_title != "From"
+
+
+@pytest.mark.asyncio
+async def test_aggregator_groups_assrt_exact_from_episodes_under_series() -> None:
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider(
+            "opensubtitles",
+            "OpenSubtitles",
+            ProviderSearchCatalog(
+                matches=[
+                    ProviderSubtitleMatch(
+                        id="os-prefix",
+                        provider="opensubtitles",
+                        provider_label="OpenSubtitles",
+                        title="From Paris with Love",
+                        year=2010,
+                        imdb_id="tt1179034",
+                        tmdb_id="26389",
+                        media_type="movie",
+                        subtitles_count=344,
+                        match_score=396.0,
+                    )
+                ],
+                results=[],
+            ),
+        ),
+        FakeProvider(
+            "assrt",
+            "ASSRT",
+            ProviderSearchCatalog(
+                matches=[],
+                results=[
+                    ProviderSubtitleResult(
+                        id="assrt-from-5",
+                        match_id="assrt-from-5",
+                        provider="assrt",
+                        provider_label="ASSRT",
+                        title="From",
+                        year=2026,
+                        imdb_id=None,
+                        tmdb_id=None,
+                        media_type="episode",
+                        season=4,
+                        episode=5,
+                        parent_title="From",
+                        language="zh",
+                        download_count=2,
+                        file_name="From.S04E05.zh.srt",
+                        match_score=220,
+                    ),
+                    ProviderSubtitleResult(
+                        id="assrt-from-4",
+                        match_id="assrt-from-4",
+                        provider="assrt",
+                        provider_label="ASSRT",
+                        title="From",
+                        year=2026,
+                        imdb_id=None,
+                        tmdb_id=None,
+                        media_type="episode",
+                        season=4,
+                        episode=4,
+                        parent_title="From",
+                        language="zh",
+                        download_count=1,
+                        file_name="From.S04E04.zh.srt",
+                        match_score=220,
+                    ),
+                ],
+            ),
+        ),
+    )
+
+    catalog = await aggregator.search_catalog("from", "en,zh")
+
+    assert catalog.works[0].title == "From"
+    assert catalog.works[0].media_type == "series"
+    assert catalog.works[0].total_episodes == 2
+    assert catalog.works[1].title == "From Paris with Love"
 
 
 @pytest.mark.asyncio

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 import time
+import unicodedata
 from pathlib import Path
 
 import httpx
@@ -13,6 +15,7 @@ from meocosub2.event_log import log_event
 from meocosub2.subtitle_sources.types import ProviderCapabilities, ProviderSearchCatalog, ProviderSubtitleResult
 from meocosub2.subtitle_sources.utils import (
     best_title_guess,
+    canonical_title,
     extract_episode_info,
     extract_year,
     map_assrt_language,
@@ -21,6 +24,8 @@ from meocosub2.subtitle_sources.utils import (
 
 API_BASE = "https://api.assrt.net/v1"
 MAX_RESULTS = 15
+YEAR_SUFFIX_PATTERN = re.compile(r"\s*[\(（]?(?:19|20|21)\d{2}[\)）]?\s*$")
+LATIN_TITLE_SEGMENT_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9'’&:.\- ]*[A-Za-z0-9)]?")
 
 
 class AssrtProvider:
@@ -59,6 +64,8 @@ class AssrtProvider:
             videoname = str(item.get("videoname") or "")
             season, episode = extract_episode_info(native_name, videoname)
             guessed_title = best_title_guess(query, native_name, videoname)
+            parent_title = self._episode_parent_title(query, native_name, videoname, fallback=guessed_title) if episode else None
+            display_title = parent_title or guessed_title
             year = extract_year(native_name, videoname)
             filelist = item.get("filelist") if isinstance(item.get("filelist"), list) else []
             primary_file_name = (
@@ -72,14 +79,14 @@ class AssrtProvider:
                     match_id=f"assrt-match-{item.get('id')}",
                     provider=self.provider_code,
                     provider_label=self.provider_label,
-                    title=guessed_title,
+                    title=display_title,
                     year=year,
                     imdb_id=None,
                     tmdb_id=None,
                     media_type="episode" if episode else "movie",
                     season=season,
                     episode=episode,
-                    parent_title=guessed_title if episode else None,
+                    parent_title=parent_title,
                     language=lang,
                     download_count=self._coerce_int(item.get("down_count")) or 0,
                     file_name=primary_file_name,
@@ -148,3 +155,24 @@ class AssrtProvider:
             return int(value) if value not in {None, ""} else None
         except (TypeError, ValueError):
             return None
+
+    def _episode_parent_title(self, query: str, *values: str, fallback: str) -> str:
+        query_key = canonical_title(query)
+        if not query_key:
+            return fallback
+        for value in values:
+            for segment in self._latin_title_segments(value):
+                if canonical_title(segment) == query_key:
+                    return segment
+        return fallback
+
+    def _latin_title_segments(self, value: str) -> list[str]:
+        text = unicodedata.normalize("NFKC", value)
+        text = re.sub(r"\bS\d{1,2}E\d{1,3}\b.*$", "", text, flags=re.IGNORECASE)
+        text = YEAR_SUFFIX_PATTERN.sub("", text).strip()
+        segments: list[str] = []
+        for match in LATIN_TITLE_SEGMENT_PATTERN.finditer(text):
+            segment = match.group(0).strip(" -_:.'’")
+            if segment:
+                segments.append(segment)
+        return segments

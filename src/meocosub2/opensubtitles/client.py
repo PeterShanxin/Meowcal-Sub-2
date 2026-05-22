@@ -244,11 +244,14 @@ class OpenSubtitlesClient:
                 result.match_score = max(result.match_score, feature.match_score + self._score_search_result(intent, result))
                 self._store_result(collected, result)
 
-        if not self._has_strong_results(list(collected.values())):
+        direct_exact_only = self._should_run_exact_direct_recovery(intent, list(collected.values()))
+        if direct_exact_only or self._should_run_direct_subtitle_lookup(intent, list(collected.values())):
             for query_index, query_variant in enumerate(queries[:MAX_QUERY_VARIANTS]):
                 direct_results = await self._search_direct_subtitles(intent, languages, query_variant)
                 query_bonus = max(0.0, 10.0 - (query_index * 2.0))
                 for result in direct_results:
+                    if direct_exact_only and not self._result_matches_query_exactly(intent, result):
+                        continue
                     result.match_score = max(result.match_score, self._score_search_result(intent, result) + query_bonus)
                     self._store_result(collected, result)
 
@@ -607,6 +610,37 @@ class OpenSubtitlesClient:
 
     def _has_strong_results(self, results: list[SearchResult]) -> bool:
         return any(result.match_score >= STRONG_MATCH_THRESHOLD for result in results)
+
+    def _should_run_direct_subtitle_lookup(self, intent: SearchIntent, results: list[SearchResult]) -> bool:
+        if not self._has_strong_results(results):
+            return True
+        return False
+
+    def _should_run_exact_direct_recovery(self, intent: SearchIntent, results: list[SearchResult]) -> bool:
+        if not self._has_strong_results(results):
+            return False
+        if not self._is_short_generic_query(intent):
+            return False
+        return not any(self._result_matches_query_exactly(intent, result) for result in results)
+
+    def _is_short_generic_query(self, intent: SearchIntent) -> bool:
+        tokens = intent.normalized_query.split()
+        return (
+            intent.media_type is None
+            and intent.year is None
+            and intent.season is None
+            and intent.episode is None
+            and len(tokens) == 1
+            and tokens[0].isascii()
+            and tokens[0].isalnum()
+            and len(tokens[0]) <= 4
+        )
+
+    def _result_matches_query_exactly(self, intent: SearchIntent, result: SearchResult) -> bool:
+        if not intent.normalized_query:
+            return False
+        values = [result.parent_title or "", result.title, result.movie_name or ""]
+        return any(canonical_title(value) == intent.normalized_query for value in values)
 
     def _has_strong_title_results(self, intent: SearchIntent, results: list[SearchResult]) -> bool:
         for result in results:

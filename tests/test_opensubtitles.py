@@ -308,6 +308,59 @@ PREFIX_SLASH_MOVIE_SUBTITLE_RESPONSE = {
     ]
 }
 
+FROM_DIRECT_SUBTITLE_RESPONSE = {
+    "data": [
+        {
+            "id": "from-direct",
+            "type": "subtitle",
+            "attributes": {
+                "language": "en",
+                "download_count": 5,
+                "feature_details": {
+                    "feature_id": 2964302,
+                    "feature_type": "Movie",
+                    "year": 2026,
+                    "title": "From",
+                    "movie_name": "From",
+                    "imdb_id": None,
+                    "tmdb_id": 2964302,
+                    "season_number": None,
+                    "episode_number": None,
+                    "parent_imdb_id": None,
+                    "parent_title": None,
+                    "parent_tmdb_id": None,
+                    "parent_feature_id": None,
+                },
+                "files": [{"file_id": 2964302, "file_name": "From.2026.en.srt"}],
+            },
+        },
+        {
+            "id": "from-noisy-direct",
+            "type": "subtitle",
+            "attributes": {
+                "language": "en",
+                "download_count": 5000,
+                "feature_details": {
+                    "feature_id": 646598,
+                    "feature_type": "Movie",
+                    "year": 2001,
+                    "title": "From Hell",
+                    "movie_name": "From Hell",
+                    "imdb_id": 120685,
+                    "tmdb_id": 768,
+                    "season_number": None,
+                    "episode_number": None,
+                    "parent_imdb_id": None,
+                    "parent_title": None,
+                    "parent_tmdb_id": None,
+                    "parent_feature_id": None,
+                },
+                "files": [{"file_id": 646598, "file_name": "From.Hell.en.srt"}],
+            },
+        }
+    ]
+}
+
 EMPTY_RESPONSE = {"data": []}
 
 DOWNLOAD_RESPONSE = {
@@ -377,6 +430,53 @@ async def test_search_skips_direct_fallback_after_strong_feature_results(client:
 
     assert results
     assert not any(call.request.url.params.get("query") for call in subtitle_route.calls)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_short_generic_query_runs_direct_lookup_even_after_strong_feature_results(client: OpenSubtitlesClient) -> None:
+    respx.get(f"{BASE_URL}/features").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": "557849",
+                        "type": "feature",
+                        "attributes": {
+                            "title": "From Paris with Love",
+                            "original_title": "From Paris with Love",
+                            "year": "2010",
+                            "subtitles_count": 325,
+                            "season_number": None,
+                            "episode_number": None,
+                            "imdb_id": 1179034,
+                            "tmdb_id": 26389,
+                            "parent_title": "",
+                            "parent_imdb_id": None,
+                            "parent_tmdb_id": None,
+                            "title_aka": ["From Paris with Love"],
+                            "feature_type": "Movie",
+                        },
+                    }
+                ],
+            },
+        )
+    )
+    subtitle_route = respx.get(f"{BASE_URL}/subtitles").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=FROM_DIRECT_SUBTITLE_RESPONSE
+            if request.url.params.get("query") == "from"
+            else MOVIE_SUBTITLE_RESPONSE,
+        )
+    )
+
+    catalog = await client.search_catalog("from", languages="en")
+
+    assert any(call.request.url.params.get("query") == "from" for call in subtitle_route.calls)
+    assert any(result.title == "From" for result in catalog.results)
+    assert not any(result.title == "From Hell" for result in catalog.results)
 
 
 @respx.mock
