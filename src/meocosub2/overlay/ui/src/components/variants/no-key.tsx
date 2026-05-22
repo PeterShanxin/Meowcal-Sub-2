@@ -1,9 +1,7 @@
 export function NoApiKey({
   onOpenSettings,
-  onUseSubdl,
 }: {
   onOpenSettings: () => void;
-  onUseSubdl: () => void;
 }): JSX.Element {
   return (
     <div
@@ -60,7 +58,7 @@ export function NoApiKey({
               letterSpacing: -0.3,
             }}
           >
-            Add an OpenSubtitles API key.
+            Add source credentials.
           </h2>
           <p
             style={{
@@ -70,8 +68,8 @@ export function NoApiKey({
               lineHeight: 1.55,
             }}
           >
-            At least one subtitle source must be configured before you can search.
-            SubDL works without a key.
+            At least one subtitle source credential must be configured before search.
+            SubDL now requires an API key; ASSRT uses a token.
           </p>
           <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
             <button
@@ -89,20 +87,6 @@ export function NoApiKey({
               }}
             >
               Open Settings
-            </button>
-            <button
-              onClick={onUseSubdl}
-              style={{
-                padding: "10px 16px",
-                borderRadius: 8,
-                border: "1px solid rgba(255,255,255,0.1)",
-                background: "transparent",
-                color: "#a8a8b2",
-                fontSize: 13,
-                cursor: "pointer",
-              }}
-            >
-              Use SubDL only
             </button>
           </div>
         </div>

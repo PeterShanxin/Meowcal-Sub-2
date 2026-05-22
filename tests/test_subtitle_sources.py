@@ -1,12 +1,14 @@
 import asyncio
+import zipfile
 
 import pytest
 
+import meocosub2.subtitle_sources.subdl as subdl_module
 from meocosub2.config import AppConfig
 from meocosub2.errors import SubtitleSourceError
 from meocosub2.subtitle_sources.assrt import AssrtProvider
 from meocosub2.subtitle_sources.aggregator import SubtitleSearchAggregator
-from meocosub2.subtitle_sources.subdl import MAX_PARALLEL_SEASON_FETCHES, SubdlProvider
+from meocosub2.subtitle_sources.subdl import SubdlProvider
 from meocosub2.subtitle_sources.types import AggregatedWork, ProviderSearchCatalog, ProviderSubtitleMatch, ProviderSubtitleResult
 from meocosub2.subtitle_sources.utils import canonical_title, map_subdl_language
 
@@ -272,6 +274,142 @@ def test_subdl_parse_page_subtitles_preserves_inferred_season_zero_special() -> 
     assert results[0].episode == 1
 
 
+@pytest.mark.asyncio
+async def test_subdl_search_requires_api_key() -> None:
+    provider = SubdlProvider(AppConfig(subdl_enabled=True, subdl_api_key=""))
+
+    catalog = await provider.search_catalog("from", "en")
+
+    assert catalog.results == []
+    assert catalog.warnings == ["SubDL API key is not configured."]
+
+
+def test_subdl_capabilities_require_auth() -> None:
+    assert SubdlProvider.capabilities.requires_auth is True
+
+
+@pytest.mark.asyncio
+async def test_subdl_download_rejects_non_subdl_absolute_url() -> None:
+    provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
+    result = ProviderSubtitleResult(
+        id="subdl-result-unsafe",
+        match_id="subdl-match-sd1656864",
+        provider="subdl",
+        provider_label="SubDL",
+        title="From",
+        year=2022,
+        imdb_id=None,
+        media_type="episode",
+        language="en",
+        download_count=0,
+        file_name="subtitle.zip",
+        download_ref="https://example.com/subtitle.zip",
+        raw={"link": "https://example.com/subtitle.zip"},
+    )
+
+    with pytest.raises(SubtitleSourceError, match="host is not allowed"):
+        await provider.download(result)
+
+
+@pytest.mark.asyncio
+async def test_subdl_download_writes_raw_unpacked_subtitle(monkeypatch, tmp_path) -> None:
+    class FakeResponse:
+        content = b"1\n00:00:00,000 --> 00:00:01,000\nHello\n"
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            self.url = ""
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def get(self, url: str):
+            self.url = url
+            return FakeResponse()
+
+    monkeypatch.setattr(subdl_module.httpx, "AsyncClient", FakeAsyncClient)
+    provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
+    provider._cache_dir = tmp_path
+    result = ProviderSubtitleResult(
+        id="subdl-result-s04e01",
+        match_id="subdl-match-sd1656864",
+        provider="subdl",
+        provider_label="SubDL",
+        title="From.S04E01.srt",
+        year=2022,
+        imdb_id=None,
+        media_type="episode",
+        season=4,
+        episode=1,
+        parent_title="From",
+        language="en",
+        download_count=0,
+        file_name="From.S04E01.srt",
+        download_ref="3576745/s04e01",
+        raw={"link": "3576745/s04e01", "file_n_id": "s04e01"},
+    )
+
+    path = await provider.download(result)
+
+    assert path == tmp_path / "subdl-result-s04e01" / "From.S04E01.srt"
+    assert path.read_bytes() == FakeResponse.content
+
+
+@pytest.mark.asyncio
+async def test_subdl_download_keeps_bad_zip_failures_for_packs(monkeypatch, tmp_path) -> None:
+    class FakeResponse:
+        content = b"<html>not a zip</html>"
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            return None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def get(self, url: str):
+            return FakeResponse()
+
+    monkeypatch.setattr(subdl_module.httpx, "AsyncClient", FakeAsyncClient)
+    provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
+    provider._cache_dir = tmp_path
+    result = ProviderSubtitleResult(
+        id="subdl-result-pack",
+        match_id="subdl-match-sd1656864",
+        provider="subdl",
+        provider_label="SubDL",
+        title="From.S04.Pack.zip",
+        year=2022,
+        imdb_id=None,
+        media_type="episode",
+        season=4,
+        episode=None,
+        parent_title="From",
+        language="en",
+        download_count=0,
+        file_name="From.S04.Pack.zip",
+        download_ref="3576745-8495217.zip",
+        raw={"link": "3576745-8495217.zip"},
+    )
+
+    with pytest.raises(zipfile.BadZipFile):
+        await provider.download(result)
+
+
 def test_subdl_limit_subtitles_keeps_episode_coverage_before_duplicates() -> None:
     provider = SubdlProvider(AppConfig())
     subtitles = [
@@ -305,6 +443,17 @@ def test_subdl_limit_subtitles_keeps_best_ranked_episode_representatives() -> No
     assert (1, 1) not in retained_episode_keys
 
 
+def test_subdl_safe_identifier_bounds_path_like_fallbacks() -> None:
+    provider = SubdlProvider(AppConfig())
+    value = "https://dl.subdl.com/subtitle/" + ("season/four/" * 12) + "from.zip"
+
+    safe = provider._safe_identifier(value)
+
+    assert "/" not in safe
+    assert "\\" not in safe
+    assert len(safe) <= 80
+
+
 def _subdl_result(
     result_id: str,
     *,
@@ -333,99 +482,151 @@ def _subdl_result(
     )
 
 @pytest.mark.asyncio
-async def test_subdl_fetches_title_details_in_parallel(monkeypatch) -> None:
-    provider = SubdlProvider(AppConfig())
-    active = 0
-    max_active = 0
+async def test_subdl_search_uses_api_results_and_subtitles(monkeypatch) -> None:
+    provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
+    calls: list[dict[str, object]] = []
 
-    async def fake_fetch_next_data(url: str, client=None) -> dict[str, object]:
-        nonlocal active, max_active
-        if "/en/search/" in url:
+    async def fake_fetch_api(client, params: dict[str, object]) -> dict[str, object]:
+        calls.append(dict(params))
+        if "film_name" in params:
             return {
-                "list": [
-                    {"sd_id": f"sd{i}", "slug": f"title-{i}", "name": f"Title {i}", "type": "movie", "year": 2024}
-                    for i in range(3)
-                ]
-            }
-        active += 1
-        max_active = max(max_active, active)
-        await asyncio.sleep(0.01)
-        active -= 1
-        subtitle_id = url.rsplit("/", 1)[-1]
-        return {
-            "movieInfo": {"type": "movie", "name": subtitle_id, "year": 2024},
-            "groupedSubtitles": {
-                "english": [
+                "status": True,
+                "results": [
                     {
-                        "id": subtitle_id,
-                        "title": subtitle_id,
-                        "downloads": 1,
-                        "link": f"{subtitle_id}.zip",
+                        "sd_id": 1656864,
+                        "name": "From",
+                        "type": "tv",
+                        "year": 2022,
+                        "imdb_id": "tt9813792",
+                        "tmdb_id": 124364,
+                        "subtitles_count": 7,
                     }
-                ]
-            },
+                ],
+            }
+        return {
+            "status": True,
+            "subtitles": [
+                {
+                    "id": 3576745,
+                    "language": "English",
+                    "name": "From.S04E01.1080p.WEB",
+                    "season": 4,
+                    "episode": 1,
+                    "downloads": 5,
+                    "url": "/subtitle/3576745-8495217.zip",
+                    "releases": ["From.S04E01.1080p.WEB"],
+                },
+                {
+                    "id": 3576746,
+                    "language": "Traditional Chinese",
+                    "name": "From.S04E01.1080p.WEB.CHT",
+                    "season": 4,
+                    "episode": 1,
+                    "downloads": 2,
+                    "url": "3576746-8495218.zip",
+                },
+            ],
         }
 
-    monkeypatch.setattr(provider, "_fetch_next_data", fake_fetch_next_data)
+    monkeypatch.setattr(provider, "_fetch_api", fake_fetch_api)
 
-    catalog = await provider.search_catalog("from", "en")
+    catalog = await provider.search_catalog("from", "en,zht")
 
-    assert max_active > 1
-    assert len(catalog.results) == 3
+    assert calls[0]["film_name"] == "from"
+    assert calls[0]["languages"] == "EN,ZH"
+    assert calls[0]["unpack"] == "1"
+    assert calls[1]["sd_id"] == "1656864"
+    assert calls[1]["full_season"] == "1"
+    assert calls[1]["unpack"] == "1"
+    assert catalog.matches[0].title == "From"
+    assert catalog.matches[0].imdb_id == "tt9813792"
+    assert len(catalog.results) == 2
+    assert catalog.results[0].season == 4
+    assert catalog.results[0].episode == 1
+    assert catalog.results[0].download_ref == "3576745-8495217.zip"
 
 
-@pytest.mark.asyncio
-async def test_subdl_caps_season_fetches_across_parallel_titles(monkeypatch) -> None:
-    provider = SubdlProvider(AppConfig())
-    active_seasons = 0
-    max_active_seasons = 0
+def test_subdl_api_parser_expands_unpacked_season_files() -> None:
+    provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
 
-    async def fake_fetch_next_data(url: str, client=None) -> dict[str, object]:
-        nonlocal active_seasons, max_active_seasons
-        if "/en/search/" in url:
-            return {
-                "list": [
-                    {"sd_id": f"sd{i}", "slug": f"title-{i}", "name": f"Title {i}", "type": "tv", "year": 2024}
-                    for i in range(3)
-                ]
-            }
-        parts = url.rstrip("/").split("/")
-        if parts[-1].startswith("title-"):
-            return {
-                "movieInfo": {
-                    "type": "tv",
-                    "name": parts[-1],
-                    "year": 2024,
-                    "seasons": [{"number": season} for season in range(1, 7)],
-                }
-            }
-
-        active_seasons += 1
-        max_active_seasons = max(max_active_seasons, active_seasons)
-        await asyncio.sleep(0.01)
-        active_seasons -= 1
-        subtitle_id = "-".join(parts[-3:])
-        return {
-            "groupedSubtitles": {
-                "english": [
+    results = provider._parse_api_subtitles(
+        title="From",
+        year=2022,
+        match_id="subdl-match-1656864",
+        requested_languages={"en"},
+        item={"sd_id": 1656864, "type": "tv", "name": "From"},
+        subtitles=[
+            {
+                "id": 3576745,
+                "language": "English",
+                "name": "From.Season.4.Pack.zip",
+                "url": "/subtitle/3576745-8495217.zip",
+                "season": 4,
+                "episode_from": 1,
+                "episode_end": 2,
+                "full_season": True,
+                "unpack_files": [
                     {
-                        "id": subtitle_id,
-                        "title": subtitle_id,
-                        "season": int(parts[-1]),
+                        "file_n_id": "s04e01",
+                        "name": "From.S04E01.srt",
+                        "season": 4,
                         "episode": 1,
-                        "downloads": 1,
-                        "link": f"{subtitle_id}.zip",
-                    }
-                ]
+                        "language": "EN",
+                        "url": "/subtitle/3576745/s04e01",
+                    },
+                    {
+                        "file_n_id": "s04e02",
+                        "name": "From.S04E02.srt",
+                        "season": 4,
+                        "episode": 2,
+                        "language": "EN",
+                        "url": "/subtitle/3576745/s04e02",
+                    },
+                ],
             }
-        }
+        ],
+    )
 
-    monkeypatch.setattr(provider, "_fetch_next_data", fake_fetch_next_data)
+    assert [(result.season, result.episode) for result in results] == [(4, 1), (4, 2)]
+    assert len({result.id for result in results}) == 2
+    assert results[0].download_ref == "3576745/s04e01"
+    assert results[0].raw["pack_link"] == "/subtitle/3576745-8495217.zip"
+    assert results[1].file_name == "From.S04E02.srt"
 
-    catalog = await provider.search_catalog("from", "en")
 
-    assert 1 < max_active_seasons <= MAX_PARALLEL_SEASON_FETCHES
-    assert len(catalog.results) == 18
+def test_subdl_api_parser_scopes_unpacked_ids_by_pack() -> None:
+    provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
+
+    results = provider._parse_api_subtitles(
+        title="From",
+        year=2022,
+        match_id="subdl-match-1656864",
+        requested_languages={"en"},
+        item={"sd_id": 1656864, "type": "tv", "name": "From"},
+        subtitles=[
+            {
+                "id": 111,
+                "language": "English",
+                "name": "Pack A",
+                "url": "/subtitle/111.zip",
+                "unpack_files": [
+                    {"file_n_id": "s04e01", "name": "From.S04E01.A.srt", "season": 4, "episode": 1, "language": "EN"}
+                ],
+            },
+            {
+                "id": 222,
+                "language": "English",
+                "name": "Pack B",
+                "url": "/subtitle/222.zip",
+                "unpack_files": [
+                    {"file_n_id": "s04e01", "name": "From.S04E01.B.srt", "season": 4, "episode": 1, "language": "EN"}
+                ],
+            },
+        ],
+    )
+
+    assert [result.id for result in results] == ["subdl-result-111-s04e01", "subdl-result-222-s04e01"]
+
 
 def test_aggregator_work_sort_prefers_exact_series_and_franchise_movies() -> None:
     aggregator = SubtitleSearchAggregator(AppConfig())

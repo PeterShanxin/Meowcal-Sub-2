@@ -98,7 +98,7 @@ export interface BackendConfig {
       password: string;
       enableOrgFallback: boolean;
     };
-    subdl: { enabled: boolean };
+    subdl: { enabled: boolean; apiKey: string };
     assrt: { enabled: boolean; token: string };
     tmdb: { apiKey: string; mergeEnabled: boolean };
   };

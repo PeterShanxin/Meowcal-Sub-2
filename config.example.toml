@@ -7,6 +7,7 @@ enable_org_fallback = false
 
 [subtitle_sources.subdl]
 enabled = true
+api_key = ""
 
 [subtitle_sources.assrt]
 enabled = false

@@ -21,6 +21,7 @@ class AppConfig:
     opensubtitles_password: str = ""
     opensubtitles_enable_org_fallback: bool = False
     subdl_enabled: bool = True
+    subdl_api_key: str = ""
     assrt_enabled: bool = False
     assrt_token: str = ""
     tmdb_api_key: str = ""
@@ -108,6 +109,7 @@ def load_config(path: Path | None = None) -> AppConfig:
             False,
         ),
         subdl_enabled=_coerce_bool(subdl.get("enabled", True), True),
+        subdl_api_key=str(subdl.get("api_key", "")),
         assrt_enabled=_coerce_bool(assrt.get("enabled", False), False),
         assrt_token=str(assrt.get("token", "")),
         tmdb_api_key=str(tmdb.get("api_key", "")),
@@ -156,6 +158,7 @@ def save_config(config: AppConfig, path: Path | None = None) -> None:
             },
             "subdl": {
                 "enabled": config.subdl_enabled,
+                "api_key": config.subdl_api_key,
             },
             "assrt": {
                 "enabled": config.assrt_enabled,
@@ -248,6 +251,7 @@ def config_to_payload(config: AppConfig) -> dict[str, object]:
             },
             "subdl": {
                 "enabled": config.subdl_enabled,
+                "apiKey": config.subdl_api_key,
             },
             "assrt": {
                 "enabled": config.assrt_enabled,
@@ -388,6 +392,7 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
             base.opensubtitles_enable_org_fallback,
         ),
         subdl_enabled=_coerce_bool(subdl.get("enabled", base.subdl_enabled), base.subdl_enabled),
+        subdl_api_key=str(subdl.get("apiKey", base.subdl_api_key)),
         assrt_enabled=_coerce_bool(assrt.get("enabled", base.assrt_enabled), base.assrt_enabled),
         assrt_token=str(assrt.get("token", base.assrt_token)),
         tmdb_api_key=str(tmdb.get("apiKey", base.tmdb_api_key)),
