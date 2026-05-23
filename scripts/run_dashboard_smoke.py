@@ -10,6 +10,7 @@ import contextlib
 import os
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -22,6 +23,7 @@ DASHBOARD_URL = "http://127.0.0.1:8765/"
 SERVER_TIMEOUT_S = 30
 ALLOW_REUSE_ENV = "MEOWCAL_SMOKE_REUSE_EXISTING"
 PLAYWRIGHT_INSTALL_HINT = "python -m playwright install chromium"
+SMOKE_SUBDL_API_KEY = "dashboard-smoke-subdl-key"
 
 
 def _python_command() -> list[str]:
@@ -66,28 +68,47 @@ def _terminate_process(process: subprocess.Popen[str]) -> None:
         process.wait(timeout=10)
 
 
+def _prepare_smoke_config(env: dict[str, str]) -> tempfile.TemporaryDirectory[str]:
+    appdata_dir = tempfile.TemporaryDirectory(prefix="meowcal-dashboard-smoke-")
+    config_dir = Path(appdata_dir.name) / "meowcal-sub-2"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "config.toml").write_text(
+        "\n".join(
+            [
+                "[subtitle_sources.subdl]",
+                "enabled = true",
+                f'api_key = "{SMOKE_SUBDL_API_KEY}"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    env["APPDATA"] = appdata_dir.name
+    return appdata_dir
+
+
 def main() -> int:
     env = os.environ.copy()
     env.setdefault("PYTHONUTF8", "1")
+    smoke_appdata = _prepare_smoke_config(env)
     process: subprocess.Popen[str] | None = None
-    if _server_is_ready(DASHBOARD_URL):
-        if not _allow_existing_server():
-            raise RuntimeError(
-                "Dashboard smoke refused to reuse an existing server on 127.0.0.1:8765 because "
-                "that can validate stale code. Stop the running dashboard first, or set "
-                f"{ALLOW_REUSE_ENV}=1 to opt into reusing it."
-            )
-    else:
-        process = subprocess.Popen(
-            [*_python_command(), "-m", "meocosub2.cli", "serve"],
-            cwd=REPO_ROOT,
-            env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-
     try:
+        if _server_is_ready(DASHBOARD_URL):
+            if not _allow_existing_server():
+                raise RuntimeError(
+                    "Dashboard smoke refused to reuse an existing server on 127.0.0.1:8765 because "
+                    "that can validate stale code. Stop the running dashboard first, or set "
+                    f"{ALLOW_REUSE_ENV}=1 to opt into reusing it."
+                )
+        else:
+            process = subprocess.Popen(
+                [*_python_command(), "-m", "meocosub2.cli", "serve"],
+                cwd=REPO_ROOT,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
         _wait_for_server(DASHBOARD_URL, SERVER_TIMEOUT_S)
         console_errors: list[str] = []
         page_errors: list[str] = []
@@ -139,6 +160,7 @@ def main() -> int:
                     print(stdout)
                 if stderr.strip():
                     print(stderr, file=sys.stderr)
+        smoke_appdata.cleanup()
 
 
 if __name__ == "__main__":

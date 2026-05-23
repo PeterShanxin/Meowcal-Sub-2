@@ -553,25 +553,6 @@ export function App(): JSX.Element {
     }
   }, []);
 
-  const enableSubdlOnly = useCallback(async () => {
-    const current = store.get().config;
-    if (!current) return;
-    const next: BackendConfig = {
-      ...current,
-      subtitleSources: {
-        ...current.subtitleSources,
-        subdl: { enabled: true },
-      },
-    };
-    logClientEvent("ui.subtitle_source.enabled", { provider: "subdl" });
-    try {
-      const saved = await api.putConfig(next);
-      store.set({ config: saved });
-    } catch (err) {
-      store.set({ error: err instanceof Error ? err.message : String(err) });
-    }
-  }, []);
-
   const clearSession = useCallback(async () => {
     const correlationId = clientEventId("stop");
     logClientEvent("ui.session.stop_clicked", {}, correlationId);
@@ -816,10 +797,7 @@ export function App(): JSX.Element {
         />
 
         {noKey && phase === "home" && !query && (
-          <NoApiKey
-            onOpenSettings={openSettings}
-            onUseSubdl={() => void enableSubdlOnly()}
-          />
+          <NoApiKey onOpenSettings={openSettings} />
         )}
 
         {!noKey && isEmpty && phase === "home" && !query && (
@@ -984,7 +962,7 @@ function shouldShowNoKey(config: BackendConfig | null): boolean {
   if (!config) return false;
   const s = config.subtitleSources;
   const osReady = s.opensubtitles.enabled && !!s.opensubtitles.apiKey;
-  const subdlReady = s.subdl.enabled;
+  const subdlReady = s.subdl.enabled && !!s.subdl.apiKey;
   const assrtReady = s.assrt.enabled && !!s.assrt.token;
   return !(osReady || subdlReady || assrtReady);
 }
@@ -999,9 +977,9 @@ function countEnabledSources(config: BackendConfig | null): number {
   if (!config) return 0;
   const s = config.subtitleSources;
   let n = 0;
-  if (s.opensubtitles.enabled) n++;
-  if (s.subdl.enabled) n++;
-  if (s.assrt.enabled) n++;
+  if (s.opensubtitles.enabled && s.opensubtitles.apiKey) n++;
+  if (s.subdl.enabled && s.subdl.apiKey) n++;
+  if (s.assrt.enabled && s.assrt.token) n++;
   return n;
 }
 

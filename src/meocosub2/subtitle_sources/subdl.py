@@ -1,14 +1,16 @@
-"""SubDL provider implementation using public site data."""
+"""SubDL provider implementation using the official API plus legacy parsers."""
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 import time
 import unicodedata
+import zipfile
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import urlparse
 
 import httpx
 
@@ -22,6 +24,7 @@ from meocosub2.subtitle_sources.types import (
     ProviderSubtitleResult,
 )
 from meocosub2.subtitle_sources.utils import (
+    SUBTITLE_EXTENSIONS,
     extract_episode_info,
     extract_zip_bytes,
     map_subdl_language,
@@ -30,11 +33,11 @@ from meocosub2.subtitle_sources.utils import (
 
 NEXT_DATA_PATTERN = re.compile(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>')
 BASE_URL = "https://subdl.com"
+API_URL = "https://api.subdl.com/api/v1/subtitles"
 DOWNLOAD_URL = "https://dl.subdl.com/subtitle/{link}"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0 Safari/537.36"
 MAX_TITLES = 5
 MAX_SUBTITLES = 40
-MAX_PARALLEL_TITLE_FETCHES = 3
 MAX_PARALLEL_SEASON_FETCHES = 4
 MAX_REASONABLE_EPISODE = 999
 
@@ -42,7 +45,7 @@ MAX_REASONABLE_EPISODE = 999
 class SubdlProvider:
     provider_code = "subdl"
     provider_label = "SubDL"
-    capabilities = ProviderCapabilities(search=True, download=True, requires_auth=False)
+    capabilities = ProviderCapabilities(search=True, download=True, requires_auth=True)
 
     def __init__(self, config: AppConfig) -> None:
         self.config = config
@@ -51,11 +54,24 @@ class SubdlProvider:
     async def search_catalog(self, query: str, languages: str) -> ProviderSearchCatalog:
         if not self.config.subdl_enabled:
             return ProviderSearchCatalog(matches=[], results=[], warnings=["SubDL is disabled."])
+        if not self.config.subdl_api_key:
+            return ProviderSearchCatalog(matches=[], results=[], warnings=["SubDL API key is not configured."])
 
         requested_languages = {code.strip() for code in languages.split(",") if code.strip()}
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
-            page = await self._fetch_next_data(f"{BASE_URL}/en/search/{quote(query)}", client)
-            items = page.get("list", [])
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers={"Accept": "application/json"}) as client:
+            page = await self._fetch_api(
+                client,
+                {
+                    "film_name": query,
+                    "languages": self._to_api_languages(requested_languages),
+                    "subs_per_page": "30",
+                    "comment": "1",
+                    "releases": "1",
+                    "hi": "1",
+                    "unpack": "1",
+                },
+            )
+            items = page.get("results", [])
             matches: list[ProviderSubtitleMatch] = []
             results: list[ProviderSubtitleResult] = []
 
@@ -68,19 +84,16 @@ class SubdlProvider:
                         provider_label=self.provider_label,
                         title=str(item.get("name") or item.get("original_name") or query),
                         year=self._coerce_int(item.get("year")),
-                        imdb_id=None,
-                        tmdb_id=None,
+                        imdb_id=self._coerce_optional_string(item.get("imdb_id")),
+                        tmdb_id=self._coerce_optional_string(item.get("tmdb_id")),
                         media_type="tvshow" if str(item.get("type")) == "tv" else "movie",
                         subtitles_count=self._coerce_int(item.get("subtitles_count")) or 0,
                         match_score=title_similarity(query, [str(item.get("name") or ""), str(item.get("original_name") or "")]),
                     )
                 )
-            sem = asyncio.Semaphore(MAX_PARALLEL_TITLE_FETCHES)
-            season_sem = asyncio.Semaphore(MAX_PARALLEL_SEASON_FETCHES)
 
             async def collect(item: dict[str, object]) -> list[ProviderSubtitleResult]:
-                async with sem:
-                    return await self._collect_title_results(item, requested_languages, client, season_sem)
+                return await self._collect_api_title_results(item, requested_languages, client)
 
             for item_results in await asyncio.gather(*(collect(item) for item in selected_items)):
                 results.extend(item_results)
@@ -94,9 +107,14 @@ class SubdlProvider:
 
         extract_dir = self._cache_dir / result.id
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
-            response = await client.get(DOWNLOAD_URL.format(link=link))
+            response = await client.get(self._download_url(link))
             response.raise_for_status()
-            return extract_zip_bytes(response.content, extract_dir)
+            try:
+                return extract_zip_bytes(response.content, extract_dir)
+            except zipfile.BadZipFile:
+                if not result.raw.get("file_n_id"):
+                    raise
+                return self._write_raw_subtitle(response.content, extract_dir, result)
 
     async def _collect_title_results(
         self,
@@ -156,6 +174,178 @@ class SubdlProvider:
             )
 
         return self._limit_subtitles(subtitles)
+
+    async def _collect_api_title_results(
+        self,
+        item: dict[str, object],
+        requested_languages: set[str],
+        client: httpx.AsyncClient,
+    ) -> list[ProviderSubtitleResult]:
+        sd_id = str(item.get("sd_id") or "")
+        if not sd_id:
+            return []
+        params: dict[str, object] = {
+            "sd_id": sd_id,
+            "languages": self._to_api_languages(requested_languages),
+            "subs_per_page": "30",
+            "comment": "1",
+            "releases": "1",
+            "hi": "1",
+            "full_season": "1",
+            "unpack": "1",
+        }
+        payload = await self._fetch_api(client, params)
+        return self._limit_subtitles(
+            self._parse_api_subtitles(
+                title=str(item.get("name") or item.get("original_name") or ""),
+                year=self._coerce_int(item.get("year")),
+                match_id=f"subdl-match-{sd_id}",
+                requested_languages=requested_languages,
+                item=item,
+                subtitles=payload.get("subtitles"),
+            )
+        )
+
+    def _parse_api_subtitles(
+        self,
+        *,
+        title: str,
+        year: int | None,
+        match_id: str,
+        requested_languages: set[str],
+        item: dict[str, object],
+        subtitles: object,
+    ) -> list[ProviderSubtitleResult]:
+        if not isinstance(subtitles, list):
+            return []
+
+        media_type = "tvshow" if str(item.get("type")) == "tv" else "movie"
+        parent_title = title or str(item.get("original_name") or "")
+        results: list[ProviderSubtitleResult] = []
+        for raw_entry in subtitles:
+            for entry in self._expand_api_subtitle_entry(raw_entry):
+                parsed = self._parse_api_subtitle_entry(
+                    entry=entry,
+                    title=title,
+                    year=year,
+                    match_id=match_id,
+                    requested_languages=requested_languages,
+                    item=item,
+                    media_type=media_type,
+                    parent_title=parent_title,
+                )
+                if parsed is not None:
+                    results.append(parsed)
+        return results
+
+    def _parse_api_subtitle_entry(
+        self,
+        *,
+        entry: dict[str, object],
+        title: str,
+        year: int | None,
+        match_id: str,
+        requested_languages: set[str],
+        item: dict[str, object],
+        media_type: str,
+        parent_title: str,
+    ) -> ProviderSubtitleResult | None:
+        mapped_language = map_subdl_language(str(entry.get("language") or entry.get("lang") or ""))
+        if requested_languages and mapped_language not in requested_languages:
+            return None
+        season, episode = self._episode_fields(entry)
+        raw_title = str(
+            entry.get("name")
+            or entry.get("release_name")
+            or entry.get("title")
+            or entry.get("file_name")
+            or parent_title
+        )
+        link = self._normalize_download_ref(entry.get("url") or entry.get("link") or "")
+        result_id = self._safe_identifier(self._api_result_key(entry, item, link, raw_title))
+        releases = self._string_list(entry.get("releases"))
+        subtitle_media_type = "episode" if episode or media_type == "tvshow" else "movie"
+        return ProviderSubtitleResult(
+            id=f"subdl-result-{result_id}",
+            match_id=match_id,
+            provider=self.provider_code,
+            provider_label=self.provider_label,
+            title=raw_title,
+            year=year,
+            imdb_id=self._coerce_optional_string(item.get("imdb_id")),
+            tmdb_id=self._coerce_optional_string(item.get("tmdb_id")),
+            media_type=subtitle_media_type,
+            season=season,
+            episode=episode,
+            parent_title=parent_title if subtitle_media_type == "episode" else None,
+            language=mapped_language,
+            download_count=self._coerce_int(entry.get("downloads")) or 0,
+            file_name=raw_title or link or f"{result_id}.zip",
+            match_score=title_similarity(title or parent_title, [raw_title, *releases]),
+            download_ref=link,
+            raw={
+                "link": link,
+                "sd_id": item.get("sd_id"),
+                "api": True,
+                "pack_link": entry.get("pack_url"),
+                "file_n_id": entry.get("file_n_id"),
+            },
+        )
+
+    def _api_result_key(
+        self,
+        entry: dict[str, object],
+        item: dict[str, object],
+        link: str,
+        raw_title: str,
+    ) -> object:
+        file_n_id = self._coerce_optional_string(entry.get("file_n_id"))
+        if file_n_id:
+            pack_key = self._coerce_optional_string(
+                entry.get("pack_id") or entry.get("pack_url") or entry.get("id") or item.get("sd_id")
+            )
+            return f"{pack_key}-{file_n_id}" if pack_key else file_n_id
+        return link or entry.get("id") or raw_title
+
+    def _expand_api_subtitle_entry(self, entry: object) -> list[dict[str, object]]:
+        if not isinstance(entry, dict):
+            return []
+        unpack_files = entry.get("unpack_files")
+        if not isinstance(unpack_files, list) or not unpack_files:
+            return [entry]
+
+        expanded: list[dict[str, object]] = []
+        for file_entry in unpack_files:
+            if not isinstance(file_entry, dict):
+                continue
+            merged = {**entry, **file_entry}
+            merged["pack_id"] = entry.get("id")
+            merged["pack_url"] = entry.get("url") or entry.get("link")
+            if not merged.get("id") and file_entry.get("file_n_id"):
+                merged["id"] = f"{entry.get('id') or entry.get('url') or 'pack'}-{file_entry['file_n_id']}"
+            expanded.append(merged)
+        return expanded
+
+    async def _fetch_api(self, client: httpx.AsyncClient, params: dict[str, object]) -> dict[str, object]:
+        query_params = {"api_key": self.config.subdl_api_key, **params}
+        started = time.perf_counter()
+        response = await client.get(API_URL, params=query_params)
+        safe_params = {key: value for key, value in query_params.items() if key != "api_key"}
+        log_event(
+            "provider.http",
+            layer="backend",
+            provider="subdl",
+            method="GET",
+            path="/api/v1/subtitles",
+            status_code=response.status_code,
+            duration_ms=round((time.perf_counter() - started) * 1000),
+            params=safe_params,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if payload.get("status") is False:
+            raise SubtitleSourceError(str(payload.get("error") or "SubDL API request failed."))
+        return payload
 
     def _parse_page_subtitles(
         self,
@@ -238,6 +428,52 @@ class SubdlProvider:
         except (TypeError, ValueError):
             return None
 
+    def _coerce_optional_string(self, value: object) -> str | None:
+        text = str(value).strip() if value is not None else ""
+        return text or None
+
+    def _normalize_download_ref(self, value: object) -> str:
+        link = str(value or "").strip()
+        if link.startswith(DOWNLOAD_URL.format(link="")):
+            return link
+        return link.removeprefix("/subtitle/").removeprefix("subtitle/")
+
+    def _download_url(self, link: str) -> str:
+        if link.startswith(("http://", "https://")):
+            parsed = urlparse(link)
+            if parsed.scheme != "https" or parsed.netloc.lower() != "dl.subdl.com":
+                raise SubtitleSourceError("SubDL download link host is not allowed.")
+            return link
+        return DOWNLOAD_URL.format(link=link.lstrip("/").removeprefix("subtitle/"))
+
+    def _write_raw_subtitle(self, content: bytes, destination: Path, result: ProviderSubtitleResult) -> Path:
+        destination.mkdir(parents=True, exist_ok=True)
+        file_name = Path(result.file_name or result.id).name
+        if Path(file_name).suffix.casefold() not in SUBTITLE_EXTENSIONS:
+            file_name = f"{Path(file_name).stem or result.id}.srt"
+        path = destination / file_name
+        path.write_bytes(content)
+        return path
+
+    def _safe_identifier(self, value: object) -> str:
+        text = str(value or "").strip()
+        safe = re.sub(r"[^A-Za-z0-9._-]+", "-", text).strip(".-_")
+        if safe and len(safe) <= 80:
+            return safe
+        digest = hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+        prefix = safe[:48].strip(".-_")
+        return f"{prefix}-{digest}" if prefix else digest
+
+    def _to_api_languages(self, requested_languages: set[str]) -> str:
+        mapped: list[str] = []
+        for code in sorted(requested_languages):
+            normalized = code.strip().lower()
+            if normalized == "zht":
+                normalized = "zh"
+            if normalized:
+                mapped.append(normalized.upper())
+        return ",".join(dict.fromkeys(mapped))
+
     def _episode_fields(self, entry: dict[str, object]) -> tuple[int | None, int | None]:
         raw_season = self._coerce_non_negative_int(entry.get("season"))
         raw_episode = self._coerce_positive_int(entry.get("episode"))
@@ -262,7 +498,7 @@ class SubdlProvider:
 
     def _episode_text_values(self, entry: dict[str, object]) -> list[str]:
         values: list[str] = []
-        for key in ("title", "link", "slug"):
+        for key in ("title", "name", "release_name", "file_name", "link", "url", "slug"):
             value = entry.get(key)
             if value:
                 values.append(unicodedata.normalize("NFKC", str(value)))

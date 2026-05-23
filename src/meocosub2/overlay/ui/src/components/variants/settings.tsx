@@ -663,6 +663,14 @@ function SourcesSection({ draft, update }: SectionProps): JSX.Element {
         opensubtitles: { ...c.subtitleSources.opensubtitles, ...patch },
       },
     }));
+  const setSubdl = (patch: Partial<typeof sd>): void =>
+    update((c) => ({
+      ...c,
+      subtitleSources: {
+        ...c.subtitleSources,
+        subdl: { ...c.subtitleSources.subdl, ...patch },
+      },
+    }));
   const setTmdb = (patch: Partial<typeof tmdb>): void =>
     update((c) => ({
       ...c,
@@ -739,21 +747,20 @@ function SourcesSection({ draft, update }: SectionProps): JSX.Element {
             </div>
             <Toggle
               checked={sd.enabled}
-              onChange={(v) =>
-                update((c) => ({
-                  ...c,
-                  subtitleSources: {
-                    ...c.subtitleSources,
-                    subdl: { enabled: v },
-                  },
-                }))
-              }
+              onChange={(v) => setSubdl({ enabled: v })}
               label={sd.enabled ? "Enabled" : "Disabled"}
             />
           </div>
-          <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6 }}>
-            No API key required.
-          </p>
+          <div style={{ marginTop: 12 }}>
+            <Field label="API key">
+              <TextInput
+                value={sd.apiKey}
+                onChange={(v) => setSubdl({ apiKey: v })}
+                type="password"
+                placeholder="SubDL API key"
+              />
+            </Field>
+          </div>
         </div>
 
         <div className="glass-panel" style={{ padding: 18 }}>

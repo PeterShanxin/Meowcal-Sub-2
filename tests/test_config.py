@@ -16,6 +16,7 @@ def test_default_config() -> None:
 def test_save_and_load_roundtrip(tmp_path: Path) -> None:
     cfg = AppConfig(
         opensubtitles_enable_org_fallback=True,
+        subdl_api_key="subdl-key",
         source_language="ja",
         target_language="en",
         overlay_font_size=32,
@@ -27,6 +28,7 @@ def test_save_and_load_roundtrip(tmp_path: Path) -> None:
     save_config(cfg, config_file)
     loaded = load_config(config_file)
     assert loaded.opensubtitles_enable_org_fallback is True
+    assert loaded.subdl_api_key == "subdl-key"
     assert loaded.source_language == "ja"
     assert loaded.target_language == "en"
     assert loaded.overlay_font_size == 32
@@ -57,6 +59,7 @@ def test_config_example_contains_all_sections() -> None:
     payload = tomllib.loads(Path("config.example.toml").read_text(encoding="utf-8"))
     assert set(payload) == {"subtitle_sources", "languages", "capture", "matching", "translation", "overlay", "debug"}
     assert set(payload["subtitle_sources"]) == {"opensubtitles", "subdl", "assrt"}
+    assert "api_key" in payload["subtitle_sources"]["subdl"]
 
 
 def test_config_to_payload_uses_nested_camel_case_sections() -> None:
@@ -65,6 +68,7 @@ def test_config_to_payload_uses_nested_camel_case_sections() -> None:
             overlay_radius_px=36,
             capture_region=[1, 2, 3, 4],
             opensubtitles_enable_org_fallback=True,
+            subdl_api_key="subdl-key",
             assrt_enabled=True,
             assrt_token="token",
         )
@@ -72,6 +76,7 @@ def test_config_to_payload_uses_nested_camel_case_sections() -> None:
     assert payload["capture"]["region"] == [1, 2, 3, 4]
     assert payload["capture"]["ocrLanguage"] == "en-US"
     assert payload["subtitleSources"]["opensubtitles"]["enableOrgFallback"] is True
+    assert payload["subtitleSources"]["subdl"]["apiKey"] == "subdl-key"
     assert payload["subtitleSources"]["assrt"]["token"] == "token"
     assert payload["opensubtitles"]["enableOrgFallback"] is True
     assert payload["overlay"]["radiusPx"] == 36
@@ -82,7 +87,7 @@ def test_config_from_payload_merges_with_fallback() -> None:
     payload = {
         "subtitleSources": {
             "opensubtitles": {"enableOrgFallback": "true"},
-            "subdl": {"enabled": False},
+            "subdl": {"enabled": False, "apiKey": "subdl-key"},
             "assrt": {"enabled": True, "token": "abc"},
         },
         "languages": {"source": "it"},
@@ -91,6 +96,7 @@ def test_config_from_payload_merges_with_fallback() -> None:
     loaded = config_from_payload(payload, fallback=AppConfig(target_language="fr", overlay_blur_px=12))
     assert loaded.opensubtitles_enable_org_fallback is True
     assert loaded.subdl_enabled is False
+    assert loaded.subdl_api_key == "subdl-key"
     assert loaded.assrt_enabled is True
     assert loaded.assrt_token == "abc"
     assert loaded.source_language == "it"
