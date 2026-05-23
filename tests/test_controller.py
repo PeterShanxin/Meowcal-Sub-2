@@ -5,7 +5,15 @@ import pytest
 from meocosub2.config import AppConfig
 from meocosub2.models import SearchRequest
 from meocosub2.overlay.controller import GuiController
-from meocosub2.subtitle_sources.types import AggregatedSearchCatalog, AggregatedSubtitleResult, AggregatedTitleMatch
+from meocosub2.subtitle_sources.types import (
+    AggregatedEpisode,
+    AggregatedSearchCatalog,
+    AggregatedSeason,
+    AggregatedSubtitleResult,
+    AggregatedTitleMatch,
+    AggregatedWork,
+    ProviderSubtitleResult,
+)
 
 
 async def _emit(*args, **kwargs) -> None:
@@ -476,6 +484,173 @@ async def test_search_warning_message_keeps_generic_assrt_disabled_warning_for_n
     await controller.search(SearchRequest(title="Overlord", source_language="en", target_language="fr"))
 
     assert controller.state_snapshot()["warning_message"] == "ASSRT is disabled."
+
+
+@pytest.mark.asyncio
+async def test_hydrate_episode_replaces_skeleton_with_clickable_results(tmp_path: Path, mocker) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+    controller._state.title = "From"
+    controller._state.source_language = "en"
+    controller._state.target_language = "zht"
+    controller._search_catalog = AggregatedSearchCatalog(
+        matches=[
+            AggregatedTitleMatch(
+                id="match-other-from",
+                title="From.S04E06",
+                year=2025,
+                imdb_id=None,
+                tmdb_id=None,
+                media_type="episode",
+                season=4,
+                episode=6,
+                parent_title="From",
+                subtitles_count=1,
+                match_score=80,
+                provider_count=1,
+                providers=("opensubtitles",),
+                provider_labels=("OpenSubtitles",),
+            )
+        ],
+        results=[],
+        works=[
+            AggregatedWork(
+                id="work-1",
+                title="From",
+                media_type="series",
+                year=2022,
+                year_end=2025,
+                imdb_id=None,
+                tmdb_id=None,
+                providers=("opensubtitles",),
+                provider_labels=("OpenSubtitles",),
+                seasons=[
+                    AggregatedSeason(
+                        season_number=4,
+                        subtitles_count=0,
+                        episodes=[
+                            AggregatedEpisode(
+                                season=4,
+                                episode=6,
+                                title="Scar Tissue",
+                                match_id="skeleton:4:6",
+                                subtitles_count=0,
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    controller._state.search_works = [controller._search_catalog.works[0]]
+    hydrated_catalog = AggregatedSearchCatalog(
+        matches=[
+            AggregatedTitleMatch(
+                id="match-1",
+                title="From.S04E06",
+                year=2025,
+                imdb_id=None,
+                tmdb_id=None,
+                media_type="episode",
+                season=4,
+                episode=6,
+                parent_title="From",
+                subtitles_count=2,
+                match_score=120,
+                provider_count=1,
+                providers=("opensubtitles",),
+                provider_labels=("OpenSubtitles",),
+            )
+        ],
+        results=[
+            AggregatedSubtitleResult(
+                result_id="result-1",
+                match_id="match-1",
+                provider="opensubtitles",
+                provider_label="OpenSubtitles",
+                title="From.S04E06",
+                year=2025,
+                imdb_id=None,
+                media_type="episode",
+                season=4,
+                episode=6,
+                parent_title="From",
+                language="en",
+                download_count=10,
+                file_name="From.S04E06.en.srt",
+                match_score=120,
+                provider_rank=2,
+                provider_result=ProviderSubtitleResult(
+                    id="os-result-1",
+                    match_id="os-match-1",
+                    provider="opensubtitles",
+                    provider_label="OpenSubtitles",
+                    title="From.S04E06",
+                    year=2025,
+                    imdb_id=None,
+                    media_type="episode",
+                    season=4,
+                    episode=6,
+                    parent_title="From",
+                    language="en",
+                    download_count=10,
+                    file_name="From.S04E06.en.srt",
+                ),
+            ),
+            AggregatedSubtitleResult(
+                result_id="result-2",
+                match_id="match-2",
+                provider="opensubtitles",
+                provider_label="OpenSubtitles",
+                title="Other Show.S04E06",
+                year=2025,
+                imdb_id=None,
+                media_type="episode",
+                season=4,
+                episode=6,
+                parent_title="Other Show",
+                language="en",
+                download_count=50,
+                file_name="Other.Show.S04E06.en.srt",
+                match_score=125,
+                provider_rank=1,
+                provider_result=ProviderSubtitleResult(
+                    id="os-result-2",
+                    match_id="os-match-2",
+                    provider="opensubtitles",
+                    provider_label="OpenSubtitles",
+                    title="Other Show.S04E06",
+                    year=2025,
+                    imdb_id=None,
+                    media_type="episode",
+                    season=4,
+                    episode=6,
+                    parent_title="Other Show",
+                    language="en",
+                    download_count=50,
+                    file_name="Other.Show.S04E06.en.srt",
+                ),
+            )
+        ],
+    )
+    search_mock = mocker.AsyncMock(return_value=hydrated_catalog)
+    mocker.patch.object(controller._aggregator, "search_catalog", new=search_mock)
+
+    payload = await controller.hydrate_episode(work_id="work-1", title="From", season=4, episode=6)
+
+    assert payload["hydrated"] is True
+    assert payload["matchId"] == "hydrated:work-1:4:6"
+    search_mock.assert_awaited_once()
+    assert search_mock.await_args.args[0] == "From S04E06"
+    episode = controller.state_snapshot()["search_works"][0]["seasons"][0]["episodes"][0]
+    assert episode["matchId"] == "hydrated:work-1:4:6"
+    assert episode["subtitlesCount"] == 1
+    assert controller.state_snapshot()["search_results"][0]["matchId"] == "hydrated:work-1:4:6"
+
+    payload = await controller.hydrate_episode(work_id="work-1", title="From", season=4, episode=6)
+
+    assert payload["hydrated"] is True
+    assert payload["matchId"] == "hydrated:work-1:4:6"
+    assert len(controller.state_snapshot()["search_results"]) == 1
 
 
 @pytest.mark.asyncio
