@@ -411,17 +411,18 @@ class GuiController:
         )
 
         catalog = await self._aggregator.search_catalog(query, languages, correlation_id=correlation_id)
-        exact_results = [
-            result
-            for result in catalog.results
-            if (
-                result.media_type == "episode"
-                and result.season == season
-                and result.episode == episode
-                and _episode_result_belongs_to_work(result, work, query_title)
+        catalogs = [catalog]
+        if _should_hydrate_season_neighbors(work, season):
+            season_query = f"{query_title} S{season:02d}"
+            season_catalog = await self._aggregator.search_catalog(
+                season_query,
+                languages,
+                correlation_id=correlation_id,
             )
-        ]
-        if not exact_results:
+            catalogs.append(season_catalog)
+
+        results_by_episode = _collect_hydratable_episode_results(catalogs, work, query_title, season)
+        if not results_by_episode:
             log_event(
                 "search.episode_hydrate.empty",
                 layer="backend",
@@ -438,23 +439,32 @@ class GuiController:
                 "works": self._state.search_works,
             }
 
-        match_id = self._merge_hydrated_episode(
-            work_id=work_id,
-            title=query_title,
-            season=season,
-            episode=episode,
-            results=exact_results,
-            matches=catalog.matches,
-        )
+        all_matches = [match for item in catalogs for match in item.matches]
+        match_id: str | None = None
+        hydrated_count = 0
+        for episode_no, episode_results in sorted(results_by_episode.items()):
+            hydrated_count += len(episode_results)
+            hydrated_match_id = self._merge_hydrated_episode(
+                work_id=work_id,
+                title=query_title,
+                season=season,
+                episode=episode_no,
+                results=episode_results,
+                matches=all_matches,
+            )
+            if episode_no == episode:
+                match_id = hydrated_match_id
+
         async with self._lock:
             self._state.search_results = [search_result_payload(result) for result in self._search_catalog.results]
             self._state.search_matches = [search_match_payload(match) for match in self._search_catalog.matches]
             self._state.search_works = [search_work_payload(work) for work in self._search_catalog.works]
-            self._state.selected_feature_id = match_id
-            self._state.selected_source_file_id = None
-            self._state.selected_target_file_id = None
-            self._state.prepared_session = None
-            self._prepared_runtime = None
+            if match_id is not None:
+                self._state.selected_feature_id = match_id
+                self._state.selected_source_file_id = None
+                self._state.selected_target_file_id = None
+                self._state.prepared_session = None
+                self._prepared_runtime = None
         await self._emit_app_state()
         log_event(
             "search.episode_hydrate.completed",
@@ -464,10 +474,11 @@ class GuiController:
             match_id=match_id,
             season=season,
             episode=episode,
-            results=len(exact_results),
+            results=hydrated_count,
+            hydrated_episodes=len(results_by_episode),
         )
         return {
-            "hydrated": True,
+            "hydrated": match_id is not None,
             "matchId": match_id,
             "results": self._state.search_results,
             "matches": self._state.search_matches,
@@ -1196,6 +1207,40 @@ def _expand_search_languages(source_language: str, target_language: str) -> str:
     if "zh" in normalized or "zht" in normalized or any(code.startswith("zh") for code in normalized):
         normalized.update({"zh", "zht"})
     return ",".join(sorted(normalized))
+
+
+def _should_hydrate_season_neighbors(work: AggregatedWork | None, season: int) -> bool:
+    if work is None or season <= 0:
+        return False
+    season_item = next((item for item in work.seasons if item.season_number == season), None)
+    if season_item is None:
+        return False
+    skeletons = [
+        episode
+        for episode in season_item.episodes
+        if episode.episode is not None and episode.match_id.startswith("skeleton:")
+    ]
+    return len(skeletons) > 1
+
+
+def _collect_hydratable_episode_results(
+    catalogs: list[AggregatedSearchCatalog],
+    work: AggregatedWork | None,
+    title: str,
+    season: int,
+) -> dict[int, list[AggregatedSubtitleResult]]:
+    results_by_episode: dict[int, list[AggregatedSubtitleResult]] = {}
+    for catalog in catalogs:
+        for result in catalog.results:
+            if (
+                result.media_type != "episode"
+                or result.season != season
+                or result.episode is None
+                or not _episode_result_belongs_to_work(result, work, title)
+            ):
+                continue
+            results_by_episode.setdefault(result.episode, []).append(result)
+    return results_by_episode
 
 
 def _episode_match_belongs_to_work(
