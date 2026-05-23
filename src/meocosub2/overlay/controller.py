@@ -414,7 +414,12 @@ class GuiController:
         exact_results = [
             result
             for result in catalog.results
-            if result.media_type == "episode" and result.season == season and result.episode == episode
+            if (
+                result.media_type == "episode"
+                and result.season == season
+                and result.episode == episode
+                and _episode_result_belongs_to_work(result, work, query_title)
+            )
         ]
         if not exact_results:
             log_event(
@@ -536,7 +541,12 @@ class GuiController:
             (
                 match
                 for match in matches
-                if match.media_type == "episode" and match.season == season and match.episode == episode
+                if (
+                    match.media_type == "episode"
+                    and match.season == season
+                    and match.episode == episode
+                    and _episode_match_belongs_to_work(match, target_work, title)
+                )
             ),
             None,
         )
@@ -1193,13 +1203,49 @@ def _episode_match_belongs_to_work(
     work: AggregatedWork | None,
     title: str,
 ) -> bool:
+    if work is not None and match.id.startswith(f"hydrated:{work.id}:"):
+        return True
+    if work is None:
+        return False
     if work is not None:
         if work.imdb_id and match.imdb_id == work.imdb_id:
             return True
         if work.tmdb_id and match.tmdb_id == work.tmdb_id:
             return True
-    candidate_title = (match.parent_title or match.title or "").casefold()
-    return bool(candidate_title and candidate_title == title.casefold())
+        if work.imdb_id or work.tmdb_id:
+            return False
+    return False
+
+
+def _episode_result_belongs_to_work(
+    result: AggregatedSubtitleResult,
+    work: AggregatedWork | None,
+    title: str,
+) -> bool:
+    if work is None:
+        return False
+    if work.imdb_id and result.imdb_id and result.imdb_id != work.imdb_id:
+        return False
+    if work.tmdb_id and result.tmdb_id and result.tmdb_id != work.tmdb_id:
+        return False
+    if work.imdb_id and result.imdb_id == work.imdb_id:
+        return True
+    if work.tmdb_id and result.tmdb_id == work.tmdb_id:
+        return True
+
+    result_title = (result.parent_title or "").casefold()
+    expected_title = (work.title or title).casefold()
+    if not result_title or result_title != expected_title:
+        return False
+    if work.imdb_id or work.tmdb_id:
+        return True
+    return _year_in_work_range(result.year, work)
+
+
+def _year_in_work_range(year: int | None, work: AggregatedWork) -> bool:
+    if year is None or work.year is None:
+        return False
+    return work.year <= year <= (work.year_end or work.year)
 
 
 def _search_warning_message(request: SearchRequest, warnings: list[str]) -> str:
