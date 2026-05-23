@@ -534,6 +534,13 @@ async def test_hydrate_episode_replaces_skeleton_with_clickable_results(tmp_path
                                 title="Scar Tissue",
                                 match_id="skeleton:4:6",
                                 subtitles_count=0,
+                            ),
+                            AggregatedEpisode(
+                                season=4,
+                                episode=7,
+                                title="Promised You a Miracle",
+                                match_id="skeleton:4:7",
+                                subtitles_count=0,
                             )
                         ],
                     )
@@ -542,7 +549,7 @@ async def test_hydrate_episode_replaces_skeleton_with_clickable_results(tmp_path
         ],
     )
     controller._state.search_works = [controller._search_catalog.works[0]]
-    hydrated_catalog = AggregatedSearchCatalog(
+    exact_catalog = AggregatedSearchCatalog(
         matches=[
             AggregatedTitleMatch(
                 id="match-1",
@@ -632,25 +639,84 @@ async def test_hydrate_episode_replaces_skeleton_with_clickable_results(tmp_path
             )
         ],
     )
-    search_mock = mocker.AsyncMock(return_value=hydrated_catalog)
+    season_catalog = AggregatedSearchCatalog(
+        matches=[
+            AggregatedTitleMatch(
+                id="match-3",
+                title="From.S04E07",
+                year=2025,
+                imdb_id=None,
+                tmdb_id=None,
+                media_type="episode",
+                season=4,
+                episode=7,
+                parent_title="From",
+                subtitles_count=1,
+                match_score=115,
+                provider_count=1,
+                providers=("opensubtitles",),
+                provider_labels=("OpenSubtitles",),
+            )
+        ],
+        results=[
+            AggregatedSubtitleResult(
+                result_id="result-3",
+                match_id="match-3",
+                provider="opensubtitles",
+                provider_label="OpenSubtitles",
+                title="From.S04E07",
+                year=2025,
+                imdb_id=None,
+                media_type="episode",
+                season=4,
+                episode=7,
+                parent_title="From",
+                language="en",
+                download_count=8,
+                file_name="From.S04E07.en.srt",
+                match_score=115,
+                provider_rank=2,
+                provider_result=ProviderSubtitleResult(
+                    id="os-result-3",
+                    match_id="os-match-3",
+                    provider="opensubtitles",
+                    provider_label="OpenSubtitles",
+                    title="From.S04E07",
+                    year=2025,
+                    imdb_id=None,
+                    media_type="episode",
+                    season=4,
+                    episode=7,
+                    parent_title="From",
+                    language="en",
+                    download_count=8,
+                    file_name="From.S04E07.en.srt",
+                ),
+            )
+        ],
+    )
+    search_mock = mocker.AsyncMock(side_effect=[exact_catalog, season_catalog, exact_catalog])
     mocker.patch.object(controller._aggregator, "search_catalog", new=search_mock)
 
     payload = await controller.hydrate_episode(work_id="work-1", title="From", season=4, episode=6)
 
     assert payload["hydrated"] is True
     assert payload["matchId"] == "hydrated:work-1:4:6"
-    search_mock.assert_awaited_once()
-    assert search_mock.await_args.args[0] == "From S04E06"
-    episode = controller.state_snapshot()["search_works"][0]["seasons"][0]["episodes"][0]
-    assert episode["matchId"] == "hydrated:work-1:4:6"
-    assert episode["subtitlesCount"] == 1
+    assert [call.args[0] for call in search_mock.await_args_list[:2]] == ["From S04E06", "From S04"]
+    episodes = controller.state_snapshot()["search_works"][0]["seasons"][0]["episodes"]
+    episode_6 = next(ep for ep in episodes if ep["episode"] == 6)
+    episode_7 = next(ep for ep in episodes if ep["episode"] == 7)
+    assert episode_6["matchId"] == "hydrated:work-1:4:6"
+    assert episode_6["subtitlesCount"] == 1
+    assert episode_7["matchId"] == "hydrated:work-1:4:7"
+    assert episode_7["subtitlesCount"] == 1
     assert controller.state_snapshot()["search_results"][0]["matchId"] == "hydrated:work-1:4:6"
 
     payload = await controller.hydrate_episode(work_id="work-1", title="From", season=4, episode=6)
 
     assert payload["hydrated"] is True
     assert payload["matchId"] == "hydrated:work-1:4:6"
-    assert len(controller.state_snapshot()["search_results"]) == 1
+    assert len(controller.state_snapshot()["search_results"]) == 2
 
 
 @pytest.mark.asyncio
