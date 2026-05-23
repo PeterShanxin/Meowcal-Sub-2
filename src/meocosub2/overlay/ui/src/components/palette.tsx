@@ -42,6 +42,7 @@ interface PaletteProps {
   onToggleExpandSeason: (workId: string, seasonNumber: number) => void;
   onPickWork: (id: string) => void;
   onPickEpisode: (workId: string, matchId: string) => void;
+  onHydrateEpisode: (workId: string, season: number, episode: number) => void;
   onPickSource: (id: string) => void;
   onPickTarget: (id: string) => void;
   onCommand: (id: string) => void;
@@ -84,6 +85,7 @@ export function Palette(props: PaletteProps): JSX.Element {
     onToggleExpandSeason,
     onPickWork,
     onPickEpisode,
+    onHydrateEpisode,
     onPickSource,
     onPickTarget,
     onCommand,
@@ -372,6 +374,7 @@ export function Palette(props: PaletteProps): JSX.Element {
                 onToggleExpandSeason={onToggleExpandSeason}
                 onPickWork={onPickWork}
                 onPickEpisode={onPickEpisode}
+                onHydrateEpisode={onHydrateEpisode}
                 searching={searching}
                 emptyHint={totalWorksCount > 0 ? "No titles match these filters" : undefined}
               />
@@ -581,6 +584,7 @@ interface TitleNavRow {
   kind: "work" | "season" | "episode" | "skeleton_episode";
   workId: string;
   seasonNumber?: number;
+  episodeNumber?: number;
   episodeMatchId?: string;
 }
 
@@ -602,6 +606,7 @@ function flattenNavRows(
               kind: isSkeleton ? "skeleton_episode" : "episode",
               workId: work.id,
               seasonNumber: season.seasonNumber,
+              episodeNumber: ep.episode ?? undefined,
               episodeMatchId: ep.matchId,
             });
           }
@@ -631,6 +636,7 @@ function WorkList({
   onToggleExpandSeason,
   onPickWork,
   onPickEpisode,
+  onHydrateEpisode,
   searching,
   emptyHint,
 }: {
@@ -644,6 +650,7 @@ function WorkList({
   onToggleExpandSeason: (workId: string, seasonNumber: number) => void;
   onPickWork: (id: string) => void;
   onPickEpisode: (workId: string, matchId: string) => void;
+  onHydrateEpisode: (workId: string, season: number, episode: number) => void;
   searching: boolean;
   emptyHint?: string;
 }): JSX.Element {
@@ -734,10 +741,11 @@ function WorkList({
                               label={ep.label}
                               subtitles={0}
                               picked={false}
-                              focused={false}
+                              focused={cursorIndex === epRowIndex}
                               skeleton
+                              hydratable={ep.episode != null}
                               rowIndex={epRowIndex}
-                              onClick={() => {}}
+                              onClick={() => ep.episode != null && onHydrateEpisode(work.id, season.seasonNumber, ep.episode)}
                             />
                           );
                         }
@@ -885,6 +893,7 @@ function EpisodeRow({
   focused,
   onClick,
   skeleton,
+  hydratable,
   rowIndex,
 }: {
   label: string;
@@ -893,26 +902,28 @@ function EpisodeRow({
   focused: boolean;
   onClick: () => void;
   skeleton?: boolean;
+  hydratable?: boolean;
   rowIndex?: number;
 }): JSX.Element {
+  const clickable = !skeleton || !!hydratable;
   return (
     <div
       data-cursor-row={rowIndex ?? undefined}
-      onClick={skeleton ? undefined : onClick}
+      onClick={clickable ? onClick : undefined}
       onMouseDown={(e) => e.preventDefault()}
       style={{
         display: "flex",
         alignItems: "center",
         gap: 12,
         padding: "7px 20px 7px 72px",
-        cursor: skeleton ? "default" : "pointer",
-        opacity: skeleton ? 0.38 : 1,
-        background: !skeleton && focused
+        cursor: clickable ? "pointer" : "default",
+        opacity: skeleton ? 0.58 : 1,
+        background: focused
           ? "var(--accent-tint)"
           : !skeleton && picked
             ? "rgba(255,185,90,0.05)"
             : "transparent",
-        borderLeft: `2px solid ${!skeleton && (focused || picked) ? "var(--accent-hex)" : "transparent"}`,
+        borderLeft: `2px solid ${focused || (!skeleton && picked) ? "var(--accent-hex)" : "transparent"}`,
         userSelect: "none",
         WebkitUserSelect: "none",
       }}
@@ -933,7 +944,7 @@ function EpisodeRow({
       {subtitles > 0 && (
         <span style={{ fontSize: 10.5, color: "var(--text-label)" }}>{subtitles} subs</span>
       )}
-      {!skeleton && focused && <Kbd>↵</Kbd>}
+      {focused && <Kbd>{skeleton ? "Search" : "↵"}</Kbd>}
     </div>
   );
 }

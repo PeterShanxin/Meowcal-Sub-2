@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from uuid import uuid4
 
@@ -34,7 +34,9 @@ from meocosub2.languages import (
 )
 from meocosub2.models import AppProgress, AppStateSnapshot, PreparedRuntime, PreparedSession, SearchRequest, SourceSubtitleCandidate, SubtitlePair
 from meocosub2.subtitle_sources import (
+    AggregatedEpisode,
     AggregatedSearchCatalog,
+    AggregatedSeason,
     AggregatedSubtitleResult,
     AggregatedTitleMatch,
     AggregatedWork,
@@ -376,6 +378,266 @@ class GuiController:
             "works": works,
             "warnings": catalog.warnings,
         }
+
+    async def hydrate_episode(
+        self,
+        *,
+        work_id: str,
+        title: str,
+        season: int,
+        episode: int,
+        correlation_id: str | None = None,
+    ) -> dict[str, object]:
+        if self._search_catalog is None:
+            raise ValueError("Search before hydrating an episode.")
+        if season < 0 or episode < 1:
+            raise ValueError("Episode hydration needs a valid season and episode.")
+
+        work = next((item for item in self._search_catalog.works if item.id == work_id), None)
+        query_title = title or (work.title if work is not None else self._state.title)
+        if not query_title:
+            raise ValueError("Episode hydration needs a title.")
+
+        query = f"{query_title} S{season:02d}E{episode:02d}"
+        languages = _expand_search_languages(self._state.source_language, self._state.target_language)
+        log_event(
+            "search.episode_hydrate.requested",
+            layer="backend",
+            correlation_id=correlation_id,
+            work_id=work_id,
+            title=query_title,
+            season=season,
+            episode=episode,
+        )
+
+        catalog = await self._aggregator.search_catalog(query, languages, correlation_id=correlation_id)
+        exact_results = [
+            result
+            for result in catalog.results
+            if result.media_type == "episode" and result.season == season and result.episode == episode
+        ]
+        if not exact_results:
+            log_event(
+                "search.episode_hydrate.empty",
+                layer="backend",
+                correlation_id=correlation_id,
+                work_id=work_id,
+                season=season,
+                episode=episode,
+            )
+            return {
+                "hydrated": False,
+                "matchId": None,
+                "results": self._state.search_results,
+                "matches": self._state.search_matches,
+                "works": self._state.search_works,
+            }
+
+        match_id = self._merge_hydrated_episode(
+            work_id=work_id,
+            title=query_title,
+            season=season,
+            episode=episode,
+            results=exact_results,
+            matches=catalog.matches,
+        )
+        async with self._lock:
+            self._state.search_results = [search_result_payload(result) for result in self._search_catalog.results]
+            self._state.search_matches = [search_match_payload(match) for match in self._search_catalog.matches]
+            self._state.search_works = [search_work_payload(work) for work in self._search_catalog.works]
+            self._state.selected_feature_id = match_id
+            self._state.selected_source_file_id = None
+            self._state.selected_target_file_id = None
+            self._state.prepared_session = None
+            self._prepared_runtime = None
+        await self._emit_app_state()
+        log_event(
+            "search.episode_hydrate.completed",
+            layer="backend",
+            correlation_id=correlation_id,
+            work_id=work_id,
+            match_id=match_id,
+            season=season,
+            episode=episode,
+            results=len(exact_results),
+        )
+        return {
+            "hydrated": True,
+            "matchId": match_id,
+            "results": self._state.search_results,
+            "matches": self._state.search_matches,
+            "works": self._state.search_works,
+        }
+
+    def _merge_hydrated_episode(
+        self,
+        *,
+        work_id: str,
+        title: str,
+        season: int,
+        episode: int,
+        results: list[AggregatedSubtitleResult],
+        matches: list[AggregatedTitleMatch],
+    ) -> str:
+        if self._search_catalog is None:
+            raise ValueError("Search before hydrating an episode.")
+
+        target_work = next((work for work in self._search_catalog.works if work.id == work_id), None)
+        existing_match = next(
+            (
+                match
+                for match in self._search_catalog.matches
+                if (
+                    match.media_type == "episode"
+                    and match.season == season
+                    and match.episode == episode
+                    and _episode_match_belongs_to_work(match, target_work, title)
+                )
+            ),
+            None,
+        )
+        match_id = existing_match.id if existing_match is not None else f"hydrated:{work_id}:{season}:{episode}"
+        existing_keys = {
+            (result.provider, getattr(result.provider_result, "id", result.file_name), result.language)
+            for result in self._search_catalog.results
+            if result.match_id == match_id
+        }
+
+        appended: list[AggregatedSubtitleResult] = []
+        next_index = len(self._search_catalog.results) + 1
+        for result in results:
+            key = (result.provider, getattr(result.provider_result, "id", result.file_name), result.language)
+            if key in existing_keys:
+                continue
+            existing_keys.add(key)
+            appended.append(
+                replace(
+                    result,
+                    result_id=f"result-{next_index}",
+                    match_id=match_id,
+                )
+            )
+            next_index += 1
+        match_results = [
+            result for result in self._search_catalog.results if result.match_id == match_id
+        ]
+        if not appended:
+            if match_results:
+                self._search_catalog.works = [
+                    self._replace_work_episode(work, match_id, title, season, episode, match_results)
+                    if work.id == work_id else work
+                    for work in self._search_catalog.works
+                ]
+            return match_id
+
+        providers = tuple(sorted({result.provider for result in appended}))
+        provider_labels = tuple(sorted({result.provider_label for result in appended}))
+        best_match = next(
+            (
+                match
+                for match in matches
+                if match.media_type == "episode" and match.season == season and match.episode == episode
+            ),
+            None,
+        )
+        if existing_match is None:
+            hydrated_match = AggregatedTitleMatch(
+                id=match_id,
+                title=best_match.title if best_match else appended[0].title,
+                year=best_match.year if best_match else appended[0].year,
+                imdb_id=best_match.imdb_id if best_match else appended[0].imdb_id,
+                tmdb_id=best_match.tmdb_id if best_match else appended[0].tmdb_id,
+                media_type="episode",
+                season=season,
+                episode=episode,
+                parent_title=(best_match.parent_title if best_match else appended[0].parent_title) or title,
+                subtitles_count=len(appended),
+                match_score=max([result.match_score for result in appended], default=0.0),
+                provider_count=len(providers),
+                providers=providers,
+                provider_labels=provider_labels,
+            )
+            self._search_catalog.matches.append(hydrated_match)
+        else:
+            merged_providers = tuple(sorted({*existing_match.providers, *providers}))
+            merged_labels = tuple(sorted({*existing_match.provider_labels, *provider_labels}))
+            self._search_catalog.matches = [
+                replace(
+                    match,
+                    subtitles_count=match.subtitles_count + len(appended),
+                    provider_count=len(merged_providers),
+                    providers=merged_providers,
+                    provider_labels=merged_labels,
+                    match_score=max(match.match_score, max(result.match_score for result in appended)),
+                )
+                if match.id == match_id else match
+                for match in self._search_catalog.matches
+            ]
+
+        self._search_catalog.results.extend(appended)
+        self._search_catalog.works = [
+            self._replace_work_episode(work, match_id, title, season, episode, [*match_results, *appended])
+            if work.id == work_id else work
+            for work in self._search_catalog.works
+        ]
+        return match_id
+
+    def _replace_work_episode(
+        self,
+        work: AggregatedWork,
+        match_id: str,
+        title: str,
+        season: int,
+        episode: int,
+        results: list[AggregatedSubtitleResult],
+    ) -> AggregatedWork:
+        providers = tuple(sorted({result.provider for result in results}))
+        hydrated = AggregatedEpisode(
+            season=season,
+            episode=episode,
+            title=results[0].title if results else "",
+            match_id=match_id,
+            year=results[0].year if results else work.year,
+            subtitles_count=len(results),
+            providers=providers,
+        )
+        seasons: list[AggregatedSeason] = []
+        replaced = False
+        for item in work.seasons:
+            if item.season_number != season:
+                seasons.append(item)
+                continue
+            episodes = [
+                hydrated if ep.episode == episode else ep
+                for ep in item.episodes
+            ]
+            if not any(ep.episode == episode for ep in item.episodes):
+                episodes.append(hydrated)
+                episodes.sort(key=lambda ep: (ep.episode is None, ep.episode or 0, ep.match_id))
+            replaced = True
+            seasons.append(
+                replace(
+                    item,
+                    episodes=episodes,
+                    subtitles_count=sum(ep.subtitles_count for ep in episodes),
+                )
+            )
+        if not replaced:
+            seasons.append(AggregatedSeason(season_number=season, episodes=[hydrated], subtitles_count=len(results)))
+            seasons.sort(key=lambda item: item.season_number)
+        episode_keys = {
+            (ep.season, ep.episode)
+            for season_item in seasons
+            for ep in season_item.episodes
+            if ep.season is not None and ep.episode is not None and not ep.match_id.startswith("skeleton:")
+        }
+        return replace(
+            work,
+            title=work.title or title,
+            seasons=seasons,
+            total_episodes=len(episode_keys),
+            total_subtitles=sum(season_item.subtitles_count for season_item in seasons),
+        )
 
     async def prepare_session(
         self,
@@ -924,6 +1186,20 @@ def _expand_search_languages(source_language: str, target_language: str) -> str:
     if "zh" in normalized or "zht" in normalized or any(code.startswith("zh") for code in normalized):
         normalized.update({"zh", "zht"})
     return ",".join(sorted(normalized))
+
+
+def _episode_match_belongs_to_work(
+    match: AggregatedTitleMatch,
+    work: AggregatedWork | None,
+    title: str,
+) -> bool:
+    if work is not None:
+        if work.imdb_id and match.imdb_id == work.imdb_id:
+            return True
+        if work.tmdb_id and match.tmdb_id == work.tmdb_id:
+            return True
+    candidate_title = (match.parent_title or match.title or "").casefold()
+    return bool(candidate_title and candidate_title == title.casefold())
 
 
 def _search_warning_message(request: SearchRequest, warnings: list[str]) -> str:

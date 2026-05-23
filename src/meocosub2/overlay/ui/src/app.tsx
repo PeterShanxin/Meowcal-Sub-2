@@ -476,6 +476,40 @@ export function App(): JSX.Element {
     [confirmTitleForAutoPrepare],
   );
 
+  const onHydrateEpisode = useCallback(async (workId: string, season: number, episode: number) => {
+    const work = works.find((item) => item.id === workId);
+    if (!work) return;
+    const correlationId = clientEventId("hydrate");
+    logClientEvent("ui.episode.hydrate_requested", { workId, season, episode }, correlationId);
+    setSearching(true);
+    store.set({ selectedWorkId: workId, expandedWorkId: workId, expandedSeasonNumber: season, cursorIndex: -1 });
+    try {
+      const hydrated = await api.hydrateEpisode(workId, work.title, season, episode, correlationId);
+      const fresh = await api.getState();
+      store.set({ snapshot: fresh, config: fresh.config });
+      if (hydrated.matchId) {
+        confirmTitleForAutoPrepare(workId, hydrated.matchId);
+      }
+      logClientEvent("ui.episode.hydrate_completed", {
+        workId,
+        season,
+        episode,
+        hydrated: hydrated.hydrated,
+        matchId: hydrated.matchId,
+      }, correlationId);
+    } catch (err) {
+      store.set({ error: err instanceof Error ? err.message : String(err) });
+      logClientEvent("ui.episode.hydrate_failed", {
+        workId,
+        season,
+        episode,
+        error: err instanceof Error ? err.message : String(err),
+      }, correlationId);
+    } finally {
+      setSearching(false);
+    }
+  }, [confirmTitleForAutoPrepare, works]);
+
   const onPickSource = useCallback((id: string) => {
     logClientEvent("ui.source.selected", { resultId: id });
     store.set({ selectedSourceId: id, tab: "target", cursorIndex: -1 });
@@ -613,6 +647,8 @@ export function App(): JSX.Element {
         onToggleExpandSeason(row.workId, row.seasonNumber);
       } else if (row.kind === "episode" && row.episodeMatchId) {
         onPickEpisode(row.workId, row.episodeMatchId);
+      } else if (row.kind === "skeleton_episode" && row.seasonNumber != null && row.episodeNumber != null) {
+        void onHydrateEpisode(row.workId, row.seasonNumber, row.episodeNumber);
       }
       return;
     }
@@ -635,6 +671,7 @@ export function App(): JSX.Element {
     commands,
     cursorIndex,
     onCommand,
+    onHydrateEpisode,
     onPickEpisode,
     onPickSource,
     onPickTarget,
@@ -879,6 +916,7 @@ export function App(): JSX.Element {
               onToggleExpandSeason={onToggleExpandSeason}
               onPickWork={onPickWork}
               onPickEpisode={onPickEpisode}
+              onHydrateEpisode={(workId, season, episode) => void onHydrateEpisode(workId, season, episode)}
               onPickSource={onPickSource}
               onPickTarget={(id) => void onPickTarget(id)}
               onCommand={onCommand}
