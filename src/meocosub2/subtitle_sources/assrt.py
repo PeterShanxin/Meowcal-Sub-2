@@ -26,6 +26,7 @@ API_BASE = "https://api.assrt.net/v1"
 MAX_RESULTS = 15
 YEAR_SUFFIX_PATTERN = re.compile(r"\s*[\(（]?(?:19|20|21)\d{2}[\)）]?\s*$")
 LATIN_TITLE_SEGMENT_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9'’&:.\- ]*[A-Za-z0-9)]?")
+TRAILING_SEASON_PATTERN = re.compile(r"\bS\d{1,2}\s*$", re.IGNORECASE)
 
 
 class AssrtProvider:
@@ -62,17 +63,21 @@ class AssrtProvider:
                 continue
             native_name = str(item.get("native_name") or "")
             videoname = str(item.get("videoname") or "")
-            season, episode = extract_episode_info(native_name, videoname)
-            guessed_title = best_title_guess(query, native_name, videoname)
-            parent_title = self._episode_parent_title(query, native_name, videoname, fallback=guessed_title) if episode else None
-            display_title = parent_title or guessed_title
-            year = extract_year(native_name, videoname)
             filelist = item.get("filelist") if isinstance(item.get("filelist"), list) else []
             primary_file_name = (
                 str(filelist[0].get("f"))
                 if filelist and isinstance(filelist[0], dict) and filelist[0].get("f")
                 else str(item.get("videoname") or item.get("native_name") or f"{item.get('id')}.srt")
             )
+            season, episode = extract_episode_info(native_name, videoname, primary_file_name)
+            guessed_title = best_title_guess(query, native_name, videoname, primary_file_name)
+            parent_title = (
+                self._episode_parent_title(query, native_name, videoname, primary_file_name, fallback=guessed_title)
+                if episode
+                else None
+            )
+            display_title = parent_title or guessed_title
+            year = extract_year(native_name, videoname, primary_file_name)
             results.append(
                 ProviderSubtitleResult(
                     id=f"assrt-result-{item.get('id')}",
@@ -157,7 +162,7 @@ class AssrtProvider:
             return None
 
     def _episode_parent_title(self, query: str, *values: str, fallback: str) -> str:
-        query_key = canonical_title(query)
+        query_key = canonical_title(self._strip_episode_or_season_marker(query))
         if not query_key:
             return fallback
         for value in values:
@@ -165,6 +170,12 @@ class AssrtProvider:
                 if canonical_title(segment) == query_key:
                     return segment
         return fallback
+
+    def _strip_episode_or_season_marker(self, value: str) -> str:
+        text = unicodedata.normalize("NFKC", value)
+        text = re.sub(r"\bS\d{1,2}E\d{1,3}\b.*$", "", text, flags=re.IGNORECASE)
+        text = TRAILING_SEASON_PATTERN.sub("", text)
+        return text.strip(" -_:.")
 
     def _latin_title_segments(self, value: str) -> list[str]:
         text = unicodedata.normalize("NFKC", value)
