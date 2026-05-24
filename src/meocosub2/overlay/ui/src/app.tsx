@@ -780,6 +780,10 @@ export function App(): JSX.Element {
 
   const noKey = shouldShowNoKey(config);
   const isEmpty = isFirstLaunch(config);
+  const sourceNotices = useMemo(() => buildSourceNotices(config, snapshot?.warning_message ?? ""), [
+    config,
+    snapshot?.warning_message,
+  ]);
 
   const isCompact = phase === "prep" || phase === "live";
   const isIdle =
@@ -832,6 +836,16 @@ export function App(): JSX.Element {
           sourcesCount={countEnabledSources(config)}
           onOpenSettings={openSettings}
         />
+        {phase !== "live" && sourceNotices.length > 0 && (
+          <SourceHealthStrip notices={sourceNotices} onOpenSettings={openSettings} />
+        )}
+        {phase !== "live" && (searching || snapshot?.warning_message) && sourceNotices.length > 0 && (
+          <SearchNoticePanel
+            searching={searching}
+            notices={sourceNotices}
+            onOpenSettings={openSettings}
+          />
+        )}
 
         {noKey && phase === "home" && !query && (
           <NoApiKey onOpenSettings={openSettings} />
@@ -994,6 +1008,110 @@ export function App(): JSX.Element {
       )}
     </div>
   );
+}
+
+interface SourceNotice {
+  id: string;
+  label: string;
+  detail: string;
+  tone: "warn" | "info";
+}
+
+function SourceHealthStrip({
+  notices,
+  onOpenSettings,
+}: {
+  notices: SourceNotice[];
+  onOpenSettings: () => void;
+}): JSX.Element {
+  return (
+    <div className="source-health-strip" aria-live="polite">
+      <span className="source-health-dot" aria-hidden />
+      <span className="source-health-text">{notices[0].label}</span>
+      {notices.length > 1 && (
+        <span className="source-health-count">+{notices.length - 1}</span>
+      )}
+      <button className="source-health-button" type="button" onClick={onOpenSettings}>
+        Settings
+      </button>
+    </div>
+  );
+}
+
+function SearchNoticePanel({
+  searching,
+  notices,
+  onOpenSettings,
+}: {
+  searching: boolean;
+  notices: SourceNotice[];
+  onOpenSettings: () => void;
+}): JSX.Element {
+  return (
+    <aside className="search-notice-panel" aria-live="polite" aria-label="Search notices">
+      <div className="search-notice-kicker">{searching ? "Searching" : "Search notice"}</div>
+      {notices.slice(0, 3).map((notice) => (
+        <div className="search-notice-item" data-tone={notice.tone} key={notice.id}>
+          <div className="search-notice-title">{notice.label}</div>
+          <div className="search-notice-detail">{notice.detail}</div>
+        </div>
+      ))}
+      <button className="search-notice-button" type="button" onClick={onOpenSettings}>
+        Open source settings
+      </button>
+    </aside>
+  );
+}
+
+function buildSourceNotices(config: BackendConfig | null, warning: string): SourceNotice[] {
+  const notices: SourceNotice[] = [];
+  if (!config) return notices;
+  const sources = config.subtitleSources;
+  const hasReadySource =
+    (sources.opensubtitles.enabled && !!sources.opensubtitles.apiKey) ||
+    (sources.subdl.enabled && !!sources.subdl.apiKey) ||
+    (sources.assrt.enabled && !!sources.assrt.token);
+  if (sources.opensubtitles.enabled && !sources.opensubtitles.apiKey) {
+    notices.push({
+      id: "opensubtitles-key",
+      label: "OpenSubtitles key missing",
+      detail: "OpenSubtitles is enabled but skipped until an API key is saved.",
+      tone: "warn",
+    });
+  }
+  if (sources.subdl.enabled && !sources.subdl.apiKey) {
+    notices.push({
+      id: "subdl-key",
+      label: "SubDL key missing",
+      detail: "SubDL now needs an API key, so searches may miss episode files.",
+      tone: "warn",
+    });
+  }
+  if (sources.assrt.enabled && !sources.assrt.token) {
+    notices.push({
+      id: "assrt-token",
+      label: "ASSRT token missing",
+      detail: "ASSRT is skipped; Chinese subtitle coverage can be thin.",
+      tone: "warn",
+    });
+  }
+  if (!hasReadySource && notices.length === 0) {
+    notices.push({
+      id: "no-source",
+      label: "No subtitle source ready",
+      detail: "Enable a source and save its key or token before searching.",
+      tone: "warn",
+    });
+  }
+  if (warning.trim()) {
+    notices.push({
+      id: "backend-warning",
+      label: "Provider warning",
+      detail: warning.trim(),
+      tone: "info",
+    });
+  }
+  return notices;
 }
 
 function shouldShowNoKey(config: BackendConfig | null): boolean {

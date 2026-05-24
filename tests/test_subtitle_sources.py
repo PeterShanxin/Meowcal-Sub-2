@@ -1,6 +1,7 @@
 import asyncio
 import zipfile
 
+import httpx
 import pytest
 
 import meocosub2.subtitle_sources.subdl as subdl_module
@@ -1291,6 +1292,87 @@ async def test_aggregator_returns_partial_results_when_one_provider_fails() -> N
 
     assert len(catalog.results) == 1
     assert any("ASSRT" in warning for warning in catalog.warnings)
+
+
+@pytest.mark.asyncio
+async def test_aggregator_redacts_provider_error_secrets() -> None:
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider(
+            "opensubtitles",
+            "OpenSubtitles",
+            ProviderSearchCatalog(
+                matches=[],
+                results=[
+                    ProviderSubtitleResult(
+                        id="result-1",
+                        match_id="match-1",
+                        provider="opensubtitles",
+                        provider_label="OpenSubtitles",
+                        title="Movie",
+                        year=None,
+                        imdb_id=None,
+                        media_type="movie",
+                        language="en",
+                        download_count=10,
+                        file_name="movie.srt",
+                    )
+                ],
+            ),
+        ),
+        FakeProvider(
+            "subdl",
+            "SubDL",
+            error=RuntimeError("GET https://api.subdl.com/api/v1/subtitles?api_key=secret-value&q=from failed"),
+        ),
+    )
+
+    catalog = await aggregator.search_catalog("Movie", "en")
+
+    assert any("api_key=[redacted]" in warning for warning in catalog.warnings)
+    assert all("secret-value" not in warning for warning in catalog.warnings)
+
+
+@pytest.mark.asyncio
+async def test_aggregator_turns_provider_auth_status_into_safe_warning() -> None:
+    request = httpx.Request("GET", "https://api.subdl.com/api/v1/subtitles?api_key=secret-value&q=from")
+    response = httpx.Response(403, request=request)
+    error = httpx.HTTPStatusError(
+        "Client error '403 Forbidden' for url 'https://api.subdl.com/api/v1/subtitles?api_key=secret-value&q=from'",
+        request=request,
+        response=response,
+    )
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider(
+            "opensubtitles",
+            "OpenSubtitles",
+            ProviderSearchCatalog(
+                matches=[],
+                results=[
+                    ProviderSubtitleResult(
+                        id="result-1",
+                        match_id="match-1",
+                        provider="opensubtitles",
+                        provider_label="OpenSubtitles",
+                        title="Movie",
+                        year=None,
+                        imdb_id=None,
+                        media_type="movie",
+                        language="en",
+                        download_count=10,
+                        file_name="movie.srt",
+                    )
+                ],
+            ),
+        ),
+        FakeProvider("subdl", "SubDL", error=error),
+    )
+
+    catalog = await aggregator.search_catalog("Movie", "en")
+
+    assert "SubDL: authentication failed (HTTP 403). Check the saved API key or token." in catalog.warnings
+    assert all("secret-value" not in warning for warning in catalog.warnings)
 
 
 @pytest.mark.asyncio
