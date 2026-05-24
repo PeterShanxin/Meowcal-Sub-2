@@ -773,6 +773,45 @@ async def test_assrt_search_extracts_exact_english_parent_title_for_cjk_episode(
 
 
 @pytest.mark.asyncio
+async def test_assrt_search_strips_episode_marker_from_hydration_query_filelist(mocker) -> None:
+    config = AppConfig(assrt_enabled=True, assrt_token="token")
+    provider = AssrtProvider(config)
+    mocker.patch.object(
+        provider,
+        "_request",
+        new=mocker.AsyncMock(
+            return_value={
+                "status": 0,
+                "sub": {
+                    "subs": [
+                        {
+                            "id": 3,
+                            "native_name": "Release pack",
+                            "videoname": "",
+                            "lang": {"desc": "简体中文", "langlist": {"langchs": 1}},
+                            "down_count": 4,
+                            "filelist": [
+                                {"f": "README.nfo"},
+                                {"f": "From S03E01 Shatter 1080p AMZN WEB-DL DDP5 1 H 264-FLUX.ass"},
+                            ],
+                        }
+                    ]
+                },
+            }
+        ),
+    )
+
+    catalog = await provider.search_catalog("From S03E01", "zh")
+
+    assert catalog.results[0].parent_title == "From"
+    assert catalog.results[0].title == "From"
+    assert catalog.results[0].media_type == "episode"
+    assert catalog.results[0].season == 3
+    assert catalog.results[0].episode == 1
+    assert catalog.results[0].file_name.endswith(".ass")
+
+
+@pytest.mark.asyncio
 async def test_aggregator_groups_assrt_exact_from_episodes_under_series() -> None:
     aggregator = SubtitleSearchAggregator(AppConfig())
     aggregator.providers = (
