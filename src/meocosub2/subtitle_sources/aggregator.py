@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -122,7 +123,7 @@ class SubtitleSearchAggregator:
         errors: list[str] = []
         for provider, response in zip(self.providers, responses, strict=False):
             if isinstance(response, Exception):
-                errors.append(f"{provider.provider_label}: {response}")
+                errors.append(_provider_error_warning(provider.provider_label, response))
                 continue
             catalogs.append(response)
             warnings.extend(response.warnings)
@@ -1206,6 +1207,24 @@ def _humanize_downloads(count: int) -> str:
 
 def _rewrite_query_alias(query: str) -> str:
     return QUERY_ALIASES.get(canonical_title(query), query)
+
+
+def _provider_error_warning(provider_label: str, exc: Exception) -> str:
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    if isinstance(status_code, int) and status_code in {401, 403}:
+        return f"{provider_label}: authentication failed (HTTP {status_code}). Check the saved API key or token."
+    message = _redact_secret_query_values(str(exc))
+    return f"{provider_label}: {message}"
+
+
+def _redact_secret_query_values(message: str) -> str:
+    return re.sub(
+        r"([?&](?:api[_-]?key|token|apikey)=)[^&\s'\"<>]+",
+        r"\1[redacted]",
+        message,
+        flags=re.IGNORECASE,
+    )
 
 
 def _is_generic_tmdb_query(query: str) -> bool:

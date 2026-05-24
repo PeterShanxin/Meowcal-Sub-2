@@ -836,10 +836,10 @@ export function App(): JSX.Element {
           sourcesCount={countEnabledSources(config)}
           onOpenSettings={openSettings}
         />
-        {!noKey && phase !== "live" && sourceNotices.length > 0 && (
+        {phase !== "live" && sourceNotices.length > 0 && (
           <SourceHealthStrip notices={sourceNotices} onOpenSettings={openSettings} />
         )}
-        {!noKey && phase !== "live" && (searching || snapshot?.warning_message) && sourceNotices.length > 0 && (
+        {phase !== "live" && (searching || snapshot?.warning_message) && sourceNotices.length > 0 && (
           <SearchNoticePanel
             searching={searching}
             notices={sourceNotices}
@@ -1067,6 +1067,10 @@ function buildSourceNotices(config: BackendConfig | null, warning: string): Sour
   const notices: SourceNotice[] = [];
   if (!config) return notices;
   const sources = config.subtitleSources;
+  const hasReadySource =
+    (sources.opensubtitles.enabled && !!sources.opensubtitles.apiKey) ||
+    (sources.subdl.enabled && !!sources.subdl.apiKey) ||
+    (sources.assrt.enabled && !!sources.assrt.token);
   if (sources.opensubtitles.enabled && !sources.opensubtitles.apiKey) {
     notices.push({
       id: "opensubtitles-key",
@@ -1088,6 +1092,14 @@ function buildSourceNotices(config: BackendConfig | null, warning: string): Sour
       id: "assrt-token",
       label: "ASSRT token missing",
       detail: "ASSRT is skipped; Chinese subtitle coverage can be thin.",
+      tone: "warn",
+    });
+  }
+  if (!hasReadySource && notices.length === 0) {
+    notices.push({
+      id: "no-source",
+      label: "No subtitle source ready",
+      detail: "Enable a source and save its key or token before searching.",
       tone: "warn",
     });
   }
