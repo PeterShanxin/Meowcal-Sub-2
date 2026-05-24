@@ -772,7 +772,7 @@ async def test_assrt_search_extracts_exact_english_parent_title_for_cjk_episode(
 
 
 @pytest.mark.asyncio
-async def test_assrt_search_strips_episode_marker_from_hydration_query(mocker) -> None:
+async def test_assrt_search_strips_episode_marker_from_hydration_query_filelist(mocker) -> None:
     config = AppConfig(assrt_enabled=True, assrt_token="token")
     provider = AssrtProvider(config)
     mocker.patch.object(
@@ -785,11 +785,14 @@ async def test_assrt_search_strips_episode_marker_from_hydration_query(mocker) -
                     "subs": [
                         {
                             "id": 3,
-                            "native_name": "From S03E01 Shatter 1080p AMZN WEB-DL DDP5 1 H 264-FLUX",
+                            "native_name": "Release pack",
                             "videoname": "",
                             "lang": {"desc": "简体中文", "langlist": {"langchs": 1}},
                             "down_count": 4,
-                            "filelist": [{"f": "From.S03E01.Shatter.zh.srt"}],
+                            "filelist": [
+                                {"f": "README.nfo"},
+                                {"f": "From S03E01 Shatter 1080p AMZN WEB-DL DDP5 1 H 264-FLUX.ass"},
+                            ],
                         }
                     ]
                 },
@@ -804,6 +807,7 @@ async def test_assrt_search_strips_episode_marker_from_hydration_query(mocker) -
     assert catalog.results[0].media_type == "episode"
     assert catalog.results[0].season == 3
     assert catalog.results[0].episode == 1
+    assert catalog.results[0].file_name.endswith(".ass")
 
 
 @pytest.mark.asyncio

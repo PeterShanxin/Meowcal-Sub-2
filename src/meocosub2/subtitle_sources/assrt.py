@@ -14,6 +14,7 @@ from meocosub2.errors import SubtitleSourceError
 from meocosub2.event_log import log_event
 from meocosub2.subtitle_sources.types import ProviderCapabilities, ProviderSearchCatalog, ProviderSubtitleResult
 from meocosub2.subtitle_sources.utils import (
+    SUBTITLE_EXTENSIONS,
     best_title_guess,
     canonical_title,
     extract_episode_info,
@@ -64,20 +65,27 @@ class AssrtProvider:
             native_name = str(item.get("native_name") or "")
             videoname = str(item.get("videoname") or "")
             filelist = item.get("filelist") if isinstance(item.get("filelist"), list) else []
-            primary_file_name = (
-                str(filelist[0].get("f"))
-                if filelist and isinstance(filelist[0], dict) and filelist[0].get("f")
-                else str(item.get("videoname") or item.get("native_name") or f"{item.get('id')}.srt")
+            file_names = [
+                str(entry.get("f"))
+                for entry in filelist
+                if isinstance(entry, dict) and entry.get("f")
+            ]
+            primary_file_name = next(
+                (name for name in file_names if name.casefold().endswith(SUBTITLE_EXTENSIONS)),
+                file_names[0]
+                if file_names
+                else str(item.get("videoname") or item.get("native_name") or f"{item.get('id')}.srt"),
             )
-            season, episode = extract_episode_info(native_name, videoname, primary_file_name)
-            guessed_title = best_title_guess(query, native_name, videoname, primary_file_name)
+            metadata_values = [native_name, videoname, *file_names]
+            season, episode = extract_episode_info(*metadata_values)
+            guessed_title = best_title_guess(query, *metadata_values)
             parent_title = (
-                self._episode_parent_title(query, native_name, videoname, primary_file_name, fallback=guessed_title)
+                self._episode_parent_title(query, *metadata_values, fallback=guessed_title)
                 if episode
                 else None
             )
             display_title = parent_title or guessed_title
-            year = extract_year(native_name, videoname, primary_file_name)
+            year = extract_year(*metadata_values)
             results.append(
                 ProviderSubtitleResult(
                     id=f"assrt-result-{item.get('id')}",
