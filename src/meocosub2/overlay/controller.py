@@ -485,6 +485,87 @@ class GuiController:
             "works": self._state.search_works,
         }
 
+    async def hydrate_season(
+        self,
+        *,
+        work_id: str,
+        title: str,
+        season: int,
+        correlation_id: str | None = None,
+    ) -> dict[str, object]:
+        if self._search_catalog is None:
+            raise ValueError("Search before hydrating a season.")
+        if season < 0:
+            raise ValueError("Season hydration needs a valid season.")
+
+        work = next((item for item in self._search_catalog.works if item.id == work_id), None)
+        query_title = title or (work.title if work is not None else self._state.title)
+        if not query_title:
+            raise ValueError("Season hydration needs a title.")
+
+        query = f"{query_title} S{season:02d}"
+        languages = _expand_search_languages(self._state.source_language, self._state.target_language)
+        log_event(
+            "search.season_hydrate.requested",
+            layer="backend",
+            correlation_id=correlation_id,
+            work_id=work_id,
+            title=query_title,
+            season=season,
+        )
+
+        catalog = await self._aggregator.search_catalog(query, languages, correlation_id=correlation_id)
+        results_by_episode = _collect_hydratable_episode_results([catalog], work, query_title, season)
+        if not results_by_episode:
+            log_event(
+                "search.season_hydrate.empty",
+                layer="backend",
+                correlation_id=correlation_id,
+                work_id=work_id,
+                season=season,
+            )
+            return {
+                "hydrated": False,
+                "hydratedEpisodes": 0,
+                "results": self._state.search_results,
+                "matches": self._state.search_matches,
+                "works": self._state.search_works,
+            }
+
+        hydrated_count = 0
+        for episode_no, episode_results in sorted(results_by_episode.items()):
+            hydrated_count += len(episode_results)
+            self._merge_hydrated_episode(
+                work_id=work_id,
+                title=query_title,
+                season=season,
+                episode=episode_no,
+                results=episode_results,
+                matches=catalog.matches,
+            )
+
+        async with self._lock:
+            self._state.search_results = [search_result_payload(result) for result in self._search_catalog.results]
+            self._state.search_matches = [search_match_payload(match) for match in self._search_catalog.matches]
+            self._state.search_works = [search_work_payload(work) for work in self._search_catalog.works]
+        await self._emit_app_state()
+        log_event(
+            "search.season_hydrate.completed",
+            layer="backend",
+            correlation_id=correlation_id,
+            work_id=work_id,
+            season=season,
+            results=hydrated_count,
+            hydrated_episodes=len(results_by_episode),
+        )
+        return {
+            "hydrated": True,
+            "hydratedEpisodes": len(results_by_episode),
+            "results": self._state.search_results,
+            "matches": self._state.search_matches,
+            "works": self._state.search_works,
+        }
+
     def _merge_hydrated_episode(
         self,
         *,
