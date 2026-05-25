@@ -58,19 +58,26 @@ class SubdlProvider:
             return ProviderSearchCatalog(matches=[], results=[], warnings=["SubDL API key is not configured."])
 
         requested_languages = {code.strip() for code in languages.split(",") if code.strip()}
+        warnings: list[str] = []
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers={"Accept": "application/json"}) as client:
-            page = await self._fetch_api(
-                client,
-                {
-                    "film_name": query,
-                    "languages": self._to_api_languages(requested_languages),
-                    "subs_per_page": "30",
-                    "comment": "1",
-                    "releases": "1",
-                    "hi": "1",
-                    "unpack": "1",
-                },
-            )
+            try:
+                page = await self._fetch_api(
+                    client,
+                    {
+                        "film_name": query,
+                        "languages": self._to_api_languages(requested_languages),
+                        "subs_per_page": "30",
+                        "comment": "1",
+                        "releases": "1",
+                        "hi": "1",
+                        "unpack": "1",
+                    },
+                )
+            except Exception as exc:
+                warning = self._provider_warning_for_error(exc)
+                if warning:
+                    return ProviderSearchCatalog(matches=[], results=[], warnings=[warning])
+                raise
             items = page.get("results", [])
             matches: list[ProviderSubtitleMatch] = []
             results: list[ProviderSubtitleResult] = []
@@ -95,10 +102,18 @@ class SubdlProvider:
             async def collect(item: dict[str, object]) -> list[ProviderSubtitleResult]:
                 return await self._collect_api_title_results(item, requested_languages, client)
 
-            for item_results in await asyncio.gather(*(collect(item) for item in selected_items)):
+            collected = await asyncio.gather(*(collect(item) for item in selected_items), return_exceptions=True)
+            for item_results in collected:
+                if isinstance(item_results, Exception):
+                    warning = self._provider_warning_for_error(item_results)
+                    if not warning:
+                        raise item_results
+                    if warning not in warnings:
+                        warnings.append(warning)
+                    continue
                 results.extend(item_results)
 
-        return ProviderSearchCatalog(matches=matches, results=results)
+        return ProviderSearchCatalog(matches=matches, results=results, warnings=warnings)
 
     async def download(self, result: ProviderSubtitleResult) -> Path:
         link = str(result.raw.get("link") or result.download_ref or "")
@@ -346,6 +361,15 @@ class SubdlProvider:
         if payload.get("status") is False:
             raise SubtitleSourceError(str(payload.get("error") or "SubDL API request failed."))
         return payload
+
+    def _provider_warning_for_error(self, exc: Exception) -> str | None:
+        response = getattr(exc, "response", None)
+        status_code = getattr(response, "status_code", None)
+        if isinstance(status_code, int) and status_code in {401, 403}:
+            return f"SubDL: authentication failed (HTTP {status_code}). Check the saved API key or token."
+        if isinstance(exc, SubtitleSourceError):
+            return f"SubDL: {exc}"
+        return None
 
     def _parse_page_subtitles(
         self,
