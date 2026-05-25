@@ -106,7 +106,9 @@ class SubdlProvider:
             for item_results in collected:
                 if isinstance(item_results, Exception):
                     warning = self._provider_warning_for_error(item_results)
-                    if warning and warning not in warnings:
+                    if not warning:
+                        raise item_results
+                    if warning not in warnings:
                         warnings.append(warning)
                     continue
                 results.extend(item_results)

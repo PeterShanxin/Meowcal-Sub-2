@@ -615,6 +615,26 @@ async def test_subdl_search_returns_safe_warning_when_root_fetch_forbidden(monke
     assert catalog.warnings == ["SubDL: authentication failed (HTTP 403). Check the saved API key or token."]
 
 
+@pytest.mark.asyncio
+async def test_subdl_search_reraises_unknown_detail_fetch_errors(monkeypatch) -> None:
+    provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
+
+    async def fake_fetch_api(client, params: dict[str, object]) -> dict[str, object]:
+        if "film_name" in params:
+            return {
+                "status": True,
+                "results": [
+                    {"sd_id": 1, "name": "From", "type": "tv", "year": 2022, "subtitles_count": 7}
+                ],
+            }
+        raise RuntimeError("subdl detail exploded")
+
+    monkeypatch.setattr(provider, "_fetch_api", fake_fetch_api)
+
+    with pytest.raises(RuntimeError, match="subdl detail exploded"):
+        await provider.search_catalog("from", "en")
+
+
 def test_subdl_api_parser_expands_unpacked_season_files() -> None:
     provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
 
