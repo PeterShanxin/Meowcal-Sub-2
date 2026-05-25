@@ -103,15 +103,21 @@ class SubdlProvider:
                 return await self._collect_api_title_results(item, requested_languages, client)
 
             collected = await asyncio.gather(*(collect(item) for item in selected_items), return_exceptions=True)
+            deferred_warnings: list[str] = []
             for item_results in collected:
                 if isinstance(item_results, Exception):
                     warning = self._provider_warning_for_error(item_results)
                     if not warning:
                         raise item_results
-                    if warning not in warnings:
-                        warnings.append(warning)
+                    if "authentication failed" in warning:
+                        if warning not in warnings:
+                            warnings.append(warning)
+                    elif warning not in deferred_warnings:
+                        deferred_warnings.append(warning)
                     continue
                 results.extend(item_results)
+            if not results:
+                warnings.extend(item for item in deferred_warnings if item not in warnings)
 
         return ProviderSearchCatalog(matches=matches, results=results, warnings=warnings)
 

@@ -41,6 +41,7 @@ ORG_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (
 PAREN_YEAR_SUFFIX_PATTERN = re.compile(r"^(?P<title>.+?)\s*\((?P<year>19\d{2}|20\d{2}|21\d{2})\)\s*$")
 TRAILING_YEAR_SUFFIX_PATTERN = re.compile(r"^(?P<title>.+?)\s+(?P<year>19\d{2}|20\d{2}|21\d{2})\s*$")
 EPISODE_PATTERN = re.compile(r"\bS(?P<season>\d{1,2})E(?P<episode>\d{1,3})\b", re.IGNORECASE)
+SEASON_PATTERN = re.compile(r"\bS(?P<season>\d{1,2})\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -437,6 +438,12 @@ class OpenSubtitlesClient:
             episode = int(episode_match.group("episode"))
             working_query = EPISODE_PATTERN.sub(" ", working_query)
             media_type = media_type or "episode"
+        else:
+            season_match = SEASON_PATTERN.search(working_query)
+            if season_match:
+                season = int(season_match.group("season"))
+                working_query = SEASON_PATTERN.sub(" ", working_query)
+                media_type = media_type or "episode"
 
         working_query, year = self._extract_trailing_year(working_query)
 
@@ -612,8 +619,22 @@ class OpenSubtitlesClient:
         return any(result.match_score >= STRONG_MATCH_THRESHOLD for result in results)
 
     def _should_run_direct_subtitle_lookup(self, intent: SearchIntent, results: list[SearchResult]) -> bool:
+        if intent.season is not None:
+            return not self._has_exact_episode_scope_result(intent, results)
         if not self._has_strong_results(results):
             return True
+        return False
+
+    def _has_exact_episode_scope_result(self, intent: SearchIntent, results: list[SearchResult]) -> bool:
+        if intent.season is None:
+            return False
+        for result in results:
+            if result.media_type != "episode" or result.season != intent.season:
+                continue
+            if intent.episode is not None and result.episode != intent.episode:
+                continue
+            if self._result_matches_query_exactly(intent, result):
+                return True
         return False
 
     def _should_run_exact_direct_recovery(self, intent: SearchIntent, results: list[SearchResult]) -> bool:
