@@ -42,6 +42,14 @@ class HydrateEpisodeBody(BaseModel):
     correlationId: str | None = None
 
 
+class HydrateSeasonBody(BaseModel):
+    workId: str
+    title: str
+    season: int
+    clientEventId: str | None = None
+    correlationId: str | None = None
+
+
 class ClientLogBody(BaseModel):
     event: str
     level: Literal["debug", "info", "warning", "error"] = "info"
@@ -165,6 +173,22 @@ class OverlayServer:
                     title=body.title,
                     season=body.season,
                     episode=body.episode,
+                    correlation_id=body.correlationId or body.clientEventId,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except SubtitleSourceError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        @self.app.post("/api/search/season")
+        async def api_hydrate_season(body: HydrateSeasonBody) -> dict[str, object]:
+            try:
+                return await self.controller.hydrate_season(
+                    work_id=body.workId,
+                    title=body.title,
+                    season=body.season,
                     correlation_id=body.correlationId or body.clientEventId,
                 )
             except ValueError as exc:

@@ -917,7 +917,7 @@ function EpisodeRow({
         gap: 12,
         padding: "7px 20px 7px 72px",
         cursor: clickable ? "pointer" : "default",
-        opacity: skeleton ? 0.58 : 1,
+        opacity: skeleton && !clickable ? 0.58 : 1,
         background: focused
           ? "var(--accent-tint)"
           : !skeleton && picked
@@ -933,7 +933,7 @@ function EpisodeRow({
         style={{
           flex: 1,
           fontSize: 13,
-          color: skeleton ? "var(--text-label)" : "var(--text-body)",
+          color: skeleton ? "var(--text-muted)" : "var(--text-body)",
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
@@ -943,6 +943,9 @@ function EpisodeRow({
       </span>
       {subtitles > 0 && (
         <span style={{ fontSize: 10.5, color: "var(--text-label)" }}>{subtitles} subs</span>
+      )}
+      {skeleton && hydratable && !focused && (
+        <span style={{ fontSize: 10.5, color: "var(--accent-text)" }}>Search</span>
       )}
       {focused && <Kbd>{skeleton ? "Search" : "↵"}</Kbd>}
     </div>

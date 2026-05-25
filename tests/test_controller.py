@@ -720,6 +720,126 @@ async def test_hydrate_episode_replaces_skeleton_with_clickable_results(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_hydrate_season_replaces_skeletons_without_selecting_episode(tmp_path: Path, mocker) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+    controller._state.title = "From"
+    controller._state.source_language = "en"
+    controller._state.target_language = "zht"
+    controller._state.selected_feature_id = "previous-match"
+    controller._search_catalog = AggregatedSearchCatalog(
+        matches=[],
+        results=[],
+        works=[
+            AggregatedWork(
+                id="work-1",
+                title="From",
+                media_type="series",
+                year=2022,
+                year_end=2025,
+                imdb_id=None,
+                tmdb_id=None,
+                providers=("subdl",),
+                provider_labels=("SubDL",),
+                seasons=[
+                    AggregatedSeason(
+                        season_number=2,
+                        subtitles_count=0,
+                        episodes=[
+                            AggregatedEpisode(season=2, episode=1, title="One", match_id="skeleton:2:1"),
+                            AggregatedEpisode(season=2, episode=2, title="Two", match_id="skeleton:2:2"),
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    controller._state.search_works = [controller._search_catalog.works[0]]
+    season_catalog = AggregatedSearchCatalog(
+        matches=[],
+        results=[
+            AggregatedSubtitleResult(
+                result_id="result-1",
+                match_id="match-1",
+                provider="subdl",
+                provider_label="SubDL",
+                title="From.S02E01",
+                year=2023,
+                imdb_id=None,
+                media_type="episode",
+                season=2,
+                episode=1,
+                parent_title="From",
+                language="en",
+                download_count=10,
+                file_name="From.S02E01.en.srt",
+                provider_rank=0,
+                provider_result=ProviderSubtitleResult(
+                    id="subdl-result-1",
+                    match_id="subdl-match-1",
+                    provider="subdl",
+                    provider_label="SubDL",
+                    title="From.S02E01",
+                    year=2023,
+                    imdb_id=None,
+                    media_type="episode",
+                    season=2,
+                    episode=1,
+                    parent_title="From",
+                    language="en",
+                    download_count=10,
+                    file_name="From.S02E01.en.srt",
+                ),
+            ),
+            AggregatedSubtitleResult(
+                result_id="result-2",
+                match_id="match-2",
+                provider="subdl",
+                provider_label="SubDL",
+                title="From.S02E02",
+                year=2023,
+                imdb_id=None,
+                media_type="episode",
+                season=2,
+                episode=2,
+                parent_title="From",
+                language="en",
+                download_count=8,
+                file_name="From.S02E02.en.srt",
+                provider_rank=0,
+                provider_result=ProviderSubtitleResult(
+                    id="subdl-result-2",
+                    match_id="subdl-match-2",
+                    provider="subdl",
+                    provider_label="SubDL",
+                    title="From.S02E02",
+                    year=2023,
+                    imdb_id=None,
+                    media_type="episode",
+                    season=2,
+                    episode=2,
+                    parent_title="From",
+                    language="en",
+                    download_count=8,
+                    file_name="From.S02E02.en.srt",
+                ),
+            ),
+        ],
+    )
+    search_mock = mocker.AsyncMock(return_value=season_catalog)
+    mocker.patch.object(controller._aggregator, "search_catalog", new=search_mock)
+
+    payload = await controller.hydrate_season(work_id="work-1", title="From", season=2)
+
+    assert payload["hydrated"] is True
+    assert payload["hydratedEpisodes"] == 2
+    assert search_mock.await_args.args[:2] == ("From S02", "en,zh,zht")
+    assert controller.state_snapshot()["selected_feature_id"] == "previous-match"
+    episodes = controller.state_snapshot()["search_works"][0]["seasons"][0]["episodes"]
+    assert [ep["matchId"] for ep in episodes] == ["hydrated:work-1:2:1", "hydrated:work-1:2:2"]
+    assert [ep["subtitlesCount"] for ep in episodes] == [1, 1]
+
+
+@pytest.mark.asyncio
 async def test_save_config_payload_updates_state_languages_and_persists_file(tmp_path: Path) -> None:
     config_path = tmp_path / "config.toml"
     controller = make_controller(config_path)

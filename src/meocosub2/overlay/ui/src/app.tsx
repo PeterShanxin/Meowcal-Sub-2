@@ -79,6 +79,8 @@ export function App(): JSX.Element {
   const searchAbort = useRef<AbortController | null>(null);
   const lastSearchedQuery = useRef<string>("");
   const autoPrepareInFlight = useRef<string | null>(null);
+  const seasonHydrateInFlight = useRef<Set<string>>(new Set());
+  const backgroundSearchCount = useRef(0);
 
   // Bootstrap: initial state + config + foundry status
   useEffect(() => {
@@ -283,8 +285,10 @@ export function App(): JSX.Element {
       }, correlationId);
     } finally {
       if (searchAbort.current === ctrl) {
-        setSearching(false);
         searchAbort.current = null;
+        if (backgroundSearchCount.current === 0) {
+          setSearching(false);
+        }
       }
     }
   }, [config?.languages.source, config?.languages.target, snapshot?.source_language, snapshot?.target_language]);
@@ -393,6 +397,18 @@ export function App(): JSX.Element {
     void prepareAutoSession(matchId);
   }, [prepareAutoSession]);
 
+  const beginBackgroundSearch = useCallback(() => {
+    backgroundSearchCount.current += 1;
+    setSearching(true);
+  }, []);
+
+  const endBackgroundSearch = useCallback(() => {
+    backgroundSearchCount.current = Math.max(0, backgroundSearchCount.current - 1);
+    if (backgroundSearchCount.current === 0 && searchAbort.current === null) {
+      setSearching(false);
+    }
+  }, []);
+
   const onToggleExpandWork = useCallback(
     (id: string) => {
       const work = filteredWorks.find((w) => w.id === id);
@@ -414,8 +430,47 @@ export function App(): JSX.Element {
     [filteredWorks, confirmTitleForAutoPrepare],
   );
 
+  const hydrateSeasonIfNeeded = useCallback(async (workId: string, seasonNumber: number) => {
+    const viewWork = works.find((item) => item.id === workId);
+    const season = viewWork?.seasons.find((item) => item.seasonNumber === seasonNumber);
+    if (!viewWork || !season) return;
+    const hasSkeleton = season.episodes.some((episode) =>
+      episode.matchId.startsWith("skeleton:") && episode.episode != null,
+    );
+    if (!hasSkeleton) return;
+    const key = `${workId}:${seasonNumber}`;
+    if (seasonHydrateInFlight.current.has(key)) return;
+    seasonHydrateInFlight.current.add(key);
+    const correlationId = clientEventId("season-hydrate");
+    logClientEvent("ui.season.hydrate_requested", { workId, season: seasonNumber }, correlationId);
+    beginBackgroundSearch();
+    try {
+      const hydrated = await api.hydrateSeason(workId, viewWork.title, seasonNumber, correlationId);
+      const fresh = await api.getState();
+      store.set({ snapshot: fresh, config: fresh.config });
+      logClientEvent("ui.season.hydrate_completed", {
+        workId,
+        season: seasonNumber,
+        hydrated: hydrated.hydrated,
+        hydratedEpisodes: hydrated.hydratedEpisodes,
+      }, correlationId);
+    } catch (err) {
+      store.set({ error: err instanceof Error ? err.message : String(err) });
+      logClientEvent("ui.season.hydrate_failed", {
+        workId,
+        season: seasonNumber,
+        error: err instanceof Error ? err.message : String(err),
+      }, correlationId);
+    } finally {
+      seasonHydrateInFlight.current.delete(key);
+      endBackgroundSearch();
+    }
+  }, [beginBackgroundSearch, endBackgroundSearch, works]);
+
   const onToggleExpandSeason = useCallback(
     (workId: string, seasonNumber: number) => {
+      const state = store.get();
+      const opening = !(state.expandedWorkId === workId && state.expandedSeasonNumber === seasonNumber);
       store.set((s) => {
         const sameWork = s.expandedWorkId === workId;
         const toggle = sameWork && s.expandedSeasonNumber === seasonNumber;
@@ -426,8 +481,9 @@ export function App(): JSX.Element {
           cursorIndex: -1,
         };
       });
+      if (opening) void hydrateSeasonIfNeeded(workId, seasonNumber);
     },
-    [],
+    [hydrateSeasonIfNeeded],
   );
 
   const onPickWork = useCallback(
@@ -481,7 +537,7 @@ export function App(): JSX.Element {
     if (!work) return;
     const correlationId = clientEventId("hydrate");
     logClientEvent("ui.episode.hydrate_requested", { workId, season, episode }, correlationId);
-    setSearching(true);
+    beginBackgroundSearch();
     store.set({ selectedWorkId: workId, expandedWorkId: workId, expandedSeasonNumber: season, cursorIndex: -1 });
     try {
       const hydrated = await api.hydrateEpisode(workId, work.title, season, episode, correlationId);
@@ -506,9 +562,9 @@ export function App(): JSX.Element {
         error: err instanceof Error ? err.message : String(err),
       }, correlationId);
     } finally {
-      setSearching(false);
+      endBackgroundSearch();
     }
-  }, [confirmTitleForAutoPrepare, works]);
+  }, [beginBackgroundSearch, confirmTitleForAutoPrepare, endBackgroundSearch, works]);
 
   const onPickSource = useCallback((id: string) => {
     logClientEvent("ui.source.selected", { resultId: id });

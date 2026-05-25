@@ -41,6 +41,14 @@ export interface HydrateEpisodeResponse {
   works: BackendSnapshot["search_works"];
 }
 
+export interface HydrateSeasonResponse {
+  hydrated: boolean;
+  hydratedEpisodes: number;
+  results: BackendSnapshot["search_results"];
+  matches: BackendSnapshot["search_matches"];
+  works: BackendSnapshot["search_works"];
+}
+
 export interface PrepareBody {
   mode: "subtitle_pair" | "ocr_fallback" | "auto_candidates";
   matchId?: string | null;
@@ -84,6 +92,13 @@ export const api = {
     correlationId?: string,
   ): Promise<HydrateEpisodeResponse> =>
     request("POST", "/api/search/episode", { workId, title, season, episode, correlationId }),
+  hydrateSeason: (
+    workId: string,
+    title: string,
+    season: number,
+    correlationId?: string,
+  ): Promise<HydrateSeasonResponse> =>
+    request("POST", "/api/search/season", { workId, title, season, correlationId }),
   logClient: (body: ClientLogBody) =>
     request<{ status: string }>("POST", "/api/log/client", body),
   prepareSession: (body: PrepareBody) =>
