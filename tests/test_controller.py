@@ -840,6 +840,86 @@ async def test_hydrate_season_replaces_skeletons_without_selecting_episode(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_hydrate_season_accepts_matching_tmdb_when_imdb_formats_differ(tmp_path: Path, mocker) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+    controller._state.title = "From"
+    controller._state.source_language = "zh"
+    controller._state.target_language = "en"
+    controller._search_catalog = AggregatedSearchCatalog(
+        matches=[],
+        results=[],
+        works=[
+            AggregatedWork(
+                id="work-1",
+                title="FROM",
+                media_type="series",
+                year=2022,
+                year_end=2026,
+                imdb_id="tt9813792",
+                tmdb_id="124364",
+                providers=("subdl",),
+                provider_labels=("SubDL",),
+                seasons=[
+                    AggregatedSeason(
+                        season_number=1,
+                        subtitles_count=0,
+                        episodes=[AggregatedEpisode(season=1, episode=1, title="One", match_id="skeleton:1:1")],
+                    )
+                ],
+            )
+        ],
+    )
+    controller._state.search_works = [controller._search_catalog.works[0]]
+    season_catalog = AggregatedSearchCatalog(
+        matches=[],
+        results=[
+            AggregatedSubtitleResult(
+                result_id="result-1",
+                match_id="match-1",
+                provider="opensubtitles",
+                provider_label="OpenSubtitles",
+                title="Long Day's Journey Into Night",
+                year=2022,
+                imdb_id="9813792",
+                tmdb_id="124364",
+                media_type="episode",
+                season=1,
+                episode=1,
+                parent_title="FROM",
+                language="en",
+                download_count=10,
+                file_name="From.S01E01.en.srt",
+                provider_rank=2,
+                provider_result=ProviderSubtitleResult(
+                    id="os-result-1",
+                    match_id="os-match-1",
+                    provider="opensubtitles",
+                    provider_label="OpenSubtitles",
+                    title="Long Day's Journey Into Night",
+                    year=2022,
+                    imdb_id="9813792",
+                    tmdb_id="124364",
+                    media_type="episode",
+                    season=1,
+                    episode=1,
+                    parent_title="FROM",
+                    language="en",
+                    download_count=10,
+                    file_name="From.S01E01.en.srt",
+                ),
+            )
+        ],
+    )
+    mocker.patch.object(controller._aggregator, "search_catalog", new=mocker.AsyncMock(return_value=season_catalog))
+
+    payload = await controller.hydrate_season(work_id="work-1", title="FROM", season=1)
+
+    assert payload["hydrated"] is True
+    episodes = controller.state_snapshot()["search_works"][0]["seasons"][0]["episodes"]
+    assert episodes[0]["matchId"] == "hydrated:work-1:1:1"
+
+
+@pytest.mark.asyncio
 async def test_save_config_payload_updates_state_languages_and_persists_file(tmp_path: Path) -> None:
     config_path = tmp_path / "config.toml"
     controller = make_controller(config_path)

@@ -1334,11 +1334,11 @@ def _episode_match_belongs_to_work(
     if work is None:
         return False
     if work is not None:
-        if work.imdb_id and match.imdb_id == work.imdb_id:
-            return True
         if work.tmdb_id and match.tmdb_id == work.tmdb_id:
             return True
-        if work.imdb_id or work.tmdb_id:
+        if _same_imdb_id(work.imdb_id, match.imdb_id):
+            return True
+        if (work.imdb_id and match.imdb_id) or (work.tmdb_id and match.tmdb_id):
             return False
     return False
 
@@ -1350,14 +1350,12 @@ def _episode_result_belongs_to_work(
 ) -> bool:
     if work is None:
         return False
-    if work.imdb_id and result.imdb_id and result.imdb_id != work.imdb_id:
-        return False
-    if work.tmdb_id and result.tmdb_id and result.tmdb_id != work.tmdb_id:
-        return False
-    if work.imdb_id and result.imdb_id == work.imdb_id:
-        return True
     if work.tmdb_id and result.tmdb_id == work.tmdb_id:
         return True
+    if _same_imdb_id(work.imdb_id, result.imdb_id):
+        return True
+    if (work.imdb_id and result.imdb_id) or (work.tmdb_id and result.tmdb_id):
+        return False
 
     result_title = (result.parent_title or "").casefold()
     expected_title = (work.title or title).casefold()
@@ -1366,6 +1364,12 @@ def _episode_result_belongs_to_work(
     if work.imdb_id or work.tmdb_id:
         return True
     return _year_in_work_range(result.year, work)
+
+
+def _same_imdb_id(left: str | None, right: str | None) -> bool:
+    if not left or not right:
+        return False
+    return left.casefold().removeprefix("tt") == right.casefold().removeprefix("tt")
 
 
 def _year_in_work_range(year: int | None, work: AggregatedWork) -> bool:

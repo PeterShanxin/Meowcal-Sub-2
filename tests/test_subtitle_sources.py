@@ -594,6 +594,44 @@ async def test_subdl_search_keeps_matches_when_one_detail_fetch_is_forbidden(mon
 
 
 @pytest.mark.asyncio
+async def test_subdl_search_suppresses_non_auth_detail_misses_when_results_survive(monkeypatch) -> None:
+    provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
+
+    async def fake_fetch_api(client, params: dict[str, object]) -> dict[str, object]:
+        if "film_name" in params:
+            return {
+                "status": True,
+                "results": [
+                    {"sd_id": 1, "name": "From", "type": "tv", "year": 2022, "subtitles_count": 7},
+                    {"sd_id": 2, "name": "From Out", "type": "movie", "year": 2016, "subtitles_count": 1},
+                ],
+            }
+        if str(params["sd_id"]) == "2":
+            raise SubtitleSourceError("can't find movie or tv")
+        return {
+            "status": True,
+            "subtitles": [
+                {
+                    "id": 3576745,
+                    "language": "English",
+                    "name": "From.S04E01.1080p.WEB",
+                    "season": 4,
+                    "episode": 1,
+                    "downloads": 5,
+                    "url": "/subtitle/3576745-8495217.zip",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(provider, "_fetch_api", fake_fetch_api)
+
+    catalog = await provider.search_catalog("from", "en")
+
+    assert len(catalog.results) == 1
+    assert catalog.warnings == []
+
+
+@pytest.mark.asyncio
 async def test_subdl_search_returns_safe_warning_when_root_fetch_forbidden(monkeypatch) -> None:
     provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
     request = httpx.Request("GET", "https://api.subdl.com/api/v1/subtitles?api_key=subdl-key&film_name=from")

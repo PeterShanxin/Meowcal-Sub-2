@@ -5,6 +5,7 @@ import pytest
 import respx
 
 from meocosub2.errors import OpenSubtitlesError
+from meocosub2.config import AppConfig
 from meocosub2.opensubtitles.client import (
     BASE_URL,
     MAX_RETRIES,
@@ -13,6 +14,7 @@ from meocosub2.opensubtitles.client import (
     OpenSubtitlesClient,
     _OpenSubtitlesOrgAliasParser,
 )
+from meocosub2.subtitle_sources.opensubtitles import OpenSubtitlesProvider
 
 FEATURE_TVSHOW_RESPONSE = {
     "data": [
@@ -361,6 +363,35 @@ FROM_DIRECT_SUBTITLE_RESPONSE = {
     ]
 }
 
+FROM_EPISODE_SUBTITLE_RESPONSE = {
+    "data": [
+        {
+            "id": "from-s1e1",
+            "type": "subtitle",
+            "attributes": {
+                "language": "en",
+                "download_count": 100,
+                "feature_details": {
+                    "feature_id": 1340985,
+                    "feature_type": "Episode",
+                    "year": 2022,
+                    "title": "Long Day's Journey Into Night",
+                    "movie_name": "FROM - S01E01  Long Day's Journey Into Night",
+                    "imdb_id": 14444472,
+                    "tmdb_id": 2910462,
+                    "season_number": 1,
+                    "episode_number": 1,
+                    "parent_imdb_id": 9813792,
+                    "parent_title": "FROM",
+                    "parent_tmdb_id": 124364,
+                    "parent_feature_id": 1337001,
+                },
+                "files": [{"file_id": 1340985, "file_name": "From.S01E01.en.srt"}],
+            },
+        }
+    ]
+}
+
 EMPTY_RESPONSE = {"data": []}
 
 DOWNLOAD_RESPONSE = {
@@ -477,6 +508,102 @@ async def test_short_generic_query_runs_direct_lookup_even_after_strong_feature_
     assert any(call.request.url.params.get("query") == "from" for call in subtitle_route.calls)
     assert any(result.title == "From" for result in catalog.results)
     assert not any(result.title == "From Hell" for result in catalog.results)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_season_query_uses_episode_direct_lookup(client: OpenSubtitlesClient) -> None:
+    respx.get(f"{BASE_URL}/features").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
+    subtitle_route = respx.get(f"{BASE_URL}/subtitles").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=FROM_EPISODE_SUBTITLE_RESPONSE
+            if (
+                request.url.params.get("query") == "From"
+                and request.url.params.get("type") == "episode"
+                and request.url.params.get("season_number") == "1"
+            )
+            else EMPTY_RESPONSE,
+        )
+    )
+
+    catalog = await client.search_catalog("From S01", languages="en")
+
+    assert catalog.results[0].parent_title == "FROM"
+    assert catalog.results[0].season == 1
+    assert catalog.results[0].episode == 1
+    assert any(call.request.url.params.get("query") == "From" for call in subtitle_route.calls)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_episode_query_runs_direct_lookup_after_noisy_feature_results(client: OpenSubtitlesClient) -> None:
+    respx.get(f"{BASE_URL}/features").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": "557849",
+                        "type": "feature",
+                        "attributes": {
+                            "title": "From Paris with Love",
+                            "original_title": "From Paris with Love",
+                            "year": "2010",
+                            "subtitles_count": 325,
+                            "season_number": None,
+                            "episode_number": None,
+                            "imdb_id": 1179034,
+                            "tmdb_id": 26389,
+                            "parent_title": "",
+                            "parent_imdb_id": None,
+                            "parent_tmdb_id": None,
+                            "title_aka": ["From Paris with Love"],
+                            "feature_type": "Movie",
+                        },
+                    }
+                ],
+            },
+        )
+    )
+    respx.get(f"{BASE_URL}/subtitles").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=FROM_EPISODE_SUBTITLE_RESPONSE
+            if (
+                request.url.params.get("query") == "From"
+                and request.url.params.get("type") == "episode"
+                and request.url.params.get("season_number") == "1"
+                and request.url.params.get("episode_number") == "1"
+            )
+            else EMPTY_RESPONSE,
+        )
+    )
+
+    catalog = await client.search_catalog("From S01E01", languages="en")
+
+    assert any(result.parent_title == "FROM" and result.episode == 1 for result in catalog.results)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_provider_uses_parent_identity_for_episode_results() -> None:
+    respx.get(f"{BASE_URL}/features").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
+    respx.get(f"{BASE_URL}/subtitles").mock(
+        side_effect=lambda request: httpx.Response(
+            200,
+            json=FROM_EPISODE_SUBTITLE_RESPONSE
+            if request.url.params.get("query") == "From"
+            else EMPTY_RESPONSE,
+        )
+    )
+    provider = OpenSubtitlesProvider(AppConfig(opensubtitles_api_key="test-key"))
+
+    catalog = await provider.search_catalog("From S01", "en")
+
+    assert catalog.results[0].tmdb_id == "124364"
+    assert catalog.results[0].imdb_id == "9813792"
+    assert catalog.results[0].raw["episode_tmdb_id"] == "2910462"
 
 
 @respx.mock
