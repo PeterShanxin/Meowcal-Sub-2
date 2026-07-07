@@ -4,8 +4,11 @@
 
 Docs:
 
+- [docs/PRD.md](docs/PRD.md) — product goals and success criteria
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — current-state architecture
 - [docs/user-guide.md](docs/user-guide.md)
 - [docs/developer-guide.md](docs/developer-guide.md)
+- [docs/gap-analysis-2026-07-07.md](docs/gap-analysis-2026-07-07.md) — distance from goal state, prioritized
 
 ## Requirements
 
