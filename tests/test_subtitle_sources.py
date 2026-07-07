@@ -483,6 +483,54 @@ def _subdl_result(
     )
 
 @pytest.mark.asyncio
+async def test_subdl_movie_detail_fetch_omits_full_season(monkeypatch) -> None:
+    # Live SubDL returns zero subtitles when full_season=1 is sent for a movie sd_id.
+    provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
+    calls: list[dict[str, object]] = []
+
+    async def fake_fetch_api(client, params: dict[str, object]) -> dict[str, object]:
+        calls.append(dict(params))
+        if "film_name" in params:
+            return {
+                "status": True,
+                "results": [
+                    {
+                        "sd_id": 2922,
+                        "name": "Inception",
+                        "type": "movie",
+                        "year": 2010,
+                        "imdb_id": "tt1375666",
+                        "tmdb_id": 27205,
+                        "subtitles_count": 30,
+                    }
+                ],
+            }
+        return {
+            "status": True,
+            "subtitles": [
+                {
+                    "id": 2812133,
+                    "language": "English",
+                    "name": "Inception.2010.Bluray.1080p",
+                    "season": 0,
+                    "episode": None,
+                    "downloads": 100,
+                    "url": "/subtitle/2812133-2714566.zip",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(provider, "_fetch_api", fake_fetch_api)
+
+    catalog = await provider.search_catalog("Inception", "en,zht")
+
+    assert calls[1]["sd_id"] == "2922"
+    assert "full_season" not in calls[1]
+    assert len(catalog.results) == 1
+    assert catalog.results[0].media_type == "movie"
+
+
+@pytest.mark.asyncio
 async def test_subdl_search_uses_api_results_and_subtitles(monkeypatch) -> None:
     provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
     calls: list[dict[str, object]] = []
@@ -1418,6 +1466,49 @@ async def test_aggregator_returns_partial_results_when_one_provider_fails() -> N
 
     assert len(catalog.results) == 1
     assert any("ASSRT" in warning for warning in catalog.warnings)
+
+
+@pytest.mark.asyncio
+async def test_aggregator_drops_slow_provider_with_timeout_warning() -> None:
+    class StalledProvider(FakeProvider):
+        def __init__(self):
+            super().__init__("subdl", "SubDL")
+
+        async def search_catalog(self, query: str, languages: str) -> ProviderSearchCatalog:
+            await asyncio.sleep(30)
+            raise AssertionError("should have been cancelled by the search budget")
+
+    aggregator = SubtitleSearchAggregator(AppConfig(search_provider_timeout_s=1))
+    aggregator.providers = (
+        FakeProvider(
+            "opensubtitles",
+            "OpenSubtitles",
+            ProviderSearchCatalog(
+                matches=[],
+                results=[
+                    ProviderSubtitleResult(
+                        id="result-1",
+                        match_id="match-1",
+                        provider="opensubtitles",
+                        provider_label="OpenSubtitles",
+                        title="Movie",
+                        year=None,
+                        imdb_id=None,
+                        media_type="movie",
+                        language="en",
+                        download_count=10,
+                        file_name="movie.srt",
+                    )
+                ],
+            ),
+        ),
+        StalledProvider(),
+    )
+
+    catalog = await aggregator.search_catalog("Movie", "en")
+
+    assert len(catalog.results) == 1
+    assert any("SubDL" in warning and "timed out" in warning for warning in catalog.warnings)
 
 
 @pytest.mark.asyncio

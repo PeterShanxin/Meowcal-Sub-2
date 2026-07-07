@@ -26,6 +26,7 @@ class AppConfig:
     assrt_token: str = ""
     tmdb_api_key: str = ""
     tmdb_merge_enabled: bool = True
+    search_provider_timeout_s: int = 20
     source_language: str = "en"
     target_language: str = "zh"
     capture_region: list[int] = field(default_factory=list)
@@ -114,6 +115,7 @@ def load_config(path: Path | None = None) -> AppConfig:
         assrt_token=str(assrt.get("token", "")),
         tmdb_api_key=str(tmdb.get("api_key", "")),
         tmdb_merge_enabled=_coerce_bool(tmdb.get("merge_enabled", True), True),
+        search_provider_timeout_s=_coerce_int(subtitle_sources.get("provider_timeout_s", 20), 20),
         source_language=source_language,
         target_language=target_language,
         capture_region=data.get("capture", {}).get("region", []),
@@ -149,6 +151,8 @@ def save_config(config: AppConfig, path: Path | None = None) -> None:
     config_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "subtitle_sources": {
+            # Scalar keys must precede subtables so the emitted TOML stays valid.
+            "provider_timeout_s": config.search_provider_timeout_s,
             "opensubtitles": {
                 "enabled": config.opensubtitles_enabled,
                 "api_key": config.opensubtitles_api_key,
@@ -242,6 +246,7 @@ def overlay_style_payload(config: AppConfig) -> dict[str, object]:
 def config_to_payload(config: AppConfig) -> dict[str, object]:
     return {
         "subtitleSources": {
+            "providerTimeoutS": config.search_provider_timeout_s,
             "opensubtitles": {
                 "enabled": config.opensubtitles_enabled,
                 "apiKey": config.opensubtitles_api_key,
@@ -397,6 +402,10 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
         assrt_token=str(assrt.get("token", base.assrt_token)),
         tmdb_api_key=str(tmdb.get("apiKey", base.tmdb_api_key)),
         tmdb_merge_enabled=_coerce_bool(tmdb.get("mergeEnabled", base.tmdb_merge_enabled), base.tmdb_merge_enabled),
+        search_provider_timeout_s=_coerce_int(
+            subtitle_sources.get("providerTimeoutS", base.search_provider_timeout_s),
+            base.search_provider_timeout_s,
+        ),
         source_language=normalize_source_language(str(languages.get("source", base.source_language))),
         target_language=normalize_target_language(str(languages.get("target", base.target_language))),
         capture_region=_coerce_int_list(capture.get("region", base.capture_region), base.capture_region),

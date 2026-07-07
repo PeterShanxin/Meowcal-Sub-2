@@ -213,8 +213,22 @@ class SubtitleSearchAggregator:
             query=query,
             languages=languages,
         )
+        timeout_s = max(1, int(self.config.search_provider_timeout_s or 20))
         try:
-            catalog = await provider.search_catalog(query, languages)
+            catalog = await asyncio.wait_for(provider.search_catalog(query, languages), timeout=timeout_s)
+        except asyncio.TimeoutError as exc:
+            log_event(
+                "provider.search.timeout",
+                layer="backend",
+                level="error",
+                correlation_id=correlation_id,
+                provider=provider.provider_code,
+                duration_ms=round((time.perf_counter() - started) * 1000),
+                timeout_s=timeout_s,
+            )
+            raise SubtitleSourceError(
+                f"search timed out after {timeout_s}s; other sources were still used."
+            ) from exc
         except Exception as exc:
             log_event(
                 "provider.search.error",

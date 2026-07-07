@@ -212,9 +212,11 @@ class SubdlProvider:
             "comment": "1",
             "releases": "1",
             "hi": "1",
-            "full_season": "1",
             "unpack": "1",
         }
+        # SubDL returns zero subtitles when full_season=1 accompanies a movie sd_id.
+        if str(item.get("type")) == "tv":
+            params["full_season"] = "1"
         payload = await self._fetch_api(client, params)
         return self._limit_subtitles(
             self._parse_api_subtitles(

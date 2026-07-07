@@ -17,6 +17,7 @@ def test_save_and_load_roundtrip(tmp_path: Path) -> None:
     cfg = AppConfig(
         opensubtitles_enable_org_fallback=True,
         subdl_api_key="subdl-key",
+        search_provider_timeout_s=12,
         source_language="ja",
         target_language="en",
         overlay_font_size=32,
@@ -29,6 +30,7 @@ def test_save_and_load_roundtrip(tmp_path: Path) -> None:
     loaded = load_config(config_file)
     assert loaded.opensubtitles_enable_org_fallback is True
     assert loaded.subdl_api_key == "subdl-key"
+    assert loaded.search_provider_timeout_s == 12
     assert loaded.source_language == "ja"
     assert loaded.target_language == "en"
     assert loaded.overlay_font_size == 32
@@ -58,7 +60,7 @@ def test_load_invalid_toml_returns_defaults(tmp_path: Path) -> None:
 def test_config_example_contains_all_sections() -> None:
     payload = tomllib.loads(Path("config.example.toml").read_text(encoding="utf-8"))
     assert set(payload) == {"subtitle_sources", "languages", "capture", "matching", "translation", "overlay", "debug"}
-    assert set(payload["subtitle_sources"]) == {"opensubtitles", "subdl", "assrt"}
+    assert set(payload["subtitle_sources"]) == {"provider_timeout_s", "opensubtitles", "subdl", "assrt"}
     assert "api_key" in payload["subtitle_sources"]["subdl"]
 
 
