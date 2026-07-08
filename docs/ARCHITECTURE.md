@@ -132,7 +132,7 @@ Single source of truth: `config.example.toml`. Sections: `subtitle_sources.{open
 
 ## 10. Testing & Verification
 
-- `pytest -q` — unit + API-level tests (~215), including provider contract tests with mocked HTTP (`respx`), controller flows, matcher/CJK cases, overlay contract.
+- `pytest -q` — unit + API-level tests (218), including provider contract tests with mocked HTTP (`respx`), controller flows, matcher/CJK cases, overlay contract.
 - `npm --prefix src/meocosub2/overlay/ui run build` — rebuild studio bundle (required after UI changes; output is committed).
 - `cargo check --manifest-path src-tauri/Cargo.toml` — shell.
 - `python scripts/run_dashboard_smoke.py` — Playwright smoke of the served dashboard (fails closed if port 8765 is already occupied).
