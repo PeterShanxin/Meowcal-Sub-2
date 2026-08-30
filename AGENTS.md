@@ -1,4 +1,4 @@
-# AGENTS.md - Actively maintain and update this file
+# AGENTS.md
 
 ## Repo Overview
 - Meowcal Sub 2 is a desktop subtitle studio with a Python backend and a Tauri shell.
@@ -21,6 +21,12 @@
 - Do not edit files under `static/assets/` directly — they are Vite build output.
 - `static/splash.html`, `static/selector.*`, and `static/capture-hud.*` are hand-maintained Tauri sub-windows; those live outside the React app.
 - `docs/plans/` is not authoritative for current behavior and should be ignored for maintenance work.
+
+## Normative documentation
+- Write standing guidance as current-state rules, not as a narrative of how the repository reached them.
+- Omit transition commentary about retired mechanisms or prior directions when the current rule is sufficient.
+- Keep historical rationale in issues, ADRs, changelogs, or dated plans unless it is needed to apply a current safety, compatibility, or unsupported-behavior boundary.
+- Preserve negative wording when it defines a real invariant; remove stale or redundant guidance instead of accumulating exceptions.
 
 ## Log Inspection
 
@@ -55,14 +61,14 @@
 ## Working Notes
 - The repo may contain local generated or user-authored changes. Do not revert unrelated work.
 - When changing the shared studio markup, keep tests in `tests/test_overlay.py` aligned with the served contract.
-- Studio subtitle search is provider-neutral now; the main API/UI flow uses opaque `matchId` and `resultId` values instead of provider file ids.
+- Studio subtitle search is provider-neutral; the main API/UI flow uses opaque `matchId` and `resultId` values instead of provider file ids.
 - Prefer short rationale comments in non-obvious logic and hotspot flows. Do not add boilerplate comments to simple code.
 - When debugging startup issues, separate three layers:
   - served page correctness
   - launcher/process correctness
   - actual Tauri/WebView2 desktop rendering
 
-## Self Update
+## Maintaining this guide
 - Update this file when a task uncovers durable repo knowledge that will help future work.
 - Update the main sections for stable facts:
   - runtime/source-of-truth paths
@@ -73,7 +79,7 @@
 - Do not add one-off session noise; keep additions short, durable, and actionable.
 
 ## Lessons Learned
-- Browser automation in this harness validated the served Chromium page at `http://127.0.0.1:8765/`, not the actual Tauri/WebView2 desktop window.
+- Browser automation in this harness validates the served Chromium page at `http://127.0.0.1:8765/`, not the actual Tauri/WebView2 desktop window.
 - A browser pass is not enough to prove a desktop rendering fix. Desktop-only issues still need real shell verification.
 - `python scripts\run_dashboard_smoke.py` is the lightweight served-page smoke path; it validates the dashboard contract but not native Tauri rendering.
 - The smoke script should fail rather than silently reuse an already-running dashboard, or it can false-green against stale code on port `8765`.
@@ -87,5 +93,5 @@
 - For real desktop UI inspection, a window-level screenshot helper is more trustworthy than browser-only automation against the served page.
 - Tauri will create duplicate tray icons on Windows if the shell uses both `app.trayIcon` in `tauri.conf.json` and a manual `TrayIconBuilder` in Rust. Keep only one creation path.
 - Windows OCR capability lookup for this app should use exact BCP-47 tags such as `zh-TW` in the `Language.OCR*<tag>*` query, and the UI should treat post-install re-enumeration as the success signal instead of assuming the installer succeeded.
-- `SubDL` is currently integrated from public structured page data, while `ASSRT` is more reliable through its token-based API than raw page scraping.
+- `SubDL` is integrated from public structured page data, while `ASSRT` is more reliable through its token-based API than raw page scraping.
 - `SubDL` language buckets can arrive as encoding-style keys like `big_5_code` or `gb_code`; normalize separator variants before mapping them to `zht` / `zh` or Chinese results may disappear from the studio search UI.
