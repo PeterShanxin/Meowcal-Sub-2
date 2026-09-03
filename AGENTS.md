@@ -9,6 +9,8 @@
 - Backend server: `python -m meocosub2.cli serve`
 - Studio route: [src/meocosub2/overlay/server.py](src/meocosub2/overlay/server.py)
 - Subtitle source aggregator: [src/meocosub2/subtitle_sources](src/meocosub2/subtitle_sources)
+- Capture loop and session strategies: [src/meocosub2/sync.py](src/meocosub2/sync.py)
+- Managed local translation engine: [src/meocosub2/engine](src/meocosub2/engine)
 - Studio UI source (Vite + React + TS): [src/meocosub2/overlay/ui](src/meocosub2/overlay/ui)
 - Studio UI entry: [src/meocosub2/overlay/ui/src/app.tsx](src/meocosub2/overlay/ui/src/app.tsx)
 - Studio UI build output (served at `/`): [src/meocosub2/overlay/static/index.html](src/meocosub2/overlay/static/index.html) + `static/assets/`
@@ -39,14 +41,16 @@
   - `MATCH hit:` — matched subtitle index, score, source snippet
   - `MATCH miss:` — threshold and normalized OCR text that failed to match
   - `MATCH skip:` — OCR text too short to attempt match
-  - `SYNC #N` — per-iteration summary: OCR text, match outcome, broadcast decision
+  - `Locked subtitle candidate` / `Unlocking subtitle candidate` — which downloaded subtitle the session is following
   - `OS /features query=` — OpenSubtitles feature search: query string and hit count
   - `OS /subtitles params=` — OpenSubtitles subtitle search: params (including language codes) and result count
+  - `Discarded unusable translation` — model output refused before it reached the overlay
 - Miss rate diagnosis: count `MATCH miss` vs `MATCH hit` over a run window.
 - If OCR text in logs looks correct but misses dominate → lower `fuzzy_threshold` (try 55).
 - If OCR text looks garbled → wrong capture region or OCR language; check `capture.region` in config.
 - If subtitle search returns 0 results → grep `OS /subtitles params=` to confirm language codes (`zhs` for Simplified Chinese) and `parent_feature_id` are present.
-- Live debug panel: set `[debug] mode = true` in config.toml, open dashboard at `http://127.0.0.1:8765/` while session is running; panel appears bottom-right showing last 20 iterations.
+- Live debug panel: set `[debug] mode = true` in config.toml, open the studio while a session is running; panel appears bottom-right showing the last 20 iterations.
+- The studio requires a per-run token. Read it from `%APPDATA%/meowcal-sub-2/runtime.json` and send it as `X-Meowcal-Token`, or open `/?token=...`. Unauthenticated requests get 401, foreign origins 403.
 
 ## Verification
 
@@ -98,3 +102,6 @@
 - Windows OCR capability lookup for this app should use exact BCP-47 tags such as `zh-TW` in the `Language.OCR*<tag>*` query, and the UI should treat post-install re-enumeration as the success signal instead of assuming the installer succeeded.
 - `SubDL` is integrated from public structured page data, while `ASSRT` is more reliable through its token-based API than raw page scraping.
 - `SubDL` language buckets can arrive as encoding-style keys like `big_5_code` or `gb_code`; normalize separator variants before mapping them to `zht` / `zh` or Chinese results may disappear from the studio search UI.
+- This machine runs Windows at 125% scale. Anything reading window bounds must set per-monitor DPI awareness first, or coordinates are scaled and captures come back cropped and offset.
+- The selector reports CSS pixels inside its own fullscreen window; the shell converts them with the monitor's scale factor and origin. Compare a stored `capture.region` against a real drag before trusting a coordinate change.
+- Driving the real desktop through `SendInput` and `ImageGrab` is the way to verify Tauri-only behavior end to end; browser automation cannot reach the selector, the HUD, or the live strip.

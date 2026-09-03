@@ -2,16 +2,18 @@
 
 ## What It Does
 
-`meowcal-sub-2` helps you:
+Meowcal Studio watches a region of your screen while you play something, reads the
+subtitle burned into that region with Windows OCR, and shows the line in the
+language you want.
 
-- Search across enabled subtitle providers
-- Choose a source subtitle and an optional target subtitle
-- Fall back to local translation through Foundry Local when a target subtitle is missing
-- Fall back to OCR-based live translation when no source subtitle matches
-- Sync translated subtitle text to on-screen playback through OCR plus fuzzy matching
-- Show the translated line in a local browser overlay while keeping the Tauri desktop shell available on Windows
+It gets that line one of two ways:
 
-The main workflow is the local dashboard launched with `meowcal-sub-2 gui` or the Windows launcher `run_app.vbs`.
+- **Matched to a downloaded subtitle.** When a subtitle file exists for what you
+  are watching, the app downloads a few candidates, matches what OCR reads against
+  them, and shows the paired line from the target-language file.
+- **Translated on this machine.** When no source subtitle matches, the app
+  translates what OCR reads with its own local engine. Nothing captured from your
+  screen leaves the device.
 
 ## Before You Start
 
@@ -19,192 +21,101 @@ Requirements:
 
 - Windows
 - Python 3.11+
-- Optional subtitle source credentials:
+- At least one subtitle source credential:
   - OpenSubtitles API key
+  - SubDL API key
   - ASSRT token
-- Optional but recommended local translation backend:
-  - Foundry Local OpenAI-compatible endpoint
 
-Default config path on Windows:
+Default config path on Windows: `%APPDATA%/meowcal-sub-2/config.toml`. Use
+[config.example.toml](../config.example.toml) as the starting point; everything in
+it can also be edited from Settings inside the app.
 
-- `%APPDATA%/meowcal-sub-2/config.toml`
-
-Use [config.example.toml](../config.example.toml) as the starting point.
-
-Minimum config for a provider-neutral search flow:
+Minimum config for search:
 
 ```toml
 [subtitle_sources.opensubtitles]
 enabled = true
 api_key = "YOUR_API_KEY_HERE"
 
-[subtitle_sources.subdl]
-enabled = true
-
 [languages]
 source = "en"
 target = "zh"
 ```
 
-If you want local translation fallback, also set:
+Translation needs no configuration. The first time a session needs it, Settings
+offers a one-time download of the translation engine (about 1.1 GB). If Meowcal
+Sub v1 already installed that engine on this machine, it is reused and nothing is
+downloaded.
 
-```toml
-[translation]
-endpoint = "http://127.0.0.1:5273/v1"
-model = ""
-```
+## Using It
 
-If you want the dashboard debug panel, also set:
+1. Start the app with `run_app.vbs`.
 
-```toml
-[debug]
-mode = true
-```
+2. Type a title and press Enter.
 
-## Install
+   The language pair beside the search box is part of the query: `EN → zh` finds
+   English subtitles to read from the screen and Chinese ones to show you.
+   Changing either language runs the search again.
 
-```bash
-pip install -e ".[dev]"
-```
+3. Pick the title. The app prepares the session by itself: it downloads a few
+   source candidates and the best target subtitle, and tells you what it found.
 
-## Quick Start With The Dashboard
+   If no subtitle matches your source language, it says so and prepares an
+   OCR-and-translate session instead.
 
-1. Start the dashboard:
+4. Choose **Select capture region** and drag a box over the subtitle area of your
+   player, then confirm. The box is remembered between sessions.
 
-   ```bash
-   meowcal-sub-2 gui
-   ```
+   Leave room at the bottom of the screen: while a session runs, the app's own
+   window becomes a subtitle strip pinned there.
 
-   Or on Windows, launch `run_app.vbs`.
+5. Choose **Start sync**.
 
-2. Wait for the startup overlay to clear. The studio is ready only after saved settings and language options are loaded.
+   The window becomes the subtitle strip. It shows the current line, the previous
+   line above it, and a dock with stop, region and settings.
 
-3. In the search bar:
+6. Play your video. Lines appear as they are read.
 
-   - Enter the movie or episode title
-   - Set the source language code
-   - Set the target language code
-   - Click `Find Subtitles`
+7. Press stop in the dock when you are done. The window returns to the studio with
+   the session still prepared, so you can start again without repeating anything.
 
-4. In the results workspace:
+## Adjusting While Watching
 
-   - Pick the matched title
-   - Choose a source subtitle from the merged provider list
-   - Choose a target subtitle if available, or confirm `Use local translation`
-   - If no usable source subtitle exists, choose the OCR fallback source option
+- **Region** in the dock reselects the capture area without stopping the session;
+  the next frame uses the new box.
+- **Settings** opens the same settings the studio has.
 
-5. Click `Prepare Session`
+## Notes
 
-   This downloads the selected subtitle files and, when needed, translates the source lines through Foundry Local.
-
-6. In the settings drawer:
-
-   - Adjust subtitle-source credentials or enable flags
-   - Set OCR and capture settings
-   - Adjust overlay style
-   - Save config if you changed settings
-
-7. Select the capture region if it is not set yet.
-
-8. Click `Start Sync`
-
-   This starts live sync:
-
-   - In a browser session, the app opens or updates `http://127.0.0.1:8765/overlay`
-   - In the Tauri desktop runtime, the app shows the capture HUD and hides the main window while the same served overlay path keeps driving subtitle updates
-
-9. Start your video. The app captures the configured subtitle band, OCRs the visible text, matches it against the prepared session, and broadcasts the translated line to the overlay.
-
-10. Click `Stop Session` when you are done.
-
-## Dashboard Areas
-
-### Dashboard View
-
-- Title search
-- Source and target language pickers
-- High-level session status
-
-### Results View
-
-- Matched title list
-- Source subtitle candidates
-- Target subtitle candidates
-- OCR fallback option when source coverage is thin
-
-### Session View
-
-- Prepared-session summary
-- Current subtitle preview
-- Foundry/OCR/capture readiness cards
-- Start/stop controls
-
-### Settings Drawer
-
-- Subtitle source toggles and credentials
-- Translation endpoint/model fields
-- OCR and capture region settings
-- Overlay style controls and live preview
-
-## CLI Alternatives
-
-The CLI commands still work when you want a narrower workflow:
-
-```bash
-meowcal-sub-2 search "Inception" --source en --target zht
-meowcal-sub-2 translate .\movie.en.srt
-meowcal-sub-2 start .\movie.en.srt --target-file .\movie.zht.srt
-meowcal-sub-2 serve
-```
-
-## Important Notes
-
-- The overlay is browser-based. The desktop shell wraps the same served UI, but the overlay itself is not a separate native subtitle compositor.
-- If you change the overlay port while the app is already running, restart the dashboard before using the new port.
-- If OCR is not matching correctly, fix the capture region first, then verify the OCR language.
-- If no target subtitle exists and Foundry Local is unavailable, session preparation or OCR fallback translation will fail.
-- Search coverage depends on which subtitle sources are enabled and configured.
+- The subtitle strip is the app's own window, not a separate compositor. It sits
+  above other windows while a session runs.
+- Changing the overlay port needs a restart before the new port is used.
+- Search coverage depends on which subtitle sources are enabled and configured. A
+  source that fails is reported and the others are still used.
 
 ## Troubleshooting
 
 ### Search returns weak or empty results
 
-Check:
+Check the enabled subtitle sources and their credentials in Settings, and your
+connection to them. The search notice names any source that failed.
 
-- enabled subtitle sources in the settings drawer
-- OpenSubtitles API key, if you rely on OpenSubtitles
-- ASSRT token, if you want better Chinese coverage
-- your network connection to the enabled providers
+### The strip says the translation engine is not installed
 
-### Prepare session fails on translation
+Open Settings → Translation and choose **Download engine**. It is a one-time
+download; progress is shown in the same place.
 
-Check:
+### No subtitles appear
 
-- the Foundry Local endpoint is running
-- the endpoint is reachable from the machine
-- the model name is valid, or blank if you want the app to auto-select the first available model
+Check, in this order:
 
-### Overlay opens but no subtitles appear
-
-Check:
-
-- the capture region actually covers the video player's subtitle area
+- the capture region actually covers the player's subtitle area — reselect it and
+  look at what is inside the box while you drag
 - the OCR language matches the language on screen
-- the source subtitle choice is the right file for the media you are watching
-- the live subtitle text is close enough to the prepared source text for fuzzy matching
+- the title you picked is the one you are watching, so the downloaded subtitles
+  line up with it
 
-### OCR install button keeps appearing
+### The OCR language install keeps asking
 
-Check:
-
-- whether Windows really installed the OCR language pack
-- whether the dashboard reloaded the OCR language catalog after install
-- whether you need to restart Windows for the OCR pack to appear
-
-### Overlay style changes do not show up
-
-Check:
-
-- you clicked `Save Changes`
-- the overlay page is still connected
-- you restarted the dashboard after any port change
+Windows sometimes needs a restart before a newly installed OCR language pack is
+reported as available.

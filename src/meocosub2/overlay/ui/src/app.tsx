@@ -1034,7 +1034,9 @@ export function App(): JSX.Element {
           <div
             style={{
               position: "absolute",
-              top: 380,
+              // Clears the compact palette above it, whose result list is capped
+              // at 280px and which otherwise covers the top of these cards.
+              top: 520,
               left: 20,
               right: 20,
               bottom: 20,

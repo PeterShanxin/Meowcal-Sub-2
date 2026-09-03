@@ -19,7 +19,7 @@ target = "zh"
 
 [capture]
 region = []
-interval_ms = 1500
+interval_ms = 250
 ocr_language = "en"
 
 [matching]
@@ -27,11 +27,10 @@ fuzzy_threshold = 65
 window_size = 30
 window_backward = 5
 
+# Translation runs on this machine through the app's own engine. The only
+# setting is how long one line may take before it is dropped.
 [translation]
-endpoint = "http://127.0.0.1:5273/v1"
-model = ""
 timeout_s = 30
-batch_size = 5
 
 [overlay]
 port = 8765

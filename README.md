@@ -1,6 +1,6 @@
 # Meowcal-Sub-2
 
-`meowcal-sub-2` is a Windows-first subtitle studio with a Python backend, a local web dashboard, and a Tauri desktop shell. It searches multiple subtitle sources, prepares subtitle-pair or OCR-fallback sessions, translates through Foundry Local when needed, and syncs overlay text to live playback with OCR plus fuzzy matching.
+`meowcal-sub-2` is a Windows-first subtitle studio with a Python backend, a local web dashboard, and a Tauri desktop shell. It searches multiple subtitle sources, prepares subtitle-matched or OCR-only sessions, translates on the machine through a managed local engine, and syncs overlay text to live playback with Windows OCR plus fuzzy matching.
 
 Docs:
 
@@ -14,9 +14,12 @@ Docs:
 - Optional desktop shell: WebView2/Tauri runtime on Windows
 - Optional subtitle sources:
   - OpenSubtitles API key
+  - SubDL API key
   - ASSRT token
-- Optional translation backend:
-  - Foundry Local OpenAI-compatible endpoint
+
+Translation runs on this machine. The app installs and manages its own engine
+(Tencent HY-MT1.5 on `llama-server`, about 1.1 GB) the first time you ask for it
+from Settings; an existing Meowcal Sub v1 engine install is reused as-is.
 
 ## Install
 
@@ -30,11 +33,16 @@ The `dev` extra installs the Playwright Python package. Run `python -m playwrigh
 ## Runtime Modes
 
 - Desktop launch: `run_app.vbs`
-- Local dashboard server: `python -m meocosub2.cli serve`
-- Browser dashboard URL: `http://127.0.0.1:8765/`
-- Browser overlay URL: `http://127.0.0.1:8765/overlay`
+- Studio backend: `python -m meocosub2.cli serve`
 
-`run_app.vbs` is the supported Windows launcher. It opens the built Tauri shell when present and falls back to the Python GUI path through `pythonw.exe`.
+`run_app.vbs` is the supported Windows launcher: it builds the studio UI and the
+Tauri shell when they are out of date, then starts the shell, which starts the
+backend and navigates to the served studio.
+
+The studio HTTP and WebSocket surface requires a per-run token. `serve` prints the
+URL carrying it and writes the token to `%APPDATA%/meowcal-sub-2/runtime.json` for
+the desktop shell to read. Unauthenticated requests are refused, so another local
+process cannot read session state or drive the app.
 
 ## Config
 
@@ -47,12 +55,12 @@ Use [config.example.toml](config.example.toml) as the source of truth for the cu
 Main sections:
 
 - `[subtitle_sources.opensubtitles]`: enable/credentials/legacy alias fallback
-- `[subtitle_sources.subdl]`: enable flag
+- `[subtitle_sources.subdl]`: enable flag and API key
 - `[subtitle_sources.assrt]`: enable flag and token
 - `[languages]`: source and target language codes
 - `[capture]`: region, interval, OCR language
 - `[matching]`: fuzzy threshold and search window
-- `[translation]`: Foundry Local endpoint/model/batch settings
+- `[translation]`: how long one line may take before it is dropped
 - `[overlay]`: style and layout settings for the subtitle overlay
 - `[debug]`: dashboard debug panel toggle
 
@@ -61,34 +69,27 @@ Legacy `[opensubtitles]` config still loads for backward compatibility, but new 
 ## Commands
 
 ```bash
-meowcal-sub-2 --help
-```
-
-Available commands:
-
-- `search TITLE`
-- `download FILE_ID`
-- `translate PATH_TO_SRT`
-- `start SOURCE_SUBTITLE [--target-file TARGET_SUBTITLE]`
-- `run TITLE`
-- `gui`
-- `serve`
-
-Examples:
-
-```bash
-meowcal-sub-2 gui
 meowcal-sub-2 serve
-meowcal-sub-2 search "Inception" --source en --target zht
-meowcal-sub-2 translate .\movie.en.srt
 ```
+
+`serve` runs the studio backend that the desktop shell talks to. Everything else
+is done from the app.
 
 ## Verification
 
 ```bash
 pytest -q
-Get-ChildItem src\meocosub2\overlay\static\app*.js | ForEach-Object { node --check $_.FullName }
+```
+
+```bash
+npm --prefix src\meocosub2\overlay\ui run build
+```
+
+```bash
 cargo check --manifest-path src-tauri\Cargo.toml
+```
+
+```bash
 python scripts\run_dashboard_smoke.py
 ```
 
