@@ -307,9 +307,6 @@ class OverlayServer:
                 self.app_connections.remove(websocket)
             logger.debug("App WebSocket disconnected (remaining: %d)", len(self.app_connections))
 
-    async def broadcast(self, subtitle_text: str) -> None:
-        await self.controller.broadcast_overlay_subtitle(subtitle_text)
-
     async def broadcast_app_event(self, event_type: str, payload: dict[str, object]) -> None:
         message = {"type": event_type, **payload}
         await self._broadcast(self.app_connections, message)

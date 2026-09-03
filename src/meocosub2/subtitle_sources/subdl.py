@@ -29,7 +29,6 @@ from meocosub2.subtitle_sources.cache_paths import (
     subtitle_file_name,
 )
 from meocosub2.subtitle_sources.utils import (
-    SUBTITLE_EXTENSIONS,
     extract_episode_info,
     extract_zip_bytes,
     map_subdl_language,

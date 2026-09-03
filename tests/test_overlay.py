@@ -166,7 +166,7 @@ def test_app_websocket_receives_initial_state_and_subtitle_events(tmp_path: Path
         with client.websocket_connect("/ws/app") as websocket:
             state_event = json.loads(websocket.receive_text())
             style_event = json.loads(websocket.receive_text())
-            asyncio.run(server.broadcast("hello"))
+            asyncio.run(server.controller.broadcast_overlay_subtitle("hello"))
             subtitle_event = json.loads(websocket.receive_text())
 
     assert state_event["type"] == "state"
