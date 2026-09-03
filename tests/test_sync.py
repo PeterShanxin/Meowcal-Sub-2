@@ -31,10 +31,24 @@ def paired_lines() -> list[SubtitleLine]:
     ]
 
 
-def fake_translator(reply: str = "翻译") -> LiveTranslator:
+def translator_factory(translator: LiveTranslator):
+    async def open_it() -> LiveTranslator:
+        return translator
+
+    return open_it
+
+
+def fake_translator(reply: str = "翻译"):
     client = MagicMock()
     client.translate = AsyncMock(return_value=reply)
-    return LiveTranslator(client, "en", "zh")
+    return translator_factory(LiveTranslator(client, "en", "zh"))
+
+
+def never_translates():
+    async def open_it() -> LiveTranslator:
+        raise AssertionError("a paired session must not open the engine")
+
+    return open_it
 
 
 async def drive(session, config, reads: list[str]) -> list[str]:
@@ -71,27 +85,27 @@ def config(**overrides) -> AppConfig:
 
 @pytest.mark.asyncio
 async def test_a_matched_line_is_broadcast_with_its_paired_translation() -> None:
-    session = CandidateSession([make_candidate("a", paired_lines())], config(), None)
+    session = CandidateSession([make_candidate("a", paired_lines())], config(), never_translates())
     assert await drive(session, config(), ["Hello there"]) == ["你好"]
 
 
 @pytest.mark.asyncio
 async def test_a_re_read_of_the_same_line_is_not_broadcast_again() -> None:
-    session = CandidateSession([make_candidate("a", paired_lines())], config(), None)
+    session = CandidateSession([make_candidate("a", paired_lines())], config(), never_translates())
     reads = ["Hello there", "Hello there", "Hello ihere"]
     assert await drive(session, config(), reads) == ["你好"]
 
 
 @pytest.mark.asyncio
 async def test_the_next_line_is_broadcast_when_the_cue_changes() -> None:
-    session = CandidateSession([make_candidate("a", paired_lines())], config(), None)
+    session = CandidateSession([make_candidate("a", paired_lines())], config(), never_translates())
     reads = ["Hello there", "Goodbye now"]
     assert await drive(session, config(), reads) == ["你好", "再见"]
 
 
 @pytest.mark.asyncio
 async def test_the_overlay_clears_after_the_region_reads_empty() -> None:
-    session = CandidateSession([make_candidate("a", paired_lines())], config(), None)
+    session = CandidateSession([make_candidate("a", paired_lines())], config(), never_translates())
     reads = ["Hello there", "", "", ""]
     assert await drive(session, config(), reads) == ["你好", ""]
 
@@ -109,7 +123,7 @@ async def test_several_candidates_need_agreement_before_text_is_shown() -> None:
     weak = [SubtitleLine(index=0, start_ms=0, end_ms=3000, text="Hello there", translated="你好")]
     other = [SubtitleLine(index=0, start_ms=0, end_ms=3000, text="Total mismatch", translated="别的")]
     session = CandidateSession(
-        [make_candidate("a", weak), make_candidate("b", other)], config(), None
+        [make_candidate("a", weak), make_candidate("b", other)], config(), never_translates()
     )
     # An exact read locks candidate "a" on the first frame and shows its line.
     assert await drive(session, config(), ["Hello there"]) == ["你好"]
@@ -132,14 +146,16 @@ async def test_direct_translation_prefers_a_matching_target_subtitle_line() -> N
 async def test_a_repeated_read_is_translated_only_once() -> None:
     client = MagicMock()
     client.translate = AsyncMock(return_value="你好")
-    session = DirectTranslationSession([], config(), LiveTranslator(client, "en", "zh"))
+    session = DirectTranslationSession(
+        [], config(), translator_factory(LiveTranslator(client, "en", "zh"))
+    )
     await drive(session, config(), ["Hello there", "Hello there", "Hello there"])
     assert client.translate.await_count == 1
 
 
 @pytest.mark.asyncio
 async def test_the_loop_follows_a_region_reselected_mid_session() -> None:
-    session = CandidateSession([make_candidate("a", paired_lines())], config(), None)
+    session = CandidateSession([make_candidate("a", paired_lines())], config(), never_translates())
     regions: list[tuple[int, ...]] = []
     selected = [(0, 0, 100, 20)]
 
@@ -171,3 +187,11 @@ async def test_the_loop_follows_a_region_reselected_mid_session() -> None:
 
     assert regions[0] == (0, 0, 100, 20)
     assert regions[-1] == (10, 20, 30, 40)
+
+
+@pytest.mark.asyncio
+async def test_a_fully_paired_session_never_opens_the_engine() -> None:
+    session = CandidateSession(
+        [make_candidate("a", paired_lines())], config(), never_translates()
+    )
+    assert await drive(session, config(), ["Hello there", "Goodbye now"]) == ["你好", "再见"]

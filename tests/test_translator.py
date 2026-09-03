@@ -229,3 +229,13 @@ def test_trailing_sentences_that_restate_the_context_are_dropped() -> None:
         drop_restated_context(answer, context)
         == "Everything happens naturally; we don't even realize it."
     )
+
+
+@pytest.mark.parametrize("text", ["好", "是", "ハ"])
+def test_a_single_cjk_character_is_a_whole_word(text: str) -> None:
+    assert not is_untranslatable(text)
+
+
+@pytest.mark.parametrize("text", ["a", "1", "-"])
+def test_a_single_latin_glyph_is_still_noise(text: str) -> None:
+    assert is_untranslatable(text)

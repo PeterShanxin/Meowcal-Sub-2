@@ -21,7 +21,7 @@
 - Treat the server-backed `/` route as the real desktop runtime path.
 - Edit React source under `src/meocosub2/overlay/ui/src/`; run `npm --prefix src/meocosub2/overlay/ui run build` to refresh `static/index.html` + `static/assets/`.
 - Do not edit files under `static/assets/` directly — they are Vite build output.
-- `static/splash.html`, `static/selector.*`, and `static/capture-hud.*` are hand-maintained Tauri sub-windows; those live outside the React app.
+- `static/splash.html` and `static/selector.*` are hand-maintained Tauri sub-windows; those live outside the React app.
 - `docs/plans/` is not authoritative for current behavior and should be ignored for maintenance work.
 
 ## Anti-slop quality bar

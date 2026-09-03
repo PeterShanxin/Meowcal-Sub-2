@@ -1,9 +1,11 @@
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 
 from meocosub2.config import AppConfig
+from meocosub2.models import PreparedRuntime
 from meocosub2.models import SearchRequest
 from meocosub2.overlay.controller import GuiController
 from meocosub2.subtitle_sources.types import (
@@ -1003,3 +1005,13 @@ async def test_preparing_after_the_catalog_is_dropped_reports_a_stale_search(tmp
 
     with pytest.raises(ValueError):
         await controller.prepare_session(mode="auto_candidates", feature_id="match-1")
+
+
+async def test_starting_without_a_capture_region_is_refused(tmp_path: Path) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+    controller._prepared_runtime = PreparedRuntime(session_mode="ocr_fallback")
+    controller._state.prepared_session = object()
+    controller.config = replace(controller.config, capture_region=[])
+
+    with pytest.raises(ValueError, match="capture region"):
+        await controller.start_session()

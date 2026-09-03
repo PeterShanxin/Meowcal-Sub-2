@@ -109,16 +109,28 @@ async def _serve_studio(config: AppConfig) -> None:
     _ensure_websocket_runtime()
     token = auth.generate_token()
     overlay = OverlayServer(config, access_token=token)
-    auth.publish_runtime(token, config.overlay_port)
-    console.print(f"Meowcal Studio: http://127.0.0.1:{config.overlay_port}/?token={token}")
     server = uvicorn.Server(
         uvicorn.Config(overlay.app, host="127.0.0.1", port=config.overlay_port, log_level="error")
     )
+    serving = asyncio.create_task(server.serve())
+    published = False
     try:
-        await server.serve()
+        # The token is published only once this process owns the port. A start that
+        # loses the port to an already-running backend must not overwrite the token
+        # that backend's shell is still using.
+        while not server.started and not serving.done():
+            await asyncio.sleep(0.05)
+        if server.started:
+            auth.publish_runtime(token, config.overlay_port)
+            published = True
+            console.print(
+                f"Meowcal Studio: http://127.0.0.1:{config.overlay_port}/?token={token}"
+            )
+        await serving
     finally:
         engine.shutdown()
-        auth.clear_runtime()
+        if published:
+            auth.clear_runtime()
 
 
 @app.command()

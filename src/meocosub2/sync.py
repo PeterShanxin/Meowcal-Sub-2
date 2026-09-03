@@ -31,6 +31,7 @@ CONTEXT_LINES = 3
 Broadcast = Callable[[str], Awaitable[None]]
 DebugBroadcast = Callable[[dict[str, object]], Awaitable[None]]
 RegionSource = Callable[[], tuple[int, ...]]
+TranslatorFactory = Callable[[], Awaitable["LiveTranslator"]]
 
 
 class LiveTranslator:
@@ -74,7 +75,7 @@ class CandidateSession:
         self,
         candidates: list[SourceSubtitleCandidate],
         config: AppConfig,
-        translator: LiveTranslator | None,
+        translator: TranslatorFactory,
     ) -> None:
         self._matchers = {
             candidate.result_id: SubtitleMatcher(
@@ -87,7 +88,7 @@ class CandidateSession:
             for candidate in candidates
         }
         self._candidates = {candidate.result_id: candidate for candidate in candidates}
-        self._translator = translator
+        self._open_translator = translator
         self._locked: str | None = next(iter(self._matchers)) if len(self._matchers) == 1 else None
         self._pending: str = ""
         self._pending_hits = 0
@@ -100,10 +101,8 @@ class CandidateSession:
 
         text = result.target_text
         if not self._line_is_translated(winner, result.line_index):
-            if self._translator is None:
-                text = ""
-            else:
-                text = await self._translator.translate(result.source_text) or ""
+            translator = await self._open_translator()
+            text = await translator.translate(result.source_text) or ""
         return text, {
             "matchIdx": result.line_index,
             "matchScore": round(result.score, 1),
@@ -166,9 +165,9 @@ class DirectTranslationSession:
         self,
         target_lines: list[SubtitleLine],
         config: AppConfig,
-        translator: LiveTranslator,
+        translator: TranslatorFactory,
     ) -> None:
-        self._translator = translator
+        self._open_translator = translator
         self._matcher = (
             SubtitleMatcher(
                 target_lines,
@@ -182,7 +181,8 @@ class DirectTranslationSession:
         )
 
     async def resolve(self, ocr_text: str) -> tuple[str, dict[str, object]]:
-        translation = await self._translator.translate(ocr_text)
+        translator = await self._open_translator()
+        translation = await translator.translate(ocr_text)
         if not translation:
             return "", {"translation": ""}
         if self._matcher is not None:

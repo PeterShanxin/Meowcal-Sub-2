@@ -96,3 +96,30 @@ def test_a_full_disk_is_reported_before_any_download(tmp_path: Path, manifest, m
     )
     with pytest.raises(EngineInstallError, match="free"):
         install_module.install(paths, manifest, runtime)
+
+
+def test_a_second_install_request_reports_the_one_in_flight(monkeypatch) -> None:
+    import threading
+
+    from meocosub2 import engine
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_install(*_args, **_kwargs):
+        started.set()
+        release.wait(timeout=5)
+
+    monkeypatch.setattr(install_module, "install", slow_install)
+    monkeypatch.setattr(
+        engine, "resolve_paths", lambda *_: type("Paths", (), {"is_complete": lambda *_: False})()
+    )
+    monkeypatch.setattr(engine, "_install_job", None)
+    try:
+        engine.install_engine()
+        assert started.wait(timeout=5)
+        # Would deadlock if the second request re-entered the install lock.
+        assert engine.install_engine().phase == "installing"
+    finally:
+        release.set()
+        monkeypatch.setattr(engine, "_install_job", None)

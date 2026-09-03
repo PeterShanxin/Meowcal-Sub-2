@@ -46,6 +46,7 @@ from meocosub2.subtitles import align_subtitles, assign_target_translations, loa
 from meocosub2.sync import (
     CandidateSession,
     DirectTranslationSession,
+    LiveTranslator,
     open_live_translator,
     run_session_loop,
 )
@@ -1117,6 +1118,9 @@ class GuiController:
         if self._sync_task and not self._sync_task.done():
             raise RuntimeError("A session is already running.")
 
+        if len(self.config.capture_region) != 4 or self.config.capture_region[2] <= 0:
+            raise ValueError("Select the capture region before starting sync.")
+
         resolution = resolve_ocr_language(self.config.ocr_language)
         if resolution.warning_message and resolution.resolved_language == resolution.requested_language and "not installed" in resolution.warning_message.lower():
             raise RuntimeError(resolution.warning_message)
@@ -1198,17 +1202,22 @@ class GuiController:
         # Debug events ride alongside the normal broadcast path so the dashboard
         # panel can inspect OCR timing without changing capture behavior.
         debug_cb = self._make_debug_broadcast() if config.debug_mode else None
-        client = None
+        opened: list = []
+
+        async def translator_factory() -> LiveTranslator:
+            # Opened on the first line that needs it, so a session whose subtitles
+            # are already paired never waits on the engine.
+            if not opened:
+                opened.append(await open_live_translator(config))
+            return opened[0][1]
+
         try:
-            translator = None
-            if runtime.needs_live_translation:
-                client, translator = await open_live_translator(config)
             if runtime.source_candidates:
-                session = CandidateSession(runtime.source_candidates, config, translator)
-            elif translator is not None:
-                session = DirectTranslationSession(runtime.target_lines, config, translator)
+                session = CandidateSession(runtime.source_candidates, config, translator_factory)
             else:
-                raise RuntimeError("Prepared session has neither subtitle candidates nor translation.")
+                session = DirectTranslationSession(
+                    runtime.target_lines, config, translator_factory
+                )
             await run_session_loop(
                 session,
                 config,
@@ -1221,8 +1230,8 @@ class GuiController:
         except Exception as exc:
             await self._set_error(str(exc))
         finally:
-            if client is not None:
-                await client.close()
+            if opened:
+                await opened[0][0].close()
             if self._sync_task is asyncio.current_task():
                 self._sync_task = None
 

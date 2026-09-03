@@ -126,10 +126,14 @@ def install_engine() -> EngineStatus:
 
     with _install_lock:
         global _install_job
-        if _install_job is not None and not _install_job.done:
-            return status()
-        job = _InstallJob()
-        _install_job = job
+        already_running = _install_job is not None and not _install_job.done
+        if not already_running:
+            job = _InstallJob()
+            _install_job = job
+    if already_running:
+        # A second request while the download runs reports on the one in flight.
+        # `status()` takes the same lock, so it must be called outside it.
+        return status()
 
     def progress(message: str, percent: int) -> None:
         job.message = message

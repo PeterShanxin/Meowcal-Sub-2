@@ -17,7 +17,7 @@ from meocosub2 import engine
 from meocosub2.config import AppConfig
 from meocosub2.errors import TranslationError
 from meocosub2.languages import language_label
-from meocosub2.textnorm import collapse_whitespace, is_cjk_char
+from meocosub2.textnorm import collapse_whitespace, is_cjk_char, is_cjk_compactable_char
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +45,16 @@ MAX_OUTPUT_TOKENS = 150
 
 
 def is_untranslatable(text: str) -> bool:
-    """OCR noise that should never reach the model."""
+    """OCR noise that should never reach the model.
+
+    One CJK character can be a whole word - 好, 是 - so a single one counts,
+    while a lone Latin letter is a stray glyph.
+    """
     cleaned = collapse_whitespace(text)
     if not cleaned:
         return True
+    if any(is_cjk_compactable_char(ch) for ch in cleaned):
+        return False
     meaningful = sum(1 for ch in cleaned if ch.isalpha() or is_cjk_char(ch))
     return meaningful < 2
 

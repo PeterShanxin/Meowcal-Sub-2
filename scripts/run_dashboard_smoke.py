@@ -93,8 +93,8 @@ def _prepare_smoke_config(env: dict[str, str]) -> tempfile.TemporaryDirectory[st
     return appdata_dir
 
 
-def _studio_url(env: dict[str, str]) -> str:
-    runtime = read_runtime(Path(env["APPDATA"]) / "meowcal-sub-2" / "runtime.json")
+def _studio_url(appdata: str) -> str:
+    runtime = read_runtime(Path(appdata) / "meowcal-sub-2" / "runtime.json")
     token = str(runtime.get("token") or "")
     if not token:
         raise RuntimeError("The backend did not publish a Studio token to its runtime file.")
@@ -107,7 +107,11 @@ def main() -> int:
     smoke_appdata = _prepare_smoke_config(env)
     process: subprocess.Popen[str] | None = None
     try:
+        # A reused server published its token under the real profile, not the
+        # throwaway one prepared for a server this script starts itself.
+        studio_appdata = env["APPDATA"]
         if _server_is_ready(READY_URL):
+            studio_appdata = os.environ.get("APPDATA", "")
             if not _allow_existing_server():
                 raise RuntimeError(
                     "Dashboard smoke refused to reuse an existing server on 127.0.0.1:8765 because "
@@ -143,7 +147,7 @@ def main() -> int:
                 else None,
             )
             page.on("pageerror", lambda exc: page_errors.append(str(exc)))
-            page.goto(_studio_url(env), wait_until="domcontentloaded")
+            page.goto(_studio_url(studio_appdata), wait_until="domcontentloaded")
             # Command-palette redesign: wait for the React root, then for the
             # palette input to mount. Legacy DOM IDs (#app-shell, #hero-title-main,
             # #search-form, #results-flow, #session-view-title) are gone.

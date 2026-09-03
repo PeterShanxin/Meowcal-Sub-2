@@ -6,17 +6,16 @@ declare global {
 }
 
 function readToken(): string {
-  const injected = window.__MEOWCAL__?.token;
-  if (injected) return injected;
-  // The desktop shell navigates with the token in the query string; keep it in
-  // memory and take it back out of the address bar.
+  // The desktop shell navigates with the token in the query string. Keep it in
+  // memory and take it back out of the address bar either way, so it does not
+  // sit in history for the lifetime of the backend.
   const url = new URL(window.location.href);
   const fromQuery = url.searchParams.get("token") ?? "";
   if (fromQuery) {
     url.searchParams.delete("token");
     window.history.replaceState(null, "", url.toString());
   }
-  return fromQuery;
+  return window.__MEOWCAL__?.token ?? fromQuery;
 }
 
 export const accessToken = readToken();
