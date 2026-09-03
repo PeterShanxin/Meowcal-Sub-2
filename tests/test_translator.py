@@ -213,3 +213,19 @@ def test_an_answer_that_is_only_restatement_is_dropped() -> None:
 
 def test_nothing_is_dropped_without_context() -> None:
     assert drop_restated_context("One. Two.", []) == "One. Two."
+
+
+def test_trailing_sentences_that_restate_the_context_are_dropped() -> None:
+    context = [
+        "In our dreams, we will continue to do this.",
+        "Also, design and create your own world.",
+    ]
+    answer = (
+        "Everything happens naturally; we don't even realize it. "
+        "In our dreams, we will continue to do this. "
+        "Also, design and create your own world."
+    )
+    assert (
+        drop_restated_context(answer, context)
+        == "Everything happens naturally; we don't even realize it."
+    )

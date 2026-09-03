@@ -1209,7 +1209,13 @@ class GuiController:
                 session = DirectTranslationSession(runtime.target_lines, config, translator)
             else:
                 raise RuntimeError("Prepared session has neither subtitle candidates nor translation.")
-            await run_session_loop(session, config, self.broadcast_overlay_subtitle, debug_broadcast=debug_cb)
+            await run_session_loop(
+                session,
+                config,
+                self.broadcast_overlay_subtitle,
+                debug_broadcast=debug_cb,
+                region_source=lambda: tuple(self.config.capture_region),
+            )
         except asyncio.CancelledError:
             raise
         except Exception as exc:

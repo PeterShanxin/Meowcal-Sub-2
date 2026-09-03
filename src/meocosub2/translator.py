@@ -252,20 +252,24 @@ def drop_restated_context(translated: str, context_lines: list[str]) -> str:
     sentences = _sentences(translated)
     if len(sentences) < 2:
         return translated
-    kept = 0
-    for sentence in sentences:
-        if any(
+
+    def restates(sentence: str) -> bool:
+        return any(
             fuzz.ratio(sentence.lower(), line.lower()) >= RESTATED_CONTEXT_SIMILARITY
             for line in context_lines
-        ):
-            kept += 1
-            continue
-        break
-    if kept == 0:
+        )
+
+    start = 0
+    while start < len(sentences) and restates(sentences[start]):
+        start += 1
+    end = len(sentences)
+    while end > start and restates(sentences[end - 1]):
+        end -= 1
+    if start == 0 and end == len(sentences):
         return translated
-    # Every sentence restates something already on screen: the answer carries
-    # nothing new, and the line the viewer is reading is still the right one.
-    return " ".join(sentences[kept:]).strip()
+    # Nothing survives when every sentence restates something already on screen:
+    # the answer carries nothing new, and the line being read is still the right one.
+    return " ".join(sentences[start:end]).strip()
 
 
 class TranslationClient:

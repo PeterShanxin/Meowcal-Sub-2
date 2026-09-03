@@ -135,3 +135,39 @@ async def test_a_repeated_read_is_translated_only_once() -> None:
     session = DirectTranslationSession([], config(), LiveTranslator(client, "en", "zh"))
     await drive(session, config(), ["Hello there", "Hello there", "Hello there"])
     assert client.translate.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_the_loop_follows_a_region_reselected_mid_session() -> None:
+    session = CandidateSession([make_candidate("a", paired_lines())], config(), None)
+    regions: list[tuple[int, ...]] = []
+    selected = [(0, 0, 100, 20)]
+
+    import meocosub2.sync as sync_module
+
+    reads = ["Hello there", "Goodbye now"]
+
+    async def ocr(_image, _language) -> str:
+        if not reads:
+            raise asyncio.CancelledError()
+        selected[0] = (10, 20, 30, 40)
+        return reads.pop(0)
+
+    original_ocr = sync_module.ocr_image
+    original_capture = sync_module.capture_region
+    sync_module.ocr_image = ocr
+    sync_module.capture_region = lambda region: regions.append(region) or MagicMock()
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await run_session_loop(
+                session,
+                config(),
+                lambda text: asyncio.sleep(0),
+                region_source=lambda: selected[0],
+            )
+    finally:
+        sync_module.ocr_image = original_ocr
+        sync_module.capture_region = original_capture
+
+    assert regions[0] == (0, 0, 100, 20)
+    assert regions[-1] == (10, 20, 30, 40)

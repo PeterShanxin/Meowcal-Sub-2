@@ -145,6 +145,7 @@ function LiveDock({
           fontSize: 12,
           color: "#a8a8b2",
           fontVariantNumeric: "tabular-nums",
+          whiteSpace: "nowrap",
         }}
       >
         <span style={{ color: "var(--accent-text)" }}>{tc || "—"}</span>

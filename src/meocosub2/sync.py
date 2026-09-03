@@ -30,6 +30,7 @@ CONTEXT_LINES = 3
 
 Broadcast = Callable[[str], Awaitable[None]]
 DebugBroadcast = Callable[[dict[str, object]], Awaitable[None]]
+RegionSource = Callable[[], tuple[int, ...]]
 
 
 class LiveTranslator:
@@ -205,8 +206,10 @@ async def run_session_loop(
     config: AppConfig,
     broadcast: Broadcast,
     debug_broadcast: DebugBroadcast | None = None,
+    region_source: RegionSource | None = None,
 ) -> None:
-    region = tuple(config.capture_region)
+    # Read the region every frame: the live dock can reselect it without stopping.
+    read_region = region_source or (lambda: tuple(config.capture_region))
     interval_s = config.capture_interval_ms / 1000
     gate = SubtitleGate()
     displayed = ""
@@ -220,7 +223,7 @@ async def run_session_loop(
         change: LineChange | None = None
         detail: dict[str, object] = {}
         try:
-            image = await asyncio.to_thread(capture_region, region)
+            image = await asyncio.to_thread(capture_region, read_region())
             ocr_text = await ocr_image(image, config.ocr_language)
 
             if is_untranslatable(ocr_text):
