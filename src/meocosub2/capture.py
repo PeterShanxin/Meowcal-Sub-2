@@ -118,6 +118,7 @@ async def ocr_image(image: Image.Image, language: str) -> str:
             best_score = score
             best_text = text
             best_pass = pass_name
+    best_text = clean_cjk_text(best_text)
     elapsed_ms = int((monotonic() - t0) * 1000)
     logger.debug(
         "OCR pass=%s score=%s len=%d text=%r duration_ms=%d",

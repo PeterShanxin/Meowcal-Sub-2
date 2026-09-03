@@ -83,3 +83,23 @@ async def test_run_ocr_uses_running_loop(mocker) -> None:
     assert result == "hello"
     running_loop.assert_called_once()
     assert fake_loop.called
+
+
+def test_ocr_output_is_cleaned_before_it_leaves_capture(monkeypatch) -> None:
+    import asyncio
+
+    from meocosub2 import capture as capture_module
+
+    monkeypatch.setattr(
+        capture_module,
+        "resolve_ocr_language",
+        lambda language: capture_module.OcrResolution("zh-CN", "zh-Hans-CN"),
+    )
+
+    async def fake_ocr(image, language):
+        return "0 = 很 自 然 我 们 甚 至 不 会 察 觉"
+
+    monkeypatch.setattr(capture_module, "_run_ocr", fake_ocr)
+    monkeypatch.setattr(capture_module, "preprocess_for_ocr", lambda image: image)
+    text = asyncio.run(capture_module.ocr_image(object(), "zh-CN"))
+    assert text == "很自然我们甚至不会察觉"

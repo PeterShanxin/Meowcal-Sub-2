@@ -140,3 +140,36 @@ async def test_unusable_output_is_not_shown() -> None:
     client = _client(handler)
     assert await client.translate("请给我们五分钟", "en") == ""
     await client.close()
+
+
+def test_a_sentence_the_model_said_twice_is_refused() -> None:
+    assert not is_usable_translation(
+        "人类只使用了大脑的一小部分",
+        "Yes, humans use only a small part of their brains. "
+        "Yes, humans use only a small part of their brains.",
+        "en",
+    )
+
+
+def test_chinese_returned_for_an_english_target_is_refused() -> None:
+    assert not is_usable_translation("真正的灵感 对吧", "真正的灵感，对吧？", "en")
+
+
+def test_english_returned_for_a_chinese_target_is_refused() -> None:
+    assert not is_usable_translation("Hello there", "Hello there", "zh")
+
+
+def test_a_name_the_model_left_alone_is_accepted() -> None:
+    assert is_usable_translation("Ariadne", "Ariadne", "zh")
+    assert is_usable_translation("SAITO", "SAITO", "zh")
+
+
+def test_a_short_latin_answer_is_not_judged_by_script() -> None:
+    assert is_usable_translation("好的", "OK", "en")
+    assert is_usable_translation("是", "Yes", "zh")
+
+
+def test_an_english_answer_with_a_quoted_chinese_name_is_kept() -> None:
+    assert is_usable_translation(
+        "他叫做小明", "His name is 小明, and he lives nearby.", "en"
+    )

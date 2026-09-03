@@ -32,6 +32,7 @@ CJK_TO_ENGLISH_RATIO = 12
 MIN_CJK_TO_ENGLISH_CHARS = 64
 MIN_TOKENS_FOR_REPETITION = 8
 MAX_REPEATED_TOKEN_STREAK = 4
+MIN_CHARS_TO_JUDGE_SCRIPT = 6
 
 MAX_SOURCE_CHARS = 300
 MAX_CONTEXT_CHARS = 400
@@ -123,6 +124,59 @@ def looks_like_a_loop(text: str) -> bool:
     return longest >= MAX_REPEATED_TOKEN_STREAK or len(set(tokens)) * 3 <= len(tokens)
 
 
+def _says_it_twice(text: str) -> bool:
+    """Whether the model emitted one sentence and then repeated it verbatim."""
+    tokens = _tokenize(text)
+    if len(tokens) < 6 or len(tokens) % 2:
+        return False
+    half = len(tokens) // 2
+    return tokens[:half] == tokens[half:]
+
+
+def _looks_like_a_proper_name(text: str) -> bool:
+    """One name the model chose not to render is a real translation, not an echo.
+
+    Deliberately narrow, as in v1: a single token, letters all the way through,
+    set the way a name is set - `Ariadne` or `ARIADNE` - with hyphens and
+    apostrophes joining parts that are each judged the same way.
+    """
+    token = text.strip()
+    if not token or " " in token:
+        return False
+    parts = re.split(r"[-']", token)
+    return all(
+        part and part.isalpha() and (part.istitle() or part.isupper()) for part in parts
+    )
+
+
+def _wrong_script(translated: str, target_language: str) -> bool:
+    """Whether the output is written in the wrong script for the target.
+
+    A local MT model asked for English sometimes returns the Chinese it was
+    given. Judging by script catches that without judging the translation.
+    """
+    target = target_language.lower().split("-")[0]
+    body = [ch for ch in translated if not ch.isspace()]
+    if len(body) < MIN_CHARS_TO_JUDGE_SCRIPT:
+        return False
+    alphabetic = [ch for ch in body if ch.isalpha()]
+    cjk = [ch for ch in body if is_cjk_char(ch)]
+    latin = [ch for ch in alphabetic if ch.isascii()]
+    if target == "en":
+        if not cjk:
+            return False
+        if not latin:
+            return True
+        if len(cjk) * 100 < len(body) * 30:
+            return False
+        return len(latin) * 10 < len(alphabetic) * 7
+    if target.startswith("zh") or target in {"ja", "ko"}:
+        if cjk or not latin or _looks_like_a_proper_name(translated):
+            return False
+        return len(latin) * 10 >= len(alphabetic) * 7
+    return False
+
+
 def is_usable_translation(source: str, translated: str, target_language: str) -> bool:
     """Whether model output is a translation of this line rather than noise.
 
@@ -143,7 +197,9 @@ def is_usable_translation(source: str, translated: str, target_language: str) ->
     )
     if length > max(len(source) * ratio, floor):
         return False
-    return not looks_like_a_loop(translated)
+    if _says_it_twice(translated) or looks_like_a_loop(translated):
+        return False
+    return not _wrong_script(translated, target_language)
 
 
 class TranslationClient:
