@@ -5,6 +5,9 @@ const toolbar = document.getElementById("selector-toolbar");
 const dimensions = document.getElementById("selector-dimensions");
 const confirmButton = document.getElementById("selector-confirm");
 const cancelButton = document.getElementById("selector-cancel");
+const instructions = document.getElementById("selector-instructions");
+
+const MIN_SIDE = 8;
 
 const state = {
   dragging: false,
@@ -12,6 +15,7 @@ const state = {
   startY: 0,
   currentX: 0,
   currentY: 0,
+  hasSelection: false,
 };
 
 function currentRegion() {
@@ -24,7 +28,8 @@ function currentRegion() {
 
 function renderSelection() {
   const region = currentRegion();
-  if (region.width < 4 || region.height < 4) {
+  state.hasSelection = region.width >= MIN_SIDE && region.height >= MIN_SIDE;
+  if (!state.hasSelection) {
     box.classList.add("hidden");
     toolbar.classList.add("hidden");
     return;
@@ -40,18 +45,30 @@ function renderSelection() {
   toolbar.style.left = `${region.left}px`;
   toolbar.style.top = `${Math.max(12, region.top - 54)}px`;
   dimensions.textContent = `${region.width} × ${region.height}`;
+  instructions.textContent = "Drag again to reselect, or confirm this area.";
 }
 
-root.addEventListener("mousedown", (event) => {
+// Pointer events on the root would also fire for the toolbar sitting inside it,
+// and starting a fresh drag there cleared the selection before the button's own
+// handler could read it - so Confirm could never save a region.
+function startsADrag(event) {
+  return event.button === 0 && !toolbar.contains(event.target);
+}
+
+root.addEventListener("pointerdown", (event) => {
+  if (!startsADrag(event)) {
+    return;
+  }
   state.dragging = true;
   state.startX = event.clientX;
   state.startY = event.clientY;
   state.currentX = event.clientX;
   state.currentY = event.clientY;
+  root.setPointerCapture(event.pointerId);
   renderSelection();
 });
 
-root.addEventListener("mousemove", (event) => {
+root.addEventListener("pointermove", (event) => {
   if (!state.dragging) {
     return;
   }
@@ -60,21 +77,24 @@ root.addEventListener("mousemove", (event) => {
   renderSelection();
 });
 
-window.addEventListener("mouseup", (event) => {
+root.addEventListener("pointerup", (event) => {
   if (!state.dragging) {
     return;
   }
   state.dragging = false;
   state.currentX = event.clientX;
   state.currentY = event.clientY;
+  if (root.hasPointerCapture(event.pointerId)) {
+    root.releasePointerCapture(event.pointerId);
+  }
   renderSelection();
 });
 
-confirmButton.addEventListener("click", async () => {
-  const region = currentRegion();
-  if (region.width < 4 || region.height < 4) {
+async function confirmSelection() {
+  if (!state.hasSelection) {
     return;
   }
+  const region = currentRegion();
   await TAURI.core.invoke("set_capture_region", {
     x: region.left,
     y: region.top,
@@ -82,8 +102,9 @@ confirmButton.addEventListener("click", async () => {
     height: region.height,
     deviceScaleFactor: window.devicePixelRatio || 1,
   });
-});
+}
 
+confirmButton.addEventListener("click", () => void confirmSelection());
 cancelButton.addEventListener("click", async () => {
   await TAURI.core.invoke("close_area_selector");
 });
@@ -91,5 +112,8 @@ cancelButton.addEventListener("click", async () => {
 window.addEventListener("keydown", async (event) => {
   if (event.key === "Escape") {
     await TAURI.core.invoke("close_area_selector");
+  }
+  if (event.key === "Enter") {
+    await confirmSelection();
   }
 });

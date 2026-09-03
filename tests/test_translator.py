@@ -6,6 +6,8 @@ from meocosub2.translator import (
     TranslationClient,
     build_prompt,
     is_untranslatable,
+    is_usable_translation,
+    looks_like_a_loop,
     sanitize_output,
 )
 
@@ -96,4 +98,45 @@ async def test_translate_reports_an_unreachable_engine() -> None:
     client = _client(handler)
     with pytest.raises(TranslationError):
         await client.translate("Hello", "zh")
+    await client.close()
+
+
+def test_a_translation_of_the_line_is_usable() -> None:
+    assert is_usable_translation("请给我们五分钟", "Please give us five minutes.", "en")
+    assert is_usable_translation("Hello there", "你好", "zh")
+    assert is_usable_translation("好的", "OK", "en")
+
+
+def test_output_that_swallowed_the_context_is_refused() -> None:
+    assert not is_usable_translation(
+        "请给我们五分钟",
+        "Why do dreamers even participate at all? Please give us five minutes. "
+        "Five minutes? We talked for at least an hour.",
+        "en",
+    )
+
+
+def test_a_repetition_loop_is_refused() -> None:
+    assert not is_usable_translation("Hello", "no no no no no no no no no", "zh")
+    assert looks_like_a_loop("go go go go and then go go go go")
+
+
+def test_ordinary_output_is_not_a_loop() -> None:
+    assert not looks_like_a_loop("I don't know what to say about any of this.")
+
+
+def test_empty_output_is_refused() -> None:
+    assert not is_usable_translation("Hello", "", "zh")
+
+
+@pytest.mark.asyncio
+async def test_unusable_output_is_not_shown() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "x " * 400}}]},
+        )
+
+    client = _client(handler)
+    assert await client.translate("请给我们五分钟", "en") == ""
     await client.close()

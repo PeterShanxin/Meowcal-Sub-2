@@ -20,6 +20,19 @@ from meocosub2.textnorm import collapse_whitespace, is_cjk_char
 
 logger = logging.getLogger(__name__)
 
+# Output limits ported from Meowcal Sub v1, where they were measured against real
+# HY-MT sessions. A model that translates its own context, loops, or echoes the
+# prompt produces output that is obvious by shape, and showing it is worse than
+# showing nothing.
+MAX_OUTPUT_CHARS = 240
+DEFAULT_OUTPUT_RATIO = 4
+MIN_SHORT_OUTPUT_CHARS = 32
+# Short CJK phrases routinely expand into much longer natural English.
+CJK_TO_ENGLISH_RATIO = 12
+MIN_CJK_TO_ENGLISH_CHARS = 64
+MIN_TOKENS_FOR_REPETITION = 8
+MAX_REPEATED_TOKEN_STREAK = 4
+
 MAX_SOURCE_CHARS = 300
 MAX_CONTEXT_CHARS = 400
 SAMPLING = {"temperature": 0.3, "top_k": 20, "top_p": 0.6, "repeat_penalty": 1.05}
@@ -85,6 +98,54 @@ def sanitize_output(text: str) -> str:
     return " ".join(cleaned_lines).strip()
 
 
+def _tokenize(text: str) -> list[str]:
+    tokens: list[str] = []
+    current: list[str] = []
+    for ch in text:
+        if ch.isalnum() or is_cjk_char(ch):
+            current.append(ch.lower())
+        elif current:
+            tokens.append("".join(current))
+            current = []
+    if current:
+        tokens.append("".join(current))
+    return tokens
+
+
+def looks_like_a_loop(text: str) -> bool:
+    tokens = _tokenize(text)
+    if len(tokens) < MIN_TOKENS_FOR_REPETITION:
+        return False
+    streak = longest = 1
+    for previous, token in zip(tokens, tokens[1:]):
+        streak = streak + 1 if token == previous else 1
+        longest = max(longest, streak)
+    return longest >= MAX_REPEATED_TOKEN_STREAK or len(set(tokens)) * 3 <= len(tokens)
+
+
+def is_usable_translation(source: str, translated: str, target_language: str) -> bool:
+    """Whether model output is a translation of this line rather than noise.
+
+    A local model asked for one subtitle sometimes returns the context it was
+    given as well, or loops. Both are recognisable by length and repetition, and
+    keeping the previous line on screen beats replacing it with either.
+    """
+    if not translated:
+        return False
+    length = len(translated)
+    if length > MAX_OUTPUT_CHARS:
+        return False
+    cjk_to_english = any(is_cjk_char(ch) for ch in source) and target_language.lower().startswith("en")
+    ratio, floor = (
+        (CJK_TO_ENGLISH_RATIO, MIN_CJK_TO_ENGLISH_CHARS)
+        if cjk_to_english
+        else (DEFAULT_OUTPUT_RATIO, MIN_SHORT_OUTPUT_CHARS)
+    )
+    if length > max(len(source) * ratio, floor):
+        return False
+    return not looks_like_a_loop(translated)
+
+
 class TranslationClient:
     """A short-lived connection to the managed engine, reused for a whole session."""
 
@@ -121,7 +182,11 @@ class TranslationClient:
 
         choices = payload.get("choices") or []
         content = choices[0].get("message", {}).get("content", "") if choices else ""
-        return sanitize_output(content)
+        translated = sanitize_output(content)
+        if not is_usable_translation(text, translated, target_language):
+            logger.debug("Discarded unusable translation for %r: %r", text[:40], translated[:80])
+            return ""
+        return translated
 
     async def close(self) -> None:
         await self._client.aclose()

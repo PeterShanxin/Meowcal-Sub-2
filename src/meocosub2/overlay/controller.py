@@ -1124,11 +1124,7 @@ class GuiController:
             self._state.status = "running"
             self._state.error_message = ""
             self._state.warning_message = resolution.warning_message
-            message = (
-                "Sync loop is running."
-                if self._prepared_runtime.session_mode == "subtitle_pair"
-                else "OCR fallback loop is running."
-            )
+            message = _running_message(self._prepared_runtime)
             self._state.progress = AppProgress(stage="sync", message=message, current=1, total=1)
         await self._emit_app_state()
         await self._emit_app_progress()
@@ -1295,6 +1291,15 @@ class GuiController:
 
     async def _emit_app_progress(self) -> None:
         await self._emit_app_event("progress", {"progress": asdict(self._state.progress)})
+
+
+def _running_message(runtime: PreparedRuntime) -> str:
+    """What the running session is doing, in the viewer's terms."""
+    if not runtime.source_candidates:
+        return "Reading the screen and translating on this device."
+    if runtime.needs_live_translation:
+        return "Matching downloaded subtitles, translating new lines on this device."
+    return "Matching downloaded subtitles."
 
 
 def _search_inputs_changed(previous: AppConfig, current: AppConfig) -> bool:

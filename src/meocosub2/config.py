@@ -13,6 +13,11 @@ import tomli_w
 from meocosub2.languages import derive_ocr_language, normalize_source_language, normalize_target_language
 
 
+DEFAULT_CAPTURE_INTERVAL_MS = 250
+# The default before capture pacing was measured; an install still on it never chose it.
+LEGACY_CAPTURE_INTERVAL_MS = 1500
+
+
 @dataclass
 class AppConfig:
     opensubtitles_enabled: bool = True
@@ -29,7 +34,7 @@ class AppConfig:
     source_language: str = "en"
     target_language: str = "zh"
     capture_region: list[int] = field(default_factory=list)
-    capture_interval_ms: int = 250
+    capture_interval_ms: int = DEFAULT_CAPTURE_INTERVAL_MS
     ocr_language: str = "en-US"
     fuzzy_threshold: int = 65
     match_window_size: int = 30
@@ -50,6 +55,17 @@ class AppConfig:
     overlay_offset_pct: int = 10
     overlay_animation_ms: int = 220
     debug_mode: bool = False
+
+
+def _capture_interval_ms(stored: object) -> int:
+    """Move installs off the old 1500 ms default.
+
+    At that rate a two-second cue could be sampled once or not at all, so an
+    install that never chose an interval is moved to the current default. An
+    interval the user actually picked is left alone.
+    """
+    interval = _coerce_int(stored, DEFAULT_CAPTURE_INTERVAL_MS)
+    return DEFAULT_CAPTURE_INTERVAL_MS if interval == LEGACY_CAPTURE_INTERVAL_MS else interval
 
 
 def default_config_path() -> Path:
@@ -114,7 +130,7 @@ def load_config(path: Path | None = None) -> AppConfig:
         source_language=source_language,
         target_language=target_language,
         capture_region=data.get("capture", {}).get("region", []),
-        capture_interval_ms=data.get("capture", {}).get("interval_ms", 250),
+        capture_interval_ms=_capture_interval_ms(data.get("capture", {}).get("interval_ms", DEFAULT_CAPTURE_INTERVAL_MS)),
         ocr_language=derive_ocr_language(source_language, ocr_language),
         fuzzy_threshold=data.get("matching", {}).get("fuzzy_threshold", 65),
         match_window_size=data.get("matching", {}).get("window_size", 30),

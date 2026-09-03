@@ -57,14 +57,14 @@ function applyStyle(style) {
 function renderRegion(payload) {
   if (!payload) return;
   state.topMargin = payload.topMargin;
-  state.frameWidth = payload.width;
-  state.frameHeight = payload.height;
+  state.frameWidth = payload.frameWidth;
+  state.frameHeight = payload.frameHeight;
   state.subtitlePosition = payload.subtitlePosition;
 
   frame.style.left = `${payload.frameLeft}px`;
   frame.style.top = `${payload.frameTop}px`;
-  frame.style.width = `${payload.width}px`;
-  frame.style.height = `${payload.height}px`;
+  frame.style.width = `${payload.frameWidth}px`;
+  frame.style.height = `${payload.frameHeight}px`;
 
   subtitleShell.classList.remove("above", "below");
   subtitleShell.classList.add(payload.subtitlePosition === "below" ? "below" : "above");

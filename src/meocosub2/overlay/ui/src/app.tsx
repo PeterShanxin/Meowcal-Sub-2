@@ -910,13 +910,15 @@ export function App(): JSX.Element {
           pointerEvents: settingsVisible ? "none" : "auto",
         }}
       >
-        <TopBar
-          phase={phase}
-          wsConnected={wsConnected}
-          engineStatus={engineStatus}
-          sourcesCount={countEnabledSources(config)}
-          onOpenSettings={openSettings}
-        />
+        {phase !== "live" && (
+          <TopBar
+            phase={phase}
+            wsConnected={wsConnected}
+            engineStatus={engineStatus}
+            sourcesCount={countEnabledSources(config)}
+            onOpenSettings={openSettings}
+          />
+        )}
         {phase !== "live" && sourceNotices.length > 0 && (
           <SourceHealthStrip notices={sourceNotices} onOpenSettings={openSettings} />
         )}
@@ -940,6 +942,7 @@ export function App(): JSX.Element {
           />
         )}
 
+        {phase !== "live" && (
         <div
           style={{
             position: "absolute",
@@ -1025,6 +1028,7 @@ export function App(): JSX.Element {
             />
           )}
         </div>
+        )}
 
         {phase === "prep" && (
           <div

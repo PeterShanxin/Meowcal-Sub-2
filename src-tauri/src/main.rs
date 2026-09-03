@@ -12,7 +12,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Listener, LogicalPosition, LogicalSize, Manager,
+    AppHandle, Emitter, Listener, Manager,
     PhysicalPosition, PhysicalSize, State,
 };
 use tokio::time::sleep;
@@ -39,13 +39,23 @@ struct CaptureRegionPayload {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// Where the HUD window goes, and where the capture frame sits inside it.
+///
+/// `left`/`top`/`width`/`height` place the window and are physical pixels;
+/// everything below them is laid out by the HUD page and is CSS pixels.
 struct HudRegionPayload {
+    #[serde(skip)]
     left: i32,
+    #[serde(skip)]
     top: i32,
+    #[serde(skip)]
     width: i32,
+    #[serde(skip)]
     height: i32,
     frame_left: i32,
     frame_top: i32,
+    frame_width: i32,
+    frame_height: i32,
     top_margin: i32,
     bottom_margin: i32,
     subtitle_position: &'static str,
@@ -63,7 +73,6 @@ struct CaptureRegionState {
     y: i32,
     width: i32,
     height: i32,
-    device_scale_factor: f64,
 }
 
 #[derive(Clone, Copy)]
@@ -294,7 +303,6 @@ fn fetch_capture_region_from_backend() -> Option<CaptureRegionState> {
         y,
         width,
         height,
-        device_scale_factor: 1.0,
     })
 }
 
@@ -309,18 +317,24 @@ fn current_cursor_position() -> Option<(i32, i32)> {
     }
 }
 
-fn compute_hud_region(region: CaptureRegionState) -> HudRegionPayload {
+/// `region` is physical pixels; the margins are the HUD page's own CSS pixels.
+fn compute_hud_region(region: CaptureRegionState, scale: f64) -> HudRegionPayload {
     let left_margin = 18;
     let right_margin = 18;
-    let top_margin = if region.y >= 150 { 150 } else { 48 };
+    let frame_width = (region.width as f64 / scale).round() as i32;
+    let frame_height = (region.height as f64 / scale).round() as i32;
+    let top_margin = if (region.y as f64 / scale) >= 150.0 { 150 } else { 48 };
     let bottom_margin = 122;
+    let scaled = |css: i32| (css as f64 * scale).round() as i32;
     HudRegionPayload {
-        left: region.x - left_margin,
-        top: region.y - top_margin,
-        width: region.width + left_margin + right_margin,
-        height: region.height + top_margin + bottom_margin,
+        left: region.x - scaled(left_margin),
+        top: region.y - scaled(top_margin),
+        width: region.width + scaled(left_margin + right_margin),
+        height: region.height + scaled(top_margin + bottom_margin),
         frame_left: left_margin,
         frame_top: top_margin,
+        frame_width,
+        frame_height,
         top_margin,
         bottom_margin,
         subtitle_position: if top_margin >= 110 { "above" } else { "below" },
@@ -342,12 +356,18 @@ fn configure_capture_hud(app: &AppHandle, shell: &ShellState) -> Result<(), Stri
         .get_webview_window("capture-hud")
         .ok_or("Capture HUD window not found")?;
     if let Some(region) = region {
-        let hud = compute_hud_region(region);
+        let scale = window
+            .current_monitor()
+            .ok()
+            .flatten()
+            .map(|monitor| monitor.scale_factor())
+            .unwrap_or(1.0);
+        let hud = compute_hud_region(region, scale);
         window
-            .set_position(LogicalPosition::new(hud.left as f64, hud.top as f64))
+            .set_position(PhysicalPosition::new(hud.left, hud.top))
             .map_err(|error| error.to_string())?;
         window
-            .set_size(LogicalSize::new(hud.width as f64, hud.height as f64))
+            .set_size(PhysicalSize::new(hud.width.max(1) as u32, hud.height.max(1) as u32))
             .map_err(|error| error.to_string())?;
         app.emit_to("capture-hud", "capture-hud-region", hud)
             .map_err(|error| error.to_string())?;
@@ -531,8 +551,20 @@ fn set_capture_region(
     y: i32,
     width: i32,
     height: i32,
-    device_scale_factor: f64,
 ) -> Result<(), String> {
+    // The selector reports CSS pixels inside its own fullscreen window. Screen
+    // capture wants physical pixels on the virtual desktop, so the monitor's
+    // scale factor and its origin both have to be applied - on a second monitor
+    // the origin is not zero, and it can be negative.
+    let selector = app
+        .get_webview_window("selector")
+        .ok_or("Selector window not found")?;
+    let monitor = selector
+        .current_monitor()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "no monitor".to_string())?;
+    let scale = monitor.scale_factor();
+    let origin = monitor.position();
     log_shell_event(
         "capture_region.set_requested",
         serde_json::json!({
@@ -540,14 +572,15 @@ fn set_capture_region(
             "y": y,
             "width": width,
             "height": height,
-            "device_scale_factor": device_scale_factor,
+            "scale_factor": scale,
+            "monitor_origin": [origin.x, origin.y],
         }),
     );
     let region = [
-        (x as f64 * device_scale_factor).round() as i32,
-        (y as f64 * device_scale_factor).round() as i32,
-        (width as f64 * device_scale_factor).round() as i32,
-        (height as f64 * device_scale_factor).round() as i32,
+        origin.x + (x as f64 * scale).round() as i32,
+        origin.y + (y as f64 * scale).round() as i32,
+        (width as f64 * scale).round() as i32,
+        (height as f64 * scale).round() as i32,
     ];
 
     let client = Client::builder()
@@ -585,7 +618,6 @@ fn set_capture_region(
         y,
         width,
         height,
-        device_scale_factor,
     });
     configure_capture_hud(&app, &shell)?;
 
