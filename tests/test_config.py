@@ -8,7 +8,7 @@ def test_default_config() -> None:
     cfg = AppConfig()
     assert cfg.source_language == "en"
     assert cfg.target_language == "zh"
-    assert cfg.capture_interval_ms == 1500
+    assert cfg.capture_interval_ms == 250
     assert cfg.fuzzy_threshold == 65
     assert cfg.overlay_port == 8765
 

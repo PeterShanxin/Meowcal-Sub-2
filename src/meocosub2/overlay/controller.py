@@ -23,7 +23,7 @@ from meocosub2.capture import available_ocr_languages, resolve_ocr_language
 from meocosub2.config import AppConfig, config_to_payload, overlay_style_payload, save_config
 from meocosub2.errors import SubtitleSourceError, TranslationError
 from meocosub2.event_log import log_event
-from meocosub2.foundry import foundry_status, make_foundry_ready
+from meocosub2 import engine
 from meocosub2.languages import (
     is_chinese_family,
     language_label,
@@ -43,8 +43,12 @@ from meocosub2.subtitle_sources import (
     SubtitleSearchAggregator,
 )
 from meocosub2.subtitles import align_subtitles, assign_target_translations, load_subtitle_file
-from meocosub2.sync import run_auto_candidate_sync_loop, run_ocr_fallback_loop, run_sync_loop
-from meocosub2.translator import translate_lines
+from meocosub2.sync import (
+    CandidateSession,
+    DirectTranslationSession,
+    open_live_translator,
+    run_session_loop,
+)
 
 
 def search_result_payload(result: AggregatedSubtitleResult) -> dict[str, object]:
@@ -154,12 +158,10 @@ class GuiController:
         self,
         config: AppConfig,
         app_event_emitter,
-        overlay_event_emitter,
         config_path: Path | None = None,
     ) -> None:
         self.config = config
         self._emit_app_event = app_event_emitter
-        self._emit_overlay_event = overlay_event_emitter
         self._config_path = config_path
         self._lock = asyncio.Lock()
         self._sync_task: asyncio.Task[None] | None = None
@@ -177,24 +179,16 @@ class GuiController:
         snapshot["config"] = config_to_payload(self.config)
         return snapshot
 
-    async def emit_initial_events(self) -> None:
-        await self._emit_app_state()
-        await self._emit_overlay_event("style", {"style": overlay_style_payload(self.config)})
-        if self._state.last_subtitle:
-            await self._emit_overlay_event("subtitle", {"text": self._state.last_subtitle})
-
     async def get_config_payload(self) -> dict[str, object]:
         return config_to_payload(self.config)
 
-    async def get_foundry_status_payload(self, probe: bool = False, auto_start: bool = False) -> dict[str, object]:
-        logger.debug("get_foundry_status_payload(probe=%s, auto_start=%s)", probe, auto_start)
-        status = await asyncio.to_thread(foundry_status, self.config, probe, auto_start)
-        logger.info("Foundry status: phase=%s notes=%s", status.phase, status.notes)
-        return asdict(status)
+    async def get_engine_status_payload(self) -> dict[str, object]:
+        status = await asyncio.to_thread(engine.status)
+        return status.payload()
 
-    async def prepare_foundry_payload(self) -> dict[str, object]:
-        status = await asyncio.to_thread(make_foundry_ready, self.config)
-        return asdict(status)
+    async def install_engine_payload(self) -> dict[str, object]:
+        status = await asyncio.to_thread(engine.install_engine)
+        return status.payload()
 
     async def install_ocr_language(self, language_tag: str) -> dict[str, object]:
         normalized = normalize_ocr_language(language_tag)
@@ -295,7 +289,6 @@ class GuiController:
         self._state.target_language = new_config.target_language
         await self._emit_app_state()
         await self._emit_app_event("style", {"style": overlay_style_payload(self.config)})
-        await self._emit_overlay_event("style", {"style": overlay_style_payload(self.config)})
         return config_to_payload(self.config)
 
     async def search(self, request: SearchRequest) -> dict[str, object]:
@@ -821,16 +814,10 @@ class GuiController:
             if target_lines:
                 assign_target_translations(source_lines, target_lines)
             else:
+                # Matched lines are translated as they appear rather than up front:
+                # a local 1.8B model needs hours for a whole subtitle file.
                 used_translation = True
-                warm_status = await asyncio.to_thread(make_foundry_ready, self.config)
-                if warm_status.phase != "ready":
-                    raise TranslationError(warm_status.notes)
-                await self._set_progress("translation", "Translating subtitles...", 0, len(source_lines))
-                await translate_lines(
-                    source_lines,
-                    self.config,
-                    progress_callback=lambda done, total: self._set_progress("translation", "Translating subtitles...", done, total),
-                )
+                await self._start_translation_engine()
         except Exception as exc:
             await self._set_error(str(exc))
             raise
@@ -866,9 +853,18 @@ class GuiController:
         async with self._lock:
             self._prepared_runtime = PreparedRuntime(
                 session_mode="subtitle_pair",
-                pair=pair,
                 target_lines=target_lines,
                 feature_id=effective_feature_id,
+                source_candidates=[
+                    SourceSubtitleCandidate(
+                        result_id=source_file_id,
+                        file_name=str(source_result.get("fileName") or ""),
+                        provider=str(source_result.get("providerLabel") or source_result.get("provider") or ""),
+                        language=str(source_result.get("language") or ""),
+                        path=str(source_path),
+                        pair=pair,
+                    )
+                ],
             )
             self._state.prepared_session = session
             self._state.status = "idle"
@@ -948,9 +944,7 @@ class GuiController:
                     candidate.pair.target_lines = target_lines
                     assign_target_translations(candidate.pair.source_lines, target_lines)
             else:
-                warm_status = await asyncio.to_thread(make_foundry_ready, self.config)
-                if warm_status.phase != "ready":
-                    raise TranslationError(warm_status.notes)
+                await self._start_translation_engine()
         except Exception as exc:
             await self._set_error(str(exc))
             raise
@@ -1045,9 +1039,7 @@ class GuiController:
         await self._emit_app_progress()
 
         try:
-            warm_status = await asyncio.to_thread(make_foundry_ready, self.config)
-            if warm_status.phase != "ready":
-                raise TranslationError(warm_status.notes)
+            await self._start_translation_engine()
 
             target_path: Path | None = None
             target_lines = []
@@ -1081,7 +1073,6 @@ class GuiController:
         async with self._lock:
             self._prepared_runtime = PreparedRuntime(
                 session_mode="ocr_fallback",
-                pair=None,
                 target_lines=target_lines,
                 feature_id=feature_id,
             )
@@ -1136,7 +1127,6 @@ class GuiController:
                 self._state.warning_message = ""
             await self._emit_app_state()
             await self._emit_app_event("subtitle", {"text": ""})
-            await self._emit_overlay_event("subtitle", {"text": ""})
             return {"status": self._state.status}
 
         async with self._lock:
@@ -1160,7 +1150,6 @@ class GuiController:
             self._state.warning_message = ""
         await self._emit_app_state()
         await self._emit_app_event("subtitle", {"text": ""})
-        await self._emit_overlay_event("subtitle", {"text": ""})
         return {"status": self._state.status}
 
     def _make_debug_broadcast(self) -> Callable[[dict[str, object]], Awaitable[None]]:
@@ -1172,7 +1161,6 @@ class GuiController:
         async with self._lock:
             self._state.last_subtitle = subtitle_text
         await self._emit_app_event("subtitle", {"text": subtitle_text})
-        await self._emit_overlay_event("subtitle", {"text": subtitle_text})
 
     async def shutdown(self) -> None:
         task = self._sync_task
@@ -1183,29 +1171,35 @@ class GuiController:
             except asyncio.CancelledError:
                 pass
 
-    async def _run_sync_loop(self, runtime: PreparedRuntime, config: AppConfig) -> None:
-        debug_cb = self._make_debug_broadcast() if config.debug_mode else None
+    async def _start_translation_engine(self) -> None:
         try:
-            if runtime.session_mode == "subtitle_pair":
-                if runtime.pair is None:
-                    raise RuntimeError("Prepared subtitle-pair runtime is missing source data.")
-                # Debug events ride alongside the normal broadcast path so the
-                # dashboard panel can inspect OCR timing without changing sync behavior.
-                await run_sync_loop(runtime.pair, config, self.broadcast_overlay_subtitle, debug_broadcast=debug_cb)
-            elif runtime.session_mode == "auto_candidates":
-                await run_auto_candidate_sync_loop(
-                    runtime.source_candidates,
-                    config,
-                    self.broadcast_overlay_subtitle,
-                    debug_broadcast=debug_cb,
-                )
+            await engine.ensure_ready()
+        except (engine.EngineStartError, engine.EngineInstallError) as exc:
+            raise TranslationError(str(exc)) from exc
+
+    async def _run_sync_loop(self, runtime: PreparedRuntime, config: AppConfig) -> None:
+        # Debug events ride alongside the normal broadcast path so the dashboard
+        # panel can inspect OCR timing without changing capture behavior.
+        debug_cb = self._make_debug_broadcast() if config.debug_mode else None
+        client = None
+        try:
+            translator = None
+            if runtime.needs_live_translation:
+                client, translator = await open_live_translator(config)
+            if runtime.source_candidates:
+                session = CandidateSession(runtime.source_candidates, config, translator)
+            elif translator is not None:
+                session = DirectTranslationSession(runtime.target_lines, config, translator)
             else:
-                await run_ocr_fallback_loop(runtime.target_lines, config, self.broadcast_overlay_subtitle, debug_broadcast=debug_cb)
+                raise RuntimeError("Prepared session has neither subtitle candidates nor translation.")
+            await run_session_loop(session, config, self.broadcast_overlay_subtitle, debug_broadcast=debug_cb)
         except asyncio.CancelledError:
             raise
-        except Exception as exc:  # pragma: no cover - defensive safety
+        except Exception as exc:
             await self._set_error(str(exc))
         finally:
+            if client is not None:
+                await client.close()
             if self._sync_task is asyncio.current_task():
                 self._sync_task = None
 

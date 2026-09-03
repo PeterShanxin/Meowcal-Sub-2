@@ -15,6 +15,7 @@ from urllib.parse import quote_plus
 import httpx
 from rapidfuzz import fuzz
 
+from meocosub2.subtitle_sources.cache_paths import contained_path, subtitle_file_name
 from meocosub2.errors import OpenSubtitlesError
 from meocosub2.event_log import log_event
 from meocosub2.languages import normalize_source_language
@@ -208,7 +209,9 @@ class OpenSubtitlesClient:
 
     async def download(self, file_id: int, file_name: str | None = None) -> Path:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        destination = self.cache_dir / (file_name or f"{file_id}.srt")
+        destination = contained_path(
+            self.cache_dir, subtitle_file_name(file_name or "", str(file_id))
+        )
         if destination.exists():
             return destination
 

@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 import type {
   BackendConfig,
   BackendSnapshot,
-  FoundryStatus,
+  EngineStatus,
   LanguagesPayload,
   LiveLine,
   PaletteTabId,
@@ -14,7 +14,7 @@ export interface UIState {
   snapshot: BackendSnapshot | null;
   config: BackendConfig | null;
   languages: LanguagesPayload | null;
-  foundry: FoundryStatus | null;
+  engine: EngineStatus | null;
   manualView: Phase | null;
   query: string;
   tab: PaletteTabId;
@@ -37,7 +37,7 @@ const initial: UIState = {
   snapshot: null,
   config: null,
   languages: null,
-  foundry: null,
+  engine: null,
   manualView: null,
   query: "",
   tab: "titles",

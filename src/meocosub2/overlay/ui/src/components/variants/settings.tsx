@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { BackendConfig } from "../../lib/types";
+import type { BackendConfig, EngineStatus } from "../../lib/types";
 import { api } from "../../hooks/use-api";
 import { tauri } from "../../hooks/use-tauri";
 import {
@@ -50,10 +50,14 @@ export function SettingsView({
   initialConfig,
   onClose,
   open,
+  engine,
+  onInstallEngine,
 }: {
   initialConfig: BackendConfig;
   onClose: () => void;
   open: boolean;
+  engine: EngineStatus | null;
+  onInstallEngine: () => void;
 }): JSX.Element {
   const [section, setSection] = useState<SectionId>("sources");
   const [draft, setDraft] = useState<BackendConfig>(initialConfig);
@@ -362,7 +366,12 @@ export function SettingsView({
             <OverlaySection draft={draft} update={update} />
           )}
           {section === "translate" && (
-            <TranslateSection draft={draft} update={update} />
+            <TranslateSection
+              draft={draft}
+              update={update}
+              engine={engine}
+              onInstallEngine={onInstallEngine}
+            />
           )}
           {section === "matching" && (
             <MatchingSection draft={draft} update={update} />
@@ -1003,7 +1012,7 @@ function OverlaySection({ draft, update }: SectionProps): JSX.Element {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
         <Field label="Overlay port" hint="Read-only; restart to change">
           <TextInput
-            value={String(overlay.port ?? draft.translation.endpoint ?? "8765")}
+            value={String(overlay.port ?? "8765")}
             onChange={() => {}}
           />
         </Field>
@@ -1036,43 +1045,66 @@ function coerce(original: unknown, next: string): unknown {
   return next;
 }
 
-function TranslateSection({ draft, update }: SectionProps): JSX.Element {
+interface TranslateSectionProps extends SectionProps {
+  engine: EngineStatus | null;
+  onInstallEngine: () => void;
+}
+
+function TranslateSection({
+  draft,
+  update,
+  engine,
+  onInstallEngine,
+}: TranslateSectionProps): JSX.Element {
   const t = draft.translation;
+  const installing = engine?.phase === "installing";
   return (
     <>
-      <Heading eyebrow="Translation" title="Foundry Local translation backend" />
+      <Heading eyebrow="Translation" title="On-device translation" />
+      <p style={{ margin: "0 0 18px", fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6 }}>
+        Subtitles are translated on this machine by {engine?.model || "a local model"}.
+        Nothing captured from your screen leaves the device.
+      </p>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 14,
+          padding: "14px 16px",
+          borderRadius: 12,
+          background: "var(--surface-2)",
+          border: "1px solid var(--border-soft)",
+          marginBottom: 18,
+        }}
+      >
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>{engine?.message ?? "Checking..."}</div>
+          {installing && (
+            <div style={{ marginTop: 8, height: 4, borderRadius: 2, background: "var(--border-soft)" }}>
+              <div
+                style={{
+                  width: `${engine?.installPercent ?? 0}%`,
+                  height: "100%",
+                  borderRadius: 2,
+                  background: "var(--accent)",
+                  transition: "width 400ms ease",
+                }}
+              />
+            </div>
+          )}
+        </div>
+        {engine?.phase === "needsSetup" || engine?.phase === "failed" ? (
+          <button type="button" className="settings-primary" onClick={onInstallEngine}>
+            {engine.phase === "failed" ? "Retry download" : "Download engine"}
+          </button>
+        ) : null}
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-        <Field label="Endpoint" hint="Foundry Local base URL">
-          <TextInput
-            value={t.endpoint}
-            onChange={(v) =>
-              update((c) => ({ ...c, translation: { ...c.translation, endpoint: v } }))
-            }
-            placeholder="http://localhost:5273"
-          />
-        </Field>
-        <Field label="Model">
-          <TextInput
-            value={t.model}
-            onChange={(v) =>
-              update((c) => ({ ...c, translation: { ...c.translation, model: v } }))
-            }
-          />
-        </Field>
-        <Field label="Timeout (s)">
+        <Field label="Timeout (s)" hint="How long one line may take before it is dropped">
           <NumberInput
             value={t.timeoutS}
             onChange={(v) =>
               update((c) => ({ ...c, translation: { ...c.translation, timeoutS: v } }))
-            }
-            min={1}
-          />
-        </Field>
-        <Field label="Batch size" hint="Lines per translation call">
-          <NumberInput
-            value={t.batchSize}
-            onChange={(v) =>
-              update((c) => ({ ...c, translation: { ...c.translation, batchSize: v } }))
             }
             min={1}
           />

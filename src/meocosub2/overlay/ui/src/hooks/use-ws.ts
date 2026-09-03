@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { store } from "../state/store";
 import type { BackendSnapshot } from "../lib/types";
+import { withToken } from "../lib/session";
 
 type WsMessage =
   | { type: "state"; state: BackendSnapshot }
@@ -15,7 +16,7 @@ type WsMessage =
 
 function wsUrl(): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.host}/ws/app`;
+  return `${proto}//${window.location.host}${withToken("/ws/app")}`;
 }
 
 export function useAppWebSocket(): void {

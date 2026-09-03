@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -21,15 +22,15 @@ async def _emit(*args, **kwargs) -> None:
 
 
 def make_controller(config_path: Path | None = None) -> GuiController:
-    return GuiController(AppConfig(foundry_model="manual-model"), _emit, _emit, config_path=config_path)
+    return GuiController(AppConfig(), _emit, config_path=config_path)
 
 
 @pytest.mark.asyncio
 async def test_prepare_session_allows_ocr_fallback_without_source_subtitle(tmp_path: Path, mocker) -> None:
     controller = make_controller(tmp_path / "config.toml")
     mocker.patch(
-        "meocosub2.overlay.controller.make_foundry_ready",
-        return_value=type("Status", (), {"phase": "ready", "notes": "Ready."})(),
+        "meocosub2.overlay.controller.engine.ensure_ready",
+        new=AsyncMock(return_value="http://127.0.0.1:11436"),
     )
     controller._state.title = "Fate/strange Fake"
     controller._state.source_language = "zht"
@@ -70,8 +71,8 @@ async def test_install_ocr_language_reports_failure_when_language_stays_unavaila
 async def test_prepare_session_downloads_non_opensubtitles_result(tmp_path: Path, mocker) -> None:
     controller = make_controller(tmp_path / "config.toml")
     mocker.patch(
-        "meocosub2.overlay.controller.make_foundry_ready",
-        return_value=type("Status", (), {"phase": "ready", "notes": "Ready."})(),
+        "meocosub2.overlay.controller.engine.ensure_ready",
+        new=AsyncMock(return_value="http://127.0.0.1:11436"),
     )
     source_path = tmp_path / "source.srt"
     source_path.write_text("1\n00:00:01,000 --> 00:00:02,000\nhello\n", encoding="utf-8")
@@ -271,8 +272,8 @@ async def test_prepare_auto_candidate_session_downloads_top_sources_and_best_tar
 async def test_prepare_auto_candidate_session_combines_source_and_target_warnings(tmp_path: Path, mocker) -> None:
     controller = make_controller(tmp_path / "config.toml")
     mocker.patch(
-        "meocosub2.overlay.controller.make_foundry_ready",
-        return_value=type("Status", (), {"phase": "ready", "notes": "Ready."})(),
+        "meocosub2.overlay.controller.engine.ensure_ready",
+        new=AsyncMock(return_value="http://127.0.0.1:11436"),
     )
     source_path = tmp_path / "source.srt"
     source_path.write_text("1\n00:00:01,000 --> 00:00:02,000\nhello there\n", encoding="utf-8")
@@ -328,8 +329,8 @@ async def test_prepare_auto_candidate_session_combines_source_and_target_warning
 async def test_prepare_auto_candidate_session_ignores_stale_completion(tmp_path: Path, mocker) -> None:
     controller = make_controller(tmp_path / "config.toml")
     mocker.patch(
-        "meocosub2.overlay.controller.make_foundry_ready",
-        return_value=type("Status", (), {"phase": "ready", "notes": "Ready."})(),
+        "meocosub2.overlay.controller.engine.ensure_ready",
+        new=AsyncMock(return_value="http://127.0.0.1:11436"),
     )
     source_path = tmp_path / "source.srt"
     source_path.write_text("1\n00:00:01,000 --> 00:00:02,000\nhello there\n", encoding="utf-8")

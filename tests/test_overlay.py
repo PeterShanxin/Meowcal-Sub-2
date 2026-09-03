@@ -2,10 +2,10 @@ import asyncio
 import json
 from pathlib import Path
 
-from fastapi.testclient import TestClient
 
 from meocosub2.config import AppConfig
 from meocosub2.overlay.server import OverlayServer
+from tests.conftest import TEST_TOKEN, studio_client
 
 
 def make_server(config_path: Path | None = None) -> OverlayServer:
@@ -31,12 +31,13 @@ def make_server(config_path: Path | None = None) -> OverlayServer:
             overlay_animation_ms=180,
         ),
         config_path=config_path,
+        access_token=TEST_TOKEN,
     )
 
 
 def test_dashboard_root_is_served(tmp_path: Path) -> None:
     server = make_server(tmp_path / "config.toml")
-    with TestClient(server.app) as client:
+    with studio_client(server) as client:
         dashboard = client.get("/")
     assert dashboard.status_code == 200
     # Vite bundle mounts a root element; legacy DOM-ID assertions are gone with
@@ -47,7 +48,7 @@ def test_dashboard_root_is_served(tmp_path: Path) -> None:
 
 def test_config_routes_return_compat_and_nested_payload(tmp_path: Path) -> None:
     server = make_server(tmp_path / "config.toml")
-    with TestClient(server.app) as client:
+    with studio_client(server) as client:
         compat = client.get("/config")
         api_payload = client.get("/api/config")
 
@@ -74,7 +75,7 @@ def test_config_routes_return_compat_and_nested_payload(tmp_path: Path) -> None:
 def test_put_config_updates_api_payload_and_persists_style(tmp_path: Path) -> None:
     config_path = tmp_path / "config.toml"
     server = make_server(config_path)
-    with TestClient(server.app) as client:
+    with studio_client(server) as client:
         with client.websocket_connect("/ws/app") as websocket:
             # Drain initial state frame, then style frame.
             _ = json.loads(websocket.receive_text())
@@ -133,7 +134,7 @@ def test_put_config_updates_api_payload_and_persists_style(tmp_path: Path) -> No
 def test_put_config_with_language_only_merge_persists_languages_without_resetting_other_settings(tmp_path: Path) -> None:
     config_path = tmp_path / "config.toml"
     server = make_server(config_path)
-    with TestClient(server.app) as client:
+    with studio_client(server) as client:
         initial_payload = client.get("/api/config").json()
         response = client.put(
             "/api/config",
@@ -161,7 +162,7 @@ def test_put_config_with_language_only_merge_persists_languages_without_resettin
 
 def test_app_websocket_receives_initial_state_and_subtitle_events(tmp_path: Path) -> None:
     server = make_server(tmp_path / "config.toml")
-    with TestClient(server.app) as client:
+    with studio_client(server) as client:
         with client.websocket_connect("/ws/app") as websocket:
             state_event = json.loads(websocket.receive_text())
             style_event = json.loads(websocket.receive_text())

@@ -29,15 +29,12 @@ class AppConfig:
     source_language: str = "en"
     target_language: str = "zh"
     capture_region: list[int] = field(default_factory=list)
-    capture_interval_ms: int = 1500
+    capture_interval_ms: int = 250
     ocr_language: str = "en-US"
     fuzzy_threshold: int = 65
     match_window_size: int = 30
     match_window_backward: int = 5
-    foundry_endpoint: str = "http://127.0.0.1:5273/v1"
-    foundry_model: str = ""
     translation_timeout_s: int = 30
-    translation_batch_size: int = 5
     overlay_port: int = 8765
     overlay_font_size: int = 28
     overlay_font_family: str = "Aptos"
@@ -117,15 +114,12 @@ def load_config(path: Path | None = None) -> AppConfig:
         source_language=source_language,
         target_language=target_language,
         capture_region=data.get("capture", {}).get("region", []),
-        capture_interval_ms=data.get("capture", {}).get("interval_ms", 1500),
+        capture_interval_ms=data.get("capture", {}).get("interval_ms", 250),
         ocr_language=derive_ocr_language(source_language, ocr_language),
         fuzzy_threshold=data.get("matching", {}).get("fuzzy_threshold", 65),
         match_window_size=data.get("matching", {}).get("window_size", 30),
         match_window_backward=data.get("matching", {}).get("window_backward", 5),
-        foundry_endpoint=data.get("translation", {}).get("endpoint", "http://127.0.0.1:5273/v1"),
-        foundry_model=data.get("translation", {}).get("model", ""),
         translation_timeout_s=data.get("translation", {}).get("timeout_s", 30),
-        translation_batch_size=data.get("translation", {}).get("batch_size", 5),
         overlay_port=data.get("overlay", {}).get("port", 8765),
         overlay_font_size=data.get("overlay", {}).get("font_size", 28),
         overlay_font_family=data.get("overlay", {}).get("font_family", "Aptos"),
@@ -192,10 +186,7 @@ def save_config(config: AppConfig, path: Path | None = None) -> None:
             "window_backward": config.match_window_backward,
         },
         "translation": {
-            "endpoint": config.foundry_endpoint,
-            "model": config.foundry_model,
             "timeout_s": config.translation_timeout_s,
-            "batch_size": config.translation_batch_size,
         },
         "overlay": {
             "port": config.overlay_port,
@@ -284,10 +275,7 @@ def config_to_payload(config: AppConfig) -> dict[str, object]:
             "windowBackward": config.match_window_backward,
         },
         "translation": {
-            "endpoint": config.foundry_endpoint,
-            "model": config.foundry_model,
             "timeoutS": config.translation_timeout_s,
-            "batchSize": config.translation_batch_size,
         },
         "overlay": {
             "port": config.overlay_port,
@@ -410,10 +398,7 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
         match_window_backward=_coerce_int(
             matching.get("windowBackward", base.match_window_backward), base.match_window_backward
         ),
-        foundry_endpoint=str(translation.get("endpoint", base.foundry_endpoint)),
-        foundry_model=str(translation.get("model", base.foundry_model)),
         translation_timeout_s=_coerce_int(translation.get("timeoutS", base.translation_timeout_s), base.translation_timeout_s),
-        translation_batch_size=_coerce_int(translation.get("batchSize", base.translation_batch_size), base.translation_batch_size),
         overlay_port=_coerce_int(overlay.get("port", base.overlay_port), base.overlay_port),
         overlay_font_size=_coerce_int(overlay.get("fontSize", base.overlay_font_size), base.overlay_font_size),
         overlay_font_family=str(overlay.get("fontFamily", base.overlay_font_family)),

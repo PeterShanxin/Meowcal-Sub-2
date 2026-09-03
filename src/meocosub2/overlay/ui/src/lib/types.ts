@@ -110,10 +110,7 @@ export interface BackendConfig {
   };
   matching: { fuzzyThreshold: number; windowSize: number };
   translation: {
-    endpoint: string;
-    model: string;
     timeoutS: number;
-    batchSize: number;
   };
   overlay: Record<string, unknown>;
   debug: { mode: boolean };
@@ -279,9 +276,12 @@ export interface LanguagesPayload {
   ocr?: OcrLanguageOption[];
 }
 
-export interface FoundryStatus {
-  phase: string;
-  notes?: string;
-  ready?: boolean;
-  [key: string]: unknown;
+export interface EngineStatus {
+  phase: "unsupported" | "needsSetup" | "installing" | "idle" | "ready" | "failed";
+  message: string;
+  model: string;
+  endpoint: string | null;
+  ready: boolean;
+  installPercent: number;
+  accelerator: string;
 }

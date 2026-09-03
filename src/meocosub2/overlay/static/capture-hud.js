@@ -1,5 +1,6 @@
 const TAURI = window.__TAURI__;
 let apiBase = "";
+let apiToken = "";
 
 const frame = document.getElementById("capture-frame");
 const statusChip = document.getElementById("hud-status-chip");
@@ -20,7 +21,7 @@ const state = {
 
 function wsUrl(path) {
   const url = new URL(apiBase);
-  return `ws://${url.host}${path}`;
+  return `ws://${url.host}${path}?token=${encodeURIComponent(apiToken)}`;
 }
 
 async function ensureApiBase() {
@@ -28,6 +29,7 @@ async function ensureApiBase() {
     return apiBase;
   }
   apiBase = await TAURI.core.invoke("get_api_base");
+  apiToken = await TAURI.core.invoke("get_api_token");
   return apiBase;
 }
 

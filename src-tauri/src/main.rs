@@ -157,13 +157,40 @@ fn api_base() -> String {
     format!("http://127.0.0.1:{}", overlay_port())
 }
 
+/// This run's Studio token, written by the backend when it starts listening.
+///
+/// Read fresh every time: the token changes with each backend start, and the
+/// shell can outlive a backend restart.
+fn access_token() -> String {
+    let Some(appdata) = std::env::var_os("APPDATA") else {
+        return String::new();
+    };
+    let path = PathBuf::from(appdata)
+        .join("meowcal-sub-2")
+        .join("runtime.json");
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|body| serde_json::from_str::<serde_json::Value>(&body).ok())
+        .and_then(|value| {
+            value
+                .get("token")
+                .and_then(|token| token.as_str())
+                .map(str::to_string)
+        })
+        .unwrap_or_default()
+}
+
+fn authorized(builder: reqwest::blocking::RequestBuilder) -> reqwest::blocking::RequestBuilder {
+    builder.header("X-Meowcal-Token", access_token())
+}
+
 fn backend_ready() -> bool {
     let api_base = api_base();
     Client::builder()
         .timeout(Duration::from_secs(2))
         .build()
         .ok()
-        .and_then(|client| client.get(format!("{api_base}/api/state")).send().ok())
+        .and_then(|client| authorized(client.get(format!("{api_base}/api/state"))).send().ok())
         .map(|response| response.status().is_success())
         .unwrap_or(false)
 }
@@ -226,8 +253,7 @@ fn post_json(path: &str, body: serde_json::Value) -> Result<(), String> {
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|error| error.to_string())?;
-    let response = client
-        .post(format!("{api_base}{path}"))
+    let response = authorized(client.post(format!("{api_base}{path}")))
         .json(&body)
         .send()
         .map_err(|error| error.to_string())?;
@@ -244,8 +270,7 @@ fn fetch_capture_region_from_backend() -> Option<CaptureRegionState> {
         .timeout(Duration::from_secs(5))
         .build()
         .ok()?;
-    let payload: serde_json::Value = client
-        .get(format!("{api_base}/api/config"))
+    let payload: serde_json::Value = authorized(client.get(format!("{api_base}/api/config")))
         .send()
         .ok()?
         .error_for_status()
@@ -481,6 +506,11 @@ fn get_api_base() -> String {
 }
 
 #[tauri::command]
+fn get_api_token() -> String {
+    access_token()
+}
+
+#[tauri::command]
 fn stop_translation(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), String> {
     log_shell_event("session.stop.requested", serde_json::json!({ "source": "tauri" }));
     post_json("/api/session/stop", serde_json::json!({}))?;
@@ -525,8 +555,7 @@ fn set_capture_region(
         .build()
         .map_err(|error| error.to_string())?;
     let api_base = api_base();
-    let mut payload: serde_json::Value = client
-        .get(format!("{api_base}/api/config"))
+    let mut payload: serde_json::Value = authorized(client.get(format!("{api_base}/api/config")))
         .send()
         .and_then(|response| response.error_for_status())
         .map_err(|error| error.to_string())?
@@ -534,8 +563,7 @@ fn set_capture_region(
         .map_err(|error| error.to_string())?;
     payload["capture"]["region"] = serde_json::json!(region);
 
-    client
-        .put(format!("{api_base}/api/config"))
+    authorized(client.put(format!("{api_base}/api/config")))
         .json(&payload)
         .send()
         .and_then(|response| response.error_for_status())
@@ -613,6 +641,7 @@ fn navigate_main_to_backend(app: &AppHandle) {
         .map(|duration| duration.as_millis().to_string())
         .unwrap_or_else(|_| "0".to_string());
     url.query_pairs_mut().append_pair("desktopLaunch", &launch_id);
+    url.query_pairs_mut().append_pair("token", &access_token());
     log_shell_event("window.main.navigate", serde_json::json!({ "url": url.as_str() }));
     let _ = window.navigate(url);
     let _ = window.set_focus();
@@ -653,6 +682,7 @@ fn main() {
             get_api_base,
             stop_translation,
             set_capture_region,
+            get_api_token,
         ])
         .setup(move |app| {
             log_shell_event("app.setup.start", serde_json::json!({}));

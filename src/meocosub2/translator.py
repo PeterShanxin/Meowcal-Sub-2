@@ -1,203 +1,133 @@
-"""Batch subtitle translation through a Foundry Local OpenAI-compatible endpoint."""
+"""Subtitle translation through the managed local HY-MT engine.
+
+Prompt shape and sampling are ported from Meowcal Sub v1, where they were tuned
+for HY-MT1.5: a single instruction line per subtitle, recent lines as context,
+and low-temperature sampling so the model translates instead of chatting.
+"""
 
 from __future__ import annotations
 
-import asyncio
-import inspect
+import logging
 import re
-from typing import Callable
 
-from openai import APIConnectionError, APIError, APITimeoutError, AsyncOpenAI
+import httpx
 
+from meocosub2 import engine
 from meocosub2.config import AppConfig
 from meocosub2.errors import TranslationError
-from meocosub2.foundry import resolve_foundry_api_base, select_model
-from meocosub2.models import SubtitleLine
+from meocosub2.languages import language_label
+from meocosub2.textnorm import collapse_whitespace, is_cjk_char
+
+logger = logging.getLogger(__name__)
+
+MAX_SOURCE_CHARS = 300
+MAX_CONTEXT_CHARS = 400
+SAMPLING = {"temperature": 0.3, "top_k": 20, "top_p": 0.6, "repeat_penalty": 1.05}
+MAX_OUTPUT_TOKENS = 150
+
+
+def is_untranslatable(text: str) -> bool:
+    """OCR noise that should never reach the model."""
+    cleaned = collapse_whitespace(text)
+    if not cleaned:
+        return True
+    meaningful = sum(1 for ch in cleaned if ch.isalpha() or is_cjk_char(ch))
+    return meaningful < 2
+
+
+def _truncate(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[:limit]
+
+
+def _clip_context(lines: list[str], limit: int) -> str:
+    kept: list[str] = []
+    used = 0
+    for line in reversed(lines):
+        if used + len(line) > limit:
+            break
+        kept.append(line)
+        used += len(line) + 1
+    return "\n".join(reversed(kept))
+
+
+def build_prompt(text: str, target_language: str, context_lines: list[str] | None = None) -> str:
+    source = _truncate(collapse_whitespace(text), MAX_SOURCE_CHARS)
+    label = language_label(target_language)
+    chinese_template = target_language.lower().startswith("zh")
+    context = _clip_context(list(context_lines or []), MAX_CONTEXT_CHARS)
+
+    if chinese_template:
+        if context:
+            return (
+                f"{context}\n参考上面的信息，把下面的文本翻译成{label}，"
+                f"注意不需要翻译上文，也不要额外解释：\n{source}"
+            )
+        return f"将以下文本翻译为{label}，注意只需要输出翻译后的结果，不要额外解释：\n\n{source}"
+    if context:
+        return (
+            f"{context}\nBased on the information above, translate the text below into "
+            f"{label}. Do not translate the context or add explanations:\n{source}"
+        )
+    return f"Translate the following segment into {label}, without additional explanation.\n\n{source}"
 
 
 def sanitize_output(text: str) -> str:
     cleaned_lines: list[str] = []
     for raw_line in text.splitlines():
         line = raw_line.strip()
-        line = re.sub(r"^\s*(translation|output)\s*:\s*", "", line, flags=re.IGNORECASE)
-        line = line.strip().strip("\"'")
-        line = re.sub(r"^\s*\d+[\.\)]\s*", "", line)
+        line = re.sub(r"^\s*(translation|output|译文)\s*[:：]\s*", "", line, flags=re.IGNORECASE)
         line = line.strip().strip("\"'")
         if not line:
             continue
         if re.match(r"^(here|note|explanation)\b", line, flags=re.IGNORECASE):
             continue
         cleaned_lines.append(line)
-    return "\n".join(cleaned_lines).strip()
+    return " ".join(cleaned_lines).strip()
 
 
-def build_translation_prompt(
-    lines: list[str],
-    source_lang: str,
-    target_lang: str,
-    context_lines: list[str] | None = None,
-) -> str:
-    prompt = [
-        f"Translate these subtitle lines from {source_lang} into {target_lang}.",
-        "Output ONLY the translations, numbered to match the input. No explanations.",
-    ]
-    if context_lines:
-        prompt.append("")
-        prompt.append("Context:")
-        prompt.extend(context_lines[-3:])
-    prompt.append("")
-    for index, line in enumerate(lines, start=1):
-        prompt.append(f"{index}. {line}")
-    return "\n".join(prompt)
+class TranslationClient:
+    """A short-lived connection to the managed engine, reused for a whole session."""
 
+    def __init__(self, base_url: str, model: str, timeout_s: float) -> None:
+        self._base_url = base_url
+        self._model = model
+        self._client = httpx.AsyncClient(timeout=timeout_s)
 
-def parse_batch_response(response: str, expected_count: int) -> list[str]:
-    numbered: dict[int, str] = {}
-    for raw_line in response.splitlines():
-        match = re.match(r"^\s*(\d+)[\.\)]\s*(.*)$", raw_line)
-        if match:
-            numbered[int(match.group(1))] = match.group(2).strip()
-
-    if numbered:
-        parsed = [numbered.get(index, "") for index in range(1, expected_count + 1)]
-    else:
-        parsed = [line.strip() for line in response.splitlines() if line.strip()]
-
-    if len(parsed) < expected_count:
-        parsed.extend([""] * (expected_count - len(parsed)))
-    return parsed[:expected_count]
-
-
-async def _resolve_model(client: AsyncOpenAI, config: AppConfig) -> str:
-    try:
-        models = await client.models.list()
-    except (APIConnectionError, APITimeoutError, APIError) as exc:
-        raise TranslationError(f"Foundry Local model discovery failed: {exc}") from exc
-    if not getattr(models, "data", None):
-        raise TranslationError("No models available from Foundry Local")
-    model_ids = [str(model.id) for model in models.data]
-    selected = select_model(config.foundry_model or None, model_ids)
-    if not selected:
-        raise TranslationError("Foundry Local did not return a usable model.")
-    return selected
-
-
-async def open_translation_client(config: AppConfig) -> tuple[AsyncOpenAI, str]:
-    api_base = await asyncio.to_thread(resolve_foundry_api_base, config)
-    client = AsyncOpenAI(
-        base_url=api_base,
-        api_key="foundry-local",
-        timeout=config.translation_timeout_s,
-    )
-    try:
-        model = await _resolve_model(client, config)
-    except Exception:
-        await client.close()
-        raise
-    return client, model
-
-
-async def _emit_progress(
-    callback: Callable[[int, int], object] | None,
-    done: int,
-    total: int,
-) -> None:
-    if callback is None:
-        return
-    result = callback(done, total)
-    if inspect.isawaitable(result):
-        await result
-
-
-async def translate_lines(
-    lines: list[SubtitleLine],
-    config: AppConfig,
-    progress_callback: Callable[[int, int], object] | None = None,
-    client: AsyncOpenAI | None = None,
-) -> list[SubtitleLine]:
-    if not lines:
-        return []
-
-    own_client = client is None
-    if client is None:
-        client, model = await open_translation_client(config)
-    else:
-        model = await _resolve_model(client, config)
-
-    try:
-        context: list[str] = []
-        total = len(lines)
-
-        for start in range(0, total, config.translation_batch_size):
-            batch = lines[start : start + config.translation_batch_size]
-            prompt = build_translation_prompt(
-                [line.text for line in batch],
-                config.source_language,
-                config.target_language,
-                context[-3:],
-            )
-            try:
-                response = await client.chat.completions.create(
-                    model=model,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0,
-                )
-            except (APIConnectionError, APITimeoutError, APIError) as exc:
-                raise TranslationError(f"Foundry Local translation request failed: {exc}") from exc
-            content = response.choices[0].message.content or ""
-            outputs = parse_batch_response(content, len(batch))
-
-            for line, output in zip(batch, outputs):
-                translated = sanitize_output(output)
-                if not translated:
-                    translated = line.text
-                line.translated = translated
-                context.append(translated)
-
-            await _emit_progress(progress_callback, min(start + len(batch), total), total)
-
-        return lines
-    finally:
-        if own_client:
-            await client.close()
-
-
-async def translate_text(
-    text: str,
-    config: AppConfig,
-    context_lines: list[str] | None = None,
-    client: AsyncOpenAI | None = None,
-    model: str | None = None,
-) -> str:
-    if not text.strip():
-        return ""
-
-    own_client = client is None
-    if client is None:
-        client, model = await open_translation_client(config)
-    elif model is None:
-        model = await _resolve_model(client, config)
-
-    try:
-        prompt = build_translation_prompt(
-            [text],
-            config.source_language,
-            config.target_language,
-            context_lines,
-        )
+    async def translate(
+        self,
+        text: str,
+        target_language: str,
+        context_lines: list[str] | None = None,
+    ) -> str:
+        if is_untranslatable(text):
+            return ""
+        prompt = build_prompt(text, target_language, context_lines)
         try:
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0,
+            response = await self._client.post(
+                f"{self._base_url}/v1/chat/completions",
+                json={
+                    "model": self._model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": MAX_OUTPUT_TOKENS,
+                    **SAMPLING,
+                },
             )
-        except (APIConnectionError, APITimeoutError, APIError) as exc:
-            raise TranslationError(f"Foundry Local translation request failed: {exc}") from exc
+            response.raise_for_status()
+            payload = response.json()
+        except httpx.HTTPError as exc:
+            raise TranslationError(f"The local translation engine did not respond: {exc}") from exc
+        except ValueError as exc:
+            raise TranslationError("The local translation engine returned an unreadable reply.") from exc
 
-        content = response.choices[0].message.content or ""
-        outputs = parse_batch_response(content, 1)
-        translated = sanitize_output(outputs[0] if outputs else content)
-        return translated or text
-    finally:
-        if own_client:
-            await client.close()
+        choices = payload.get("choices") or []
+        content = choices[0].get("message", {}).get("content", "") if choices else ""
+        return sanitize_output(content)
+
+    async def close(self) -> None:
+        await self._client.aclose()
+
+
+async def open_translation_client(config: AppConfig) -> TranslationClient:
+    endpoint = await engine.ensure_ready()
+    manifest_model = engine.load_manifest().model.id
+    return TranslationClient(endpoint, manifest_model, config.translation_timeout_s)

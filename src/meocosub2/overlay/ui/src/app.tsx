@@ -47,7 +47,7 @@ export function App(): JSX.Element {
   useAppWebSocket();
   const snapshot = useStore((s) => s.snapshot);
   const config = useStore((s) => s.config);
-  const foundry = useStore((s) => s.foundry);
+  const engineStatus = useStore((s) => s.engine);
   const manualView = useStore((s) => s.manualView);
   const query = useStore((s) => s.query);
   const tab = useStore((s) => s.tab);
@@ -82,22 +82,22 @@ export function App(): JSX.Element {
   const seasonHydrateInFlight = useRef<Set<string>>(new Set());
   const backgroundSearchCount = useRef(0);
 
-  // Bootstrap: initial state + config + foundry status
+  // Bootstrap: initial state + config + translation engine status
   useEffect(() => {
     let cancelled = false;
     const load = async (): Promise<void> => {
       try {
-        const [snap, langs, foundryStatus] = await Promise.all([
+        const [snap, langs, engine] = await Promise.all([
           api.getState(),
           api.getLanguages(),
-          api.getFoundryStatus(false, false).catch(() => null),
+          api.getEngineStatus().catch(() => null),
         ]);
         if (cancelled) return;
         store.set({
           snapshot: snap,
           config: snap.config,
           languages: langs,
-          foundry: foundryStatus,
+          engine,
         });
       } catch (err) {
         if (!cancelled) {
@@ -661,6 +661,25 @@ export function App(): JSX.Element {
     logClientEvent("ui.session.stop_completed", {}, correlationId);
   }, []);
 
+  const refreshEngine = useCallback(async (): Promise<void> => {
+    const engine = await api.getEngineStatus().catch(() => null);
+    if (engine) store.set({ engine });
+  }, []);
+
+  const installEngine = useCallback(async (): Promise<void> => {
+    const engine = await api.installEngine().catch(() => null);
+    if (engine) store.set({ engine });
+  }, []);
+
+  // The engine installs in the background and starts with the first session, so
+  // the badge has to keep asking rather than trust the bootstrap snapshot.
+  useEffect(() => {
+    const busy = engineStatus?.phase === "installing";
+    const period = busy ? 1000 : 15000;
+    const timer = window.setInterval(() => void refreshEngine(), period);
+    return () => window.clearInterval(timer);
+  }, [engineStatus?.phase, refreshEngine]);
+
   const openSettings = useCallback(() => {
     if (store.get().config) {
       logClientEvent("ui.settings.opened");
@@ -888,7 +907,7 @@ export function App(): JSX.Element {
         <TopBar
           phase={phase}
           wsConnected={wsConnected}
-          foundryPhase={foundry?.phase ?? "—"}
+          engineStatus={engineStatus}
           sourcesCount={countEnabledSources(config)}
           onOpenSettings={openSettings}
         />
@@ -1041,6 +1060,8 @@ export function App(): JSX.Element {
           initialConfig={config}
           onClose={closeSettings}
           open={showSettings}
+          engine={engineStatus}
+          onInstallEngine={() => void installEngine()}
         />
       )}
 
