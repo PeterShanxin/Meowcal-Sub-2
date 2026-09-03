@@ -963,3 +963,43 @@ async def test_save_config_payload_updates_state_languages_and_persists_file(tmp
     saved_text = config_path.read_text(encoding="utf-8")
     assert 'source = "ja"' in saved_text
     assert 'target = "fr"' in saved_text
+
+
+async def test_saving_a_language_change_clears_the_titles_it_invalidates(tmp_path: Path) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+    controller._search_catalog = AggregatedSearchCatalog(matches=[], results=[])
+    controller._state.search_results = [{"resultId": "result-1", "matchId": "match-1"}]
+    controller._state.search_matches = [{"matchId": "match-1"}]
+    controller._state.search_works = [{"workId": "work-1"}]
+    controller._state.selected_feature_id = "match-1"
+
+    await controller.save_config_payload({"languages": {"source": "ja", "target": "en"}})
+
+    assert controller._search_catalog is None
+    assert controller._state.search_results == []
+    assert controller._state.search_matches == []
+    assert controller._state.search_works == []
+    assert controller._state.selected_feature_id is None
+
+
+async def test_saving_an_overlay_change_keeps_the_current_search(tmp_path: Path) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+    catalog = AggregatedSearchCatalog(matches=[], results=[])
+    controller._search_catalog = catalog
+    controller._state.search_results = [{"resultId": "result-1", "matchId": "match-1"}]
+    controller._state.selected_feature_id = "match-1"
+
+    await controller.save_config_payload({"overlay": {"fontSize": 44}})
+
+    assert controller._search_catalog is catalog
+    assert controller._state.search_results
+    assert controller._state.selected_feature_id == "match-1"
+
+
+async def test_preparing_after_the_catalog_is_dropped_reports_a_stale_search(tmp_path: Path) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+    controller._state.search_matches = [{"matchId": "match-1", "title": "Inception"}]
+    controller._search_catalog = None
+
+    with pytest.raises(ValueError):
+        await controller.prepare_session(mode="auto_candidates", feature_id="match-1")

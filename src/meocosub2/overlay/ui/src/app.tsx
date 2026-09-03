@@ -638,10 +638,16 @@ export function App(): JSX.Element {
       const saved = await api.putConfig(next);
       store.set({ config: saved });
       store.resetSelection();
+      // Languages are part of the query, so the previous results no longer
+      // describe what was asked for. Ask again rather than leaving stale titles.
+      const previousQuery = lastSearchedQuery.current;
+      if (previousQuery) {
+        await runSearch(previousQuery);
+      }
     } catch (err) {
       store.set({ error: err instanceof Error ? err.message : String(err) });
     }
-  }, []);
+  }, [runSearch]);
 
   const clearSession = useCallback(async () => {
     const correlationId = clientEventId("stop");

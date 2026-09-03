@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "meowcal-sub-2"
 version = "0.1.0"
-description = "CLI app for fetching subtitles from OpenSubtitles, translating with Foundry Local, and syncing via OCR"
+description = "Windows subtitle studio: find subtitles, read the screen with OCR, translate on device, and show the result live"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
@@ -18,7 +18,6 @@ dependencies = [
     "mss>=9.0",
     "winocr>=0.0.15",
     "rapidfuzz>=3.0",
-    "openai>=1.0",
     "pillow>=10.0",
     "fastapi>=0.100",
     "uvicorn[standard]>=0.23",

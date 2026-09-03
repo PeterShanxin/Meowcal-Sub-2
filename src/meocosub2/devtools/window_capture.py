@@ -56,6 +56,22 @@ def default_output_dir(mode: str) -> Path:
 def _require_windows() -> None:
     if os.name != "nt":
         raise RuntimeError("Window capture is only supported on Windows.")
+    _become_dpi_aware()
+
+
+def _become_dpi_aware() -> None:
+    """Report window bounds in physical pixels.
+
+    Without this the process sees scaled coordinates while `ImageGrab` grabs
+    physical ones, so on a scaled display every capture is offset and cropped.
+    """
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except (AttributeError, OSError):
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except (AttributeError, OSError):
+            pass
 
 
 def enumerate_windows() -> list[WindowInfo]:

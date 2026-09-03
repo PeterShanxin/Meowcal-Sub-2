@@ -282,14 +282,33 @@ class GuiController:
         # not silently reset unrelated settings.
         new_config = config_from_payload(payload, fallback=self.config)
         save_config(new_config, self._config_path)
+        previous_config = self.config
         self.config = new_config
         self._aggregator = SubtitleSearchAggregator(new_config)
-        self._search_catalog = None
+        if _search_inputs_changed(previous_config, new_config):
+            self._clear_search_state()
         self._state.source_language = new_config.source_language
         self._state.target_language = new_config.target_language
         await self._emit_app_state()
         await self._emit_app_event("style", {"style": overlay_style_payload(self.config)})
         return config_to_payload(self.config)
+
+    def _clear_search_state(self) -> None:
+        """Drop the catalog and everything derived from it.
+
+        The results the UI offers and the catalog a session is prepared from have
+        to describe the same search. Dropping only the catalog left the studio
+        showing titles whose candidates no longer existed, and preparing one of
+        them fell through to OCR translation while reporting that no subtitle
+        matched the language.
+        """
+        self._search_catalog = None
+        self._state.search_results = []
+        self._state.search_matches = []
+        self._state.search_works = []
+        self._state.selected_feature_id = None
+        self._state.selected_source_file_id = None
+        self._state.selected_target_file_id = None
 
     async def search(self, request: SearchRequest) -> dict[str, object]:
         correlation_id = request.correlation_id or f"search-{uuid4().hex[:12]}"
@@ -881,6 +900,8 @@ class GuiController:
         feature = self._find_search_match(feature_id)
         if feature is None:
             raise ValueError("Selected title was not found in the current search matches.")
+        if self._search_catalog is None:
+            raise ValueError("These results are out of date. Search again to pick a title.")
 
         source_entries = self._candidate_results_for_feature(
             feature_id,
@@ -1274,6 +1295,33 @@ class GuiController:
 
     async def _emit_app_progress(self) -> None:
         await self._emit_app_event("progress", {"progress": asdict(self._state.progress)})
+
+
+def _search_inputs_changed(previous: AppConfig, current: AppConfig) -> bool:
+    """Whether a config change invalidates the results of the last search."""
+    return (
+        previous.source_language,
+        previous.target_language,
+        previous.opensubtitles_enabled,
+        previous.opensubtitles_api_key,
+        previous.subdl_enabled,
+        previous.subdl_api_key,
+        previous.assrt_enabled,
+        previous.assrt_token,
+        previous.tmdb_api_key,
+        previous.tmdb_merge_enabled,
+    ) != (
+        current.source_language,
+        current.target_language,
+        current.opensubtitles_enabled,
+        current.opensubtitles_api_key,
+        current.subdl_enabled,
+        current.subdl_api_key,
+        current.assrt_enabled,
+        current.assrt_token,
+        current.tmdb_api_key,
+        current.tmdb_merge_enabled,
+    )
 
 
 def _expand_search_languages(source_language: str, target_language: str) -> str:
