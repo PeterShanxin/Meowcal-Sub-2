@@ -5,6 +5,7 @@ from meocosub2.errors import TranslationError
 from meocosub2.translator import (
     TranslationClient,
     build_prompt,
+    drop_restated_context,
     is_untranslatable,
     is_usable_translation,
     looks_like_a_loop,
@@ -23,25 +24,31 @@ def test_sanitize_output_joins_wrapped_lines_into_one_subtitle() -> None:
 
 
 def test_build_prompt_uses_the_chinese_template_for_chinese_targets() -> None:
-    prompt = build_prompt("Hello there", "zh")
+    prompt = build_prompt("Hello there", "en", "zh")
     assert "将以下文本翻译为" in prompt
     assert "Hello there" in prompt
 
 
-def test_build_prompt_uses_the_english_template_for_other_targets() -> None:
-    prompt = build_prompt("你好", "en")
-    assert "Translate the following segment into English" in prompt
+def test_build_prompt_uses_the_chinese_template_for_chinese_sources() -> None:
+    prompt = build_prompt("你好", "zh", "en")
+    assert "将以下文本翻译为英语" in prompt
     assert "你好" in prompt
 
 
+def test_build_prompt_uses_the_english_template_when_neither_side_is_chinese() -> None:
+    prompt = build_prompt("Bonjour", "fr", "en")
+    assert "Translate the following segment into English" in prompt
+    assert "Bonjour" in prompt
+
+
 def test_build_prompt_carries_recent_lines_as_context() -> None:
-    prompt = build_prompt("Third", "zh", ["First", "Second"])
+    prompt = build_prompt("Third", "en", "zh", ["First", "Second"])
     assert prompt.startswith("First\nSecond")
     assert "参考上面的信息" in prompt
 
 
 def test_build_prompt_clips_context_to_the_most_recent_lines() -> None:
-    prompt = build_prompt("now", "en", ["x" * 500, "recent"])
+    prompt = build_prompt("now", "fr", "en", ["x" * 500, "recent"])
     assert "recent" in prompt
     assert "x" * 500 not in prompt
 
@@ -74,7 +81,7 @@ async def test_translate_posts_the_prompt_and_returns_the_cleaned_reply() -> Non
         )
 
     client = _client(handler)
-    assert await client.translate("Hello", "zh") == "你好"
+    assert await client.translate("Hello", "en", "zh") == "你好"
     assert seen["url"] == "http://engine.test/v1/chat/completions"
     assert "将以下文本翻译为" in str(seen["body"])
     await client.close()
@@ -86,7 +93,7 @@ async def test_translate_skips_the_engine_for_ocr_noise() -> None:
         raise AssertionError("noise should never reach the engine")
 
     client = _client(handler)
-    assert await client.translate("//", "zh") == ""
+    assert await client.translate("//", "en", "zh") == ""
     await client.close()
 
 
@@ -97,7 +104,7 @@ async def test_translate_reports_an_unreachable_engine() -> None:
 
     client = _client(handler)
     with pytest.raises(TranslationError):
-        await client.translate("Hello", "zh")
+        await client.translate("Hello", "en", "zh")
     await client.close()
 
 
@@ -138,7 +145,7 @@ async def test_unusable_output_is_not_shown() -> None:
         )
 
     client = _client(handler)
-    assert await client.translate("请给我们五分钟", "en") == ""
+    assert await client.translate("请给我们五分钟", "zh", "en") == ""
     await client.close()
 
 
@@ -173,3 +180,36 @@ def test_an_english_answer_with_a_quoted_chinese_name_is_kept() -> None:
     assert is_usable_translation(
         "他叫做小明", "His name is 小明, and he lives nearby.", "en"
     )
+
+
+def test_leading_sentences_that_restate_the_context_are_dropped() -> None:
+    context = [
+        "I understand; it's like I'm trying to uncover something within it.",
+        "Isn't that the real inspiration, right?",
+    ]
+    answer = (
+        "I understand; it's as if I'm trying to uncover something within it. "
+        "Isn't that the real inspiration, right? "
+        "Yes, we will continue to do so in our dreams."
+    )
+    assert (
+        drop_restated_context(answer, context)
+        == "Yes, we will continue to do so in our dreams."
+    )
+
+
+def test_a_fresh_translation_is_left_alone() -> None:
+    context = ["Please give us five minutes."]
+    assert drop_restated_context("Five minutes? We talked for an hour.", context) == (
+        "Five minutes? We talked for an hour."
+    )
+
+
+def test_an_answer_that_is_only_restatement_is_dropped() -> None:
+    context = ["Please give us five minutes.", "Five minutes?"]
+    answer = "Please give us five minutes. Five minutes?"
+    assert drop_restated_context(answer, context) == ""
+
+
+def test_nothing_is_dropped_without_context() -> None:
+    assert drop_restated_context("One. Two.", []) == "One. Two."

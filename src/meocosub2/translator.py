@@ -11,6 +11,7 @@ import logging
 import re
 
 import httpx
+from rapidfuzz import fuzz
 
 from meocosub2 import engine
 from meocosub2.config import AppConfig
@@ -33,6 +34,9 @@ MIN_CJK_TO_ENGLISH_CHARS = 64
 MIN_TOKENS_FOR_REPETITION = 8
 MAX_REPEATED_TOKEN_STREAK = 4
 MIN_CHARS_TO_JUDGE_SCRIPT = 6
+# How closely a leading sentence must restate a line already on screen before it
+# is treated as the model repeating its context rather than translating.
+RESTATED_CONTEXT_SIMILARITY = 80.0
 
 MAX_SOURCE_CHARS = 300
 MAX_CONTEXT_CHARS = 400
@@ -64,10 +68,38 @@ def _clip_context(lines: list[str], limit: int) -> str:
     return "\n".join(reversed(kept))
 
 
-def build_prompt(text: str, target_language: str, context_lines: list[str] | None = None) -> str:
+# The instruction template is written in Chinese whenever either side of the pair
+# is Chinese: HY-MT follows a Chinese instruction far more reliably there, and a
+# zh->en session asked in English re-emitted the context as part of its answer.
+_CHINESE_TARGET_LABELS = {
+    "zh": "中文",
+    "zht": "繁体中文",
+    "en": "英语",
+    "ja": "日语",
+    "ko": "韩语",
+    "fr": "法语",
+    "de": "德语",
+    "es": "西班牙语",
+}
+
+
+def _is_chinese(code: str) -> bool:
+    return code.lower().split("-")[0] in {"zh", "zht"}
+
+
+def build_prompt(
+    text: str,
+    source_language: str,
+    target_language: str,
+    context_lines: list[str] | None = None,
+) -> str:
     source = _truncate(collapse_whitespace(text), MAX_SOURCE_CHARS)
-    label = language_label(target_language)
-    chinese_template = target_language.lower().startswith("zh")
+    chinese_template = _is_chinese(target_language) or _is_chinese(source_language)
+    label = (
+        _CHINESE_TARGET_LABELS.get(target_language.lower(), language_label(target_language))
+        if chinese_template
+        else language_label(target_language)
+    )
     context = _clip_context(list(context_lines or []), MAX_CONTEXT_CHARS)
 
     if chinese_template:
@@ -202,6 +234,40 @@ def is_usable_translation(source: str, translated: str, target_language: str) ->
     return not _wrong_script(translated, target_language)
 
 
+def _sentences(text: str) -> list[str]:
+    parts = re.split(r"(?<=[.!?。！？])\s+", text.strip())
+    return [part for part in parts if part.strip()]
+
+
+def drop_restated_context(translated: str, context_lines: list[str]) -> str:
+    """Remove leading sentences that repeat a line the viewer has already seen.
+
+    Asked to translate one subtitle with recent lines as context, the model
+    sometimes answers with the context and the new line together. The new line is
+    the tail, so the leading restatements are dropped; an answer that is nothing
+    but restatement is dropped entirely, leaving the line already on screen.
+    """
+    if not context_lines:
+        return translated
+    sentences = _sentences(translated)
+    if len(sentences) < 2:
+        return translated
+    kept = 0
+    for sentence in sentences:
+        if any(
+            fuzz.ratio(sentence.lower(), line.lower()) >= RESTATED_CONTEXT_SIMILARITY
+            for line in context_lines
+        ):
+            kept += 1
+            continue
+        break
+    if kept == 0:
+        return translated
+    # Every sentence restates something already on screen: the answer carries
+    # nothing new, and the line the viewer is reading is still the right one.
+    return " ".join(sentences[kept:]).strip()
+
+
 class TranslationClient:
     """A short-lived connection to the managed engine, reused for a whole session."""
 
@@ -213,12 +279,13 @@ class TranslationClient:
     async def translate(
         self,
         text: str,
+        source_language: str,
         target_language: str,
         context_lines: list[str] | None = None,
     ) -> str:
         if is_untranslatable(text):
             return ""
-        prompt = build_prompt(text, target_language, context_lines)
+        prompt = build_prompt(text, source_language, target_language, context_lines)
         try:
             response = await self._client.post(
                 f"{self._base_url}/v1/chat/completions",
@@ -238,7 +305,7 @@ class TranslationClient:
 
         choices = payload.get("choices") or []
         content = choices[0].get("message", {}).get("content", "") if choices else ""
-        translated = sanitize_output(content)
+        translated = drop_restated_context(sanitize_output(content), list(context_lines or []))
         if not is_usable_translation(text, translated, target_language):
             logger.debug("Discarded unusable translation for %r: %r", text[:40], translated[:80])
             return ""

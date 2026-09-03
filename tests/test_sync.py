@@ -34,7 +34,7 @@ def paired_lines() -> list[SubtitleLine]:
 def fake_translator(reply: str = "翻译") -> LiveTranslator:
     client = MagicMock()
     client.translate = AsyncMock(return_value=reply)
-    return LiveTranslator(client, "zh")
+    return LiveTranslator(client, "en", "zh")
 
 
 async def drive(session, config, reads: list[str]) -> list[str]:
@@ -132,6 +132,6 @@ async def test_direct_translation_prefers_a_matching_target_subtitle_line() -> N
 async def test_a_repeated_read_is_translated_only_once() -> None:
     client = MagicMock()
     client.translate = AsyncMock(return_value="你好")
-    session = DirectTranslationSession([], config(), LiveTranslator(client, "zh"))
+    session = DirectTranslationSession([], config(), LiveTranslator(client, "en", "zh"))
     await drive(session, config(), ["Hello there", "Hello there", "Hello there"])
     assert client.translate.await_count == 1

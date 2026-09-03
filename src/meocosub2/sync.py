@@ -35,8 +35,9 @@ DebugBroadcast = Callable[[dict[str, object]], Awaitable[None]]
 class LiveTranslator:
     """Caches translations and carries recent lines as context, like v1's session cache."""
 
-    def __init__(self, client: TranslationClient, target_language: str) -> None:
+    def __init__(self, client: TranslationClient, source_language: str, target_language: str) -> None:
         self._client = client
+        self._source_language = source_language
         self._target_language = target_language
         self._cache: OrderedDict[str, str] = OrderedDict()
         self._context: deque[str] = deque(maxlen=CONTEXT_LINES)
@@ -47,7 +48,9 @@ class LiveTranslator:
         if cached is not None:
             self._cache.move_to_end(key)
             return cached
-        translated = await self._client.translate(text, self._target_language, list(self._context))
+        translated = await self._client.translate(
+            text, self._source_language, self._target_language, list(self._context)
+        )
         if translated:
             self._cache[key] = translated
             while len(self._cache) > TRANSLATION_CACHE_SIZE:
@@ -194,7 +197,7 @@ class DirectTranslationSession:
 
 async def open_live_translator(config: AppConfig) -> tuple[TranslationClient, LiveTranslator]:
     client = await open_translation_client(config)
-    return client, LiveTranslator(client, config.target_language)
+    return client, LiveTranslator(client, config.source_language, config.target_language)
 
 
 async def run_session_loop(
