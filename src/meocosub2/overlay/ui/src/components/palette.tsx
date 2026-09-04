@@ -50,6 +50,9 @@ interface PaletteProps {
   targetLang: string;
   searching: boolean;
   hydrating: string[];
+  errorMessage: string | null;
+  onRetrySearch: (() => void) | null;
+  onDismissError: () => void;
   preparing: boolean;
   preparingReplacement: boolean;
   langOptions: LanguageOption[];
@@ -94,6 +97,9 @@ export function Palette(props: PaletteProps): JSX.Element {
     targetLang,
     searching,
     hydrating,
+    errorMessage,
+    onRetrySearch,
+    onDismissError,
     preparing,
     preparingReplacement,
     langOptions,
@@ -169,8 +175,11 @@ export function Palette(props: PaletteProps): JSX.Element {
     { id: "target", label: "Target", count: hasSelectedEpisode ? targets.length : 0 },
   ];
 
-  const placeholder =
-    tab === "source"
+  // With no episode picked there is nothing to filter, so the box is still the
+  // title search however the tabs happen to be sitting.
+  const placeholder = !hasSelectedEpisode
+    ? "Search for a title…"
+    : tab === "source"
       ? "Filter source subtitles…"
       : tab === "target"
         ? "Filter target subtitles…"
@@ -347,6 +356,14 @@ export function Palette(props: PaletteProps): JSX.Element {
         onChange={(id) => onTabChange(id as PaletteTabId)}
       />
 
+      {errorMessage && (
+        <ErrorBar
+          message={errorMessage}
+          onRetry={onRetrySearch}
+          onDismiss={onDismissError}
+        />
+      )}
+
       {tab === "titles" && totalWorksCount > 0 && (
         <TitleFilters
           mediaFilter={titleMediaFilter}
@@ -383,7 +400,13 @@ export function Palette(props: PaletteProps): JSX.Element {
                 onHydrateEpisode={onHydrateEpisode}
                 searching={searching}
                 hydrating={hydrating}
-                emptyHint={totalWorksCount > 0 ? "No titles match these filters" : undefined}
+                emptyHint={
+                  totalWorksCount > 0
+                    ? "No titles match these filters"
+                    : errorMessage
+                      ? "No results — the search did not finish"
+                      : undefined
+                }
               />
             </div>
           </div>
@@ -461,6 +484,39 @@ export function Palette(props: PaletteProps): JSX.Element {
           <span>Pick a title to continue</span>
         )}
       </div>
+    </div>
+  );
+}
+
+/** The one place a failed action says so; without it every failure was silent. */
+function ErrorBar({
+  message,
+  onRetry,
+  onDismiss,
+}: {
+  message: string;
+  onRetry: (() => void) | null;
+  onDismiss: () => void;
+}): JSX.Element {
+  return (
+    <div className="palette-error" role="alert">
+      <span className="palette-error-mark" aria-hidden>
+        !
+      </span>
+      <span className="palette-error-text">{message}</span>
+      {onRetry && (
+        <button className="palette-error-action" type="button" onClick={onRetry}>
+          Try again
+        </button>
+      )}
+      <button
+        className="palette-error-dismiss"
+        type="button"
+        onClick={onDismiss}
+        aria-label="Dismiss this message"
+      >
+        ×
+      </button>
     </div>
   );
 }

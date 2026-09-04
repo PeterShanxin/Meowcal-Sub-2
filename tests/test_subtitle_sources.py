@@ -8,6 +8,7 @@ import meocosub2.subtitle_sources.subdl as subdl_module
 from meocosub2.config import AppConfig
 from meocosub2.errors import SubtitleSourceError
 from meocosub2.subtitle_sources.assrt import AssrtProvider
+import meocosub2.subtitle_sources.aggregator as aggregator_module
 from meocosub2.subtitle_sources.aggregator import SubtitleSearchAggregator
 from meocosub2.subtitle_sources.subdl import SubdlProvider
 from meocosub2.subtitle_sources.types import AggregatedWork, ProviderSearchCatalog, ProviderSubtitleMatch, ProviderSubtitleResult
@@ -1771,3 +1772,90 @@ async def test_aggregator_keeps_movie_sequels_separate_works() -> None:
     for work in movie_works:
         assert work.seasons == []
         assert work.primary_match_id is not None
+
+
+class HangingProvider(FakeProvider):
+    """Answers only after the deadline the aggregator gives it."""
+
+    def __init__(self, delay: float = 5.0):
+        super().__init__("hanging", "Hanging", ProviderSearchCatalog(matches=[], results=[]))
+        self._delay = delay
+
+    async def search_catalog(self, query: str, languages: str) -> ProviderSearchCatalog:
+        await asyncio.sleep(self._delay)
+        return await super().search_catalog(query, languages)
+
+
+def _catalog_with_one_result(code: str, label: str) -> ProviderSearchCatalog:
+    return ProviderSearchCatalog(
+        matches=[
+            ProviderSubtitleMatch(
+                id=f"{code}-match-1",
+                provider=code,
+                provider_label=label,
+                title="Rick and Morty",
+                year=2019,
+                imdb_id=None,
+                tmdb_id=None,
+                media_type="episode",
+                season=4,
+                episode=8,
+                parent_title="Rick and Morty",
+                subtitles_count=1,
+                match_score=90.0,
+            )
+        ],
+        results=[
+            ProviderSubtitleResult(
+                id=f"{code}-result-1",
+                match_id=f"{code}-match-1",
+                provider=code,
+                provider_label=label,
+                title="Rick and Morty",
+                year=2019,
+                imdb_id=None,
+                media_type="episode",
+                language="en",
+                download_count=10,
+                file_name="rick.srt",
+                season=4,
+                episode=8,
+                parent_title="Rick and Morty",
+                tmdb_id=None,
+                match_score=90.0,
+                download_ref=None,
+                raw={},
+            )
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_hanging_provider_does_not_hold_back_the_ones_that_answered(monkeypatch) -> None:
+    monkeypatch.setattr(aggregator_module, "PROVIDER_SEARCH_DEADLINE_S", 0.2)
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider("subdl", "SubDL", _catalog_with_one_result("subdl", "SubDL")),
+        HangingProvider(delay=5.0),
+    )
+
+    catalog = await asyncio.wait_for(aggregator.search_catalog("Rick and Morty", "en"), timeout=3.0)
+
+    assert [result.provider for result in catalog.results] == ["subdl"]
+    assert any("Hanging" in warning for warning in catalog.warnings)
+
+
+@pytest.mark.asyncio
+async def test_every_provider_failing_reports_which_ones_and_why() -> None:
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider("subdl", "SubDL", error=RuntimeError("429 Too Many Requests")),
+        FakeProvider("assrt", "ASSRT", error=RuntimeError("connection refused")),
+    )
+
+    with pytest.raises(SubtitleSourceError) as excinfo:
+        await aggregator.search_catalog("Rick and Morty", "en")
+
+    message = str(excinfo.value)
+    assert "SubDL" in message and "429" in message
+    assert "ASSRT" in message and "connection refused" in message

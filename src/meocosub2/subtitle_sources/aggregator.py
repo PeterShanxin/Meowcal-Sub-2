@@ -43,6 +43,11 @@ from meocosub2.subtitle_sources.utils import (
     work_key,
 )
 
+#: How long one provider may take before the search moves on without it. A single
+#: unresponsive source used to hold the whole search open, so the user waited on
+#: the slowest provider even when the others had already answered.
+PROVIDER_SEARCH_DEADLINE_S = 20.0
+
 PROVIDER_CHIP_LABELS = {
     "opensubtitles": "OpenSubtitles",
     "subdl": "SubDL",
@@ -129,7 +134,11 @@ class SubtitleSearchAggregator:
             warnings.extend(response.warnings)
 
         if not catalogs:
-            raise SubtitleSourceError("All subtitle sources failed.")
+            # The per-provider reasons are the only thing the user can act on, so
+            # they travel with the failure rather than collapsing into a summary.
+            raise SubtitleSourceError(
+                " ".join(errors) if errors else "All subtitle sources failed."
+            )
 
         merge_started = time.perf_counter()
         aggregated = self._merge_catalogs(catalogs, languages, query_year, dispatch_query)
@@ -214,7 +223,9 @@ class SubtitleSearchAggregator:
             languages=languages,
         )
         try:
-            catalog = await provider.search_catalog(query, languages)
+            catalog = await asyncio.wait_for(
+                provider.search_catalog(query, languages), PROVIDER_SEARCH_DEADLINE_S
+            )
         except Exception as exc:
             log_event(
                 "provider.search.error",
