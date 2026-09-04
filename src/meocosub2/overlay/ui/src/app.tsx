@@ -9,11 +9,10 @@ import { SettingsView } from "./components/variants/settings";
 import { api } from "./hooks/use-api";
 import { useAppWebSocket } from "./hooks/use-ws";
 import { useKeybinds } from "./hooks/use-keybinds";
-import { tauri } from "./hooks/use-tauri";
+import { isTauri, tauri } from "./hooks/use-tauri";
 import { store, useStore } from "./state/store";
 import {
   applyLanguageChoice,
-  buildCommands,
   derivePhase,
   episodeHydrateKey,
   mapResultsToSource,
@@ -75,6 +74,7 @@ export function App(): JSX.Element {
   const phase: Phase = derivePhase(snapshot, showSettings ? "home" : null);
   const [searching, setSearching] = useState(false);
   const [preparing, setPreparing] = useState(false);
+  const awaitingRegion = useRef(false);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   // Tracks visibility through the close animation so background stays inert
   // until the modal is fully hidden (not just until showSettings goes false).
@@ -87,7 +87,6 @@ export function App(): JSX.Element {
   const [paletteHeight, setPaletteHeight] = useState(0);
   const searchAbort = useRef<AbortController | null>(null);
   const lastSearchedQuery = useRef<string>("");
-  const autoPrepareInFlight = useRef<string | null>(null);
   const hydrateInFlight = useRef<Set<string>>(new Set());
   const backgroundSearchCount = useRef(0);
 
@@ -171,7 +170,6 @@ export function App(): JSX.Element {
       ),
     [snapshot?.search_results, episodeMatchId, snapshot?.target_language],
   );
-  const commands = useMemo(() => buildCommands(phase), [phase]);
 
   // Selecting another episode leaves the old session prepared until the new one
   // lands, so Start sync must not fire the episode the user just moved off.
@@ -208,9 +206,7 @@ export function App(): JSX.Element {
       ? titleListLength
       : tab === "source"
         ? sources.length
-        : tab === "target"
-          ? targets.length
-          : commands.length;
+        : targets.length;
 
   // Enter live/exit live Tauri side-effects.
   // Only call exitLiveMode when transitioning OUT of live. Calling it on
@@ -356,58 +352,8 @@ export function App(): JSX.Element {
     [cursorForTab],
   );
 
-  const prepareAutoSession = useCallback(async (matchId: string) => {
-    const prepared = store.get().snapshot?.prepared_session;
-    if (
-      autoPrepareInFlight.current === matchId ||
-      (prepared?.session_mode === "auto_candidates" && prepared.feature_id === matchId)
-    ) {
-      return;
-    }
-    autoPrepareInFlight.current = matchId;
-    setPreparing(true);
-    const correlationId = clientEventId("prepare");
-    logClientEvent("ui.session.auto_prepare_requested", { matchId }, correlationId);
-    store.set({ cursorIndex: -1, selectedSourceId: null, selectedTargetId: null });
-    try {
-      await api.prepareSession({
-        mode: "auto_candidates",
-        matchId,
-      });
-      const fresh = await api.getState();
-      if (
-        autoPrepareInFlight.current !== matchId ||
-        store.get().selectedEpisodeMatchId !== matchId ||
-        fresh.prepared_session?.feature_id !== matchId
-      ) {
-        logClientEvent("ui.session.prepare_stale_ignored", { matchId }, correlationId);
-        return;
-      }
-      store.set({ snapshot: fresh, config: fresh.config });
-      logClientEvent("ui.session.prepare_completed", { mode: "auto_candidates" }, correlationId);
-    } catch (err) {
-      if (
-        autoPrepareInFlight.current !== matchId ||
-        store.get().selectedEpisodeMatchId !== matchId
-      ) {
-        logClientEvent("ui.session.prepare_stale_ignored", { matchId }, correlationId);
-        return;
-      }
-      store.set({ error: err instanceof Error ? err.message : String(err) });
-      logClientEvent("ui.session.prepare_failed", {
-        mode: "auto_candidates",
-        error: err instanceof Error ? err.message : String(err),
-      }, correlationId);
-    } finally {
-      if (autoPrepareInFlight.current === matchId) {
-        autoPrepareInFlight.current = null;
-        setPreparing(false);
-      }
-    }
-  }, []);
-
   // Selecting is not committing: preparing downloads subtitle files and rebuilds
-  // the screen, so it waits for the footer action rather than firing on a click.
+  // the screen, so it waits for the source and target the user picks next.
   const selectTitle = useCallback((workId: string, matchId: string) => {
     logClientEvent("ui.title.selected", { workId, matchId });
     store.set({
@@ -615,10 +561,11 @@ export function App(): JSX.Element {
 
   const onPickTarget = useCallback(async (id: string) => {
     const correlationId = clientEventId("prepare");
-    store.set({ selectedTargetId: id, tab: "cmd", cursorIndex: -1 });
+    store.set({ selectedTargetId: id, tab: "titles", cursorIndex: -1 });
     const currentEpisode = store.get().selectedEpisodeMatchId;
     const currentSource = store.get().selectedSourceId;
     if (!currentEpisode || !currentSource) return;
+    setPreparing(true);
     // Backend accepts only "subtitle_pair" | "ocr_fallback". Local AI
     // translation is triggered by subtitle_pair with no targetResultId —
     // the controller falls back to Foundry via target_match_mode.
@@ -647,13 +594,15 @@ export function App(): JSX.Element {
       logClientEvent("ui.session.prepare_failed", {
         error: err instanceof Error ? err.message : String(err),
       }, correlationId);
+    } finally {
+      setPreparing(false);
     }
   }, []);
 
   const startSync = useCallback(async () => {
     const correlationId = clientEventId("start");
     logClientEvent("ui.session.start_clicked", {
-      sessionId: snapshot?.prepared_session?.session_id,
+      sessionId: store.get().snapshot?.prepared_session?.session_id,
     }, correlationId);
     try {
       await api.startSession();
@@ -666,7 +615,52 @@ export function App(): JSX.Element {
         error: err instanceof Error ? err.message : String(err),
       }, correlationId);
     }
-  }, [snapshot?.prepared_session?.session_id]);
+  }, []);
+
+  // The region names where the player draws its subtitles. Players rarely sit in
+  // the same place twice, so starting always asks for it rather than trusting
+  // whatever the last session saved.
+  const startWithRegion = useCallback(async () => {
+    if (!isTauri()) {
+      // No desktop shell, so no selector window: the saved region is all there is.
+      await startSync();
+      return;
+    }
+    logClientEvent("ui.session.region_requested");
+    awaitingRegion.current = true;
+    await tauri.openAreaSelector();
+  }, [startSync]);
+
+  useEffect(() => {
+    let disposed = false;
+    const unlisteners: Array<() => void> = [];
+    const attach = async (event: string, handler: () => void): Promise<void> => {
+      let unlisten: (() => void) | null = null;
+      try {
+        unlisten = await tauri.listen(event, handler);
+      } catch (err) {
+        logClientEvent("ui.shell.listen_failed", { event, error: String(err) });
+        return;
+      }
+      if (!unlisten) return;
+      if (disposed) unlisten();
+      else unlisteners.push(unlisten);
+    };
+    void attach("capture-region-selected", () => {
+      if (!awaitingRegion.current) return;
+      awaitingRegion.current = false;
+      void startSync();
+    });
+    void attach("capture-region-cancelled", () => {
+      if (!awaitingRegion.current) return;
+      awaitingRegion.current = false;
+      logClientEvent("ui.session.region_cancelled");
+    });
+    return () => {
+      disposed = true;
+      unlisteners.forEach((unlisten) => unlisten());
+    };
+  }, [startSync]);
 
   const onChangeLang = useCallback(async (type: "source" | "target", code: string) => {
     const current = store.get().config;
@@ -743,17 +737,6 @@ export function App(): JSX.Element {
     store.set({ manualView: null });
   }, []);
 
-  const onCommand = useCallback(
-    (id: string) => {
-      logClientEvent("ui.command.selected", { commandId: id });
-      if (id === "c1") void startSync();
-      else if (id === "c2") void tauri.openAreaSelector();
-      else if (id === "c3") openSettings();
-      else if (id === "c4") void clearSession();
-    },
-    [startSync, openSettings, clearSession],
-  );
-
   const onSelect = useCallback(() => {
     if (tab === "titles" && query.trim() && query.trim() !== lastSearchedQuery.current) {
       void runSearch(query.trim());
@@ -786,17 +769,10 @@ export function App(): JSX.Element {
     if (tab === "target") {
       const item = targets[index];
       if (item) void onPickTarget(item.id);
-      return;
-    }
-    if (tab === "cmd") {
-      const item = commands[index];
-      if (item) onCommand(item.id);
     }
   }, [
     activeListLength,
-    commands,
     cursorIndex,
-    onCommand,
     onHydrateEpisode,
     onPickEpisode,
     onPickSource,
@@ -818,19 +794,19 @@ export function App(): JSX.Element {
     }
     if (preparing) return;
     if (phase === "prep" && !preparingReplacement) {
-      void startSync();
-    } else if (episodeMatchId && selectedSourceId && selectedTargetId) {
-      void onPickTarget(selectedTargetId); // re-prepare if user changed mind
-    } else if (episodeMatchId) {
-      void prepareAutoSession(episodeMatchId);
+      void startWithRegion();
+      return;
     }
-  }, [phase, tab, query, runSearch, startSync, preparing, preparingReplacement, episodeMatchId, selectedSourceId, selectedTargetId, onPickTarget, prepareAutoSession]);
+    if (!episodeMatchId) return;
+    // Not ready to start yet, so send the user to whichever pick is still open.
+    store.set({ tab: selectedSourceId ? "target" : "source", cursorIndex: -1 });
+  }, [phase, tab, query, runSearch, startWithRegion, preparing, preparingReplacement, episodeMatchId, selectedSourceId]);
 
   const onMoveCursor = useCallback(
     (dir: "up" | "down" | "left" | "right") => {
       store.set((s) => {
         if ((dir === "left" || dir === "right") && s.tab !== "titles") {
-          const order: PaletteTabId[] = ["titles", "source", "target", "cmd"];
+          const order: PaletteTabId[] = ["titles", "source", "target"];
           const idx = order.indexOf(s.tab);
           const next = order[(idx + (dir === "right" ? 1 : -1) + order.length) % order.length];
           return { tab: next, cursorIndex: cursorForTab(next) };
@@ -840,9 +816,7 @@ export function App(): JSX.Element {
             ? titleListLength
             : s.tab === "source"
               ? sources.length
-              : s.tab === "target"
-                ? targets.length
-                : commands.length;
+              : targets.length;
         if (list === 0) return {};
         if (s.cursorIndex === -1) {
           return { cursorIndex: dir === "up" || dir === "left" ? list - 1 : 0 };
@@ -869,11 +843,11 @@ export function App(): JSX.Element {
         return { cursorIndex: next };
       });
     },
-    [titleListLength, sources.length, targets.length, commands.length, titleGridColumns, titleNavRows, titleWorkRowIndices, cursorForTab],
+    [titleListLength, sources.length, targets.length, titleGridColumns, titleNavRows, titleWorkRowIndices, cursorForTab],
   );
 
   const onCycleTab = useCallback((dir: 1 | -1) => {
-    const order: PaletteTabId[] = ["titles", "source", "target", "cmd"];
+    const order: PaletteTabId[] = ["titles", "source", "target"];
     store.set((s) => {
       const idx = order.indexOf(s.tab);
       const next = order[(idx + dir + order.length) % order.length];
@@ -978,6 +952,11 @@ export function App(): JSX.Element {
             engineStatus={engineStatus}
             sourcesCount={countEnabledSources(config)}
             onOpenSettings={openSettings}
+            onClearSession={
+              selectedEpisodeMatchId || snapshot?.prepared_session
+                ? () => void clearSession()
+                : undefined
+            }
           />
         )}
         {phase !== "live" && sourceNotices.length > 0 && (
@@ -1076,7 +1055,6 @@ export function App(): JSX.Element {
               onClearSeasonFilters={onClearSeasonFilters}
               sources={sources}
               targets={targets}
-              commands={commands}
               selectedWorkId={selectedWorkId}
               expandedWorkId={expandedWorkId}
               expandedSeasonNumber={expandedSeasonNumber}
@@ -1091,7 +1069,6 @@ export function App(): JSX.Element {
               onHydrateEpisode={(workId, season, episode) => void onHydrateEpisode(workId, season, episode)}
               onPickSource={onPickSource}
               onPickTarget={(id) => void onPickTarget(id)}
-              onCommand={onCommand}
               onPrimary={() => void onPrimaryConfirm()}
               inputRef={inputRef}
               sourceLang={sourceLang}

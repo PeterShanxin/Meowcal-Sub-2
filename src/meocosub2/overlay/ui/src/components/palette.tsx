@@ -1,7 +1,6 @@
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, RefObject } from "react";
 import type {
-  CommandItem,
   LanguageOption,
   PaletteTabId,
   Phase,
@@ -31,7 +30,6 @@ interface PaletteProps {
   onClearSeasonFilters: () => void;
   sources: SourceItem[];
   targets: TargetItem[];
-  commands: CommandItem[];
   selectedWorkId: string | null;
   expandedWorkId: string | null;
   expandedSeasonNumber: number | null;
@@ -46,7 +44,6 @@ interface PaletteProps {
   onHydrateEpisode: (workId: string, season: number, episode: number) => void;
   onPickSource: (id: string) => void;
   onPickTarget: (id: string) => void;
-  onCommand: (id: string) => void;
   onPrimary: () => void;
   inputRef: RefObject<HTMLInputElement>;
   sourceLang: string;
@@ -77,7 +74,6 @@ export function Palette(props: PaletteProps): JSX.Element {
     onClearSeasonFilters,
     sources,
     targets,
-    commands,
     selectedWorkId,
     expandedWorkId,
     expandedSeasonNumber,
@@ -92,7 +88,6 @@ export function Palette(props: PaletteProps): JSX.Element {
     onHydrateEpisode,
     onPickSource,
     onPickTarget,
-    onCommand,
     onPrimary,
     inputRef,
     sourceLang,
@@ -172,27 +167,29 @@ export function Palette(props: PaletteProps): JSX.Element {
     { id: "titles", label: "Titles", count: works.length },
     { id: "source", label: "Source", count: hasSelectedEpisode ? sources.length : 0 },
     { id: "target", label: "Target", count: hasSelectedEpisode ? targets.length : 0 },
-    { id: "cmd", label: "Commands", count: commands.length },
   ];
 
   const placeholder =
-    tab === "cmd"
-      ? "Type a command…"
-      : tab === "source"
-        ? "Filter source subtitles…"
-        : tab === "target"
-          ? "Filter target subtitles…"
-          : "Search for a title…";
+    tab === "source"
+      ? "Filter source subtitles…"
+      : tab === "target"
+        ? "Filter target subtitles…"
+        : "Search for a title…";
 
-  const canStart = phase === "prep" && !preparingReplacement;
-  const canPrepare = hasSelectedEpisode && !canStart;
-  const primaryLabel = preparing
-    ? "Preparing"
-    : canStart
-      ? "Start sync"
-      : canPrepare
-        ? "Prepare automatically"
-        : null;
+  const pickedSource = sources.find((item) => item.id === selectedSourceId) ?? null;
+  const pickedTarget = targets.find((item) => item.id === selectedTargetId) ?? null;
+  const sourceLabel = pickedSource?.file ?? null;
+  const targetLabel = pickedTarget?.title ?? pickedTarget?.file ?? null;
+  const canStart = phase === "prep" && !preparingReplacement && !preparing;
+  const startHint = preparing
+    ? "Downloading the subtitles you picked…"
+    : !sourceLabel
+      ? "Pick a source subtitle first"
+      : !targetLabel
+        ? "Pick a target subtitle first"
+        : canStart
+          ? "Draw the on-screen subtitle area, then sync starts"
+          : "Preparing the session…";
 
   return (
     <div
@@ -415,13 +412,6 @@ export function Palette(props: PaletteProps): JSX.Element {
             <EmptyTab hint="Pick a title (and episode) first" />
           )
         )}
-        {tab === "cmd" && (
-          <CmdList
-            items={commands}
-            cursorIndex={cursorIndex}
-            onPick={onCommand}
-          />
-        )}
       </div>
 
       <div
@@ -440,21 +430,107 @@ export function Palette(props: PaletteProps): JSX.Element {
         <Kbd dim>↵</Kbd>
         <span>Select</span>
         <div style={{ flex: 1 }} />
-        {primaryLabel ? (
-          <button
-            onClick={onPrimary}
-            disabled={preparing}
-            style={{ ...primaryStyle, opacity: preparing ? 0.7 : 1 }}
-          >
-            {preparing && <span className="mini-spinner" aria-hidden />}
-            {primaryLabel}
-            {!preparing && <Kbd>⌘↵</Kbd>}
-          </button>
+        {hasSelectedEpisode ? (
+          <>
+            <PickerChip
+              label="Source"
+              value={sourceLabel}
+              placeholder="Select source subtitle"
+              active={tab === "source"}
+              onClick={() => onTabChange("source")}
+            />
+            <PickerChip
+              label="Target"
+              value={targetLabel}
+              placeholder="Select target subtitle"
+              active={tab === "target"}
+              onClick={() => onTabChange("target")}
+            />
+            <button
+              onClick={onPrimary}
+              disabled={!canStart}
+              title={startHint}
+              style={{ ...primaryStyle, opacity: canStart ? 1 : 0.45, cursor: canStart ? "pointer" : "default" }}
+            >
+              {preparing && <span className="mini-spinner" aria-hidden />}
+              {preparing ? "Preparing" : "Start OCR and sync"}
+              {canStart && <Kbd>⌘↵</Kbd>}
+            </button>
+          </>
         ) : (
           <span>Pick a title to continue</span>
         )}
       </div>
     </div>
+  );
+}
+
+/** Footer entry to one of the two subtitle lists, doubling as the current pick. */
+function PickerChip({
+  label,
+  value,
+  placeholder,
+  active,
+  onClick,
+}: {
+  label: string;
+  value: string | null;
+  placeholder: string;
+  active: boolean;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <button
+      onClick={onClick}
+      title={value ?? placeholder}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        maxWidth: 240,
+        padding: "7px 12px",
+        borderRadius: 7,
+        fontSize: 12.5,
+        cursor: "pointer",
+        color: value ? "var(--text-body)" : "var(--text-label)",
+        background: active ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.02)",
+        border: value
+          ? "1px solid rgba(255,255,255,0.12)"
+          : "1px dashed rgba(255,255,255,0.18)",
+      }}
+    >
+      {value && <span style={{ color: "var(--ok-hex)" }}>✓</span>}
+      <span style={{ color: "var(--text-label)" }}>{label}</span>
+      <span
+        style={{
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {value ?? placeholder}
+      </span>
+    </button>
+  );
+}
+
+function RecommendedBadge(): JSX.Element {
+  return (
+    <span
+      style={{
+        fontSize: 9,
+        padding: "2px 6px",
+        background: "var(--accent-tint)",
+        color: "var(--accent-text)",
+        border: "1px solid var(--accent-ring)",
+        borderRadius: 3,
+        fontWeight: 700,
+        letterSpacing: 0.6,
+        flexShrink: 0,
+      }}
+    >
+      RECOMMENDED
+    </span>
   );
 }
 
@@ -1060,6 +1136,7 @@ function SubList({
                 {r.hi && <span style={{ marginLeft: 8 }}>HI</span>}
               </div>
             </div>
+            {r.recommended && <RecommendedBadge />}
             {focused && <Kbd>↵</Kbd>}
           </Row>
         );
@@ -1137,6 +1214,7 @@ function TargetList({
                 {r.note ?? `${r.provider} · ${r.downloads} downloads · ${r.fps} fps`}
               </div>
             </div>
+            {r.recommended && <RecommendedBadge />}
             {r.kind === "local" && (
               <span
                 style={{
@@ -1147,6 +1225,7 @@ function TargetList({
                   borderRadius: 3,
                   fontWeight: 700,
                   letterSpacing: 0.6,
+                  flexShrink: 0,
                 }}
               >
                 AUTO
@@ -1154,70 +1233,6 @@ function TargetList({
             )}
             {focused && <Kbd>↵</Kbd>}
           </Row>
-        );
-      })}
-    </div>
-  );
-}
-
-function CmdList({
-  items,
-  cursorIndex,
-  onPick,
-}: {
-  items: CommandItem[];
-  cursorIndex: number;
-  onPick: (id: string) => void;
-}): JSX.Element {
-  return (
-    <div style={{ padding: "6px 0" }}>
-      {items.map((c, i) => {
-        const isPrimary = c.kind === "primary";
-        const disabled = !!c.disabled;
-        const focused = cursorIndex === i;
-        return (
-          <div
-            key={c.id}
-            data-cursor-row={i}
-            onClick={() => {
-              if (!disabled) onPick(c.id);
-            }}
-            onMouseDown={(e) => e.preventDefault()}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 14,
-              padding: "10px 20px",
-              opacity: disabled ? 0.4 : 1,
-              cursor: disabled ? "not-allowed" : "pointer",
-              background: focused ? "var(--accent-tint)" : "transparent",
-              borderLeft: `2px solid ${focused ? "var(--accent-hex)" : "transparent"}`,
-              userSelect: "none",
-              WebkitUserSelect: "none",
-            }}
-          >
-            <div
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: 7,
-                flexShrink: 0,
-                background: isPrimary ? "var(--accent-tint)" : "rgba(255,255,255,0.04)",
-                color: isPrimary ? "var(--accent-text)" : "#a8a8b2",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 14,
-                border: `1px solid ${isPrimary ? "var(--accent-ring)" : "rgba(255,255,255,0.05)"}`,
-              }}
-            >
-              {c.icon}
-            </div>
-            <span style={{ flex: 1, fontSize: 14, color: "var(--text-body)" }}>
-              {c.label}
-            </span>
-            <Kbd>{c.shortcut}</Kbd>
-          </div>
         );
       })}
     </div>
