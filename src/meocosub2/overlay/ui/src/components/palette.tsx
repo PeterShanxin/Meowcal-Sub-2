@@ -12,6 +12,7 @@ import type {
   WorkSeasonItem,
 } from "../lib/types";
 import { DisclosureChevron, InfoChipRow, Kbd, PaletteTabs } from "./primitives";
+import { episodeHydrateKey, seasonHydrateKey } from "../state/mappers";
 
 interface PaletteProps {
   phase: Phase;
@@ -51,6 +52,7 @@ interface PaletteProps {
   sourceLang: string;
   targetLang: string;
   searching: boolean;
+  hydrating: string[];
   langOptions: LanguageOption[];
   onChangeLang: (type: "source" | "target", code: string) => void;
 }
@@ -94,6 +96,7 @@ export function Palette(props: PaletteProps): JSX.Element {
     sourceLang,
     targetLang,
     searching,
+    hydrating,
     langOptions,
     onChangeLang,
   } = props;
@@ -354,8 +357,14 @@ export function Palette(props: PaletteProps): JSX.Element {
       )}
 
       <div ref={listRef} style={{ maxHeight: compact ? 280 : 420, overflow: "auto", position: "relative" }}>
+        {/* A per-row lookup already marks its own row; dimming the whole list for
+            it would make every other title look disabled too. */}
         {tab === "titles" && (
-          <div className={`results-shell ${searching && works.length > 0 ? "is-refreshing" : ""}`}>
+          <div
+            className={`results-shell ${
+              searching && hydrating.length === 0 && works.length > 0 ? "is-refreshing" : ""
+            }`}
+          >
             {searching && works.length > 0 && (
               <div className="results-status" aria-live="polite">
                 <span className="mini-spinner" aria-hidden />
@@ -376,6 +385,7 @@ export function Palette(props: PaletteProps): JSX.Element {
                 onPickEpisode={onPickEpisode}
                 onHydrateEpisode={onHydrateEpisode}
                 searching={searching}
+                hydrating={hydrating}
                 emptyHint={totalWorksCount > 0 ? "No titles match these filters" : undefined}
               />
             </div>
@@ -638,6 +648,7 @@ function WorkList({
   onPickEpisode,
   onHydrateEpisode,
   searching,
+  hydrating,
   emptyHint,
 }: {
   items: WorkItem[];
@@ -652,6 +663,7 @@ function WorkList({
   onPickEpisode: (workId: string, matchId: string) => void;
   onHydrateEpisode: (workId: string, season: number, episode: number) => void;
   searching: boolean;
+  hydrating: string[];
   emptyHint?: string;
 }): JSX.Element {
   if (items.length === 0) {
@@ -668,6 +680,7 @@ function WorkList({
     return <EmptyTab hint={emptyHint ?? "Type a title and press ↵ to search"} />;
   }
 
+  const busy = new Set(hydrating);
   const rows = flattenNavRows(items, expandedWorkId, expandedSeasonNumber);
   const rowIndexByKey = new Map<string, number>();
   rows.forEach((row, index) => {
@@ -729,6 +742,7 @@ function WorkList({
                         open={open}
                         focused={cursorIndex === seasonRowIndex}
                         rowIndex={seasonRowIndex}
+                        busy={busy.has(seasonHydrateKey(work.id, season.seasonNumber))}
                         onClick={() => onToggleExpandSeason(work.id, season.seasonNumber)}
                       />
                       {open && season.episodes.map((ep) => {
@@ -744,6 +758,10 @@ function WorkList({
                               focused={cursorIndex === epRowIndex}
                               skeleton
                               hydratable={ep.episode != null}
+                              busy={
+                                ep.episode != null &&
+                                busy.has(episodeHydrateKey(work.id, season.seasonNumber, ep.episode))
+                              }
                               rowIndex={epRowIndex}
                               onClick={() => ep.episode != null && onHydrateEpisode(work.id, season.seasonNumber, ep.episode)}
                             />
@@ -852,12 +870,14 @@ function SeasonRow({
   focused,
   onClick,
   rowIndex,
+  busy,
 }: {
   season: WorkSeasonItem;
   open: boolean;
   focused: boolean;
   onClick: () => void;
   rowIndex: number;
+  busy: boolean;
 }): JSX.Element {
   return (
     <div
@@ -878,10 +898,14 @@ function SeasonRow({
     >
       <DisclosureChevron open={open} />
       <div style={{ flex: 1, fontSize: 13.5, color: "var(--text-body)" }}>{season.label}</div>
-      <span style={{ fontSize: 11, color: "var(--text-label)" }}>
-        {season.episodes.length} ep{season.episodes.length === 1 ? "" : "s"}
-      </span>
-      {focused && <Kbd>↵</Kbd>}
+      {busy ? (
+        <RowBusy label="Looking up episodes" />
+      ) : (
+        <span style={{ fontSize: 11, color: "var(--text-label)" }}>
+          {season.episodes.length} ep{season.episodes.length === 1 ? "" : "s"}
+        </span>
+      )}
+      {focused && !busy && <Kbd>↵</Kbd>}
     </div>
   );
 }
@@ -895,6 +919,7 @@ function EpisodeRow({
   skeleton,
   hydratable,
   rowIndex,
+  busy,
 }: {
   label: string;
   subtitles: number;
@@ -904,8 +929,9 @@ function EpisodeRow({
   skeleton?: boolean;
   hydratable?: boolean;
   rowIndex?: number;
+  busy?: boolean;
 }): JSX.Element {
-  const clickable = !skeleton || !!hydratable;
+  const clickable = (!skeleton || !!hydratable) && !busy;
   return (
     <div
       data-cursor-row={rowIndex ?? undefined}
@@ -941,14 +967,24 @@ function EpisodeRow({
       >
         {label}
       </span>
-      {subtitles > 0 && (
+      {subtitles > 0 && !busy && (
         <span style={{ fontSize: 10.5, color: "var(--text-label)" }}>{subtitles} subs</span>
       )}
-      {skeleton && hydratable && !focused && (
+      {busy && <RowBusy label="Searching" />}
+      {skeleton && hydratable && !busy && !focused && (
         <span style={{ fontSize: 10.5, color: "var(--accent-text)" }}>Search</span>
       )}
-      {focused && <Kbd>{skeleton ? "Search" : "↵"}</Kbd>}
+      {focused && !busy && <Kbd>{skeleton ? "Search" : "↵"}</Kbd>}
     </div>
+  );
+}
+
+function RowBusy({ label }: { label: string }): JSX.Element {
+  return (
+    <span className="row-busy" aria-live="polite">
+      <span className="mini-spinner" aria-hidden />
+      {label}
+    </span>
   );
 }
 

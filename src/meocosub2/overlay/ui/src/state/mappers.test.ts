@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { BackendResult, BackendWork } from "../lib/types";
-import { mapResultsToTarget, mapWorksToItems } from "./mappers";
+import { applyLanguageChoice, mapResultsToTarget, mapWorksToItems } from "./mappers";
 
 function makeWork(overrides: Partial<BackendWork> & Pick<BackendWork, "id" | "title" | "mediaType">): BackendWork {
   return {
@@ -116,5 +116,32 @@ describe("mapResultsToTarget", () => {
     const results = [makeResult({ resultId: "r1", matchId: "m1", language: "zh" })];
     const targets = mapResultsToTarget(results, "m1", "en");
     expect(targets.map((t) => t.kind)).toEqual(["local", "ocr"]);
+  });
+});
+
+describe("applyLanguageChoice", () => {
+  it("reverses the pair when the chosen language is already on the other side", () => {
+    expect(applyLanguageChoice({ source: "en", target: "zh" }, "source", "zh")).toEqual({
+      source: "zh",
+      target: "en",
+    });
+    expect(applyLanguageChoice({ source: "en", target: "zh" }, "target", "en")).toEqual({
+      source: "zh",
+      target: "en",
+    });
+  });
+
+  it("reverses regardless of how the stored codes are cased", () => {
+    expect(applyLanguageChoice({ source: "EN", target: "zh-TW" }, "source", "zh-tw")).toEqual({
+      source: "zh-tw",
+      target: "EN",
+    });
+  });
+
+  it("leaves the other side alone for an unrelated language", () => {
+    expect(applyLanguageChoice({ source: "en", target: "zh" }, "target", "ja")).toEqual({
+      source: "en",
+      target: "ja",
+    });
   });
 });

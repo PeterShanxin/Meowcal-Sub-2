@@ -105,3 +105,5 @@
 - This machine runs Windows at 125% scale. Anything reading window bounds must set per-monitor DPI awareness first, or coordinates are scaled and captures come back cropped and offset.
 - The selector reports CSS pixels inside its own fullscreen window; the shell converts them with the monitor's scale factor and origin. Compare a stored `capture.region` against a real drag before trusting a coordinate change.
 - Driving the real desktop through `SendInput` and `ImageGrab` is the way to verify Tauri-only behavior end to end; browser automation cannot reach the selector, the HUD, or the live strip.
+- A full-viewport shell with `overflow: hidden` is still a scroll container: anything reaching past its edge (the decorative glows do) lets a focus call scroll the whole app sideways with no scrollbar to undo it. Use `overflow: clip`.
+- Only animate interpolable properties. Transitioning `transform` while `left`/`right`/`width: auto` snap between layouts throws the element a full width off-screen for the duration.
