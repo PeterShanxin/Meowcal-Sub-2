@@ -191,3 +191,33 @@ function languageMatches(resultLang: string, wanted: string): boolean {
   if (baseA === baseB) return true;
   return CHINESE_FAMILY.has(baseA) && CHINESE_FAMILY.has(baseB);
 }
+
+/**
+ * The language pair after choosing `code` for `side`. Choosing the language
+ * already on the other side reverses the pair rather than pointing a language
+ * at itself.
+ */
+export function applyLanguageChoice(
+  languages: { source: string; target: string },
+  side: "source" | "target",
+  code: string,
+): { source: string; target: string } {
+  const other = side === "source" ? "target" : "source";
+  const next = { ...languages, [side]: code };
+  if (code.toLowerCase() === languages[other].toLowerCase()) {
+    next[other] = languages[side];
+  }
+  return next;
+}
+
+export function seasonHydrateKey(workId: string, seasonNumber: number): string {
+  return `${workId}:${seasonNumber}`;
+}
+
+export function episodeHydrateKey(
+  workId: string,
+  seasonNumber: number,
+  episode: number,
+): string {
+  return `${workId}:${seasonNumber}:${episode}`;
+}

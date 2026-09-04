@@ -12,11 +12,14 @@ import { useKeybinds } from "./hooks/use-keybinds";
 import { tauri } from "./hooks/use-tauri";
 import { store, useStore } from "./state/store";
 import {
+  applyLanguageChoice,
   buildCommands,
   derivePhase,
+  episodeHydrateKey,
   mapResultsToSource,
   mapResultsToTarget,
   mapWorksToItems,
+  seasonHydrateKey,
 } from "./state/mappers";
 import type {
   BackendConfig,
@@ -60,6 +63,7 @@ export function App(): JSX.Element {
   const selectedSourceId = useStore((s) => s.selectedSourceId);
   const selectedTargetId = useStore((s) => s.selectedTargetId);
   const cursorIndex = useStore((s) => s.cursorIndex);
+  const hydrating = useStore((s) => s.hydrating);
   const liveLines = useStore((s) => s.liveLines);
   const languages = useStore((s) => s.languages);
   const wsConnected = useStore((s) => s.wsConnected);
@@ -79,7 +83,7 @@ export function App(): JSX.Element {
   const searchAbort = useRef<AbortController | null>(null);
   const lastSearchedQuery = useRef<string>("");
   const autoPrepareInFlight = useRef<string | null>(null);
-  const seasonHydrateInFlight = useRef<Set<string>>(new Set());
+  const hydrateInFlight = useRef<Set<string>>(new Set());
   const backgroundSearchCount = useRef(0);
 
   // Bootstrap: initial state + config + translation engine status
@@ -163,6 +167,13 @@ export function App(): JSX.Element {
     [snapshot?.search_results, episodeMatchId, snapshot?.target_language],
   );
   const commands = useMemo(() => buildCommands(phase), [phase]);
+
+  // Selecting another episode leaves the old session prepared until the new one
+  // lands, so Start sync must not fire the episode the user just moved off.
+  const preparingReplacement =
+    !!selectedEpisodeMatchId &&
+    snapshot?.prepared_session != null &&
+    snapshot.prepared_session.feature_id !== selectedEpisodeMatchId;
 
   useEffect(() => {
     if (selectedSeasonFilters.length === 0) return;
@@ -254,6 +265,10 @@ export function App(): JSX.Element {
       sourceLanguage: config?.languages.source ?? snapshot?.source_language,
       targetLanguage: config?.languages.target ?? snapshot?.target_language,
     }, correlationId);
+    // Hydration keys name rows in the catalog this search replaces, and the
+    // aggregator reuses ordinal work ids, so stale keys could mark a row of the
+    // new catalog busy.
+    hydrateInFlight.current.clear();
     store.set({
       cursorIndex: -1,
       selectedWorkId: null,
@@ -262,6 +277,7 @@ export function App(): JSX.Element {
       selectedEpisodeMatchId: null,
       selectedSourceId: null,
       selectedTargetId: null,
+      hydrating: [],
     });
     try {
       const res = await api.search(
@@ -346,7 +362,7 @@ export function App(): JSX.Element {
     autoPrepareInFlight.current = matchId;
     const correlationId = clientEventId("prepare");
     logClientEvent("ui.session.auto_prepare_requested", { matchId }, correlationId);
-    store.set({ tab: "cmd", cursorIndex: -1, selectedSourceId: null, selectedTargetId: null });
+    store.set({ cursorIndex: -1, selectedSourceId: null, selectedTargetId: null });
     try {
       await api.prepareSession({
         mode: "auto_candidates",
@@ -385,12 +401,14 @@ export function App(): JSX.Element {
 
   const confirmTitleForAutoPrepare = useCallback((workId: string, matchId: string) => {
     logClientEvent("ui.title.selected", { workId, matchId, mode: "auto_candidates" });
+    // Stay on the list the user is looking at. Auto-prepare fills the Source and
+    // Target tabs behind them, and the footer offers Start sync from any tab, so
+    // switching tabs here would only hide the choice they came to make.
     store.set({
       selectedWorkId: workId,
       selectedEpisodeMatchId: matchId,
       selectedSourceId: null,
       selectedTargetId: null,
-      tab: "cmd",
       query: "",
       cursorIndex: -1,
     });
@@ -408,6 +426,27 @@ export function App(): JSX.Element {
       setSearching(false);
     }
   }, []);
+
+  /** Claims a lookup, or returns false when the same one is already running. */
+  const beginHydrate = useCallback(
+    (key: string): boolean => {
+      if (hydrateInFlight.current.has(key)) return false;
+      hydrateInFlight.current.add(key);
+      store.set({ hydrating: [...hydrateInFlight.current] });
+      beginBackgroundSearch();
+      return true;
+    },
+    [beginBackgroundSearch],
+  );
+
+  const endHydrate = useCallback(
+    (key: string): void => {
+      hydrateInFlight.current.delete(key);
+      store.set({ hydrating: [...hydrateInFlight.current] });
+      endBackgroundSearch();
+    },
+    [endBackgroundSearch],
+  );
 
   const onToggleExpandWork = useCallback(
     (id: string) => {
@@ -438,12 +477,10 @@ export function App(): JSX.Element {
       episode.matchId.startsWith("skeleton:") && episode.episode != null,
     );
     if (!hasSkeleton) return;
-    const key = `${workId}:${seasonNumber}`;
-    if (seasonHydrateInFlight.current.has(key)) return;
-    seasonHydrateInFlight.current.add(key);
+    const key = seasonHydrateKey(workId, seasonNumber);
+    if (!beginHydrate(key)) return;
     const correlationId = clientEventId("season-hydrate");
     logClientEvent("ui.season.hydrate_requested", { workId, season: seasonNumber }, correlationId);
-    beginBackgroundSearch();
     try {
       const hydrated = await api.hydrateSeason(workId, viewWork.title, seasonNumber, correlationId);
       const fresh = await api.getState();
@@ -462,10 +499,9 @@ export function App(): JSX.Element {
         error: err instanceof Error ? err.message : String(err),
       }, correlationId);
     } finally {
-      seasonHydrateInFlight.current.delete(key);
-      endBackgroundSearch();
+      endHydrate(key);
     }
-  }, [beginBackgroundSearch, endBackgroundSearch, works]);
+  }, [beginHydrate, endHydrate, works]);
 
   const onToggleExpandSeason = useCallback(
     (workId: string, seasonNumber: number) => {
@@ -535,9 +571,10 @@ export function App(): JSX.Element {
   const onHydrateEpisode = useCallback(async (workId: string, season: number, episode: number) => {
     const work = works.find((item) => item.id === workId);
     if (!work) return;
+    const key = episodeHydrateKey(workId, season, episode);
+    if (!beginHydrate(key)) return;
     const correlationId = clientEventId("hydrate");
     logClientEvent("ui.episode.hydrate_requested", { workId, season, episode }, correlationId);
-    beginBackgroundSearch();
     store.set({ selectedWorkId: workId, expandedWorkId: workId, expandedSeasonNumber: season, cursorIndex: -1 });
     try {
       const hydrated = await api.hydrateEpisode(workId, work.title, season, episode, correlationId);
@@ -562,9 +599,9 @@ export function App(): JSX.Element {
         error: err instanceof Error ? err.message : String(err),
       }, correlationId);
     } finally {
-      endBackgroundSearch();
+      endHydrate(key);
     }
-  }, [beginBackgroundSearch, confirmTitleForAutoPrepare, endBackgroundSearch, works]);
+  }, [beginHydrate, confirmTitleForAutoPrepare, endHydrate, works]);
 
   const onPickSource = useCallback((id: string) => {
     logClientEvent("ui.source.selected", { resultId: id });
@@ -629,11 +666,14 @@ export function App(): JSX.Element {
   const onChangeLang = useCallback(async (type: "source" | "target", code: string) => {
     const current = store.get().config;
     if (!current) return;
-    const next: BackendConfig = {
-      ...current,
-      languages: { ...current.languages, [type]: code },
-    };
-    logClientEvent("ui.language.changed", { type, code });
+    const languages = applyLanguageChoice(current.languages, type, code);
+    const next: BackendConfig = { ...current, languages };
+    logClientEvent("ui.language.changed", {
+      type,
+      code,
+      source: languages.source,
+      target: languages.target,
+    });
     try {
       const saved = await api.putConfig(next);
       store.set({ config: saved });
@@ -772,13 +812,14 @@ export function App(): JSX.Element {
       return;
     }
     if (phase === "prep") {
+      if (preparingReplacement) return;
       void startSync();
     } else if (episodeMatchId && selectedSourceId && selectedTargetId) {
       void onPickTarget(selectedTargetId); // re-prepare if user changed mind
     } else if (episodeMatchId) {
       void prepareAutoSession(episodeMatchId);
     }
-  }, [phase, tab, query, runSearch, startSync, episodeMatchId, selectedSourceId, selectedTargetId, onPickTarget, prepareAutoSession]);
+  }, [phase, tab, query, runSearch, startSync, preparingReplacement, episodeMatchId, selectedSourceId, selectedTargetId, onPickTarget, prepareAutoSession]);
 
   const onMoveCursor = useCallback(
     (dir: "up" | "down" | "left" | "right") => {
@@ -897,7 +938,10 @@ export function App(): JSX.Element {
         position: "relative",
         width: "100vw",
         height: "100vh",
-        overflow: "hidden",
+        // `clip`, not `hidden`: the decorative glows extend past the right edge,
+        // and `hidden` would leave a scrollable box with no scrollbar — focus
+        // inside it then scrolls the whole app sideways with no way back.
+        overflow: "clip",
       }}
     >
       <Backdrop />
@@ -920,9 +964,15 @@ export function App(): JSX.Element {
           />
         )}
         {phase !== "live" && sourceNotices.length > 0 && (
-          <SourceHealthStrip notices={sourceNotices} onOpenSettings={openSettings} />
+          <SourceHealthStrip
+            notices={sourceNotices}
+            compact={isCompact}
+            onOpenSettings={openSettings}
+          />
         )}
-        {phase !== "live" && (searching || snapshot?.warning_message) && sourceNotices.length > 0 && (
+        {/* Only while the palette is centred: the full-width palette covers this
+            corner, and the persistent strip already carries the same warning. */}
+        {!isCompact && (searching || snapshot?.warning_message) && sourceNotices.length > 0 && (
           <SearchNoticePanel
             searching={searching}
             notices={sourceNotices}
@@ -947,13 +997,19 @@ export function App(): JSX.Element {
           style={{
             position: "absolute",
             top: isCompact ? 56 : isIdle ? 210 : 88,
-            left: isCompact ? 20 : "50%",
-            right: isCompact ? 20 : "auto",
-            transform: isCompact ? "none" : "translateX(-50%)",
-            width: isCompact ? "auto" : "min(920px, calc(100vw - 28px))",
-            zIndex: 4,
+            // Centred in every phase so only the width animates. Swapping the
+            // horizontal anchor instead would snap `left` while `transform` was
+            // still easing, throwing the palette off the side of the screen.
+            left: "50%",
+            transform: "translateX(-50%)",
+            width: isCompact
+              ? "calc(100vw - 40px)"
+              : "min(920px, calc(100vw - 28px))",
+            // Above the search notice, which is advisory and would otherwise
+            // cover the language dropdown that opens under the chips.
+            zIndex: 8,
             transition:
-              "top 520ms cubic-bezier(.22, 1.3, .36, 1), transform 280ms cubic-bezier(.2,.7,.3,1), width 280ms cubic-bezier(.2,.7,.3,1)",
+              "top 520ms cubic-bezier(.22, 1.3, .36, 1), width 280ms cubic-bezier(.2,.7,.3,1)",
           }}
         >
           {!isCompact && !noKey && !isEmpty && (
@@ -1023,6 +1079,8 @@ export function App(): JSX.Element {
               sourceLang={sourceLang}
               targetLang={targetLang}
               searching={searching}
+              hydrating={hydrating}
+              preparingReplacement={preparingReplacement}
               langOptions={(languages?.sourceTarget ?? []) as LanguageOption[]}
               onChangeLang={(type, code) => void onChangeLang(type, code)}
             />
@@ -1108,13 +1166,15 @@ interface SourceNotice {
 
 function SourceHealthStrip({
   notices,
+  compact,
   onOpenSettings,
 }: {
   notices: SourceNotice[];
+  compact: boolean;
   onOpenSettings: () => void;
 }): JSX.Element {
   return (
-    <div className="source-health-strip" aria-live="polite">
+    <div className="source-health-strip" data-compact={compact} aria-live="polite">
       <span className="source-health-dot" aria-hidden />
       <span className="source-health-text">{notices[0].label}</span>
       {notices.length > 1 && (

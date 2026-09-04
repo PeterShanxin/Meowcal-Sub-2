@@ -27,6 +27,8 @@ export interface UIState {
   selectedSourceId: string | null;
   selectedTargetId: string | null;
   cursorIndex: number;
+  /** Season/episode keys with a subtitle lookup in flight, for per-row progress. */
+  hydrating: string[];
   liveLines: LiveLine[];
   lastSubtitle: string;
   error: string | null;
@@ -50,6 +52,7 @@ const initial: UIState = {
   selectedSourceId: null,
   selectedTargetId: null,
   cursorIndex: -1,
+  hydrating: [],
   liveLines: [],
   lastSubtitle: "",
   error: null,
