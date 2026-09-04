@@ -30,6 +30,8 @@ import type {
   WorkItem,
 } from "./lib/types";
 
+const COMPACT_PALETTE_TOP = 56;
+
 function clientEventId(prefix: string): string {
   if (crypto.randomUUID) return `${prefix}-${crypto.randomUUID()}`;
   const bytes = new Uint8Array(16);
@@ -72,6 +74,7 @@ export function App(): JSX.Element {
   const showSettings = settingsRequested && !!config;
   const phase: Phase = derivePhase(snapshot, showSettings ? "home" : null);
   const [searching, setSearching] = useState(false);
+  const [preparing, setPreparing] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   // Tracks visibility through the close animation so background stays inert
   // until the modal is fully hidden (not just until showSettings goes false).
@@ -80,6 +83,8 @@ export function App(): JSX.Element {
   const viewportWidth = useViewportWidth();
   const inputRef = useRef<HTMLInputElement>(null);
   const backgroundRef = useRef<HTMLDivElement>(null);
+  const paletteBoxRef = useRef<HTMLDivElement>(null);
+  const [paletteHeight, setPaletteHeight] = useState(0);
   const searchAbort = useRef<AbortController | null>(null);
   const lastSearchedQuery = useRef<string>("");
   const autoPrepareInFlight = useRef<string | null>(null);
@@ -360,6 +365,7 @@ export function App(): JSX.Element {
       return;
     }
     autoPrepareInFlight.current = matchId;
+    setPreparing(true);
     const correlationId = clientEventId("prepare");
     logClientEvent("ui.session.auto_prepare_requested", { matchId }, correlationId);
     store.set({ cursorIndex: -1, selectedSourceId: null, selectedTargetId: null });
@@ -395,15 +401,15 @@ export function App(): JSX.Element {
     } finally {
       if (autoPrepareInFlight.current === matchId) {
         autoPrepareInFlight.current = null;
+        setPreparing(false);
       }
     }
   }, []);
 
-  const confirmTitleForAutoPrepare = useCallback((workId: string, matchId: string) => {
-    logClientEvent("ui.title.selected", { workId, matchId, mode: "auto_candidates" });
-    // Stay on the list the user is looking at. Auto-prepare fills the Source and
-    // Target tabs behind them, and the footer offers Start sync from any tab, so
-    // switching tabs here would only hide the choice they came to make.
+  // Selecting is not committing: preparing downloads subtitle files and rebuilds
+  // the screen, so it waits for the footer action rather than firing on a click.
+  const selectTitle = useCallback((workId: string, matchId: string) => {
+    logClientEvent("ui.title.selected", { workId, matchId });
     store.set({
       selectedWorkId: workId,
       selectedEpisodeMatchId: matchId,
@@ -412,8 +418,7 @@ export function App(): JSX.Element {
       query: "",
       cursorIndex: -1,
     });
-    void prepareAutoSession(matchId);
-  }, [prepareAutoSession]);
+  }, []);
 
   const beginBackgroundSearch = useCallback(() => {
     backgroundSearchCount.current += 1;
@@ -453,7 +458,7 @@ export function App(): JSX.Element {
       const work = filteredWorks.find((w) => w.id === id);
       if (!work) return;
       if (!work.expandable) {
-        if (work.primaryMatchId) confirmTitleForAutoPrepare(id, work.primaryMatchId);
+        if (work.primaryMatchId) selectTitle(id, work.primaryMatchId);
         return;
       }
       store.set((s) => {
@@ -466,7 +471,7 @@ export function App(): JSX.Element {
         };
       });
     },
-    [filteredWorks, confirmTitleForAutoPrepare],
+    [filteredWorks, selectTitle],
   );
 
   const hydrateSeasonIfNeeded = useCallback(async (workId: string, seasonNumber: number) => {
@@ -530,9 +535,9 @@ export function App(): JSX.Element {
         onToggleExpandWork(id);
         return;
       }
-      if (work.primaryMatchId) confirmTitleForAutoPrepare(id, work.primaryMatchId);
+      if (work.primaryMatchId) selectTitle(id, work.primaryMatchId);
     },
-    [filteredWorks, onToggleExpandWork, confirmTitleForAutoPrepare],
+    [filteredWorks, onToggleExpandWork, selectTitle],
   );
 
   const onTitleMediaFilterChange = useCallback((filter: TitleMediaFilter) => {
@@ -564,8 +569,8 @@ export function App(): JSX.Element {
   }, []);
 
   const onPickEpisode = useCallback(
-    (workId: string, matchId: string) => confirmTitleForAutoPrepare(workId, matchId),
-    [confirmTitleForAutoPrepare],
+    (workId: string, matchId: string) => selectTitle(workId, matchId),
+    [selectTitle],
   );
 
   const onHydrateEpisode = useCallback(async (workId: string, season: number, episode: number) => {
@@ -581,7 +586,7 @@ export function App(): JSX.Element {
       const fresh = await api.getState();
       store.set({ snapshot: fresh, config: fresh.config });
       if (hydrated.matchId) {
-        confirmTitleForAutoPrepare(workId, hydrated.matchId);
+        selectTitle(workId, hydrated.matchId);
       }
       logClientEvent("ui.episode.hydrate_completed", {
         workId,
@@ -601,7 +606,7 @@ export function App(): JSX.Element {
     } finally {
       endHydrate(key);
     }
-  }, [beginHydrate, confirmTitleForAutoPrepare, endHydrate, works]);
+  }, [beginHydrate, selectTitle, endHydrate, works]);
 
   const onPickSource = useCallback((id: string) => {
     logClientEvent("ui.source.selected", { resultId: id });
@@ -811,15 +816,15 @@ export function App(): JSX.Element {
       void runSearch(query.trim());
       return;
     }
-    if (phase === "prep") {
-      if (preparingReplacement) return;
+    if (preparing) return;
+    if (phase === "prep" && !preparingReplacement) {
       void startSync();
     } else if (episodeMatchId && selectedSourceId && selectedTargetId) {
       void onPickTarget(selectedTargetId); // re-prepare if user changed mind
     } else if (episodeMatchId) {
       void prepareAutoSession(episodeMatchId);
     }
-  }, [phase, tab, query, runSearch, startSync, preparingReplacement, episodeMatchId, selectedSourceId, selectedTargetId, onPickTarget, prepareAutoSession]);
+  }, [phase, tab, query, runSearch, startSync, preparing, preparingReplacement, episodeMatchId, selectedSourceId, selectedTargetId, onPickTarget, prepareAutoSession]);
 
   const onMoveCursor = useCallback(
     (dir: "up" | "down" | "left" | "right") => {
@@ -922,6 +927,18 @@ export function App(): JSX.Element {
     : "—";
   const palettePhase = settingsVisible ? "settings" : phase;
 
+  // The palette's height moves with its filter rows and result count, so the
+  // cards below it are placed from a measurement rather than a fixed offset.
+  useEffect(() => {
+    const box = paletteBoxRef.current;
+    if (!box) return;
+    const measure = (): void => setPaletteHeight(box.offsetHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [phase]);
+
   useEffect(() => {
     const background = backgroundRef.current as (HTMLDivElement & { inert?: boolean }) | null;
     if (!background) return;
@@ -994,9 +1011,10 @@ export function App(): JSX.Element {
 
         {phase !== "live" && (
         <div
+          ref={paletteBoxRef}
           style={{
             position: "absolute",
-            top: isCompact ? 56 : isIdle ? 210 : 88,
+            top: isCompact ? COMPACT_PALETTE_TOP : isIdle ? 210 : 88,
             // Centred in every phase so only the width animates. Swapping the
             // horizontal anchor instead would snap `left` while `transform` was
             // still easing, throwing the palette off the side of the screen.
@@ -1080,6 +1098,7 @@ export function App(): JSX.Element {
               targetLang={targetLang}
               searching={searching}
               hydrating={hydrating}
+              preparing={preparing}
               preparingReplacement={preparingReplacement}
               langOptions={(languages?.sourceTarget ?? []) as LanguageOption[]}
               onChangeLang={(type, code) => void onChangeLang(type, code)}
@@ -1092,9 +1111,7 @@ export function App(): JSX.Element {
           <div
             style={{
               position: "absolute",
-              // Clears the compact palette above it, whose result list is capped
-              // at 280px and which otherwise covers the top of these cards.
-              top: 520,
+              top: COMPACT_PALETTE_TOP + paletteHeight + 16,
               left: 20,
               right: 20,
               bottom: 20,

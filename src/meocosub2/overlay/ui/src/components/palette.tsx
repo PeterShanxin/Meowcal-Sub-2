@@ -53,6 +53,7 @@ interface PaletteProps {
   targetLang: string;
   searching: boolean;
   hydrating: string[];
+  preparing: boolean;
   preparingReplacement: boolean;
   langOptions: LanguageOption[];
   onChangeLang: (type: "source" | "target", code: string) => void;
@@ -98,6 +99,7 @@ export function Palette(props: PaletteProps): JSX.Element {
     targetLang,
     searching,
     hydrating,
+    preparing,
     preparingReplacement,
     langOptions,
     onChangeLang,
@@ -183,13 +185,14 @@ export function Palette(props: PaletteProps): JSX.Element {
           : "Search for a title…";
 
   const canStart = phase === "prep" && !preparingReplacement;
-  const canPrepare =
-    hasSelectedEpisode && phase !== "prep";
-  const primaryLabel = canStart
-    ? "Start sync"
-    : canPrepare
-      ? "Prepare automatically"
-      : null;
+  const canPrepare = hasSelectedEpisode && !canStart;
+  const primaryLabel = preparing
+    ? "Preparing"
+    : canStart
+      ? "Start sync"
+      : canPrepare
+        ? "Prepare automatically"
+        : null;
 
   return (
     <div
@@ -438,16 +441,17 @@ export function Palette(props: PaletteProps): JSX.Element {
         <span>Select</span>
         <div style={{ flex: 1 }} />
         {primaryLabel ? (
-          <button onClick={onPrimary} style={primaryStyle}>
+          <button
+            onClick={onPrimary}
+            disabled={preparing}
+            style={{ ...primaryStyle, opacity: preparing ? 0.7 : 1 }}
+          >
+            {preparing && <span className="mini-spinner" aria-hidden />}
             {primaryLabel}
-            <Kbd>⌘↵</Kbd>
+            {!preparing && <Kbd>⌘↵</Kbd>}
           </button>
         ) : (
-          <span>
-            {!hasSelectedEpisode
-              ? "Pick a title to continue"
-              : "Auto-selecting source and target subtitles"}
-          </span>
+          <span>Pick a title to continue</span>
         )}
       </div>
     </div>
