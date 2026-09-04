@@ -17,6 +17,7 @@ import httpx
 from meocosub2.config import AppConfig
 from meocosub2.errors import SubtitleSourceError
 from meocosub2.event_log import log_event
+from meocosub2.http_timeouts import provider_timeout
 from meocosub2.subtitle_sources.types import (
     ProviderCapabilities,
     ProviderSearchCatalog,
@@ -63,7 +64,7 @@ class SubdlProvider:
 
         requested_languages = {code.strip() for code in languages.split(",") if code.strip()}
         warnings: list[str] = []
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers={"Accept": "application/json"}) as client:
+        async with httpx.AsyncClient(timeout=provider_timeout(30.0), follow_redirects=True, headers={"Accept": "application/json"}) as client:
             try:
                 page = await self._fetch_api(
                     client,
@@ -131,7 +132,7 @@ class SubdlProvider:
             raise SubtitleSourceError("SubDL result is missing a download link.")
 
         extract_dir = contained_path(self._cache_dir, safe_segment(result.id, "subdl"))
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
+        async with httpx.AsyncClient(timeout=provider_timeout(30.0), follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
             response = await client.get(self._download_url(link))
             response.raise_for_status()
             try:
@@ -433,7 +434,7 @@ class SubdlProvider:
 
     async def _fetch_next_data(self, url: str, client: httpx.AsyncClient | None = None) -> dict[str, object]:
         if client is None:
-            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as scoped_client:
+            async with httpx.AsyncClient(timeout=provider_timeout(30.0), follow_redirects=True, headers={"User-Agent": USER_AGENT}) as scoped_client:
                 return await self._fetch_next_data(url, scoped_client)
         started = time.perf_counter()
         response = await client.get(url)
