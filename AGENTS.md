@@ -107,3 +107,6 @@
 - Driving the real desktop through `SendInput` and `ImageGrab` is the way to verify Tauri-only behavior end to end; browser automation cannot reach the selector, the HUD, or the live strip.
 - A full-viewport shell with `overflow: hidden` is still a scroll container: anything reaching past its edge (the decorative glows do) lets a focus call scroll the whole app sideways with no scrollbar to undo it. Use `overflow: clip`.
 - Only animate interpolable properties. Transitioning `transform` while `left`/`right`/`width: auto` snap between layouts throws the element a full width off-screen for the duration.
+- The studio window loads from `http://127.0.0.1:<port>/`, so Tauri capabilities scoped to local pages do not cover it. Core permissions such as `core:event:allow-listen` need a capability with a `remote` URL scope, or `event.listen` is rejected at runtime while custom `invoke` commands keep working.
+- A Tauri command returning `Ok(())` resolves to `null` in JavaScript. Use `isTauri()` to detect the shell; a `null` result proves nothing.
+- `frontendDist` assets (`selector.html`, `selector.js`) are embedded into the shell binary at compile time. Editing them needs a `cargo build`, not just an npm build.

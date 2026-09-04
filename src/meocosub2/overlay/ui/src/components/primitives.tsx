@@ -217,18 +217,46 @@ export function Backdrop(): JSX.Element {
   );
 }
 
+const topBarButtonStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: 26,
+  height: 26,
+  padding: 0,
+  marginLeft: 4,
+  borderRadius: 7,
+  border: "1px solid rgba(255,255,255,0.06)",
+  background: "rgba(255,255,255,0.02)",
+  color: "var(--text-label)",
+  cursor: "pointer",
+  transition: "background 160ms ease, color 160ms ease",
+};
+
+function highlight(event: { currentTarget: HTMLButtonElement }): void {
+  event.currentTarget.style.background = "var(--accent-tint)";
+  event.currentTarget.style.color = "var(--accent-text)";
+}
+
+function unhighlight(event: { currentTarget: HTMLButtonElement }): void {
+  event.currentTarget.style.background = "rgba(255,255,255,0.02)";
+  event.currentTarget.style.color = "var(--text-label)";
+}
+
 export function TopBar({
   phase,
   wsConnected,
   engineStatus,
   sourcesCount,
   onOpenSettings,
+  onClearSession,
 }: {
   phase: "home" | "prep" | "live" | "settings" | "empty" | "no-key";
   wsConnected: boolean;
   engineStatus: EngineStatus | null;
   sourcesCount: number;
   onOpenSettings?: () => void;
+  onClearSession?: () => void;
 }): JSX.Element {
   const label =
     phase === "live"
@@ -276,40 +304,51 @@ export function TopBar({
         <span title={wsConnected ? "Connected" : "Reconnecting…"}>
           {wsConnected ? "●" : "○"}
         </span>
+        {onClearSession && (
+          <button
+            onClick={onClearSession}
+            aria-label="Clear session"
+            title="Clear session (⇧⌫)"
+            style={topBarButtonStyle}
+            onMouseEnter={highlight}
+            onMouseLeave={unhighlight}
+          >
+            <ResetIcon />
+          </button>
+        )}
         {onOpenSettings && (
           <button
             onClick={onOpenSettings}
             aria-label="Open settings"
             title="Settings (,)"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 26,
-              height: 26,
-              padding: 0,
-              marginLeft: 4,
-              borderRadius: 7,
-              border: "1px solid rgba(255,255,255,0.06)",
-              background: "rgba(255,255,255,0.02)",
-              color: "var(--text-label)",
-              cursor: "pointer",
-              transition: "background 160ms ease, color 160ms ease",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = "var(--accent-tint)";
-              e.currentTarget.style.color = "var(--accent-text)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "rgba(255,255,255,0.02)";
-              e.currentTarget.style.color = "var(--text-label)";
-            }}
+            style={topBarButtonStyle}
+            onMouseEnter={highlight}
+            onMouseLeave={unhighlight}
           >
             <GearIcon />
           </button>
         )}
       </div>
     </div>
+  );
+}
+
+function ResetIcon(): JSX.Element {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M3 12a9 9 0 1 0 3-6.7" />
+      <path d="M3 4v5h5" />
+    </svg>
   );
 }
 

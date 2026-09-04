@@ -247,14 +247,77 @@ fn open_area_selector(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Closes the selector after the user backed out, so a start that was waiting on
+/// a region can stop waiting instead of hanging on an event that never comes.
 #[tauri::command]
-fn close_area_selector(app: AppHandle) -> Result<(), String> {
-    log_shell_event("selector.close.requested", serde_json::json!({}));
-    let window = app
+fn cancel_area_selector(app: AppHandle) -> Result<(), String> {
+    log_shell_event("selector.cancel.requested", serde_json::json!({}));
+    if let Some(selector) = app.get_webview_window("selector") {
+        selector.hide().map_err(|error| error.to_string())?;
+    }
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.show();
+        let _ = main.set_focus();
+    }
+    app.emit("capture-region-cancelled", ())
+        .map_err(|error| error.to_string())
+}
+
+/// The saved region in the selector window's own CSS pixels, so a reselect starts
+/// from the box the last session used. `None` once it belongs to another monitor.
+#[tauri::command]
+fn get_capture_region(app: AppHandle) -> Result<Option<CaptureRegionPayload>, String> {
+    let selector = app
         .get_webview_window("selector")
         .ok_or("Selector window not found")?;
-    window.hide().map_err(|error| error.to_string())?;
-    Ok(())
+    let monitor = selector
+        .current_monitor()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "no monitor".to_string())?;
+    let scale = monitor.scale_factor();
+    let origin = monitor.position();
+    let size = monitor.size();
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let payload: serde_json::Value = authorized(client.get(format!("{}/api/config", api_base())))
+        .send()
+        .and_then(|response| response.error_for_status())
+        .map_err(|error| error.to_string())?
+        .json()
+        .map_err(|error| error.to_string())?;
+    let region = payload["capture"]["region"]
+        .as_array()
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| value.as_i64().map(|n| n as i32))
+                .collect::<Vec<i32>>()
+        })
+        .unwrap_or_default();
+    if region.len() != 4 || region[2] <= 0 || region[3] <= 0 {
+        return Ok(None);
+    }
+
+    // A region saved on another monitor maps outside this window, and a box the
+    // user cannot see is worse than starting blank.
+    let on_this_monitor = region[0] >= origin.x
+        && region[1] >= origin.y
+        && region[0] + region[2] <= origin.x + size.width as i32
+        && region[1] + region[3] <= origin.y + size.height as i32;
+    if !on_this_monitor {
+        return Ok(None);
+    }
+
+    let to_css = |value: i32| (value as f64 / scale).round() as i32;
+    Ok(Some(CaptureRegionPayload {
+        x: to_css(region[0] - origin.x),
+        y: to_css(region[1] - origin.y),
+        width: to_css(region[2]),
+        height: to_css(region[3]),
+    }))
 }
 
 #[tauri::command]
@@ -517,7 +580,8 @@ fn main() {
         .manage(shell_state)
         .invoke_handler(tauri::generate_handler![
             open_area_selector,
-            close_area_selector,
+            cancel_area_selector,
+            get_capture_region,
             hide_main_window,
             show_main_window,
             enter_live_mode,

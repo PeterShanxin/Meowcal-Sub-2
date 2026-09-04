@@ -1,6 +1,11 @@
+type UnlistenFn = () => void;
+
 interface TauriLike {
   core?: { invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T> };
   invoke?: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
+  event?: {
+    listen: (event: string, handler: (payload: unknown) => void) => Promise<UnlistenFn>;
+  };
 }
 
 function getTauri(): TauriLike | null {
@@ -23,11 +28,21 @@ export async function invokeTauri<T>(
   return fn<T>(cmd, args);
 }
 
+/** Subscribes to a shell event, or resolves null outside the desktop shell. */
+export async function listenTauri(
+  event: string,
+  handler: (payload: unknown) => void,
+): Promise<UnlistenFn | null> {
+  const listen = getTauri()?.event?.listen;
+  if (!listen) return null;
+  return listen(event, handler);
+}
+
 export const tauri = {
   enterLiveMode: () => invokeTauri<void>("enter_live_mode"),
   exitLiveMode: () => invokeTauri<void>("exit_live_mode"),
   openAreaSelector: () => invokeTauri<void>("open_area_selector"),
-  closeAreaSelector: () => invokeTauri<void>("close_area_selector"),
   stopTranslation: () => invokeTauri<void>("stop_translation"),
   getApiBase: () => invokeTauri<string>("get_api_base"),
+  listen: listenTauri,
 };

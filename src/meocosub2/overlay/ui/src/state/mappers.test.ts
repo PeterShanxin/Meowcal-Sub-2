@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import type { BackendResult, BackendWork } from "../lib/types";
-import { applyLanguageChoice, mapResultsToTarget, mapWorksToItems } from "./mappers";
+import {
+  applyLanguageChoice,
+  mapResultsToSource,
+  mapResultsToTarget,
+  mapWorksToItems,
+} from "./mappers";
 
 function makeWork(overrides: Partial<BackendWork> & Pick<BackendWork, "id" | "title" | "mediaType">): BackendWork {
   return {
@@ -112,10 +117,20 @@ describe("mapWorksToItems", () => {
 });
 
 describe("mapResultsToTarget", () => {
-  it("injects local and ocr synthetic targets around real files", () => {
+  it("falls back to local translation and OCR when no file matches the language", () => {
     const results = [makeResult({ resultId: "r1", matchId: "m1", language: "zh" })];
     const targets = mapResultsToTarget(results, "m1", "en");
     expect(targets.map((t) => t.kind)).toEqual(["local", "ocr"]);
+  });
+
+  it("leads with ranked subtitle files and keeps the fallbacks last", () => {
+    const results = [
+      makeResult({ resultId: "second", matchId: "m1", language: "en", matchScore: 20 }),
+      makeResult({ resultId: "first", matchId: "m1", language: "en", matchScore: 80 }),
+    ];
+    const targets = mapResultsToTarget(results, "m1", "en");
+    expect(targets.map((t) => t.id)).toEqual(["first", "second", "__local__", "__ocr__"]);
+    expect(targets.map((t) => t.recommended)).toEqual([true, true, false, false]);
   });
 });
 
@@ -143,5 +158,39 @@ describe("applyLanguageChoice", () => {
       source: "en",
       target: "ja",
     });
+  });
+});
+
+describe("mapResultsToSource", () => {
+  it("ranks by match score, then provider rank, then downloads", () => {
+    const results = [
+      makeResult({ resultId: "weak", matchId: "m1", language: "en", matchScore: 10 }),
+      makeResult({ resultId: "popular", matchId: "m1", language: "en", matchScore: 90, downloadCount: 900 }),
+      makeResult({ resultId: "quiet", matchId: "m1", language: "en", matchScore: 90, downloadCount: 10 }),
+      makeResult({ resultId: "trusted", matchId: "m1", language: "en", matchScore: 90, providerRank: 1 }),
+    ];
+    expect(mapResultsToSource(results, "m1", "en").map((s) => s.id)).toEqual([
+      "trusted",
+      "popular",
+      "quiet",
+      "weak",
+    ]);
+  });
+
+  it("recommends the top three entries", () => {
+    const results = [1, 2, 3, 4].map((n) =>
+      makeResult({ resultId: `r${n}`, matchId: "m1", language: "en", matchScore: 100 - n }),
+    );
+    expect(mapResultsToSource(results, "m1", "en").map((s) => s.recommended)).toEqual([
+      true,
+      true,
+      true,
+      false,
+    ]);
+  });
+
+  it("does not recommend a lone result", () => {
+    const results = [makeResult({ resultId: "r1", matchId: "m1", language: "en" })];
+    expect(mapResultsToSource(results, "m1", "en")[0].recommended).toBe(false);
   });
 });

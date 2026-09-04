@@ -104,16 +104,44 @@ async function confirmSelection() {
   });
 }
 
+async function cancelSelection() {
+  await TAURI.core.invoke("cancel_area_selector");
+}
+
 confirmButton.addEventListener("click", () => void confirmSelection());
-cancelButton.addEventListener("click", async () => {
-  await TAURI.core.invoke("close_area_selector");
-});
+cancelButton.addEventListener("click", () => void cancelSelection());
 
 window.addEventListener("keydown", async (event) => {
   if (event.key === "Escape") {
-    await TAURI.core.invoke("close_area_selector");
+    await cancelSelection();
   }
   if (event.key === "Enter") {
     await confirmSelection();
   }
 });
+
+// Starting from the box the last session used turns a reselect into a glance and
+// an Enter, rather than redrawing the same rectangle every time. The window is
+// reused rather than recreated, so this runs on every open, not just on load.
+async function restoreLastSelection() {
+  // The backend owns the saved region, so this can fail while it is still
+  // starting. A blank selector is the right fallback: the user just drags.
+  const region = await TAURI.core.invoke("get_capture_region").catch(() => null);
+  if (region) {
+    state.startX = region.x;
+    state.startY = region.y;
+    state.currentX = region.x + region.width;
+    state.currentY = region.y + region.height;
+  } else {
+    // Nothing usable to reuse - a box left over from another monitor would point
+    // the user at the wrong part of the screen.
+    state.startX = 0;
+    state.startY = 0;
+    state.currentX = 0;
+    state.currentY = 0;
+  }
+  renderSelection();
+}
+
+void restoreLastSelection();
+void TAURI.event.listen("tauri://focus", () => void restoreLastSelection());

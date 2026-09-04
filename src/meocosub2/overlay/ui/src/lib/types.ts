@@ -227,6 +227,7 @@ export interface SourceItem {
   fps: string;
   hi: boolean;
   trusted: boolean;
+  recommended: boolean;
   raw: BackendResult;
 }
 
@@ -241,16 +242,8 @@ export interface TargetItem {
   provider?: string;
   downloads?: string;
   fps?: string;
+  recommended: boolean;
   raw?: BackendResult;
-}
-
-export interface CommandItem {
-  id: string;
-  icon: string;
-  label: string;
-  shortcut: string;
-  kind?: "primary";
-  disabled?: boolean;
 }
 
 export interface LiveLine {
@@ -258,7 +251,7 @@ export interface LiveLine {
   text: string;
 }
 
-export type PaletteTabId = "titles" | "source" | "target" | "cmd";
+export type PaletteTabId = "titles" | "source" | "target";
 
 export type TitleMediaFilter = "all" | "series" | "movie" | "specials";
 

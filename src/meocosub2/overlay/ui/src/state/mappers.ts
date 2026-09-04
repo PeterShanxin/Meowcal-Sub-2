@@ -2,7 +2,6 @@ import type {
   BackendResult,
   BackendSnapshot,
   BackendWork,
-  CommandItem,
   InfoChip,
   Phase,
   SourceItem,
@@ -87,26 +86,49 @@ function formatDownloads(n: number): string {
   return n.toLocaleString();
 }
 
+/** How many ranked entries carry the recommended badge. */
+const RECOMMENDED_COUNT = 3;
+
+/**
+ * Best subtitle first: how well the file matches the episode, then how much the
+ * provider is trusted, then how many people downloaded it.
+ */
+function byRank(a: BackendResult, b: BackendResult): number {
+  return (
+    b.matchScore - a.matchScore ||
+    a.providerRank - b.providerRank ||
+    b.downloadCount - a.downloadCount
+  );
+}
+
+/** A badge on the only option tells the reader nothing. */
+function recommendedUpTo(total: number): number {
+  return total > 1 ? RECOMMENDED_COUNT : 0;
+}
+
 export function mapResultsToSource(
   results: BackendResult[],
   matchId: string | null,
   sourceLanguage: string,
 ): SourceItem[] {
-  return results
+  const ranked = results
     .filter((r) => {
       if (matchId && r.matchId !== matchId) return false;
       return languageMatches(r.language, sourceLanguage);
     })
-    .map((r) => ({
-      id: r.resultId,
-      file: r.fileName || r.displayLabel,
-      provider: r.providerLabel || r.provider,
-      downloads: formatDownloads(r.downloadCount),
-      fps: "—",
-      hi: false,
-      trusted: r.providerRank <= 1,
-      raw: r,
-    }));
+    .sort(byRank);
+  const recommendUpTo = recommendedUpTo(ranked.length);
+  return ranked.map((r, index) => ({
+    id: r.resultId,
+    file: r.fileName || r.displayLabel,
+    provider: r.providerLabel || r.provider,
+    downloads: formatDownloads(r.downloadCount),
+    fps: "—",
+    hi: false,
+    trusted: r.providerRank <= 1,
+    recommended: index < recommendUpTo,
+    raw: r,
+  }));
 }
 
 export function mapResultsToTarget(
@@ -114,67 +136,42 @@ export function mapResultsToTarget(
   matchId: string | null,
   targetLanguage: string,
 ): TargetItem[] {
-  const fileEntries: TargetItem[] = results
+  const ranked = results
     .filter((r) => {
       if (matchId && r.matchId !== matchId) return false;
       return languageMatches(r.language, targetLanguage);
     })
-    .map((r) => ({
-      id: r.resultId,
-      kind: "file" as const,
-      file: r.fileName || r.displayLabel,
-      provider: r.providerLabel || r.provider,
-      downloads: formatDownloads(r.downloadCount),
-      fps: "—",
-      raw: r,
-    }));
+    .sort(byRank);
+  const recommendUpTo = recommendedUpTo(ranked.length);
+  const fileEntries: TargetItem[] = ranked.map((r, index) => ({
+    id: r.resultId,
+    kind: "file" as const,
+    file: r.fileName || r.displayLabel,
+    provider: r.providerLabel || r.provider,
+    downloads: formatDownloads(r.downloadCount),
+    fps: "—",
+    recommended: index < recommendUpTo,
+    raw: r,
+  }));
 
+  // Neither fallback is a subtitle in the target language, so they sit after the
+  // real files rather than competing with them for the top of the list.
   const local: TargetItem = {
     id: "__local__",
     kind: "local",
     title: "Local translation",
     note: "Foundry · batch translate source lines",
+    recommended: false,
   };
   const ocr: TargetItem = {
     id: "__ocr__",
     kind: "ocr",
     title: "OCR fallback only",
     note: "No subtitle file — OCR only",
+    recommended: false,
   };
 
-  return [local, ...fileEntries, ocr];
-}
-
-export function buildCommands(phase: Phase): CommandItem[] {
-  const isPrep = phase === "prep";
-  return [
-    {
-      id: "c1",
-      icon: "▶",
-      label: "Start sync",
-      shortcut: "⌘↵",
-      kind: "primary",
-      disabled: !isPrep,
-    },
-    {
-      id: "c2",
-      icon: "⎚",
-      label: "Select capture region",
-      shortcut: "C",
-    },
-    {
-      id: "c3",
-      icon: "⚙",
-      label: "Settings",
-      shortcut: ",",
-    },
-    {
-      id: "c4",
-      icon: "⟲",
-      label: "Clear session",
-      shortcut: "⇧⌫",
-    },
-  ];
+  return [...fileEntries, local, ocr];
 }
 
 // Backend normalizes Chinese codes: "zh" = Simplified, "zht" = Traditional.
