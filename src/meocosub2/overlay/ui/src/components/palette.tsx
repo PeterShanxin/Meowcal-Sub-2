@@ -164,6 +164,8 @@ export function Palette(props: PaletteProps): JSX.Element {
   }, [inputRef, phase]);
 
   const hasSelectedEpisode = !!selectedEpisodeMatchId;
+  // A row lookup marks its own row; only a query search speaks for the list.
+  const listSearching = searching && hydrating.length === 0;
   const tabs = [
     { id: "titles", label: "Titles", count: works.length },
     { id: "source", label: "Source", count: hasSelectedEpisode ? sources.length : 0 },
@@ -352,6 +354,7 @@ export function Palette(props: PaletteProps): JSX.Element {
           availableSeasons={availableSeasonNumbers}
           filteredCount={works.length}
           totalCount={totalWorksCount}
+          searching={listSearching}
           onMediaFilterChange={onTitleMediaFilterChange}
           onToggleSeason={onToggleSeasonFilter}
           onClearSeasons={onClearSeasonFilters}
@@ -359,20 +362,12 @@ export function Palette(props: PaletteProps): JSX.Element {
       )}
 
       <div ref={listRef} style={{ maxHeight: compact ? 280 : 420, overflow: "auto", position: "relative" }}>
-        {/* A per-row lookup already marks its own row; dimming the whole list for
-            it would make every other title look disabled too. */}
         {tab === "titles" && (
           <div
             className={`results-shell ${
-              searching && hydrating.length === 0 && works.length > 0 ? "is-refreshing" : ""
+              listSearching && works.length > 0 ? "is-refreshing" : ""
             }`}
           >
-            {searching && works.length > 0 && (
-              <div className="results-status" aria-live="polite">
-                <span className="mini-spinner" aria-hidden />
-                <span>Searching</span>
-              </div>
-            )}
             <div key={titleResultsKey} className="results-content">
               <WorkList
                 items={works}
@@ -479,6 +474,7 @@ function TitleFilters({
   availableSeasons,
   filteredCount,
   totalCount,
+  searching,
   onMediaFilterChange,
   onToggleSeason,
   onClearSeasons,
@@ -488,6 +484,7 @@ function TitleFilters({
   availableSeasons: number[];
   filteredCount: number;
   totalCount: number;
+  searching: boolean;
   onMediaFilterChange: (filter: TitleMediaFilter) => void;
   onToggleSeason: (seasonNumber: number) => void;
   onClearSeasons: () => void;
@@ -524,11 +521,15 @@ function TitleFilters({
           ))}
         </div>
         <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 11.5, color: "var(--text-dim)", whiteSpace: "nowrap" }}>
-          {filteredCount === totalCount
-            ? `${totalCount} shown`
-            : `${filteredCount} of ${totalCount}`}
-        </span>
+        {searching ? (
+          <RowBusy label="Searching" />
+        ) : (
+          <span style={{ fontSize: 11.5, color: "var(--text-dim)", whiteSpace: "nowrap" }}>
+            {filteredCount === totalCount
+              ? `${totalCount} shown`
+              : `${filteredCount} of ${totalCount}`}
+          </span>
+        )}
       </div>
       {showSeasons && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -717,7 +718,11 @@ function WorkList({
         const isSelected = selectedWorkId === work.id;
         const isExpanded = expandedWorkId === work.id;
         return (
-          <div className="work-card" key={`work-card-${work.id}`}>
+          <div
+            className="work-card"
+            data-expanded={isExpanded}
+            key={`work-card-${work.id}`}
+          >
             <WorkRow
               work={work}
               selected={isSelected}
