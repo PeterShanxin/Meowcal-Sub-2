@@ -53,6 +53,7 @@ interface PaletteProps {
   targetLang: string;
   searching: boolean;
   hydrating: string[];
+  preparingReplacement: boolean;
   langOptions: LanguageOption[];
   onChangeLang: (type: "source" | "target", code: string) => void;
 }
@@ -97,6 +98,7 @@ export function Palette(props: PaletteProps): JSX.Element {
     targetLang,
     searching,
     hydrating,
+    preparingReplacement,
     langOptions,
     onChangeLang,
   } = props;
@@ -178,7 +180,7 @@ export function Palette(props: PaletteProps): JSX.Element {
           ? "Filter target subtitles…"
           : "Search for a title…";
 
-  const canStart = phase === "prep";
+  const canStart = phase === "prep" && !preparingReplacement;
   const canPrepare =
     hasSelectedEpisode && phase !== "prep";
   const primaryLabel = canStart

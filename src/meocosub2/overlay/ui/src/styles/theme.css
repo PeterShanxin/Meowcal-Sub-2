@@ -392,6 +392,12 @@ kbd[data-dim="true"] {
   backdrop-filter: blur(10px);
 }
 
+/* The full-width palette starts at 56px, so sit in the free left half of the
+   top bar rather than underneath it. */
+.source-health-strip[data-compact="true"] {
+  top: 14px;
+}
+
 .source-health-dot {
   width: 7px;
   height: 7px;

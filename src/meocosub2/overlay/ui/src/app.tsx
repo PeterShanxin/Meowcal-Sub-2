@@ -168,6 +168,13 @@ export function App(): JSX.Element {
   );
   const commands = useMemo(() => buildCommands(phase), [phase]);
 
+  // Selecting another episode leaves the old session prepared until the new one
+  // lands, so Start sync must not fire the episode the user just moved off.
+  const preparingReplacement =
+    !!selectedEpisodeMatchId &&
+    snapshot?.prepared_session != null &&
+    snapshot.prepared_session.feature_id !== selectedEpisodeMatchId;
+
   useEffect(() => {
     if (selectedSeasonFilters.length === 0) return;
     const available = new Set(availableSeasonNumbers);
@@ -258,6 +265,10 @@ export function App(): JSX.Element {
       sourceLanguage: config?.languages.source ?? snapshot?.source_language,
       targetLanguage: config?.languages.target ?? snapshot?.target_language,
     }, correlationId);
+    // Hydration keys name rows in the catalog this search replaces, and the
+    // aggregator reuses ordinal work ids, so stale keys could mark a row of the
+    // new catalog busy.
+    hydrateInFlight.current.clear();
     store.set({
       cursorIndex: -1,
       selectedWorkId: null,
@@ -266,6 +277,7 @@ export function App(): JSX.Element {
       selectedEpisodeMatchId: null,
       selectedSourceId: null,
       selectedTargetId: null,
+      hydrating: [],
     });
     try {
       const res = await api.search(
@@ -800,13 +812,14 @@ export function App(): JSX.Element {
       return;
     }
     if (phase === "prep") {
+      if (preparingReplacement) return;
       void startSync();
     } else if (episodeMatchId && selectedSourceId && selectedTargetId) {
       void onPickTarget(selectedTargetId); // re-prepare if user changed mind
     } else if (episodeMatchId) {
       void prepareAutoSession(episodeMatchId);
     }
-  }, [phase, tab, query, runSearch, startSync, episodeMatchId, selectedSourceId, selectedTargetId, onPickTarget, prepareAutoSession]);
+  }, [phase, tab, query, runSearch, startSync, preparingReplacement, episodeMatchId, selectedSourceId, selectedTargetId, onPickTarget, prepareAutoSession]);
 
   const onMoveCursor = useCallback(
     (dir: "up" | "down" | "left" | "right") => {
@@ -951,7 +964,11 @@ export function App(): JSX.Element {
           />
         )}
         {phase !== "live" && sourceNotices.length > 0 && (
-          <SourceHealthStrip notices={sourceNotices} onOpenSettings={openSettings} />
+          <SourceHealthStrip
+            notices={sourceNotices}
+            compact={isCompact}
+            onOpenSettings={openSettings}
+          />
         )}
         {/* Only while the palette is centred: the full-width palette covers this
             corner, and the persistent strip already carries the same warning. */}
@@ -1063,6 +1080,7 @@ export function App(): JSX.Element {
               targetLang={targetLang}
               searching={searching}
               hydrating={hydrating}
+              preparingReplacement={preparingReplacement}
               langOptions={(languages?.sourceTarget ?? []) as LanguageOption[]}
               onChangeLang={(type, code) => void onChangeLang(type, code)}
             />
@@ -1148,13 +1166,15 @@ interface SourceNotice {
 
 function SourceHealthStrip({
   notices,
+  compact,
   onOpenSettings,
 }: {
   notices: SourceNotice[];
+  compact: boolean;
   onOpenSettings: () => void;
 }): JSX.Element {
   return (
-    <div className="source-health-strip" aria-live="polite">
+    <div className="source-health-strip" data-compact={compact} aria-live="polite">
       <span className="source-health-dot" aria-hidden />
       <span className="source-health-text">{notices[0].label}</span>
       {notices.length > 1 && (
