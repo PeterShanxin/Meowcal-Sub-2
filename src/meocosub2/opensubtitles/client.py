@@ -15,6 +15,8 @@ from urllib.parse import quote_plus
 import httpx
 from rapidfuzz import fuzz
 
+from meocosub2.http_timeouts import provider_timeout
+
 from meocosub2.subtitle_sources.cache_paths import contained_path, subtitle_file_name
 from meocosub2.errors import OpenSubtitlesError
 from meocosub2.event_log import log_event
@@ -98,7 +100,7 @@ class OpenSubtitlesClient:
                 "Content-Type": "application/json",
             },
             follow_redirects=True,
-            timeout=30.0,
+            timeout=provider_timeout(30.0),
         )
 
     async def aclose(self) -> None:
@@ -216,7 +218,7 @@ class OpenSubtitlesClient:
             return destination
 
         link, _ = await self.get_download_link(file_id)
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=provider_timeout(30.0), follow_redirects=True) as client:
             response = await client.get(link)
             response.raise_for_status()
             destination.write_bytes(response.content)
@@ -414,7 +416,7 @@ class OpenSubtitlesClient:
         try:
             async with httpx.AsyncClient(
                 follow_redirects=True,
-                timeout=20.0,
+                timeout=provider_timeout(20.0),
                 headers={"User-Agent": ORG_USER_AGENT},
             ) as client:
                 response = await client.get(ORG_SEARCH_URL.format(query=slug))

@@ -21,6 +21,8 @@ from typing import Any
 import httpx
 from rapidfuzz import fuzz
 
+from meocosub2.http_timeouts import provider_timeout
+
 logger = logging.getLogger(__name__)
 
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
@@ -186,7 +188,7 @@ class TMDbClient:
 
     async def _client_obj(self) -> httpx.AsyncClient:
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=SEARCH_TIMEOUT_SECONDS)
+            self._client = httpx.AsyncClient(timeout=provider_timeout(SEARCH_TIMEOUT_SECONDS))
         return self._client
 
     async def find_by_imdb(self, imdb_id: str) -> TMDbSeries | None:

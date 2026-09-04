@@ -12,6 +12,7 @@ import httpx
 from meocosub2.config import AppConfig
 from meocosub2.errors import SubtitleSourceError
 from meocosub2.event_log import log_event
+from meocosub2.http_timeouts import provider_timeout
 from meocosub2.subtitle_sources.types import ProviderCapabilities, ProviderSearchCatalog, ProviderSubtitleResult
 from meocosub2.subtitle_sources.cache_paths import (
     contained_path,
@@ -146,14 +147,14 @@ class AssrtProvider:
             subtitle_file_name(file_name, "subtitle"),
         )
         destination.parent.mkdir(parents=True, exist_ok=True)
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=provider_timeout(30.0), follow_redirects=True) as client:
             response = await client.get(direct_url)
             response.raise_for_status()
             destination.write_bytes(response.content)
         return destination
 
     async def _request(self, path: str, params: dict[str, object]) -> dict[str, object]:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=provider_timeout(30.0), follow_redirects=True) as client:
             started = time.perf_counter()
             response = await client.get(f"{API_BASE}{path}", params=params)
             log_event(
