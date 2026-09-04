@@ -12,7 +12,7 @@ import meocosub2.subtitle_sources.aggregator as aggregator_module
 from meocosub2.subtitle_sources.aggregator import SubtitleSearchAggregator
 from meocosub2.subtitle_sources.subdl import SubdlProvider
 from meocosub2.subtitle_sources.types import AggregatedWork, ProviderSearchCatalog, ProviderSubtitleMatch, ProviderSubtitleResult
-from meocosub2.subtitle_sources.utils import canonical_title, map_subdl_language
+from meocosub2.subtitle_sources.utils import canonical_title, looks_like_release_name, map_subdl_language
 
 
 class FakeProvider:
@@ -1418,7 +1418,7 @@ async def test_aggregator_returns_partial_results_when_one_provider_fails() -> N
     catalog = await aggregator.search_catalog("Movie", "en")
 
     assert len(catalog.results) == 1
-    assert any("ASSRT" in warning for warning in catalog.warnings)
+    assert "ASSRT: boom" in catalog.warnings
 
 
 @pytest.mark.asyncio
@@ -1859,3 +1859,133 @@ async def test_every_provider_failing_reports_which_ones_and_why() -> None:
     message = str(excinfo.value)
     assert "SubDL" in message and "429" in message
     assert "ASSRT" in message and "connection refused" in message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (httpx.ConnectTimeout(""), "could not be reached"),
+        (TimeoutError(), "took too long"),
+        (httpx.ReadTimeout(""), "took too long"),
+    ],
+)
+async def test_a_wordless_provider_failure_still_says_what_happened(error, expected) -> None:
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider("subdl", "SubDL", _catalog_with_one_result("subdl", "SubDL")),
+        FakeProvider("assrt", "ASSRT", error=error),
+    )
+
+    catalog = await aggregator.search_catalog("Rick and Morty", "en")
+
+    warning = next(w for w in catalog.warnings if w.startswith("ASSRT"))
+    assert expected in warning
+
+
+class ConnectFailingProvider(FakeProvider):
+    """Counts how many times the aggregator actually dialled it."""
+
+    def __init__(self):
+        super().__init__("assrt", "ASSRT", ProviderSearchCatalog(matches=[], results=[]))
+        self.calls = 0
+
+    async def search_catalog(self, query: str, languages: str) -> ProviderSearchCatalog:
+        self.calls += 1
+        raise httpx.ConnectTimeout("")
+
+
+@pytest.mark.asyncio
+async def test_an_unreachable_provider_is_not_dialled_on_every_later_search() -> None:
+    aggregator_module.provider_availability.reset()
+    unreachable = ConnectFailingProvider()
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider("subdl", "SubDL", _catalog_with_one_result("subdl", "SubDL")),
+        unreachable,
+    )
+
+    for _ in range(4):
+        await aggregator.search_catalog("Rick and Morty", "en")
+
+    assert unreachable.calls == aggregator_module.CONNECT_FAILURES_BEFORE_SKIP
+
+
+@pytest.mark.asyncio
+async def test_a_skipped_provider_still_tells_the_user_it_is_missing() -> None:
+    aggregator_module.provider_availability.reset()
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider("subdl", "SubDL", _catalog_with_one_result("subdl", "SubDL")),
+        ConnectFailingProvider(),
+    )
+
+    for _ in range(3):
+        catalog = await aggregator.search_catalog("Rick and Morty", "en")
+
+    assert "ASSRT: could not be reached." in catalog.warnings
+
+
+@pytest.mark.asyncio
+async def test_a_provider_that_answers_with_an_error_is_still_dialled_again() -> None:
+    # A 429 or a bad response proves the host is reachable; only a failure to
+    # connect at all means dialling again is wasted time.
+    aggregator_module.provider_availability.reset()
+    rate_limited = FakeProvider("assrt", "ASSRT", error=RuntimeError("429 Too Many Requests"))
+    calls = {"n": 0}
+    original = rate_limited.search_catalog
+
+    async def counting(query: str, languages: str):
+        calls["n"] += 1
+        return await original(query, languages)
+
+    rate_limited.search_catalog = counting
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider("subdl", "SubDL", _catalog_with_one_result("subdl", "SubDL")),
+        rate_limited,
+    )
+
+    for _ in range(4):
+        await aggregator.search_catalog("Rick and Morty", "en")
+
+    assert calls["n"] == 4
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Rick.and.Morty.S03E01.1080p.BluRay.x264-YELLOWBiRD.srt",
+        "Rick.and.Morty.S04E08.720p.WEB-DL.x265",
+        "rick and morty s02e01 hdtv x264-batv",
+    ],
+)
+def test_release_names_are_not_offered_as_episode_titles(title) -> None:
+    assert looks_like_release_name(title)
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "The Vat of Acid Episode",
+        "Edge of Tomorty: Rick Die Rickpeat",
+        "M. Night Shaym-Aliens!",
+        "Pickle Rick",
+    ],
+)
+def test_real_episode_titles_survive(title) -> None:
+    assert not looks_like_release_name(title)
+
+
+@pytest.mark.asyncio
+async def test_a_season_built_from_release_names_shows_plain_episode_numbers() -> None:
+    aggregator_module.provider_availability.reset()
+    catalog = _catalog_with_one_result("subdl", "SubDL")
+    catalog.matches[0].title = "Rick.and.Morty.S04E08.1080p.WEB-DL.x264-GROUP.srt"
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (FakeProvider("subdl", "SubDL", catalog),)
+
+    aggregated = await aggregator.search_catalog("Rick and Morty", "en")
+
+    episodes = [ep for work in aggregated.works for season in work.seasons for ep in season.episodes]
+    assert episodes and all(ep.title == "" for ep in episodes)

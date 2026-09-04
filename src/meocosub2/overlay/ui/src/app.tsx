@@ -984,16 +984,6 @@ export function App(): JSX.Element {
             onOpenSettings={openSettings}
           />
         )}
-        {/* Only while the palette is centred: the full-width palette covers this
-            corner, and the persistent strip already carries the same warning. */}
-        {!isCompact && (searching || snapshot?.warning_message) && sourceNotices.length > 0 && (
-          <SearchNoticePanel
-            searching={searching}
-            notices={sourceNotices}
-            onOpenSettings={openSettings}
-          />
-        )}
-
         {noKey && phase === "home" && !query && (
           <NoApiKey onOpenSettings={openSettings} />
         )}
@@ -1191,7 +1181,7 @@ function SourceHealthStrip({
   return (
     <div className="source-health-strip" data-compact={compact} aria-live="polite">
       <span className="source-health-dot" aria-hidden />
-      <span className="source-health-text">{notices[0].label}</span>
+      <span className="source-health-text">{notices[0].detail || notices[0].label}</span>
       {notices.length > 1 && (
         <span className="source-health-count">+{notices.length - 1}</span>
       )}
@@ -1199,31 +1189,6 @@ function SourceHealthStrip({
         Settings
       </button>
     </div>
-  );
-}
-
-function SearchNoticePanel({
-  searching,
-  notices,
-  onOpenSettings,
-}: {
-  searching: boolean;
-  notices: SourceNotice[];
-  onOpenSettings: () => void;
-}): JSX.Element {
-  return (
-    <aside className="search-notice-panel" aria-live="polite" aria-label="Search notices">
-      <div className="search-notice-kicker">{searching ? "Searching" : "Search notice"}</div>
-      {notices.slice(0, 3).map((notice) => (
-        <div className="search-notice-item" data-tone={notice.tone} key={notice.id}>
-          <div className="search-notice-title">{notice.label}</div>
-          <div className="search-notice-detail">{notice.detail}</div>
-        </div>
-      ))}
-      <button className="search-notice-button" type="button" onClick={onOpenSettings}>
-        Open source settings
-      </button>
-    </aside>
   );
 }
 
