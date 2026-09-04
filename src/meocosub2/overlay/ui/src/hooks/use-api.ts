@@ -1,4 +1,5 @@
-import type { BackendSnapshot, FoundryStatus, LanguagesPayload } from "../lib/types";
+import type { BackendSnapshot, EngineStatus, LanguagesPayload } from "../lib/types";
+import { accessToken } from "../lib/session";
 
 const API_BASE = "";
 
@@ -9,7 +10,10 @@ async function request<T>(
 ): Promise<T> {
   const init: RequestInit = {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Meowcal-Token": accessToken,
+    },
   };
   if (body !== undefined) init.body = JSON.stringify(body);
   const res = await fetch(`${API_BASE}${path}`, init);
@@ -69,12 +73,8 @@ export const api = {
   putConfig: (payload: BackendSnapshot["config"]) =>
     request<BackendSnapshot["config"]>("PUT", "/api/config", payload),
   getLanguages: () => request<LanguagesPayload>("GET", "/api/languages"),
-  getFoundryStatus: (probe = false, autoStart = false) =>
-    request<FoundryStatus>(
-      "GET",
-      `/api/foundry/status?probe=${probe}&autoStart=${autoStart}`,
-    ),
-  prepareFoundry: () => request<FoundryStatus>("POST", "/api/foundry/prepare"),
+  getEngineStatus: () => request<EngineStatus>("GET", "/api/engine/status"),
+  installEngine: () => request<EngineStatus>("POST", "/api/engine/install"),
   installOcrLanguage: (languageTag: string) =>
     request<{ status: string }>("POST", "/api/ocr/install", { languageTag }),
   search: (

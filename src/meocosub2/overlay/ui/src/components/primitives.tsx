@@ -1,5 +1,22 @@
 import type { CSSProperties, ReactNode } from "react";
-import type { InfoChip } from "../lib/types";
+import type { EngineStatus, InfoChip } from "../lib/types";
+
+const ENGINE_LABELS: Record<EngineStatus["phase"], string> = {
+  ready: "Translation ✓",
+  idle: "Translation ready",
+  installing: "Translation installing",
+  needsSetup: "Translation needs setup",
+  failed: "Translation failed",
+  unsupported: "Translation unsupported",
+};
+
+function engineLabel(status: EngineStatus | null): string {
+  if (!status) return "Translation —";
+  if (status.phase === "installing") {
+    return `Translation installing ${status.installPercent}%`;
+  }
+  return ENGINE_LABELS[status.phase] ?? "Translation —";
+}
 
 export function DisclosureChevron({ open }: { open: boolean }): JSX.Element {
   return (
@@ -203,13 +220,13 @@ export function Backdrop(): JSX.Element {
 export function TopBar({
   phase,
   wsConnected,
-  foundryPhase,
+  engineStatus,
   sourcesCount,
   onOpenSettings,
 }: {
   phase: "home" | "prep" | "live" | "settings" | "empty" | "no-key";
   wsConnected: boolean;
-  foundryPhase: string;
+  engineStatus: EngineStatus | null;
   sourcesCount: number;
   onOpenSettings?: () => void;
 }): JSX.Element {
@@ -252,7 +269,7 @@ export function TopBar({
           {label}
         </span>
         <span style={{ color: "#3a3a46" }}>·</span>
-        <span>Foundry {foundryPhase === "ready" ? "✓" : foundryPhase || "—"}</span>
+        <span title={engineStatus?.message ?? ""}>{engineLabel(engineStatus)}</span>
         <span style={{ color: "#3a3a46" }}>·</span>
         <span>{sourcesCount} sources</span>
         <span style={{ color: "#3a3a46" }}>·</span>

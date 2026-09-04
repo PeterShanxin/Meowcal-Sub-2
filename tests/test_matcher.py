@@ -166,3 +166,17 @@ def test_is_repeated_frame_rejects_short_ascii() -> None:
     matcher = SubtitleMatcher(make_lines())
     matcher._last_frame_hash = matcher._hash_text("hi")
     assert matcher.is_repeated_frame("hi") is False
+
+
+def test_stray_edge_marks_beside_chinese_dialogue_are_dropped() -> None:
+    from meocosub2.textnorm import clean_cjk_text
+
+    assert clean_cjk_text("0 = 很自然 我们甚至不会察觉") == "很自然我们甚至不会察觉"
+    assert clean_cjk_text("很自然 0") == "很自然"
+
+
+def test_numbers_beside_latin_text_are_kept() -> None:
+    from meocosub2.textnorm import clean_cjk_text
+
+    assert clean_cjk_text("Chapter 7") == "Chapter 7"
+    assert clean_cjk_text("- Can you do it?") == "- Can you do it?"

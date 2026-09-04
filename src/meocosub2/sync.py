@@ -1,4 +1,4 @@
-"""Main OCR sync loop."""
+"""The live capture loop: read the subtitle strip, decide what it says, show it."""
 
 from __future__ import annotations
 
@@ -10,371 +10,251 @@ from time import monotonic
 
 from meocosub2.capture import capture_region, ocr_image
 from meocosub2.config import AppConfig
-from meocosub2.errors import TranslationError
 from meocosub2.matcher import SubtitleMatcher
-from meocosub2.models import MatchResult, SourceSubtitleCandidate, SubtitleLine, SubtitlePair
-from meocosub2.textnorm import clean_cjk_text
-from meocosub2.translator import open_translation_client, translate_text
+from meocosub2.models import MatchResult, SourceSubtitleCandidate, SubtitleLine
+from meocosub2.subtitle_gate import LineChange, SubtitleGate
+from meocosub2.translator import TranslationClient, is_untranslatable, open_translation_client
 
 logger = logging.getLogger(__name__)
 
+# A candidate has to win by this much before the session commits to it, or by
+# agreeing with itself across this many reads.
 AUTO_LOCK_SCORE = 92.0
 AUTO_CONFIRM_HITS = 2
 AUTO_UNLOCK_MISSES = 3
+# Consecutive empty reads before the overlay clears. One blank frame is a cue
+# transition; several in a row mean nothing is on screen.
+CLEAR_AFTER_EMPTY_READS = 3
+TRANSLATION_CACHE_SIZE = 64
+CONTEXT_LINES = 3
+
+Broadcast = Callable[[str], Awaitable[None]]
+DebugBroadcast = Callable[[dict[str, object]], Awaitable[None]]
+RegionSource = Callable[[], tuple[int, ...]]
+TranslatorFactory = Callable[[], Awaitable["LiveTranslator"]]
 
 
-async def run_sync_loop(
-    pair: SubtitlePair,
-    config: AppConfig,
-    broadcast: Callable[[str], Awaitable[None]],
-    debug_broadcast: Callable[[dict[str, object]], Awaitable[None]] | None = None,
-) -> None:
-    for source_line, target_line in zip(pair.source_lines, pair.target_lines):
-        if not source_line.translated:
-            source_line.translated = target_line.text
+class LiveTranslator:
+    """Caches translations and carries recent lines as context, like v1's session cache."""
 
-    matcher = SubtitleMatcher(
-        pair.source_lines,
-        config.fuzzy_threshold,
-        config.match_window_size,
-        config.match_window_backward,
-        target_language=config.target_language,
-    )
-    last_displayed_index = -1
-    if not config.capture_region:
-        logger.warning("No capture region configured — using default (0, 800, 1920, 200). Set capture.region in config for your screen.")
-    region = tuple(config.capture_region) if config.capture_region else (0, 800, 1920, 200)
-    interval_s = config.capture_interval_ms / 1000
-    iteration = 0
+    def __init__(self, client: TranslationClient, source_language: str, target_language: str) -> None:
+        self._client = client
+        self._source_language = source_language
+        self._target_language = target_language
+        self._cache: OrderedDict[str, str] = OrderedDict()
+        self._context: deque[str] = deque(maxlen=CONTEXT_LINES)
 
-    while True:
-        iteration += 1
-        loop_start = monotonic()
-        ocr_text = ""
-        result = None
-        try:
-            image = capture_region(region)
-            ocr_text = await ocr_image(image, config.ocr_language)
-            result = matcher.match(ocr_text)
-            if result is not None and result.line_index != last_displayed_index:
-                logger.debug("SYNC #%d broadcast idx=%d score=%.1f text=%r", iteration, result.line_index, result.score, result.target_text[:60])
-                await broadcast(result.target_text)
-                last_displayed_index = result.line_index
-            else:
-                logger.debug(
-                    "SYNC #%d ocr=%r match=%s",
-                    iteration,
-                    ocr_text[:60],
-                    f"idx={result.line_index} (same)" if result else "miss",
-                )
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Sync loop #%d failed (ocr=%r)", iteration, ocr_text[:60])
-
-        elapsed = monotonic() - loop_start
-        if debug_broadcast is not None:
-            await debug_broadcast({
-                "iteration": iteration,
-                "ocrText": ocr_text[:120],
-                "matchIdx": result.line_index if result else None,
-                "matchScore": round(result.score, 1) if result else None,
-                "matchSrc": result.source_text[:60] if result else None,
-                "elapsedMs": int(elapsed * 1000),
-            })
-            elapsed = monotonic() - loop_start
-        await asyncio.sleep(max(0, interval_s - elapsed))
+    async def translate(self, text: str) -> str:
+        key = SubtitleMatcher.normalize_text(text)
+        cached = self._cache.get(key)
+        if cached is not None:
+            self._cache.move_to_end(key)
+            return cached
+        translated = await self._client.translate(
+            text, self._source_language, self._target_language, list(self._context)
+        )
+        if translated:
+            self._cache[key] = translated
+            while len(self._cache) > TRANSLATION_CACHE_SIZE:
+                self._cache.popitem(last=False)
+            self._context.append(translated)
+        return translated
 
 
-async def run_ocr_fallback_loop(
-    target_lines: list[SubtitleLine],
-    config: AppConfig,
-    broadcast: Callable[[str], Awaitable[None]],
-    debug_broadcast: Callable[[dict[str, object]], Awaitable[None]] | None = None,
-) -> None:
-    matcher = SubtitleMatcher(target_lines, config.fuzzy_threshold, config.match_window_size, config.match_window_backward, target_language=config.target_language) if target_lines else None
-    translation_context: deque[str] = deque(maxlen=3)
-    translation_cache: OrderedDict[str, str] = OrderedDict()
-    last_ocr_key = ""
-    last_displayed = ""
-    region = tuple(config.capture_region) if config.capture_region else (0, 800, 1920, 200)
-    interval_s = config.capture_interval_ms / 1000
-    client = None
-    model = None
+class CandidateSession:
+    """Matches OCR against downloaded subtitle candidates and shows the paired line.
 
-    try:
-        client, model = await open_translation_client(config)
+    With one candidate this is a straight match. With several it locks onto the
+    one that agrees with the screen and unlocks when it stops agreeing, so a
+    wrong release or a mismatched cut does not pin the session to bad timings.
+    """
 
-        while True:
-            loop_start = monotonic()
-            ocr_key = ""
-            display_text = ""
-            try:
-                image = capture_region(region)
-                ocr_text = await ocr_image(image, config.ocr_language)
-                ocr_key = _normalize_live_ocr_text(ocr_text)
-                if len(ocr_key) < 3 or ocr_key == last_ocr_key:
-                    elapsed = monotonic() - loop_start
-                    await asyncio.sleep(max(0, interval_s - elapsed))
-                    continue
+    mode = "candidates"
 
-                last_ocr_key = ocr_key
-                translation = translation_cache.get(ocr_key)
-                if translation is None:
-                    translation = await translate_text(
-                        ocr_text,
-                        config,
-                        context_lines=list(translation_context),
-                        client=client,
-                        model=model,
-                    )
-                    translation_cache[ocr_key] = translation
-                    translation_cache.move_to_end(ocr_key)
-                    while len(translation_cache) > 32:
-                        translation_cache.popitem(last=False)
-
-                if translation:
-                    translation_context.append(translation)
-
-                display_text = translation
-                if matcher is not None and translation:
-                    match = matcher.match(translation)
-                    if match is not None:
-                        display_text = match.target_text
-
-                if display_text and display_text != last_displayed:
-                    await broadcast(display_text)
-                    last_displayed = display_text
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.exception("OCR fallback loop iteration failed")
-
-            elapsed = monotonic() - loop_start
-            if debug_broadcast is not None:
-                await debug_broadcast({
-                    "ocrText": ocr_key[:120],
-                    "matchIdx": None,
-                    "matchScore": None,
-                    "matchSrc": None,
-                    "translation": (display_text or "")[:60],
-                    "elapsedMs": int(elapsed * 1000),
-                })
-                elapsed = monotonic() - loop_start
-            await asyncio.sleep(max(0, interval_s - elapsed))
-    finally:
-        if client is not None:
-            await client.close()
-
-
-async def run_auto_candidate_sync_loop(
-    candidates: list[SourceSubtitleCandidate],
-    config: AppConfig,
-    broadcast: Callable[[str], Awaitable[None]],
-    debug_broadcast: Callable[[dict[str, object]], Awaitable[None]] | None = None,
-) -> None:
-    if not candidates:
-        raise RuntimeError("Auto subtitle matching needs at least one source candidate.")
-
-    matchers = [
-        _CandidateMatcher(
-            candidate=candidate,
-            matcher=SubtitleMatcher(
+    def __init__(
+        self,
+        candidates: list[SourceSubtitleCandidate],
+        config: AppConfig,
+        translator: TranslatorFactory,
+    ) -> None:
+        self._matchers = {
+            candidate.result_id: SubtitleMatcher(
                 candidate.pair.source_lines,
                 config.fuzzy_threshold,
                 config.match_window_size,
                 config.match_window_backward,
                 target_language=config.target_language,
-            ),
+            )
+            for candidate in candidates
+        }
+        self._candidates = {candidate.result_id: candidate for candidate in candidates}
+        self._open_translator = translator
+        self._locked: str | None = next(iter(self._matchers)) if len(self._matchers) == 1 else None
+        self._pending: str = ""
+        self._pending_hits = 0
+        self._misses = 0
+
+    async def resolve(self, ocr_text: str) -> tuple[str, dict[str, object]]:
+        winner, result = self._match(ocr_text)
+        if winner is None or result is None:
+            return "", {"matchIdx": None, "matchScore": None, "lockedCandidateId": self._locked}
+
+        text = result.target_text
+        if not self._line_is_translated(winner, result.line_index):
+            translator = await self._open_translator()
+            text = await translator.translate(result.source_text) or ""
+        return text, {
+            "matchIdx": result.line_index,
+            "matchScore": round(result.score, 1),
+            "matchSrc": result.source_text[:60],
+            "candidateId": winner,
+            "lockedCandidateId": self._locked,
+        }
+
+    def _match(self, ocr_text: str) -> tuple[str | None, MatchResult | None]:
+        if self._locked is not None:
+            result = self._matchers[self._locked].match(ocr_text)
+            if result is not None:
+                self._misses = 0
+                return self._locked, result
+            self._misses += 1
+            if len(self._matchers) == 1 or self._misses < AUTO_UNLOCK_MISSES:
+                return None, None
+            logger.debug("Unlocking subtitle candidate %s after %d misses", self._locked, self._misses)
+            self._locked = None
+            self._misses = 0
+
+        best_id, best = "", None
+        for result_id, matcher in self._matchers.items():
+            result = matcher.match(ocr_text)
+            if result is not None and (best is None or result.score > best.score):
+                best_id, best = result_id, result
+        if best is None:
+            return None, None
+
+        if best.score >= AUTO_LOCK_SCORE:
+            self._lock(best_id)
+        elif best_id == self._pending:
+            self._pending_hits += 1
+            if self._pending_hits >= AUTO_CONFIRM_HITS:
+                self._lock(best_id)
+        else:
+            self._pending, self._pending_hits = best_id, 1
+        # Only a locked candidate is trusted enough to put text on screen.
+        return (best_id, best) if self._locked == best_id else (None, None)
+
+    def _lock(self, result_id: str) -> None:
+        logger.debug("Locked subtitle candidate %s", result_id)
+        self._locked = result_id
+        self._pending, self._pending_hits, self._misses = "", 0, 0
+
+    def _line_is_translated(self, result_id: str, line_index: int) -> bool:
+        candidate = self._candidates[result_id]
+        return any(
+            line.index == line_index and bool(line.translated)
+            for line in candidate.pair.source_lines
         )
-        for candidate in candidates
-    ]
-    locked: _CandidateMatcher | None = None
-    pending_id = ""
-    pending_hits = 0
-    pending_result: MatchResult | None = None
-    locked_misses = 0
-    last_displayed_key = ""
-    region = tuple(config.capture_region) if config.capture_region else (0, 800, 1920, 200)
+
+
+class DirectTranslationSession:
+    """Translates what OCR reads, with no source subtitle file to match against."""
+
+    mode = "translation"
+
+    def __init__(
+        self,
+        target_lines: list[SubtitleLine],
+        config: AppConfig,
+        translator: TranslatorFactory,
+    ) -> None:
+        self._open_translator = translator
+        self._matcher = (
+            SubtitleMatcher(
+                target_lines,
+                config.fuzzy_threshold,
+                config.match_window_size,
+                config.match_window_backward,
+                target_language=config.target_language,
+            )
+            if target_lines
+            else None
+        )
+
+    async def resolve(self, ocr_text: str) -> tuple[str, dict[str, object]]:
+        translator = await self._open_translator()
+        translation = await translator.translate(ocr_text)
+        if not translation:
+            return "", {"translation": ""}
+        if self._matcher is not None:
+            match = self._matcher.match(translation)
+            if match is not None:
+                return match.target_text, {
+                    "translation": translation[:60],
+                    "matchIdx": match.line_index,
+                    "matchScore": round(match.score, 1),
+                }
+        return translation, {"translation": translation[:60]}
+
+
+async def open_live_translator(config: AppConfig) -> tuple[TranslationClient, LiveTranslator]:
+    client = await open_translation_client(config)
+    return client, LiveTranslator(client, config.source_language, config.target_language)
+
+
+async def run_session_loop(
+    session: CandidateSession | DirectTranslationSession,
+    config: AppConfig,
+    broadcast: Broadcast,
+    debug_broadcast: DebugBroadcast | None = None,
+    region_source: RegionSource | None = None,
+) -> None:
+    # Read the region every frame: the live dock can reselect it without stopping.
+    read_region = region_source or (lambda: tuple(config.capture_region))
     interval_s = config.capture_interval_ms / 1000
-    client = None
-    model = None
-    translation_cache: OrderedDict[str, str] = OrderedDict()
+    gate = SubtitleGate()
+    displayed = ""
+    empty_reads = 0
     iteration = 0
 
-    try:
-        while True:
-            iteration += 1
-            loop_start = monotonic()
-            ocr_text = ""
-            result: MatchResult | None = None
-            winner: _CandidateMatcher | None = None
-            locked_this_frame = False
-            try:
-                image = capture_region(region)
-                ocr_text = await ocr_image(image, config.ocr_language)
+    while True:
+        iteration += 1
+        started = monotonic()
+        ocr_text = ""
+        change: LineChange | None = None
+        detail: dict[str, object] = {}
+        try:
+            image = await asyncio.to_thread(capture_region, read_region())
+            ocr_text = await ocr_image(image, config.ocr_language)
 
-                if locked is not None:
-                    repeat_frame = locked.matcher.is_repeated_frame(ocr_text)
-                    result = locked.matcher.match(ocr_text)
-                    winner = locked if result is not None else None
-                    if result is None:
-                        if repeat_frame:
-                            logger.debug("AUTO match repeat frame: candidate=%s", locked.candidate.result_id)
-                            elapsed = monotonic() - loop_start
-                            await asyncio.sleep(max(0, interval_s - elapsed))
-                            continue
-                        locked_misses += 1
-                        if locked_misses >= AUTO_UNLOCK_MISSES:
-                            logger.debug("AUTO match unlock: candidate=%s misses=%d", locked.candidate.result_id, locked_misses)
-                            locked = None
-                            pending_id = ""
-                            pending_hits = 0
-                            pending_result = None
-                    else:
-                        locked_misses = 0
+            if is_untranslatable(ocr_text):
+                empty_reads += 1
+                if empty_reads >= CLEAR_AFTER_EMPTY_READS and displayed:
+                    gate.clear()
+                    displayed = ""
+                    await broadcast("")
+            else:
+                empty_reads = 0
+                change = gate.classify(ocr_text)
+                if change is not LineChange.REPEAT:
+                    gate.remember(ocr_text)
+                    text, detail = await session.resolve(ocr_text)
+                    if text and text != displayed:
+                        displayed = text
+                        await broadcast(text)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Capture loop #%d failed (ocr=%r)", iteration, ocr_text[:60])
 
-                if locked is None:
-                    pending = _candidate_matcher_by_id(matchers, pending_id) if pending_id else None
-                    pending_repeat_frame = pending is not None and pending.matcher.is_repeated_frame(ocr_text)
-                    winner, result = _best_candidate_match(matchers, ocr_text)
-                    if winner is not None and result is not None:
-                        if result.score >= AUTO_LOCK_SCORE:
-                            locked = winner
-                            locked_this_frame = True
-                            pending_id = ""
-                            pending_hits = 0
-                            pending_result = None
-                        elif winner.candidate.result_id == pending_id:
-                            pending_hits += 1
-                            pending_result = result
-                            if pending_hits >= AUTO_CONFIRM_HITS:
-                                locked = winner
-                                locked_this_frame = True
-                                pending_id = ""
-                                pending_hits = 0
-                                pending_result = None
-                        else:
-                            pending_id = winner.candidate.result_id
-                            pending_hits = 1
-                            pending_result = result
-                    elif pending is not None and pending_result is not None:
-                        if pending_repeat_frame:
-                            pending_hits += 1
-                            if pending_hits >= AUTO_CONFIRM_HITS:
-                                locked = pending
-                                winner = pending
-                                result = pending_result
-                                locked_this_frame = True
-                                pending_id = ""
-                                pending_hits = 0
-                                pending_result = None
-
-                can_display = result is not None and locked is not None and winner is locked
-                if can_display:
-                    display_text = result.target_text
-                    if (
-                        winner is not None
-                        and not _candidate_line_has_translation(winner.candidate, result.line_index)
-                    ):
-                        if client is None:
-                            client, model = await open_translation_client(config)
-                        display_text = await _translate_cached(result.source_text, config, client, model, translation_cache)
-                    display_key = f"{winner.candidate.result_id if winner else ''}:{result.line_index}:{display_text}"
-                    if display_text and display_key != last_displayed_key:
-                        logger.debug(
-                            "AUTO match broadcast candidate=%s idx=%d score=%.1f locked=%s text=%r",
-                            winner.candidate.result_id if winner else "",
-                            result.line_index,
-                            result.score,
-                            locked is not None,
-                            display_text[:60],
-                        )
-                        await broadcast(display_text)
-                        last_displayed_key = display_key
-            except asyncio.CancelledError:
-                raise
-            except TranslationError:
-                logger.exception("Auto sync loop #%d translation failed (ocr=%r)", iteration, ocr_text[:60])
-                raise
-            except Exception:
-                logger.exception("Auto sync loop #%d failed (ocr=%r)", iteration, ocr_text[:60])
-
-            debug_elapsed = monotonic() - loop_start
-            if debug_broadcast is not None:
-                await debug_broadcast({
+        if debug_broadcast is not None:
+            await debug_broadcast(
+                {
                     "iteration": iteration,
                     "ocrText": ocr_text[:120],
-                    "matchIdx": result.line_index if result else None,
-                    "matchScore": round(result.score, 1) if result else None,
-                    "matchSrc": result.source_text[:60] if result else None,
-                    "candidateId": winner.candidate.result_id if winner else None,
-                    "lockedCandidateId": locked.candidate.result_id if locked else None,
-                    "lockedThisFrame": locked_this_frame,
-                    "elapsedMs": int(debug_elapsed * 1000),
-                })
-            sleep_elapsed = monotonic() - loop_start
-            await asyncio.sleep(max(0, interval_s - sleep_elapsed))
-    finally:
-        if client is not None:
-            await client.close()
-
-
-def _normalize_live_ocr_text(text: str) -> str:
-    normalized = SubtitleMatcher.normalize_text(text)
-    return clean_cjk_text(normalized)
-
-
-def _candidate_line_has_translation(candidate: SourceSubtitleCandidate, line_index: int) -> bool:
-    return any(line.index == line_index and bool(line.translated) for line in candidate.pair.source_lines)
-
-
-class _CandidateMatcher:
-    def __init__(self, candidate: SourceSubtitleCandidate, matcher: SubtitleMatcher) -> None:
-        self.candidate = candidate
-        self.matcher = matcher
-
-
-def _best_candidate_match(
-    matchers: list[_CandidateMatcher],
-    ocr_text: str,
-) -> tuple[_CandidateMatcher | None, MatchResult | None]:
-    best_candidate: _CandidateMatcher | None = None
-    best_result: MatchResult | None = None
-    for candidate in matchers:
-        result = candidate.matcher.match(ocr_text)
-        if result is None:
-            continue
-        if best_result is None or result.score > best_result.score:
-            best_candidate = candidate
-            best_result = result
-    return best_candidate, best_result
-
-
-def _candidate_matcher_by_id(
-    matchers: list[_CandidateMatcher],
-    result_id: str,
-) -> _CandidateMatcher | None:
-    for matcher in matchers:
-        if matcher.candidate.result_id == result_id:
-            return matcher
-    return None
-
-
-async def _translate_cached(
-    text: str,
-    config: AppConfig,
-    client,
-    model: str | None,
-    cache: OrderedDict[str, str],
-) -> str:
-    key = _normalize_live_ocr_text(text)
-    cached = cache.get(key)
-    if cached is not None:
-        cache.move_to_end(key)
-        return cached
-    translated = await translate_text(text, config, client=client, model=model)
-    cache[key] = translated
-    while len(cache) > 64:
-        cache.popitem(last=False)
-    return translated
+                    "change": change.value if change else "empty",
+                    "displayed": displayed[:60],
+                    "elapsedMs": int((monotonic() - started) * 1000),
+                    **detail,
+                }
+            )
+        await asyncio.sleep(max(0.0, interval_s - (monotonic() - started)))

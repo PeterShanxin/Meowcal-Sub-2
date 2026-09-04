@@ -16,10 +16,16 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
+from meocosub2.auth import read_runtime  # noqa: E402
+
 from playwright.sync_api import Error, sync_playwright
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DASHBOARD_URL = "http://127.0.0.1:8765/"
+DASHBOARD_ORIGIN = "http://127.0.0.1:8765"
+# Served without the run token, so it answers before the studio page will.
+READY_URL = f"{DASHBOARD_ORIGIN}/static/selector.js"
 SERVER_TIMEOUT_S = 30
 ALLOW_REUSE_ENV = "MEOWCAL_SMOKE_REUSE_EXISTING"
 PLAYWRIGHT_INSTALL_HINT = "python -m playwright install chromium"
@@ -87,13 +93,25 @@ def _prepare_smoke_config(env: dict[str, str]) -> tempfile.TemporaryDirectory[st
     return appdata_dir
 
 
+def _studio_url(appdata: str) -> str:
+    runtime = read_runtime(Path(appdata) / "meowcal-sub-2" / "runtime.json")
+    token = str(runtime.get("token") or "")
+    if not token:
+        raise RuntimeError("The backend did not publish a Studio token to its runtime file.")
+    return f"{DASHBOARD_ORIGIN}/?token={token}"
+
+
 def main() -> int:
     env = os.environ.copy()
     env.setdefault("PYTHONUTF8", "1")
     smoke_appdata = _prepare_smoke_config(env)
     process: subprocess.Popen[str] | None = None
     try:
-        if _server_is_ready(DASHBOARD_URL):
+        # A reused server published its token under the real profile, not the
+        # throwaway one prepared for a server this script starts itself.
+        studio_appdata = env["APPDATA"]
+        if _server_is_ready(READY_URL):
+            studio_appdata = os.environ.get("APPDATA", "")
             if not _allow_existing_server():
                 raise RuntimeError(
                     "Dashboard smoke refused to reuse an existing server on 127.0.0.1:8765 because "
@@ -109,7 +127,7 @@ def main() -> int:
                 stderr=subprocess.PIPE,
                 text=True,
             )
-        _wait_for_server(DASHBOARD_URL, SERVER_TIMEOUT_S)
+        _wait_for_server(READY_URL, SERVER_TIMEOUT_S)
         console_errors: list[str] = []
         page_errors: list[str] = []
 
@@ -129,7 +147,7 @@ def main() -> int:
                 else None,
             )
             page.on("pageerror", lambda exc: page_errors.append(str(exc)))
-            page.goto(DASHBOARD_URL, wait_until="domcontentloaded")
+            page.goto(_studio_url(studio_appdata), wait_until="domcontentloaded")
             # Command-palette redesign: wait for the React root, then for the
             # palette input to mount. Legacy DOM IDs (#app-shell, #hero-title-main,
             # #search-form, #results-flow, #session-view-title) are gone.

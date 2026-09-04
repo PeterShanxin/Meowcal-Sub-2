@@ -6,19 +6,15 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Listener, LogicalPosition, LogicalSize, Manager,
+    AppHandle, Emitter, Listener, Manager,
     PhysicalPosition, PhysicalSize, State,
 };
-use tokio::time::sleep;
 use url::Url;
-use windows::Win32::Foundation::POINT;
-use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -37,35 +33,6 @@ struct CaptureRegionPayload {
     height: i32,
 }
 
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct HudRegionPayload {
-    left: i32,
-    top: i32,
-    width: i32,
-    height: i32,
-    frame_left: i32,
-    frame_top: i32,
-    top_margin: i32,
-    bottom_margin: i32,
-    subtitle_position: &'static str,
-}
-
-#[derive(Serialize, Clone, Copy)]
-#[serde(rename_all = "camelCase")]
-struct HoverStatePayload {
-    hovering: bool,
-}
-
-#[derive(Clone, Copy)]
-struct CaptureRegionState {
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
-    device_scale_factor: f64,
-}
-
 #[derive(Clone, Copy)]
 struct MainWindowBounds {
     position: PhysicalPosition<i32>,
@@ -73,11 +40,7 @@ struct MainWindowBounds {
     maximized: bool,
 }
 
-#[derive(Clone)]
 struct ShellState {
-    capture_region: Arc<Mutex<Option<CaptureRegionState>>>,
-    hud_enabled: Arc<AtomicBool>,
-    hud_hovering: Arc<AtomicBool>,
     prev_main_bounds: Arc<Mutex<Option<MainWindowBounds>>>,
 }
 
@@ -157,13 +120,40 @@ fn api_base() -> String {
     format!("http://127.0.0.1:{}", overlay_port())
 }
 
+/// This run's Studio token, written by the backend when it starts listening.
+///
+/// Read fresh every time: the token changes with each backend start, and the
+/// shell can outlive a backend restart.
+fn access_token() -> String {
+    let Some(appdata) = std::env::var_os("APPDATA") else {
+        return String::new();
+    };
+    let path = PathBuf::from(appdata)
+        .join("meowcal-sub-2")
+        .join("runtime.json");
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|body| serde_json::from_str::<serde_json::Value>(&body).ok())
+        .and_then(|value| {
+            value
+                .get("token")
+                .and_then(|token| token.as_str())
+                .map(str::to_string)
+        })
+        .unwrap_or_default()
+}
+
+fn authorized(builder: reqwest::blocking::RequestBuilder) -> reqwest::blocking::RequestBuilder {
+    builder.header("X-Meowcal-Token", access_token())
+}
+
 fn backend_ready() -> bool {
     let api_base = api_base();
     Client::builder()
         .timeout(Duration::from_secs(2))
         .build()
         .ok()
-        .and_then(|client| client.get(format!("{api_base}/api/state")).send().ok())
+        .and_then(|client| authorized(client.get(format!("{api_base}/api/state"))).send().ok())
         .map(|response| response.status().is_success())
         .unwrap_or(false)
 }
@@ -226,8 +216,7 @@ fn post_json(path: &str, body: serde_json::Value) -> Result<(), String> {
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|error| error.to_string())?;
-    let response = client
-        .post(format!("{api_base}{path}"))
+    let response = authorized(client.post(format!("{api_base}{path}")))
         .json(&body)
         .send()
         .map_err(|error| error.to_string())?;
@@ -238,70 +227,6 @@ fn post_json(path: &str, body: serde_json::Value) -> Result<(), String> {
     }
 }
 
-fn fetch_capture_region_from_backend() -> Option<CaptureRegionState> {
-    let api_base = api_base();
-    let client = Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .ok()?;
-    let payload: serde_json::Value = client
-        .get(format!("{api_base}/api/config"))
-        .send()
-        .ok()?
-        .error_for_status()
-        .ok()?
-        .json()
-        .ok()?;
-
-    let region = payload.get("capture")?.get("region")?.as_array()?;
-    if region.len() != 4 {
-        return None;
-    }
-    let x = region[0].as_i64()? as i32;
-    let y = region[1].as_i64()? as i32;
-    let width = region[2].as_i64()? as i32;
-    let height = region[3].as_i64()? as i32;
-    if width <= 0 || height <= 0 {
-        return None;
-    }
-    Some(CaptureRegionState {
-        x,
-        y,
-        width,
-        height,
-        device_scale_factor: 1.0,
-    })
-}
-
-fn current_cursor_position() -> Option<(i32, i32)> {
-    unsafe {
-        let mut point = POINT::default();
-        if GetCursorPos(&mut point).is_ok() {
-            Some((point.x, point.y))
-        } else {
-            None
-        }
-    }
-}
-
-fn compute_hud_region(region: CaptureRegionState) -> HudRegionPayload {
-    let left_margin = 18;
-    let right_margin = 18;
-    let top_margin = if region.y >= 150 { 150 } else { 48 };
-    let bottom_margin = 122;
-    HudRegionPayload {
-        left: region.x - left_margin,
-        top: region.y - top_margin,
-        width: region.width + left_margin + right_margin,
-        height: region.height + top_margin + bottom_margin,
-        frame_left: left_margin,
-        frame_top: top_margin,
-        top_margin,
-        bottom_margin,
-        subtitle_position: if top_margin >= 110 { "above" } else { "below" },
-    }
-}
-
 fn main_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
     app.get_webview_window("main")
         .ok_or_else(|| "Main window not found".to_string())
@@ -309,35 +234,6 @@ fn main_window(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
 
 fn hide_window_to_tray(window: &tauri::WebviewWindow) -> Result<(), String> {
     window.hide().map_err(|error| error.to_string())
-}
-
-fn configure_capture_hud(app: &AppHandle, shell: &ShellState) -> Result<(), String> {
-    let region = *shell.capture_region.lock().map_err(|_| "capture region lock poisoned")?;
-    let window = app
-        .get_webview_window("capture-hud")
-        .ok_or("Capture HUD window not found")?;
-    if let Some(region) = region {
-        let hud = compute_hud_region(region);
-        window
-            .set_position(LogicalPosition::new(hud.left as f64, hud.top as f64))
-            .map_err(|error| error.to_string())?;
-        window
-            .set_size(LogicalSize::new(hud.width as f64, hud.height as f64))
-            .map_err(|error| error.to_string())?;
-        app.emit_to("capture-hud", "capture-hud-region", hud)
-            .map_err(|error| error.to_string())?;
-        if shell.hud_enabled.load(Ordering::SeqCst) {
-            window.show().map_err(|error| error.to_string())?;
-            window
-                .set_ignore_cursor_events(!shell.hud_hovering.load(Ordering::SeqCst))
-                .map_err(|error| error.to_string())?;
-        } else {
-            window.hide().map_err(|error| error.to_string())?;
-        }
-    } else {
-        window.hide().map_err(|error| error.to_string())?;
-    }
-    Ok(())
 }
 
 #[tauri::command]
@@ -454,41 +350,19 @@ fn exit_live_mode(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), St
 }
 
 #[tauri::command]
-fn show_capture_hud(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), String> {
-    log_shell_event("capture_hud.show_requested", serde_json::json!({}));
-    if shell
-        .capture_region
-        .lock()
-        .map_err(|_| "capture region lock poisoned")?
-        .is_none()
-    {
-        *shell
-            .capture_region
-            .lock()
-            .map_err(|_| "capture region lock poisoned")? = fetch_capture_region_from_backend();
-    }
-    shell.hud_enabled.store(true, Ordering::SeqCst);
-    shell.hud_hovering.store(false, Ordering::SeqCst);
-    configure_capture_hud(&app, &shell)?;
-    app.emit_to("capture-hud", "capture-hud-pulse", serde_json::json!({}))
-        .map_err(|error| error.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
 fn get_api_base() -> String {
     api_base()
 }
 
 #[tauri::command]
-fn stop_translation(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), String> {
+fn get_api_token() -> String {
+    access_token()
+}
+
+#[tauri::command]
+fn stop_translation(app: AppHandle) -> Result<(), String> {
     log_shell_event("session.stop.requested", serde_json::json!({ "source": "tauri" }));
     post_json("/api/session/stop", serde_json::json!({}))?;
-    shell.hud_enabled.store(false, Ordering::SeqCst);
-    shell.hud_hovering.store(false, Ordering::SeqCst);
-    if let Some(window) = app.get_webview_window("capture-hud") {
-        let _ = window.hide();
-    }
     show_main(&app);
     Ok(())
 }
@@ -496,13 +370,24 @@ fn stop_translation(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), 
 #[tauri::command]
 fn set_capture_region(
     app: AppHandle,
-    shell: State<'_, ShellState>,
     x: i32,
     y: i32,
     width: i32,
     height: i32,
-    device_scale_factor: f64,
 ) -> Result<(), String> {
+    // The selector reports CSS pixels inside its own fullscreen window. Screen
+    // capture wants physical pixels on the virtual desktop, so the monitor's
+    // scale factor and its origin both have to be applied - on a second monitor
+    // the origin is not zero, and it can be negative.
+    let selector = app
+        .get_webview_window("selector")
+        .ok_or("Selector window not found")?;
+    let monitor = selector
+        .current_monitor()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "no monitor".to_string())?;
+    let scale = monitor.scale_factor();
+    let origin = monitor.position();
     log_shell_event(
         "capture_region.set_requested",
         serde_json::json!({
@@ -510,14 +395,15 @@ fn set_capture_region(
             "y": y,
             "width": width,
             "height": height,
-            "device_scale_factor": device_scale_factor,
+            "scale_factor": scale,
+            "monitor_origin": [origin.x, origin.y],
         }),
     );
     let region = [
-        (x as f64 * device_scale_factor).round() as i32,
-        (y as f64 * device_scale_factor).round() as i32,
-        (width as f64 * device_scale_factor).round() as i32,
-        (height as f64 * device_scale_factor).round() as i32,
+        origin.x + (x as f64 * scale).round() as i32,
+        origin.y + (y as f64 * scale).round() as i32,
+        (width as f64 * scale).round() as i32,
+        (height as f64 * scale).round() as i32,
     ];
 
     let client = Client::builder()
@@ -525,8 +411,7 @@ fn set_capture_region(
         .build()
         .map_err(|error| error.to_string())?;
     let api_base = api_base();
-    let mut payload: serde_json::Value = client
-        .get(format!("{api_base}/api/config"))
+    let mut payload: serde_json::Value = authorized(client.get(format!("{api_base}/api/config")))
         .send()
         .and_then(|response| response.error_for_status())
         .map_err(|error| error.to_string())?
@@ -534,8 +419,7 @@ fn set_capture_region(
         .map_err(|error| error.to_string())?;
     payload["capture"]["region"] = serde_json::json!(region);
 
-    client
-        .put(format!("{api_base}/api/config"))
+    authorized(client.put(format!("{api_base}/api/config")))
         .json(&payload)
         .send()
         .and_then(|response| response.error_for_status())
@@ -551,15 +435,6 @@ fn set_capture_region(
         },
     )
     .map_err(|error| error.to_string())?;
-
-    *shell.capture_region.lock().map_err(|_| "capture region lock poisoned")? = Some(CaptureRegionState {
-        x,
-        y,
-        width,
-        height,
-        device_scale_factor,
-    });
-    configure_capture_hud(&app, &shell)?;
 
     if let Some(selector) = app.get_webview_window("selector") {
         let _ = selector.hide();
@@ -613,6 +488,7 @@ fn navigate_main_to_backend(app: &AppHandle) {
         .map(|duration| duration.as_millis().to_string())
         .unwrap_or_else(|_| "0".to_string());
     url.query_pairs_mut().append_pair("desktopLaunch", &launch_id);
+    url.query_pairs_mut().append_pair("token", &access_token());
     log_shell_event("window.main.navigate", serde_json::json!({ "url": url.as_str() }));
     let _ = window.navigate(url);
     let _ = window.set_focus();
@@ -629,9 +505,6 @@ fn show_main(app: &AppHandle) {
 fn main() {
     let backend_process = BackendProcess(Arc::new(Mutex::new(None)));
     let shell_state = ShellState {
-        capture_region: Arc::new(Mutex::new(None)),
-        hud_enabled: Arc::new(AtomicBool::new(false)),
-        hud_hovering: Arc::new(AtomicBool::new(false)),
         prev_main_bounds: Arc::new(Mutex::new(None)),
     };
 
@@ -641,7 +514,7 @@ fn main() {
             show_main(app);
         }))
         .manage(backend_process.clone())
-        .manage(shell_state.clone())
+        .manage(shell_state)
         .invoke_handler(tauri::generate_handler![
             open_area_selector,
             close_area_selector,
@@ -649,10 +522,10 @@ fn main() {
             show_main_window,
             enter_live_mode,
             exit_live_mode,
-            show_capture_hud,
             get_api_base,
             stop_translation,
             set_capture_region,
+            get_api_token,
         ])
         .setup(move |app| {
             log_shell_event("app.setup.start", serde_json::json!({}));
@@ -706,14 +579,6 @@ fn main() {
                         log_shell_event("tray.stop.selected", serde_json::json!({}));
                         let app_handle = tray.app_handle().clone();
                         let _ = post_json("/api/session/stop", serde_json::json!({}));
-                        {
-                            let shell = app_handle.state::<ShellState>();
-                            shell.hud_enabled.store(false, Ordering::SeqCst);
-                            shell.hud_hovering.store(false, Ordering::SeqCst);
-                        }
-                        if let Some(window) = app_handle.get_webview_window("capture-hud") {
-                            let _ = window.hide();
-                        }
                         show_main(&app_handle);
                     }
                     "exit" => {
@@ -747,40 +612,6 @@ fn main() {
                     }
                 });
             }
-
-            if let Some(hud) = app.get_webview_window("capture-hud") {
-                let _ = hud.set_ignore_cursor_events(true);
-            }
-
-            let app_handle = app.handle().clone();
-            let shell = shell_state.clone();
-            tauri::async_runtime::spawn(async move {
-                loop {
-                    if shell.hud_enabled.load(Ordering::SeqCst) {
-                        let region = *shell.capture_region.lock().expect("capture region lock");
-                        if let Some(region) = region {
-                            if let Some((cursor_x, cursor_y)) = current_cursor_position() {
-                                let hovering = cursor_x >= region.x
-                                    && cursor_x <= region.x + region.width
-                                    && cursor_y >= region.y
-                                    && cursor_y <= region.y + region.height;
-                                let previous = shell.hud_hovering.swap(hovering, Ordering::SeqCst);
-                                if previous != hovering {
-                                    if let Some(window) = app_handle.get_webview_window("capture-hud") {
-                                        let _ = window.set_ignore_cursor_events(!hovering);
-                                    }
-                                    let _ = app_handle.emit_to(
-                                        "capture-hud",
-                                        "capture-hud-hover",
-                                        HoverStatePayload { hovering },
-                                    );
-                                }
-                            }
-                        }
-                    }
-                    sleep(Duration::from_millis(120)).await;
-                }
-            });
 
             Ok(())
         })

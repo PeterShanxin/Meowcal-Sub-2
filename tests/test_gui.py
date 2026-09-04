@@ -1,20 +1,20 @@
 import json
 from pathlib import Path
 
-from fastapi.testclient import TestClient
 
 from meocosub2.config import AppConfig
 from meocosub2.errors import OpenSubtitlesError, TranslationError
 from meocosub2.overlay.server import OverlayServer
+from tests.conftest import TEST_TOKEN, studio_client
 
 
 def make_server(config_path: Path | None = None) -> OverlayServer:
-    return OverlayServer(AppConfig(), config_path=config_path)
+    return OverlayServer(AppConfig(), config_path=config_path, access_token=TEST_TOKEN)
 
 
 def test_state_route_returns_snapshot(tmp_path: Path) -> None:
     server = make_server(tmp_path / "config.toml")
-    with TestClient(server.app) as client:
+    with studio_client(server) as client:
         response = client.get("/api/state")
     assert response.status_code == 200
     assert response.json()["status"] == "idle"
@@ -34,7 +34,7 @@ def test_search_route_delegates_to_controller(tmp_path: Path, mocker) -> None:
             }
         ),
     )
-    with TestClient(server.app) as client:
+    with studio_client(server) as client:
         response = client.post(
             "/api/search",
             json={"title": "Inception", "sourceLanguage": "en", "targetLanguage": "zht"},
@@ -57,7 +57,7 @@ def test_client_log_route_writes_structured_event(tmp_path: Path, monkeypatch) -
     monkeypatch.setenv("MEOCOSUB2_EVENT_LOG_PATH", str(log_path))
     server = make_server(tmp_path / "config.toml")
 
-    with TestClient(server.app) as client:
+    with studio_client(server) as client:
         response = client.post(
             "/api/log/client",
             json={
@@ -94,7 +94,7 @@ def test_prepare_start_and_stop_routes_delegate_to_controller(tmp_path: Path, mo
         new=mocker.AsyncMock(return_value={"status": "idle"}),
     )
 
-    with TestClient(server.app) as client:
+    with studio_client(server) as client:
         prepare_response = client.post(
             "/api/session/prepare",
             json={"mode": "subtitle_pair", "featureId": 99, "sourceFileId": 1, "targetFileId": 2},
@@ -125,7 +125,7 @@ def test_prepare_route_supports_ocr_fallback_mode(tmp_path: Path, mocker) -> Non
         new=mocker.AsyncMock(return_value={"session_id": "fallback01", "session_mode": "ocr_fallback"}),
     )
 
-    with TestClient(server.app) as client:
+    with studio_client(server) as client:
         response = client.post(
             "/api/session/prepare",
             json={"mode": "ocr_fallback", "featureId": 2239923, "targetFileId": 200},
@@ -149,7 +149,7 @@ def test_prepare_route_supports_auto_candidate_mode(tmp_path: Path, mocker) -> N
         new=mocker.AsyncMock(return_value={"session_id": "auto01", "session_mode": "auto_candidates"}),
     )
 
-    with TestClient(server.app) as client:
+    with studio_client(server) as client:
         response = client.post(
             "/api/session/prepare",
             json={"mode": "auto_candidates", "matchId": "match-1"},
@@ -172,7 +172,7 @@ def test_start_route_returns_conflict_on_runtime_error(tmp_path: Path, mocker) -
         "start_session",
         new=mocker.AsyncMock(side_effect=RuntimeError("A session is already running.")),
     )
-    with TestClient(server.app) as client:
+    with studio_client(server) as client:
         response = client.post("/api/session/start", json={"sessionId": "abc123"})
 
     assert response.status_code == 409
@@ -186,7 +186,7 @@ def test_search_route_returns_bad_gateway_on_opensubtitles_error(tmp_path: Path,
         "search",
         new=mocker.AsyncMock(side_effect=OpenSubtitlesError("OpenSubtitles search failed: 403")),
     )
-    with TestClient(server.app) as client:
+    with studio_client(server) as client:
         response = client.post(
             "/api/search",
             json={"title": "Inception", "sourceLanguage": "en", "targetLanguage": "zht"},
@@ -199,7 +199,7 @@ def test_search_route_returns_bad_gateway_on_opensubtitles_error(tmp_path: Path,
 def test_languages_route_returns_catalog(tmp_path: Path, mocker) -> None:
     server = make_server(tmp_path / "config.toml")
     mocker.patch("meocosub2.overlay.server.available_ocr_languages", return_value=["en-US", "zh-Hans-CN"])
-    with TestClient(server.app) as client:
+    with studio_client(server) as client:
         response = client.get("/api/languages")
 
     assert response.status_code == 200
@@ -207,29 +207,28 @@ def test_languages_route_returns_catalog(tmp_path: Path, mocker) -> None:
     assert any(item["code"] == "zh-CN" and item["installed"] for item in response.json()["ocr"])
 
 
-def test_foundry_status_route_delegates_to_controller(tmp_path: Path, mocker) -> None:
+def test_engine_status_route_delegates_to_controller(tmp_path: Path, mocker) -> None:
     server = make_server(tmp_path / "config.toml")
     status = {
-        "cli_available": True,
-        "service_running": True,
-        "service_url": "http://127.0.0.1:5273",
-        "models": ["phi:mini"],
-        "configured_model": None,
-        "selected_model": "phi:mini",
         "phase": "ready",
-        "notes": "Ready.",
+        "message": "Local translation is ready (GPU).",
+        "model": "HY-MT1.5-1.8B-Q4_K_M",
+        "endpoint": "http://127.0.0.1:11436",
+        "ready": True,
+        "installPercent": 100,
+        "accelerator": "GPU",
     }
     getter = mocker.patch.object(
         server.controller,
-        "get_foundry_status_payload",
+        "get_engine_status_payload",
         new=mocker.AsyncMock(return_value=status),
     )
-    with TestClient(server.app) as client:
-        response = client.get("/api/foundry/status", params={"probe": "true"})
+    with studio_client(server) as client:
+        response = client.get("/api/engine/status")
 
     assert response.status_code == 200
     assert response.json()["phase"] == "ready"
-    getter.assert_awaited_once_with(probe=True, auto_start=False)
+    getter.assert_awaited_once_with()
 
 
 def test_prepare_route_returns_bad_gateway_on_translation_error(tmp_path: Path, mocker) -> None:
@@ -239,7 +238,7 @@ def test_prepare_route_returns_bad_gateway_on_translation_error(tmp_path: Path, 
         "prepare_session",
         new=mocker.AsyncMock(side_effect=TranslationError("Foundry Local translation request failed")),
     )
-    with TestClient(server.app) as client:
+    with studio_client(server) as client:
         response = client.post("/api/session/prepare", json={"mode": "subtitle_pair", "sourceFileId": 1})
 
     assert response.status_code == 502

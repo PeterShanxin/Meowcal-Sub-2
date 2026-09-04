@@ -8,7 +8,7 @@ def test_default_config() -> None:
     cfg = AppConfig()
     assert cfg.source_language == "en"
     assert cfg.target_language == "zh"
-    assert cfg.capture_interval_ms == 1500
+    assert cfg.capture_interval_ms == 250
     assert cfg.fuzzy_threshold == 65
     assert cfg.overlay_port == 8765
 
@@ -130,3 +130,15 @@ target = "zht"
     assert loaded.opensubtitles_enabled is True
     assert loaded.opensubtitles_api_key == "legacy-key"
     assert loaded.opensubtitles_enable_org_fallback is True
+
+
+def test_the_legacy_capture_interval_is_moved_to_the_current_default(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text("[capture]\ninterval_ms = 1500\n", encoding="utf-8")
+    assert load_config(path).capture_interval_ms == 250
+
+
+def test_an_interval_the_user_chose_is_left_alone(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text("[capture]\ninterval_ms = 800\n", encoding="utf-8")
+    assert load_config(path).capture_interval_ms == 800

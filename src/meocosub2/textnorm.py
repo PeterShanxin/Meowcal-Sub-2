@@ -100,5 +100,43 @@ def to_simplified(text: str) -> str:
         return text
 
 
+# Marks Windows resolves out of a letterbox edge or a border. Sentence
+# punctuation is deliberately absent: a trailing ？ or 。 is the subtitle.
+_NOISE_MARKS = set("“”„‟‘’‚‛«»")
+
+
+def _is_stray_mark(token: str) -> bool:
+    return len(token) == 1 and (
+        token.isdigit() or token in _NOISE_MARKS or (token.isascii() and not token.isalnum())
+    )
+
+
+def trim_edge_noise(text: str) -> str:
+    """Drop stray characters stranded at either end of a CJK line.
+
+    Both conditions have to hold: the characters stand alone, and the dialogue
+    they are stranded against is CJK. That is what separates the bare "0" Windows
+    resolves beside Chinese dialogue from the 7 in "Chapter 7".
+    """
+    tokens = text.split()
+    if not tokens:
+        return text.strip()
+
+    leading = 0
+    while leading < len(tokens) and _is_stray_mark(tokens[leading]):
+        leading += 1
+    trailing = 0
+    while trailing < len(tokens) - leading and _is_stray_mark(tokens[-1 - trailing]):
+        trailing += 1
+    if leading + trailing >= len(tokens):
+        return " ".join(tokens)
+
+    start = leading if is_cjk_compactable_char(tokens[leading][0]) else 0
+    end = len(tokens) - trailing
+    if not is_cjk_compactable_char(tokens[end - 1][0]):
+        end = len(tokens)
+    return " ".join(tokens[start:max(end, start)])
+
+
 def clean_cjk_text(text: str) -> str:
-    return normalize_ocr_spaced_cjk(collapse_whitespace(text))
+    return normalize_ocr_spaced_cjk(trim_edge_noise(collapse_whitespace(text)))

@@ -28,7 +28,6 @@ export const tauri = {
   exitLiveMode: () => invokeTauri<void>("exit_live_mode"),
   openAreaSelector: () => invokeTauri<void>("open_area_selector"),
   closeAreaSelector: () => invokeTauri<void>("close_area_selector"),
-  showCaptureHud: () => invokeTauri<void>("show_capture_hud"),
   stopTranslation: () => invokeTauri<void>("stop_translation"),
   getApiBase: () => invokeTauri<string>("get_api_base"),
 };

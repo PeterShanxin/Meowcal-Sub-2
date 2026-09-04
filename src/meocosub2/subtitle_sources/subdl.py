@@ -23,8 +23,12 @@ from meocosub2.subtitle_sources.types import (
     ProviderSubtitleMatch,
     ProviderSubtitleResult,
 )
+from meocosub2.subtitle_sources.cache_paths import (
+    contained_path,
+    safe_segment,
+    subtitle_file_name,
+)
 from meocosub2.subtitle_sources.utils import (
-    SUBTITLE_EXTENSIONS,
     extract_episode_info,
     extract_zip_bytes,
     map_subdl_language,
@@ -126,7 +130,7 @@ class SubdlProvider:
         if not link:
             raise SubtitleSourceError("SubDL result is missing a download link.")
 
-        extract_dir = self._cache_dir / result.id
+        extract_dir = contained_path(self._cache_dir, safe_segment(result.id, "subdl"))
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
             response = await client.get(self._download_url(link))
             response.raise_for_status()
@@ -478,10 +482,9 @@ class SubdlProvider:
 
     def _write_raw_subtitle(self, content: bytes, destination: Path, result: ProviderSubtitleResult) -> Path:
         destination.mkdir(parents=True, exist_ok=True)
-        file_name = Path(result.file_name or result.id).name
-        if Path(file_name).suffix.casefold() not in SUBTITLE_EXTENSIONS:
-            file_name = f"{Path(file_name).stem or result.id}.srt"
-        path = destination / file_name
+        path = contained_path(
+            destination, subtitle_file_name(result.file_name or result.id, "subtitle")
+        )
         path.write_bytes(content)
         return path
 

@@ -8,11 +8,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from meocosub2.auth import TOKEN_HEADER, TOKEN_QUERY, token_matches
 from meocosub2.config import AppConfig, overlay_style_payload
 from meocosub2.capture import available_ocr_languages
 from meocosub2.errors import SubtitleSourceError, TranslationError
@@ -76,13 +77,22 @@ class OcrInstallBody(BaseModel):
 
 
 class OverlayServer:
-    def __init__(self, config: AppConfig, config_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        config: AppConfig,
+        config_path: Path | None = None,
+        *,
+        access_token: str,
+    ) -> None:
         self.app_connections: list[WebSocket] = []
-        self.overlay_connections: list[WebSocket] = []
+        self._access_token = access_token
+        self._allowed_origins = {
+            f"http://127.0.0.1:{config.overlay_port}",
+            f"http://localhost:{config.overlay_port}",
+        }
         self.controller = GuiController(
             config=config,
             app_event_emitter=self.broadcast_app_event,
-            overlay_event_emitter=self.broadcast_overlay_event,
             config_path=config_path,
         )
 
@@ -94,10 +104,25 @@ class OverlayServer:
         self.app = FastAPI(lifespan=lifespan)
         self.app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+        @self.app.middleware("http")
+        async def authenticate(request: Request, call_next):
+            # The bundle under /static is public code with no state in it; every
+            # route that reads or changes app state is behind the run token.
+            if request.url.path.startswith("/static/"):
+                return await call_next(request)
+            origin = request.headers.get("origin")
+            if origin is not None and origin not in self._allowed_origins:
+                return JSONResponse({"detail": "Forbidden origin"}, status_code=403)
+            if not self._authorized(
+                request.headers.get(TOKEN_HEADER), request.query_params.get(TOKEN_QUERY)
+            ):
+                return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+            return await call_next(request)
+
         @self.app.get("/")
-        async def index() -> FileResponse:
-            return FileResponse(
-                STATIC_DIR / "index.html",
+        async def index() -> HTMLResponse:
+            return HTMLResponse(
+                self._studio_html(),
                 headers={"Cache-Control": "no-store, max-age=0"},
             )
 
@@ -113,13 +138,13 @@ class OverlayServer:
         async def api_get_languages() -> dict[str, object]:
             return languages_payload(set(available_ocr_languages()))
 
-        @self.app.get("/api/foundry/status")
-        async def api_get_foundry_status(probe: bool = False, autoStart: bool = False) -> dict[str, object]:
-            return await self.controller.get_foundry_status_payload(probe=probe, auto_start=autoStart)
+        @self.app.get("/api/engine/status")
+        async def api_get_engine_status() -> dict[str, object]:
+            return await self.controller.get_engine_status_payload()
 
-        @self.app.post("/api/foundry/prepare")
-        async def api_prepare_foundry() -> dict[str, object]:
-            return await self.controller.prepare_foundry_payload()
+        @self.app.post("/api/engine/install")
+        async def api_install_engine() -> dict[str, object]:
+            return await self.controller.install_engine_payload()
 
         @self.app.post("/api/ocr/install")
         async def api_install_ocr_language(body: OcrInstallBody) -> dict[str, object]:
@@ -236,11 +261,35 @@ class OverlayServer:
 
         @self.app.websocket("/ws/app")
         async def app_websocket_route(websocket: WebSocket) -> None:
+            origin = websocket.headers.get("origin")
+            if origin is not None and origin not in self._allowed_origins:
+                await websocket.close(code=1008)
+                return
+            if not self._authorized(
+                websocket.headers.get(TOKEN_HEADER), websocket.query_params.get(TOKEN_QUERY)
+            ):
+                await websocket.close(code=1008)
+                return
             await self._app_socket(websocket)
 
     @property
     def config(self) -> AppConfig:
         return self.controller.config
+
+    def _authorized(self, header_token: str | None, query_token: str | None) -> bool:
+        return token_matches(self._access_token, header_token) or token_matches(
+            self._access_token, query_token
+        )
+
+    def _studio_html(self) -> str:
+        """The studio page with this run's token, handed only to callers that already have it."""
+        markup = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        bootstrap = (
+            "<script>window.__MEOWCAL__="
+            + json.dumps({"token": self._access_token})
+            + ";</script>"
+        )
+        return markup.replace("</head>", f"{bootstrap}</head>", 1)
 
     async def _app_socket(self, websocket: WebSocket) -> None:
         await websocket.accept()
@@ -258,21 +307,9 @@ class OverlayServer:
                 self.app_connections.remove(websocket)
             logger.debug("App WebSocket disconnected (remaining: %d)", len(self.app_connections))
 
-    async def broadcast(self, subtitle_text: str) -> None:
-        await self.controller.broadcast_overlay_subtitle(subtitle_text)
-
     async def broadcast_app_event(self, event_type: str, payload: dict[str, object]) -> None:
         message = {"type": event_type, **payload}
         await self._broadcast(self.app_connections, message)
-
-    async def broadcast_overlay_event(self, event_type: str, payload: dict[str, object]) -> None:
-        if event_type == "subtitle":
-            message = {"type": event_type, "text": str(payload.get("text", ""))}
-        elif event_type == "style":
-            message = {"type": event_type, "style": payload.get("style", {})}
-        else:
-            message = {"type": event_type, **payload}
-        await self._broadcast(self.overlay_connections, message)
 
     async def _broadcast(self, connections: list[WebSocket], message: dict[str, object]) -> None:
         encoded = json.dumps(message)

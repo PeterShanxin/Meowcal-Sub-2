@@ -276,13 +276,16 @@ def choose_subtitle_path(paths: Iterable[Path]) -> Path:
 
 
 def extract_zip_bytes(content: bytes, destination: Path) -> Path:
+    from meocosub2.subtitle_sources.cache_paths import contained_path, safe_segment
+
     destination.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
         extracted: list[Path] = []
-        for member in archive.infolist():
+        for index, member in enumerate(archive.infolist()):
             if member.is_dir():
                 continue
-            target = destination / Path(member.filename).name
+            name = safe_segment(member.filename, f"subtitle-{index}.srt")
+            target = contained_path(destination, name)
             target.write_bytes(archive.read(member))
             extracted.append(target)
     return choose_subtitle_path(extracted)

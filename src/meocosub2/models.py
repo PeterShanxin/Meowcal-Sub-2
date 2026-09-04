@@ -116,7 +116,17 @@ class AppWebSocketEvent:
 @dataclass
 class PreparedRuntime:
     session_mode: Literal["subtitle_pair", "ocr_fallback", "auto_candidates"]
-    pair: SubtitlePair | None = None
     target_lines: list[SubtitleLine] = field(default_factory=list)
     feature_id: str | None = None
     source_candidates: list[SourceSubtitleCandidate] = field(default_factory=list)
+
+    @property
+    def needs_live_translation(self) -> bool:
+        """Whether the session has to translate on screen rather than read a paired file."""
+        if not self.source_candidates:
+            return True
+        return any(
+            not line.translated
+            for candidate in self.source_candidates
+            for line in candidate.pair.source_lines
+        )

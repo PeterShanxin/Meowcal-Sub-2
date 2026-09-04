@@ -13,6 +13,11 @@ from meocosub2.config import AppConfig
 from meocosub2.errors import SubtitleSourceError
 from meocosub2.event_log import log_event
 from meocosub2.subtitle_sources.types import ProviderCapabilities, ProviderSearchCatalog, ProviderSubtitleResult
+from meocosub2.subtitle_sources.cache_paths import (
+    contained_path,
+    safe_segment,
+    subtitle_file_name,
+)
 from meocosub2.subtitle_sources.utils import (
     SUBTITLE_EXTENSIONS,
     best_title_guess,
@@ -135,7 +140,11 @@ class AssrtProvider:
             direct_url = str(item.get("url"))
         if not direct_url:
             raise SubtitleSourceError("ASSRT detail did not return a usable subtitle download URL.")
-        destination = self._cache_dir / result.id / Path(file_name).name
+        destination = contained_path(
+            self._cache_dir,
+            safe_segment(result.id, "assrt"),
+            subtitle_file_name(file_name, "subtitle"),
+        )
         destination.parent.mkdir(parents=True, exist_ok=True)
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             response = await client.get(direct_url)

@@ -1,8 +1,11 @@
+from dataclasses import replace
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
 from meocosub2.config import AppConfig
+from meocosub2.models import PreparedRuntime
 from meocosub2.models import SearchRequest
 from meocosub2.overlay.controller import GuiController
 from meocosub2.subtitle_sources.types import (
@@ -21,15 +24,15 @@ async def _emit(*args, **kwargs) -> None:
 
 
 def make_controller(config_path: Path | None = None) -> GuiController:
-    return GuiController(AppConfig(foundry_model="manual-model"), _emit, _emit, config_path=config_path)
+    return GuiController(AppConfig(), _emit, config_path=config_path)
 
 
 @pytest.mark.asyncio
 async def test_prepare_session_allows_ocr_fallback_without_source_subtitle(tmp_path: Path, mocker) -> None:
     controller = make_controller(tmp_path / "config.toml")
     mocker.patch(
-        "meocosub2.overlay.controller.make_foundry_ready",
-        return_value=type("Status", (), {"phase": "ready", "notes": "Ready."})(),
+        "meocosub2.overlay.controller.engine.ensure_ready",
+        new=AsyncMock(return_value="http://127.0.0.1:11436"),
     )
     controller._state.title = "Fate/strange Fake"
     controller._state.source_language = "zht"
@@ -70,8 +73,8 @@ async def test_install_ocr_language_reports_failure_when_language_stays_unavaila
 async def test_prepare_session_downloads_non_opensubtitles_result(tmp_path: Path, mocker) -> None:
     controller = make_controller(tmp_path / "config.toml")
     mocker.patch(
-        "meocosub2.overlay.controller.make_foundry_ready",
-        return_value=type("Status", (), {"phase": "ready", "notes": "Ready."})(),
+        "meocosub2.overlay.controller.engine.ensure_ready",
+        new=AsyncMock(return_value="http://127.0.0.1:11436"),
     )
     source_path = tmp_path / "source.srt"
     source_path.write_text("1\n00:00:01,000 --> 00:00:02,000\nhello\n", encoding="utf-8")
@@ -271,8 +274,8 @@ async def test_prepare_auto_candidate_session_downloads_top_sources_and_best_tar
 async def test_prepare_auto_candidate_session_combines_source_and_target_warnings(tmp_path: Path, mocker) -> None:
     controller = make_controller(tmp_path / "config.toml")
     mocker.patch(
-        "meocosub2.overlay.controller.make_foundry_ready",
-        return_value=type("Status", (), {"phase": "ready", "notes": "Ready."})(),
+        "meocosub2.overlay.controller.engine.ensure_ready",
+        new=AsyncMock(return_value="http://127.0.0.1:11436"),
     )
     source_path = tmp_path / "source.srt"
     source_path.write_text("1\n00:00:01,000 --> 00:00:02,000\nhello there\n", encoding="utf-8")
@@ -328,8 +331,8 @@ async def test_prepare_auto_candidate_session_combines_source_and_target_warning
 async def test_prepare_auto_candidate_session_ignores_stale_completion(tmp_path: Path, mocker) -> None:
     controller = make_controller(tmp_path / "config.toml")
     mocker.patch(
-        "meocosub2.overlay.controller.make_foundry_ready",
-        return_value=type("Status", (), {"phase": "ready", "notes": "Ready."})(),
+        "meocosub2.overlay.controller.engine.ensure_ready",
+        new=AsyncMock(return_value="http://127.0.0.1:11436"),
     )
     source_path = tmp_path / "source.srt"
     source_path.write_text("1\n00:00:01,000 --> 00:00:02,000\nhello there\n", encoding="utf-8")
@@ -962,3 +965,53 @@ async def test_save_config_payload_updates_state_languages_and_persists_file(tmp
     saved_text = config_path.read_text(encoding="utf-8")
     assert 'source = "ja"' in saved_text
     assert 'target = "fr"' in saved_text
+
+
+async def test_saving_a_language_change_clears_the_titles_it_invalidates(tmp_path: Path) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+    controller._search_catalog = AggregatedSearchCatalog(matches=[], results=[])
+    controller._state.search_results = [{"resultId": "result-1", "matchId": "match-1"}]
+    controller._state.search_matches = [{"matchId": "match-1"}]
+    controller._state.search_works = [{"workId": "work-1"}]
+    controller._state.selected_feature_id = "match-1"
+
+    await controller.save_config_payload({"languages": {"source": "ja", "target": "en"}})
+
+    assert controller._search_catalog is None
+    assert controller._state.search_results == []
+    assert controller._state.search_matches == []
+    assert controller._state.search_works == []
+    assert controller._state.selected_feature_id is None
+
+
+async def test_saving_an_overlay_change_keeps_the_current_search(tmp_path: Path) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+    catalog = AggregatedSearchCatalog(matches=[], results=[])
+    controller._search_catalog = catalog
+    controller._state.search_results = [{"resultId": "result-1", "matchId": "match-1"}]
+    controller._state.selected_feature_id = "match-1"
+
+    await controller.save_config_payload({"overlay": {"fontSize": 44}})
+
+    assert controller._search_catalog is catalog
+    assert controller._state.search_results
+    assert controller._state.selected_feature_id == "match-1"
+
+
+async def test_preparing_after_the_catalog_is_dropped_reports_a_stale_search(tmp_path: Path) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+    controller._state.search_matches = [{"matchId": "match-1", "title": "Inception"}]
+    controller._search_catalog = None
+
+    with pytest.raises(ValueError):
+        await controller.prepare_session(mode="auto_candidates", feature_id="match-1")
+
+
+async def test_starting_without_a_capture_region_is_refused(tmp_path: Path) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+    controller._prepared_runtime = PreparedRuntime(session_mode="ocr_fallback")
+    controller._state.prepared_session = object()
+    controller.config = replace(controller.config, capture_region=[])
+
+    with pytest.raises(ValueError, match="capture region"):
+        await controller.start_session()
