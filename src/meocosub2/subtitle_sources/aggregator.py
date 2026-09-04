@@ -9,6 +9,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Iterable
 
+import httpx
+
 from meocosub2.config import AppConfig
 from meocosub2.errors import SubtitleSourceError
 from meocosub2.event_log import event_correlation, log_event
@@ -36,12 +38,78 @@ from meocosub2.subtitle_sources.utils import (
     canonical_title,
     extract_season_suffix,
     language_priority,
+    looks_like_release_name,
     match_group_key,
     media_type_category,
     split_query_year,
     title_similarity,
     work_key,
 )
+
+#: How long one provider may take before the search moves on without it. A single
+#: unresponsive source used to hold the whole search open, so the user waited on
+#: the slowest provider even when the others had already answered.
+PROVIDER_SEARCH_DEADLINE_S = 20.0
+
+#: Failures to connect at all before a provider is left out of the next searches.
+CONNECT_FAILURES_BEFORE_SKIP = 2
+
+#: How long to leave it out before dialling it again.
+PROVIDER_SKIP_COOLDOWN_S = 300.0
+
+
+class ProviderAvailability:
+    """Stops dialling a provider whose host has just proved unreachable.
+
+    Browsing a series runs a lookup per season and per episode, and each one paid
+    the full connect timeout for a provider that could not be reached at all. Only
+    a failure to connect counts: an error response, a rate limit or a slow read all
+    mean the host is answering, so it is still worth asking.
+    """
+
+    def __init__(self) -> None:
+        self._failures: dict[str, int] = {}
+        self._skip_until: dict[str, float] = {}
+
+    def reset(self) -> None:
+        self._failures.clear()
+        self._skip_until.clear()
+
+    def should_skip(self, provider_code: str) -> bool:
+        until = self._skip_until.get(provider_code)
+        if until is None:
+            return False
+        if time.monotonic() >= until:
+            del self._skip_until[provider_code]
+            self._failures.pop(provider_code, None)
+            return False
+        return True
+
+    def record_success(self, provider_code: str) -> None:
+        self._failures.pop(provider_code, None)
+        self._skip_until.pop(provider_code, None)
+
+    def record_failure(self, provider_code: str, exc: Exception) -> None:
+        if not isinstance(exc, httpx.ConnectTimeout | httpx.ConnectError):
+            self._failures.pop(provider_code, None)
+            return
+        failures = self._failures.get(provider_code, 0) + 1
+        self._failures[provider_code] = failures
+        if failures >= CONNECT_FAILURES_BEFORE_SKIP:
+            self._skip_until[provider_code] = time.monotonic() + PROVIDER_SKIP_COOLDOWN_S
+
+
+provider_availability = ProviderAvailability()
+
+
+class ProviderUnreachable(Exception):
+    """Raised in place of dialling a provider that is in its skip window.
+
+    The label is added by the warning formatter, so it is left out here.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("could not be reached.")
 
 PROVIDER_CHIP_LABELS = {
     "opensubtitles": "OpenSubtitles",
@@ -129,7 +197,11 @@ class SubtitleSearchAggregator:
             warnings.extend(response.warnings)
 
         if not catalogs:
-            raise SubtitleSourceError("All subtitle sources failed.")
+            # The per-provider reasons are the only thing the user can act on, so
+            # they travel with the failure rather than collapsing into a summary.
+            raise SubtitleSourceError(
+                " ".join(errors) if errors else "All subtitle sources failed."
+            )
 
         merge_started = time.perf_counter()
         aggregated = self._merge_catalogs(catalogs, languages, query_year, dispatch_query)
@@ -144,7 +216,7 @@ class SubtitleSearchAggregator:
         )
         aggregated.warnings.extend(warnings)
         if not aggregated.results and errors:
-            raise SubtitleSourceError("; ".join(errors))
+            raise SubtitleSourceError(" ".join(errors))
         aggregated.warnings.extend(errors)
         works_are_ranked = False
         if self._tmdb_client is not None and self._tmdb_client.enabled and aggregated.works:
@@ -204,6 +276,15 @@ class SubtitleSearchAggregator:
         languages: str,
         correlation_id: str | None,
     ) -> ProviderSearchCatalog:
+        if provider_availability.should_skip(provider.provider_code):
+            log_event(
+                "provider.search.skipped",
+                layer="backend",
+                correlation_id=correlation_id,
+                provider=provider.provider_code,
+            )
+            raise ProviderUnreachable
+
         started = time.perf_counter()
         log_event(
             "provider.search.start",
@@ -214,8 +295,11 @@ class SubtitleSearchAggregator:
             languages=languages,
         )
         try:
-            catalog = await provider.search_catalog(query, languages)
+            catalog = await asyncio.wait_for(
+                provider.search_catalog(query, languages), PROVIDER_SEARCH_DEADLINE_S
+            )
         except Exception as exc:
+            provider_availability.record_failure(provider.provider_code, exc)
             log_event(
                 "provider.search.error",
                 layer="backend",
@@ -237,6 +321,7 @@ class SubtitleSearchAggregator:
             results=len(catalog.results),
             warnings=len(catalog.warnings),
         )
+        provider_availability.record_success(provider.provider_code)
         return catalog
 
     async def download(self, result: AggregatedSubtitleResult) -> Path:
@@ -953,7 +1038,13 @@ class SubtitleSearchAggregator:
             if season is None:
                 season = AggregatedSeason(season_number=season_no, episodes=[], subtitles_count=0)
                 seasons_map[season_no] = season
-            ep_title = match.title if match.title and match.title != match.parent_title else ""
+            ep_title = (
+                match.title
+                if match.title
+                and match.title != match.parent_title
+                and not looks_like_release_name(match.title)
+                else ""
+            )
             season.episodes.append(
                 AggregatedEpisode(
                     season=match.season,
@@ -1214,8 +1305,17 @@ def _provider_error_warning(provider_label: str, exc: Exception) -> str:
     status_code = getattr(response, "status_code", None)
     if isinstance(status_code, int) and status_code in {401, 403}:
         return f"{provider_label}: authentication failed (HTTP {status_code}). Check the saved API key or token."
-    message = _redact_secret_query_values(str(exc))
+    message = _redact_secret_query_values(str(exc)) or _wordless_failure(exc)
     return f"{provider_label}: {message}"
+
+
+def _wordless_failure(exc: Exception) -> str:
+    """What to say for the timeouts httpx and asyncio raise with an empty message."""
+    if isinstance(exc, httpx.ConnectTimeout | httpx.ConnectError):
+        return "could not be reached."
+    if isinstance(exc, TimeoutError | httpx.TimeoutException):
+        return "took too long to answer."
+    return f"failed ({type(exc).__name__})."
 
 
 def _redact_secret_query_values(message: str) -> str:

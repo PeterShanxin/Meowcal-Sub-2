@@ -53,6 +53,7 @@ export function App(): JSX.Element {
   const config = useStore((s) => s.config);
   const engineStatus = useStore((s) => s.engine);
   const manualView = useStore((s) => s.manualView);
+  const actionError = useStore((s) => s.error);
   const query = useStore((s) => s.query);
   const tab = useStore((s) => s.tab);
   const titleMediaFilter = useStore((s) => s.titleMediaFilter);
@@ -271,6 +272,7 @@ export function App(): JSX.Element {
     // new catalog busy.
     hydrateInFlight.current.clear();
     store.set({
+      error: null,
       cursorIndex: -1,
       selectedWorkId: null,
       expandedWorkId: null,
@@ -312,6 +314,15 @@ export function App(): JSX.Element {
 
   const onQueryChange = useCallback((v: string) => {
     store.set({ query: v, cursorIndex: -1 });
+  }, []);
+
+  const retrySearch = useCallback(() => {
+    const previous = lastSearchedQuery.current || store.get().query.trim();
+    if (previous) void runSearch(previous);
+  }, [runSearch]);
+
+  const dismissError = useCallback(() => {
+    store.set({ error: null });
   }, []);
 
   const cursorForTab = useCallback(
@@ -738,11 +749,12 @@ export function App(): JSX.Element {
   }, []);
 
   const onSelect = useCallback(() => {
-    if (tab === "titles" && query.trim() && query.trim() !== lastSearchedQuery.current) {
+    const searchable = tab === "titles" || !episodeMatchId;
+    if (searchable && query.trim() && query.trim() !== lastSearchedQuery.current) {
       void runSearch(query.trim());
       return;
     }
-    if (tab === "titles" && activeListLength === 0 && query.trim()) {
+    if (searchable && activeListLength === 0 && query.trim()) {
       void runSearch(query.trim());
       return;
     }
@@ -788,7 +800,9 @@ export function App(): JSX.Element {
   ]);
 
   const onPrimaryConfirm = useCallback(() => {
-    if (phase === "home" && tab === "titles" && query.trim()) {
+    // Until an episode is picked the source and target lists have nothing to
+    // filter, so whatever is typed is a title to search for.
+    if (phase === "home" && (tab === "titles" || !episodeMatchId) && query.trim()) {
       void runSearch(query.trim());
       return;
     }
@@ -886,6 +900,10 @@ export function App(): JSX.Element {
     snapshot?.warning_message,
   ]);
 
+  // One place for both: an action that failed in the studio and a failure the
+  // backend is reporting. Neither had anywhere to appear before.
+  const paletteError = actionError ?? (snapshot?.error_message || null);
+
   const isCompact = phase === "prep" || phase === "live";
   const isIdle =
     phase === "home" &&
@@ -966,16 +984,6 @@ export function App(): JSX.Element {
             onOpenSettings={openSettings}
           />
         )}
-        {/* Only while the palette is centred: the full-width palette covers this
-            corner, and the persistent strip already carries the same warning. */}
-        {!isCompact && (searching || snapshot?.warning_message) && sourceNotices.length > 0 && (
-          <SearchNoticePanel
-            searching={searching}
-            notices={sourceNotices}
-            onOpenSettings={openSettings}
-          />
-        )}
-
         {noKey && phase === "home" && !query && (
           <NoApiKey onOpenSettings={openSettings} />
         )}
@@ -1075,6 +1083,9 @@ export function App(): JSX.Element {
               targetLang={targetLang}
               searching={searching}
               hydrating={hydrating}
+              errorMessage={paletteError}
+              onRetrySearch={lastSearchedQuery.current || query.trim() ? retrySearch : null}
+              onDismissError={dismissError}
               preparing={preparing}
               preparingReplacement={preparingReplacement}
               langOptions={(languages?.sourceTarget ?? []) as LanguageOption[]}
@@ -1170,7 +1181,7 @@ function SourceHealthStrip({
   return (
     <div className="source-health-strip" data-compact={compact} aria-live="polite">
       <span className="source-health-dot" aria-hidden />
-      <span className="source-health-text">{notices[0].label}</span>
+      <span className="source-health-text">{notices[0].detail || notices[0].label}</span>
       {notices.length > 1 && (
         <span className="source-health-count">+{notices.length - 1}</span>
       )}
@@ -1178,31 +1189,6 @@ function SourceHealthStrip({
         Settings
       </button>
     </div>
-  );
-}
-
-function SearchNoticePanel({
-  searching,
-  notices,
-  onOpenSettings,
-}: {
-  searching: boolean;
-  notices: SourceNotice[];
-  onOpenSettings: () => void;
-}): JSX.Element {
-  return (
-    <aside className="search-notice-panel" aria-live="polite" aria-label="Search notices">
-      <div className="search-notice-kicker">{searching ? "Searching" : "Search notice"}</div>
-      {notices.slice(0, 3).map((notice) => (
-        <div className="search-notice-item" data-tone={notice.tone} key={notice.id}>
-          <div className="search-notice-title">{notice.label}</div>
-          <div className="search-notice-detail">{notice.detail}</div>
-        </div>
-      ))}
-      <button className="search-notice-button" type="button" onClick={onOpenSettings}>
-        Open source settings
-      </button>
-    </aside>
   );
 }
 

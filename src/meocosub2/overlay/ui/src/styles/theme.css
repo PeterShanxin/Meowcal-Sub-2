@@ -358,7 +358,7 @@ kbd[data-dim="true"] {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  max-width: min(420px, calc(100vw - 40px));
+  max-width: min(560px, calc(100vw - 40px));
   min-height: 30px;
   padding: 5px 7px 5px 10px;
   border-radius: 7px;
@@ -401,75 +401,8 @@ kbd[data-dim="true"] {
 }
 
 .source-health-button,
-.search-notice-button {
-  flex: 0 0 auto;
-  border: 1px solid rgba(242, 199, 143, 0.24);
-  background: var(--accent-tint);
-  color: var(--accent-text);
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 700;
-}
-
 .source-health-button {
   padding: 5px 8px;
-}
-
-.search-notice-panel {
-  position: absolute;
-  top: 92px;
-  right: 20px;
-  z-index: 7;
-  /* The notice floats over the palette, so only its own button may take a
-     click; without this it swallows clicks meant for the language chips. */
-  pointer-events: none;
-  width: min(310px, calc(100vw - 40px));
-  padding: 12px;
-  border-radius: 8px;
-  background: rgba(18, 17, 22, 0.9);
-  border: 1px solid rgba(242, 199, 143, 0.16);
-  box-shadow: 0 22px 46px rgba(0, 0, 0, 0.36);
-  backdrop-filter: blur(12px);
-  animation: fade-in 180ms ease both;
-}
-
-.search-notice-kicker {
-  margin-bottom: 9px;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 1.8px;
-  color: var(--text-label);
-  text-transform: uppercase;
-}
-
-.search-notice-item {
-  padding: 9px 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.search-notice-item[data-tone="warn"] .search-notice-title {
-  color: var(--accent-text);
-}
-
-.search-notice-title {
-  font-size: 13px;
-  font-weight: 800;
-  color: var(--text-heading);
-}
-
-.search-notice-detail {
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.42;
-  color: var(--text-muted);
-}
-
-.search-notice-button {
-  pointer-events: auto;
-  width: 100%;
-  margin-top: 10px;
-  padding: 8px 10px;
 }
 
 .work-grid {
@@ -692,4 +625,62 @@ kbd[data-dim="true"] {
 
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+.palette-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  font-size: 12.5px;
+  color: var(--text-body);
+  background: rgba(255, 107, 107, 0.08);
+  border-bottom: 1px solid rgba(255, 107, 107, 0.22);
+}
+
+.palette-error-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  background: rgba(255, 107, 107, 0.9);
+  color: #2a0d0d;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.palette-error-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.palette-error-action,
+.palette-error-dismiss {
+  flex-shrink: 0;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-body);
+  cursor: pointer;
+}
+
+.palette-error-action {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+.palette-error-dismiss {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.palette-error-action:hover,
+.palette-error-dismiss:hover {
+  background: rgba(255, 255, 255, 0.09);
 }

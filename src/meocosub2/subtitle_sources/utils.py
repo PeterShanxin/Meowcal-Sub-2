@@ -289,3 +289,22 @@ def extract_zip_bytes(content: bytes, destination: Path) -> Path:
             target.write_bytes(archive.read(member))
             extracted.append(target)
     return choose_subtitle_path(extracted)
+
+
+#: Markers that only appear in a release name, never in an episode title.
+RELEASE_MARKER_PATTERN = re.compile(
+    r"(?:\b(?:480|540|720|1080|1440|2160)[pi]\b"
+    r"|\b(?:bluray|blu-ray|brrip|bdrip|web-?dl|web-?rip|hdtv|dvdrip|hdrip|remux)\b"
+    r"|\b(?:x26[45]|h\.?26[45]|hevc|xvid|divx|aac|ac3|dts|ddp?5\.1)\b"
+    r"|\.(?:srt|ass|ssa|vtt|sub|idx)$)",
+    re.IGNORECASE,
+)
+
+
+def looks_like_release_name(title: str) -> bool:
+    """Whether a provider handed back a file name where an episode title belongs.
+
+    Some providers use the release name as the match title. Rendered as an episode
+    title it is unreadable, and the episode code beside it already says more.
+    """
+    return bool(RELEASE_MARKER_PATTERN.search(title.strip()))
