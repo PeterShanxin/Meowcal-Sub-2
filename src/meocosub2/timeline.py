@@ -26,6 +26,9 @@ WINDOW_BACK_MS = 8_000
 WINDOW_FORWARD_MS = 25_000
 # A line the clock did not expect has to be this convincing before it is even
 # considered, and then has to agree with a second read before the clock moves.
+# Both signals arrive on this scale: a near-exact text score, or a cosine put on
+# it by the matcher, where 0.88 sits at the top of the 0.62-0.93 band genuine
+# semantic matches occupied and far above the 0.55 junk ceiling.
 SEEK_SCORE = 88.0
 # How far apart two matches may put the video and still be describing the same
 # playback. A viewer watches forward, so the distance between the subtitle file
