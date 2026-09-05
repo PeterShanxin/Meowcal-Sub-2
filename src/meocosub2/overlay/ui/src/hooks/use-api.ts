@@ -3,11 +3,7 @@ import { accessToken } from "../lib/session";
 
 const API_BASE = "";
 
-async function request<T>(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const init: RequestInit = {
     method,
     headers: {
@@ -109,14 +105,9 @@ export const api = {
     correlationId?: string,
   ): Promise<HydrateSeasonResponse> =>
     request("POST", "/api/search/season", { workId, title, season, correlationId }),
-  logClient: (body: ClientLogBody) =>
-    request<{ status: string }>("POST", "/api/log/client", body),
+  logClient: (body: ClientLogBody) => request<{ status: string }>("POST", "/api/log/client", body),
   prepareSession: (body: PrepareBody) =>
-    request<{ session: BackendSnapshot["prepared_session"] }>(
-      "POST",
-      "/api/session/prepare",
-      body,
-    ),
+    request<{ session: BackendSnapshot["prepared_session"] }>("POST", "/api/session/prepare", body),
   startSession: (sessionId?: string | null) =>
     request<{ status: string }>("POST", "/api/session/start", { sessionId }),
   stopSession: () => request<{ status: string }>("POST", "/api/session/stop"),

@@ -32,7 +32,14 @@ export function DisclosureChevron({ open }: { open: boolean }): JSX.Element {
         flexShrink: 0,
       }}
     >
-      <path d="M3 1.5 L7 5 L3 8.5" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M3 1.5 L7 5 L3 8.5"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -59,7 +66,13 @@ function chipStyle(tone: InfoChip["tone"]): CSSProperties {
   };
 }
 
-export function InfoChipRow({ chips, max = 4 }: { chips: InfoChip[]; max?: number }): JSX.Element | null {
+export function InfoChipRow({
+  chips,
+  max = 4,
+}: {
+  chips: InfoChip[];
+  max?: number;
+}): JSX.Element | null {
   if (!chips || chips.length === 0) return null;
   const shown = chips.slice(0, max);
   return (
@@ -91,13 +104,7 @@ export function InfoChipRow({ chips, max = 4 }: { chips: InfoChip[]; max?: numbe
   );
 }
 
-export function Kbd({
-  children,
-  dim,
-}: {
-  children: ReactNode;
-  dim?: boolean;
-}): JSX.Element {
+export function Kbd({ children, dim }: { children: ReactNode; dim?: boolean }): JSX.Element {
   return <kbd data-dim={dim ? "true" : "false"}>{children}</kbd>;
 }
 
@@ -126,11 +133,7 @@ export function CatMascot({
       <path d="M18 32 L22 12 L38 24 Z" fill={`url(#${gradId})`} />
       <path d="M82 32 L78 12 L62 24 Z" fill={`url(#${gradId})`} />
       <ellipse cx="50" cy="45" rx="30" ry="27" fill={`url(#${gradId})`} />
-      <path
-        d="M25 60 Q25 95 50 100 Q75 95 75 60 Z"
-        fill={`url(#${gradId})`}
-        opacity="0.8"
-      />
+      <path d="M25 60 Q25 95 50 100 Q75 95 75 60 Z" fill={`url(#${gradId})`} opacity="0.8" />
       {expression === "sleepy" ? (
         <>
           <path
@@ -195,8 +198,7 @@ export function Backdrop(): JSX.Element {
           borderRadius: "50%",
           pointerEvents: "none",
           opacity: 0.5,
-          background:
-            "radial-gradient(circle, rgba(242,199,143,0.09), transparent 65%)",
+          background: "radial-gradient(circle, rgba(242,199,143,0.09), transparent 65%)",
         }}
       />
       <div
@@ -209,8 +211,7 @@ export function Backdrop(): JSX.Element {
           borderRadius: "50%",
           pointerEvents: "none",
           opacity: 0.3,
-          background:
-            "radial-gradient(circle, rgba(242,199,143,0.07), transparent 60%)",
+          background: "radial-gradient(circle, rgba(242,199,143,0.07), transparent 60%)",
         }}
       />
     </>
@@ -288,10 +289,8 @@ export function TopBar({
               height: 6,
               borderRadius: 4,
               background: dotColor,
-              boxShadow:
-                phase === "live" ? "0 0 8px var(--accent-hex)" : "none",
-              animation:
-                phase === "live" ? "pulse 1.4s ease-in-out infinite" : "none",
+              boxShadow: phase === "live" ? "0 0 8px var(--accent-hex)" : "none",
+              animation: phase === "live" ? "pulse 1.4s ease-in-out infinite" : "none",
             }}
           />
           {label}
@@ -301,11 +300,10 @@ export function TopBar({
         <span style={{ color: "#3a3a46" }}>·</span>
         <span>{sourcesCount} sources</span>
         <span style={{ color: "#3a3a46" }}>·</span>
-        <span title={wsConnected ? "Connected" : "Reconnecting…"}>
-          {wsConnected ? "●" : "○"}
-        </span>
+        <span title={wsConnected ? "Connected" : "Reconnecting…"}>{wsConnected ? "●" : "○"}</span>
         {onClearSession && (
-          <button type="button"
+          <button
+            type="button"
             onClick={onClearSession}
             aria-label="Clear session"
             title="Clear session (⇧⌫)"
@@ -317,7 +315,8 @@ export function TopBar({
           </button>
         )}
         {onOpenSettings && (
-          <button type="button"
+          <button
+            type="button"
             onClick={onOpenSettings}
             aria-label="Open settings"
             title="Settings (,)"

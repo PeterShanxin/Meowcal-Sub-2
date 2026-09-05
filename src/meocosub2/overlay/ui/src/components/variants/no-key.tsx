@@ -1,8 +1,4 @@
-export function NoApiKey({
-  onOpenSettings,
-}: {
-  onOpenSettings: () => void;
-}): JSX.Element {
+export function NoApiKey({ onOpenSettings }: { onOpenSettings: () => void }): JSX.Element {
   return (
     <div
       style={{
@@ -68,18 +64,18 @@ export function NoApiKey({
               lineHeight: 1.55,
             }}
           >
-            At least one subtitle source credential must be configured before search.
-            SubDL now requires an API key; ASSRT uses a token.
+            At least one subtitle source credential must be configured before search. SubDL now
+            requires an API key; ASSRT uses a token.
           </p>
           <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
-            <button type="button"
+            <button
+              type="button"
               onClick={onOpenSettings}
               style={{
                 padding: "10px 16px",
                 borderRadius: 8,
                 border: "none",
-                background:
-                  "linear-gradient(180deg, var(--accent-hex), var(--accent-deep))",
+                background: "linear-gradient(180deg, var(--accent-hex), var(--accent-deep))",
                 color: "#1a0f08",
                 fontSize: 13,
                 fontWeight: 600,

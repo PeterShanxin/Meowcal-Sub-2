@@ -8,7 +8,9 @@ import {
   mapWorksToItems,
 } from "./mappers";
 
-function makeWork(overrides: Partial<BackendWork> & Pick<BackendWork, "id" | "title" | "mediaType">): BackendWork {
+function makeWork(
+  overrides: Partial<BackendWork> & Pick<BackendWork, "id" | "title" | "mediaType">,
+): BackendWork {
   return {
     workId: overrides.id,
     year: null,
@@ -29,7 +31,9 @@ function makeWork(overrides: Partial<BackendWork> & Pick<BackendWork, "id" | "ti
   } as BackendWork;
 }
 
-function makeResult(overrides: Partial<BackendResult> & Pick<BackendResult, "resultId" | "matchId" | "language">): BackendResult {
+function makeResult(
+  overrides: Partial<BackendResult> & Pick<BackendResult, "resultId" | "matchId" | "language">,
+): BackendResult {
   const { resultId, matchId, language, ...rest } = overrides;
   return {
     id: resultId,
@@ -165,9 +169,27 @@ describe("mapResultsToSource", () => {
   it("ranks by match score, then provider rank, then downloads", () => {
     const results = [
       makeResult({ resultId: "weak", matchId: "m1", language: "en", matchScore: 10 }),
-      makeResult({ resultId: "popular", matchId: "m1", language: "en", matchScore: 90, downloadCount: 900 }),
-      makeResult({ resultId: "quiet", matchId: "m1", language: "en", matchScore: 90, downloadCount: 10 }),
-      makeResult({ resultId: "trusted", matchId: "m1", language: "en", matchScore: 90, providerRank: 1 }),
+      makeResult({
+        resultId: "popular",
+        matchId: "m1",
+        language: "en",
+        matchScore: 90,
+        downloadCount: 900,
+      }),
+      makeResult({
+        resultId: "quiet",
+        matchId: "m1",
+        language: "en",
+        matchScore: 90,
+        downloadCount: 10,
+      }),
+      makeResult({
+        resultId: "trusted",
+        matchId: "m1",
+        language: "en",
+        matchScore: 90,
+        providerRank: 1,
+      }),
     ];
     expect(mapResultsToSource(results, "m1", "en").map((s) => s.id)).toEqual([
       "trusted",

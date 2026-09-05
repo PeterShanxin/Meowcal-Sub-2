@@ -10,10 +10,7 @@ import type {
   WorkSeasonItem,
 } from "../lib/types";
 
-export function derivePhase(
-  snapshot: BackendSnapshot | null,
-  manualView: Phase | null,
-): Phase {
+export function derivePhase(snapshot: BackendSnapshot | null, manualView: Phase | null): Phase {
   if (manualView) return manualView;
   if (!snapshot) return "home";
   if (snapshot.status === "running") return "live";
@@ -45,11 +42,12 @@ export function mapWorksToItems(works: BackendWork[]): WorkItem[] {
       episodes: season.episodes.map((ep) => {
         const s = ep.season ?? season.seasonNumber;
         const e = ep.episode;
-        const code = s && e
-          ? `S${String(s).padStart(2, "0")}E${String(e).padStart(2, "0")}`
-          : s
-            ? `Season ${s} · all episodes`
-            : ep.title || `Entry`;
+        const code =
+          s && e
+            ? `S${String(s).padStart(2, "0")}E${String(e).padStart(2, "0")}`
+            : s
+              ? `Season ${s} · all episodes`
+              : ep.title || `Entry`;
         const label = ep.title && ep.title !== code ? `${code} — ${ep.title}` : code;
         return {
           matchId: ep.matchId,
@@ -211,10 +209,6 @@ export function seasonHydrateKey(workId: string, seasonNumber: number): string {
   return `${workId}:${seasonNumber}`;
 }
 
-export function episodeHydrateKey(
-  workId: string,
-  seasonNumber: number,
-  episode: number,
-): string {
+export function episodeHydrateKey(workId: string, seasonNumber: number, episode: number): string {
   return `${workId}:${seasonNumber}:${episode}`;
 }

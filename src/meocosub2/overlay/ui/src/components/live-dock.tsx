@@ -142,7 +142,8 @@ function IconButton({
   children: JSX.Element;
 }): JSX.Element {
   return (
-    <button type="button"
+    <button
+      type="button"
       onClick={onClick}
       title={label}
       aria-label={label}
@@ -164,15 +165,10 @@ function IconButton({
   );
 }
 
-function TextButton({
-  label,
-  onClick,
-}: {
-  label: string;
-  onClick: () => void;
-}): JSX.Element {
+function TextButton({ label, onClick }: { label: string; onClick: () => void }): JSX.Element {
   return (
-    <button type="button"
+    <button
+      type="button"
       onClick={onClick}
       style={{
         padding: "0 11px",

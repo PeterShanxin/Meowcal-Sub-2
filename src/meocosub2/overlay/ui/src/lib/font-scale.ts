@@ -21,7 +21,9 @@ export function presetLabel(name: FontPresetName): string {
 }
 
 function apply(scale: number): void {
-  const el = document.documentElement as HTMLElement & { style: CSSStyleDeclaration & { zoom?: string } };
+  const el = document.documentElement as HTMLElement & {
+    style: CSSStyleDeclaration & { zoom?: string };
+  };
   el.style.zoom = String(scale);
 }
 

@@ -42,17 +42,13 @@ export function useAppWebSocket(): void {
               break;
             case "subtitle": {
               const current = store.get().snapshot;
-              const tc = current?.progress.stage
-                ? current.progress.message || ""
-                : "";
+              const tc = current?.progress.stage ? current.progress.message || "" : "";
               store.pushLiveLine(msg.text, tc);
               break;
             }
             case "progress":
               store.set((s) =>
-                s.snapshot
-                  ? { snapshot: { ...s.snapshot, progress: msg.progress } }
-                  : {},
+                s.snapshot ? { snapshot: { ...s.snapshot, progress: msg.progress } } : {},
               );
               break;
             case "error":

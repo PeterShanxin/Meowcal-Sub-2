@@ -1,12 +1,6 @@
 export type Phase = "home" | "prep" | "live" | "settings" | "empty" | "no-key";
 
-export type BackendStatus =
-  | "idle"
-  | "searching"
-  | "preparing"
-  | "running"
-  | "stopping"
-  | "error";
+export type BackendStatus = "idle" | "searching" | "preparing" | "running" | "stopping" | "error";
 
 export interface BackendMatch {
   id: string;

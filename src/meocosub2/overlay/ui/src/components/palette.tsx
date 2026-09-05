@@ -296,12 +296,16 @@ export function Palette(props: PaletteProps): JSX.Element {
           }}
         />
         {searching && <div className="search-shimmer" aria-hidden />}
-        <div ref={langRef} style={{ position: "relative", display: "flex", gap: 6, alignItems: "center" }}>
+        <div
+          ref={langRef}
+          style={{ position: "relative", display: "flex", gap: 6, alignItems: "center" }}
+        >
           <span
             onClick={() => setOpenDrop(openDrop === "source" ? null : "source")}
             style={{
               padding: "4px 8px",
-              background: openDrop === "source" ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.04)",
+              background:
+                openDrop === "source" ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.04)",
               borderRadius: 5,
               fontSize: 11,
               color: "#a8a8b2",
@@ -313,7 +317,15 @@ export function Palette(props: PaletteProps): JSX.Element {
           >
             {sourceLang}
           </span>
-          <svg width="12" height="10" viewBox="0 0 12 10" fill="none" stroke="#6a6a76" strokeWidth="1.3" aria-hidden>
+          <svg
+            width="12"
+            height="10"
+            viewBox="0 0 12 10"
+            fill="none"
+            stroke="#6a6a76"
+            strokeWidth="1.3"
+            aria-hidden
+          >
             <path d="M1 5h8M7 1l4 4-4 4" />
           </svg>
           <span
@@ -346,17 +358,29 @@ export function Palette(props: PaletteProps): JSX.Element {
                 overflow: "hidden",
               }}
             >
-              <div style={{ padding: "6px 10px 4px", fontSize: 10, color: "var(--text-label)", textTransform: "uppercase", letterSpacing: 1 }}>
+              <div
+                style={{
+                  padding: "6px 10px 4px",
+                  fontSize: 10,
+                  color: "var(--text-label)",
+                  textTransform: "uppercase",
+                  letterSpacing: 1,
+                }}
+              >
                 {openDrop === "source" ? "Source language" : "Target language"}
               </div>
               {langOptions.map((opt) => {
-                const active = openDrop === "source"
-                  ? opt.code.toLowerCase() === sourceLang.toLowerCase()
-                  : opt.code.toLowerCase() === targetLang.toLowerCase();
+                const active =
+                  openDrop === "source"
+                    ? opt.code.toLowerCase() === sourceLang.toLowerCase()
+                    : opt.code.toLowerCase() === targetLang.toLowerCase();
                 return (
                   <div
                     key={opt.code}
-                    onClick={() => { onChangeLang(openDrop, opt.code); setOpenDrop(null); }}
+                    onClick={() => {
+                      onChangeLang(openDrop, opt.code);
+                      setOpenDrop(null);
+                    }}
                     style={{
                       padding: "8px 12px",
                       fontSize: 13,
@@ -368,11 +392,26 @@ export function Palette(props: PaletteProps): JSX.Element {
                       alignItems: "center",
                       gap: 8,
                     }}
-                    onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,0.04)"; }}
-                    onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+                    onMouseEnter={(e) => {
+                      if (!active)
+                        (e.currentTarget as HTMLDivElement).style.background =
+                          "rgba(255,255,255,0.04)";
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!active)
+                        (e.currentTarget as HTMLDivElement).style.background = "transparent";
+                    }}
                   >
                     <span>{opt.label}</span>
-                    <span style={{ fontSize: 10, color: "var(--text-label)", textTransform: "uppercase" }}>{opt.code}</span>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        color: "var(--text-label)",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {opt.code}
+                    </span>
                   </div>
                 );
               })}
@@ -381,18 +420,10 @@ export function Palette(props: PaletteProps): JSX.Element {
         </div>
       </div>
 
-      <PaletteTabs
-        tabs={tabs}
-        active={tab}
-        onChange={(id) => onTabChange(id as PaletteTabId)}
-      />
+      <PaletteTabs tabs={tabs} active={tab} onChange={(id) => onTabChange(id as PaletteTabId)} />
 
       {errorMessage && (
-        <ErrorBar
-          message={errorMessage}
-          onRetry={onRetrySearch}
-          onDismiss={onDismissError}
-        />
+        <ErrorBar message={errorMessage} onRetry={onRetrySearch} onDismiss={onDismissError} />
       )}
 
       {tab === "titles" && totalWorksCount > 0 && (
@@ -410,12 +441,13 @@ export function Palette(props: PaletteProps): JSX.Element {
         />
       )}
 
-      <div ref={listRef} style={{ maxHeight: compact ? 280 : 420, overflow: "auto", position: "relative" }}>
+      <div
+        ref={listRef}
+        style={{ maxHeight: compact ? 280 : 420, overflow: "auto", position: "relative" }}
+      >
         {tab === "titles" && (
           <div
-            className={`results-shell ${
-              listSearching && works.length > 0 ? "is-refreshing" : ""
-            }`}
+            className={`results-shell ${listSearching && works.length > 0 ? "is-refreshing" : ""}`}
           >
             <div key={titleResultsKey} className="results-content">
               <WorkList
@@ -445,8 +477,8 @@ export function Palette(props: PaletteProps): JSX.Element {
             </div>
           </div>
         )}
-        {tab === "source" && (
-          hasSelectedEpisode ? (
+        {tab === "source" &&
+          (hasSelectedEpisode ? (
             <SubList
               items={sources}
               selectedId={selectedSourceId}
@@ -455,10 +487,9 @@ export function Palette(props: PaletteProps): JSX.Element {
             />
           ) : (
             <EmptyTab hint="Pick a title (and episode) first" />
-          )
-        )}
-        {tab === "target" && (
-          hasSelectedEpisode ? (
+          ))}
+        {tab === "target" &&
+          (hasSelectedEpisode ? (
             <TargetList
               items={targets}
               selectedId={selectedTargetId}
@@ -467,8 +498,7 @@ export function Palette(props: PaletteProps): JSX.Element {
             />
           ) : (
             <EmptyTab hint="Pick a title (and episode) first" />
-          )
-        )}
+          ))}
       </div>
 
       <div
@@ -505,7 +535,8 @@ export function Palette(props: PaletteProps): JSX.Element {
                 onClick={() => onTabChange("target")}
               />
             )}
-            <button type="button"
+            <button
+              type="button"
               onClick={onPrimary}
               disabled={!primaryEnabled}
               title={startHint}
@@ -574,7 +605,8 @@ function PickedChip({
   onClick: () => void;
 }): JSX.Element {
   return (
-    <button type="button"
+    <button
+      type="button"
       onClick={onClick}
       title={value}
       style={{
@@ -874,21 +906,16 @@ function WorkList({
       rowIndexByKey.set(`season:${row.workId}:${row.seasonNumber}`, index);
       return;
     }
-    rowIndexByKey.set(
-      `episode:${row.workId}:${row.seasonNumber}:${row.episodeMatchId}`,
-      index,
-    );
+    rowIndexByKey.set(`episode:${row.workId}:${row.seasonNumber}:${row.episodeMatchId}`, index);
   });
-  const rowIndexForWork = (workId: string): number =>
-    rowIndexByKey.get(`work:${workId}`) ?? -1;
+  const rowIndexForWork = (workId: string): number => rowIndexByKey.get(`work:${workId}`) ?? -1;
   const rowIndexForSeason = (workId: string, seasonNumber: number): number =>
     rowIndexByKey.get(`season:${workId}:${seasonNumber}`) ?? -1;
   const rowIndexForEpisode = (
     workId: string,
     seasonNumber: number,
     episodeMatchId: string,
-  ): number =>
-    rowIndexByKey.get(`episode:${workId}:${seasonNumber}:${episodeMatchId}`) ?? -1;
+  ): number => rowIndexByKey.get(`episode:${workId}:${seasonNumber}:${episodeMatchId}`) ?? -1;
 
   return (
     <div className="work-grid">
@@ -897,11 +924,7 @@ function WorkList({
         const isSelected = selectedWorkId === work.id;
         const isExpanded = expandedWorkId === work.id;
         return (
-          <div
-            className="work-card"
-            data-expanded={isExpanded}
-            key={`work-card-${work.id}`}
-          >
+          <div className="work-card" data-expanded={isExpanded} key={`work-card-${work.id}`}>
             <WorkRow
               work={work}
               selected={isSelected}
@@ -932,48 +955,57 @@ function WorkList({
                         busy={seasonBusy}
                         onClick={() => onToggleExpandSeason(work.id, season.seasonNumber)}
                       />
-                      {open && season.episodes.map((ep) => {
-                        const epRowIndex = rowIndexForEpisode(work.id, season.seasonNumber, ep.matchId);
-                        const isSkeleton = ep.matchId.startsWith("skeleton:");
-                        if (isSkeleton) {
-                          const hydrateKey =
-                            ep.episode != null
-                              ? episodeHydrateKey(work.id, season.seasonNumber, ep.episode)
-                              : null;
-                          // Its own lookup already ran and came back with nothing.
-                          // Offering it again would spend a request to be told so twice.
-                          const settledEmpty = hydrateKey != null && alreadyLookedUp.has(hydrateKey);
+                      {open &&
+                        season.episodes.map((ep) => {
+                          const epRowIndex = rowIndexForEpisode(
+                            work.id,
+                            season.seasonNumber,
+                            ep.matchId,
+                          );
+                          const isSkeleton = ep.matchId.startsWith("skeleton:");
+                          if (isSkeleton) {
+                            const hydrateKey =
+                              ep.episode != null
+                                ? episodeHydrateKey(work.id, season.seasonNumber, ep.episode)
+                                : null;
+                            // Its own lookup already ran and came back with nothing.
+                            // Offering it again would spend a request to be told so twice.
+                            const settledEmpty =
+                              hydrateKey != null && alreadyLookedUp.has(hydrateKey);
+                            return (
+                              <EpisodeRow
+                                key={`skep-${ep.matchId}`}
+                                label={ep.label}
+                                subtitles={0}
+                                picked={false}
+                                focused={cursorIndex === epRowIndex}
+                                skeleton
+                                // Nothing to offer while the sweep above is
+                                // already asking after this episode.
+                                hydratable={ep.episode != null && !settledEmpty && !seasonBusy}
+                                exhausted={settledEmpty}
+                                busy={hydrateKey != null && busy.has(hydrateKey)}
+                                rowIndex={epRowIndex}
+                                onClick={() =>
+                                  ep.episode != null &&
+                                  onHydrateEpisode(work.id, season.seasonNumber, ep.episode)
+                                }
+                              />
+                            );
+                          }
+                          const picked = selectedEpisodeMatchId === ep.matchId;
                           return (
                             <EpisodeRow
-                              key={`skep-${ep.matchId}`}
+                              key={`ep-${ep.matchId}`}
                               label={ep.label}
-                              subtitles={0}
-                              picked={false}
+                              subtitles={ep.subtitlesCount}
+                              picked={picked}
                               focused={cursorIndex === epRowIndex}
-                              skeleton
-                              // Nothing to offer while the sweep above is
-                              // already asking after this episode.
-                              hydratable={ep.episode != null && !settledEmpty && !seasonBusy}
-                              exhausted={settledEmpty}
-                              busy={hydrateKey != null && busy.has(hydrateKey)}
                               rowIndex={epRowIndex}
-                              onClick={() => ep.episode != null && onHydrateEpisode(work.id, season.seasonNumber, ep.episode)}
+                              onClick={() => onPickEpisode(work.id, ep.matchId)}
                             />
                           );
-                        }
-                        const picked = selectedEpisodeMatchId === ep.matchId;
-                        return (
-                          <EpisodeRow
-                            key={`ep-${ep.matchId}`}
-                            label={ep.label}
-                            subtitles={ep.subtitlesCount}
-                            picked={picked}
-                            focused={cursorIndex === epRowIndex}
-                            rowIndex={epRowIndex}
-                            onClick={() => onPickEpisode(work.id, ep.matchId)}
-                          />
-                        );
-                      })}
+                        })}
                     </div>
                   );
                 })}
@@ -1016,10 +1048,7 @@ function WorkRow({
       rowIndex={rowIndex}
       className="work-row"
     >
-      <div
-        className={`work-poster ${posterUrl ? "has-image" : ""}`}
-        aria-hidden
-      >
+      <div className={`work-poster ${posterUrl ? "has-image" : ""}`} aria-hidden>
         {posterUrl && (
           <img
             src={posterUrl}
@@ -1220,7 +1249,15 @@ function SubList({
                 color: "var(--text-label)",
               }}
             >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                aria-hidden
+              >
                 <rect x="2" y="2" width="12" height="12" rx="1" />
                 <path d="M4 7h8M4 9h8M4 11h4" />
               </svg>
@@ -1241,9 +1278,7 @@ function SubList({
               <div style={{ fontSize: 12, color: "var(--text-label)", marginTop: 3 }}>
                 {r.provider} · {r.downloads} downloads · {r.fps} fps
                 {r.trusted && (
-                  <span style={{ color: "var(--accent-text)", marginLeft: 8 }}>
-                    ✓ Trusted
-                  </span>
+                  <span style={{ color: "var(--accent-text)", marginLeft: 8 }}>✓ Trusted</span>
                 )}
                 {r.hi && <span style={{ marginLeft: 8 }}>HI</span>}
               </div>
@@ -1292,17 +1327,41 @@ function TargetList({
               }}
             >
               {r.kind === "local" ? (
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  aria-hidden
+                >
                   <path d="M2 8a6 6 0 1 1 12 0A6 6 0 0 1 2 8z" />
                   <path d="M8 4v4l2.5 2.5" />
                 </svg>
               ) : r.kind === "ocr" ? (
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  aria-hidden
+                >
                   <path d="M2 4V2h2M12 2h2v2M2 12v2h2M12 14h2v-2" />
                   <path d="M5 8h6" />
                 </svg>
               ) : (
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  aria-hidden
+                >
                   <rect x="2" y="2" width="12" height="12" rx="1" />
                   <path d="M4 7h8M4 9h8M4 11h4" />
                 </svg>
@@ -1377,11 +1436,7 @@ const Row = forwardRef<HTMLDivElement, RowProps>(function Row(
         alignItems: "center",
         gap: 12,
         padding: className === "work-row" ? undefined : "10px 20px",
-        background: focused
-          ? "var(--accent-tint)"
-          : selected
-            ? "rgba(255,185,90,0.05)"
-            : undefined,
+        background: focused ? "var(--accent-tint)" : selected ? "rgba(255,185,90,0.05)" : undefined,
         borderLeft:
           className === "work-row"
             ? "2px solid transparent"
@@ -1413,8 +1468,7 @@ function EmptyTab({ hint }: { hint: string }): JSX.Element {
         style={{
           width: 36,
           height: 1,
-          background:
-            "linear-gradient(90deg, transparent, var(--accent-ring), transparent)",
+          background: "linear-gradient(90deg, transparent, var(--accent-ring), transparent)",
           opacity: 0.6,
         }}
       />

@@ -140,9 +140,9 @@ export function SettingsView({
         return;
       }
 
-      const focusable = Array.from(
-        dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-      ).filter((element) => element.offsetParent !== null);
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+        (element) => element.offsetParent !== null,
+      );
       if (focusable.length === 0) {
         event.preventDefault();
         closeButtonRef.current?.focus({ preventScroll: true });
@@ -238,11 +238,11 @@ export function SettingsView({
           display: "grid",
           gridTemplateColumns: "var(--settings-dialog-columns, 220px minmax(0, 1fr))",
           overflow: "hidden",
-          boxShadow:
-            "0 30px 86px rgba(0,0,0,0.42), 0 0 0 1px rgba(242,199,143,0.04)",
+          boxShadow: "0 30px 86px rgba(0,0,0,0.42), 0 0 0 1px rgba(242,199,143,0.04)",
         }}
       >
-        <button type="button"
+        <button
+          type="button"
           ref={closeButtonRef}
           onClick={onClose}
           aria-label="Close settings"
@@ -293,7 +293,8 @@ export function SettingsView({
           {SECTIONS.map((s) => {
             const active = s.id === section;
             return (
-              <button type="button"
+              <button
+                type="button"
                 key={s.id}
                 onClick={() => setSection(s.id)}
                 style={{
@@ -327,128 +328,116 @@ export function SettingsView({
             minHeight: 0,
           }}
         >
-        <div
-          style={{
-            flex: 1,
-            overflow: "auto",
-            padding: "34px 28px 28px",
-            position: "relative",
-          }}
-        >
-          {banner && (
-            <div
-              style={{
-                position: "absolute",
-                top: 18,
-                right: 58,
-                padding: "8px 12px",
-                borderRadius: 7,
-                fontSize: 12,
-                background:
-                  banner.kind === "ok"
-                    ? "rgba(74,222,128,0.1)"
-                    : "var(--danger-tint)",
-                color: banner.kind === "ok" ? "var(--ok-hex)" : "var(--danger-text)",
-                border: `1px solid ${banner.kind === "ok" ? "rgba(74,222,128,0.3)" : "var(--danger-ring)"}`,
-              }}
-            >
-              {banner.text}
-            </div>
-          )}
-          {section === "appearance" && <AppearanceSection />}
-          {section === "sources" && (
-            <SourcesSection draft={draft} update={update} />
-          )}
-          {section === "capture" && (
-            <CaptureSection draft={draft} update={update} />
-          )}
-          {section === "overlay" && (
-            <OverlaySection draft={draft} update={update} />
-          )}
-          {section === "translate" && (
-            <TranslateSection
-              draft={draft}
-              update={update}
-              engine={engine}
-              onInstallEngine={onInstallEngine}
-            />
-          )}
-          {section === "matching" && (
-            <MatchingSection draft={draft} update={update} />
-          )}
-          {section === "debug" && (
-            <DebugSection draft={draft} update={update} />
-          )}
-        </div>
-
-        <div
-          style={{
-            flexShrink: 0,
-            padding: "14px 28px 20px",
-            display: "flex",
-            gap: 10,
-            justifyContent: "space-between",
-            alignItems: "center",
-            background:
-              "linear-gradient(to bottom, transparent, rgba(18,18,24,0.95) 30%)",
-          }}
-        >
-          <button type="button"
-            onClick={() => {
-              setDraft(initialConfig);
-              setDirty(false);
-              setBanner(null);
-            }}
-            disabled={!dirty || saving}
+          <div
             style={{
-              padding: "10px 16px",
-              borderRadius: 8,
-              border: "1px solid rgba(255,255,255,0.1)",
-              background: "transparent",
-              color: "#a8a8b2",
-              fontSize: 13,
-              cursor: dirty ? "pointer" : "not-allowed",
-              opacity: dirty ? 1 : 0.4,
+              flex: 1,
+              overflow: "auto",
+              padding: "34px 28px 28px",
+              position: "relative",
             }}
           >
-            Reset
-          </button>
-          <div style={{ display: "flex", gap: 10 }}>
-            <button type="button"
-              onClick={onClose}
-              style={{
-                padding: "10px 16px",
-                borderRadius: 8,
-                border: "1px solid rgba(255,255,255,0.08)",
-                background: "transparent",
-                color: "#a8a8b2",
-                fontSize: 13,
-                cursor: "pointer",
+            {banner && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: 18,
+                  right: 58,
+                  padding: "8px 12px",
+                  borderRadius: 7,
+                  fontSize: 12,
+                  background: banner.kind === "ok" ? "rgba(74,222,128,0.1)" : "var(--danger-tint)",
+                  color: banner.kind === "ok" ? "var(--ok-hex)" : "var(--danger-text)",
+                  border: `1px solid ${banner.kind === "ok" ? "rgba(74,222,128,0.3)" : "var(--danger-ring)"}`,
+                }}
+              >
+                {banner.text}
+              </div>
+            )}
+            {section === "appearance" && <AppearanceSection />}
+            {section === "sources" && <SourcesSection draft={draft} update={update} />}
+            {section === "capture" && <CaptureSection draft={draft} update={update} />}
+            {section === "overlay" && <OverlaySection draft={draft} update={update} />}
+            {section === "translate" && (
+              <TranslateSection
+                draft={draft}
+                update={update}
+                engine={engine}
+                onInstallEngine={onInstallEngine}
+              />
+            )}
+            {section === "matching" && <MatchingSection draft={draft} update={update} />}
+            {section === "debug" && <DebugSection draft={draft} update={update} />}
+          </div>
+
+          <div
+            style={{
+              flexShrink: 0,
+              padding: "14px 28px 20px",
+              display: "flex",
+              gap: 10,
+              justifyContent: "space-between",
+              alignItems: "center",
+              background: "linear-gradient(to bottom, transparent, rgba(18,18,24,0.95) 30%)",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(initialConfig);
+                setDirty(false);
+                setBanner(null);
               }}
-            >
-              Close settings <Kbd dim>Esc</Kbd>
-            </button>
-            <button type="button"
-              onClick={save}
               disabled={!dirty || saving}
               style={{
                 padding: "10px 16px",
                 borderRadius: 8,
-                border: "none",
-                background:
-                  "linear-gradient(180deg, var(--accent-hex), var(--accent-deep))",
-                color: "#1a0f08",
+                border: "1px solid rgba(255,255,255,0.1)",
+                background: "transparent",
+                color: "#a8a8b2",
                 fontSize: 13,
-                fontWeight: 600,
                 cursor: dirty ? "pointer" : "not-allowed",
-                opacity: dirty ? 1 : 0.5,
+                opacity: dirty ? 1 : 0.4,
               }}
             >
-              {saving ? "Saving…" : "Save changes"}
+              Reset
             </button>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                type="button"
+                onClick={onClose}
+                style={{
+                  padding: "10px 16px",
+                  borderRadius: 8,
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "transparent",
+                  color: "#a8a8b2",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                Close settings <Kbd dim>Esc</Kbd>
+              </button>
+              <button
+                type="button"
+                onClick={save}
+                disabled={!dirty || saving}
+                style={{
+                  padding: "10px 16px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: "linear-gradient(180deg, var(--accent-hex), var(--accent-deep))",
+                  color: "#1a0f08",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: dirty ? "pointer" : "not-allowed",
+                  opacity: dirty ? 1 : 0.5,
+                }}
+              >
+                {saving ? "Saving…" : "Save changes"}
+              </button>
+            </div>
           </div>
-        </div>
-      </main>
+        </main>
       </div>
     </div>
   );
@@ -472,13 +461,7 @@ function CloseIcon(): JSX.Element {
   );
 }
 
-function Heading({
-  eyebrow,
-  title,
-}: {
-  eyebrow: string;
-  title: string;
-}): JSX.Element {
+function Heading({ eyebrow, title }: { eyebrow: string; title: string }): JSX.Element {
   return (
     <>
       <div
@@ -531,11 +514,7 @@ function Field({
         {label}
       </div>
       {children}
-      {hint && (
-        <div style={{ fontSize: 11, color: "var(--text-label)", marginTop: 4 }}>
-          {hint}
-        </div>
-      )}
+      {hint && <div style={{ fontSize: 11, color: "var(--text-label)", marginTop: 4 }}>{hint}</div>}
     </div>
   );
 }
@@ -721,10 +700,7 @@ function SourcesSection({ draft, update }: SectionProps): JSX.Element {
               />
             </Field>
             <Field label="Username">
-              <TextInput
-                value={os.username}
-                onChange={(v) => setOs({ username: v })}
-              />
+              <TextInput value={os.username} onChange={(v) => setOs({ username: v })} />
             </Field>
             <Field label="Password">
               <TextInput
@@ -751,9 +727,7 @@ function SourcesSection({ draft, update }: SectionProps): JSX.Element {
               alignItems: "center",
             }}
           >
-            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-heading)" }}>
-              SubDL
-            </div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-heading)" }}>SubDL</div>
             <Toggle
               checked={sd.enabled}
               onChange={(v) => setSubdl({ enabled: v })}
@@ -781,9 +755,7 @@ function SourcesSection({ draft, update }: SectionProps): JSX.Element {
               marginBottom: 10,
             }}
           >
-            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-heading)" }}>
-              ASSRT
-            </div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-heading)" }}>ASSRT</div>
             <Toggle
               checked={as_.enabled}
               onChange={(v) =>
@@ -917,7 +889,8 @@ function CaptureSection({ draft, update }: SectionProps): JSX.Element {
             {x}, {y} · {w} × {h}
           </div>
         </div>
-        <button type="button"
+        <button
+          type="button"
           onClick={() => {
             void tauri.openAreaSelector();
           }}
@@ -999,22 +972,17 @@ function CaptureSection({ draft, update }: SectionProps): JSX.Element {
 
 function OverlaySection({ draft, update }: SectionProps): JSX.Element {
   const overlay = draft.overlay as Record<string, unknown>;
-  const entries = Object.entries(overlay).filter(
-    ([k]) => k !== "port" && !k.startsWith("_"),
-  );
+  const entries = Object.entries(overlay).filter(([k]) => k !== "port" && !k.startsWith("_"));
   return (
     <>
       <Heading eyebrow="Overlay" title="How should subtitles look?" />
       <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -14, marginBottom: 18 }}>
-        In live mode the main window becomes the subtitle surface. These values
-        tune font, color, blur, animation, and position.
+        In live mode the main window becomes the subtitle surface. These values tune font, color,
+        blur, animation, and position.
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
         <Field label="Overlay port" hint="Read-only; restart to change">
-          <TextInput
-            value={String(overlay.port ?? "8765")}
-            onChange={() => {}}
-          />
+          <TextInput value={String(overlay.port ?? "8765")} onChange={() => {}} />
         </Field>
         {entries.map(([key, value]) => (
           <Field key={key} label={key}>
@@ -1062,8 +1030,8 @@ function TranslateSection({
     <>
       <Heading eyebrow="Translation" title="On-device translation" />
       <p style={{ margin: "0 0 18px", fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6 }}>
-        Subtitles are translated on this machine by {engine?.model || "a local model"}.
-        Nothing captured from your screen leaves the device.
+        Subtitles are translated on this machine by {engine?.model || "a local model"}. Nothing
+        captured from your screen leaves the device.
       </p>
       <div
         style={{
@@ -1080,7 +1048,9 @@ function TranslateSection({
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 600 }}>{engine?.message ?? "Checking..."}</div>
           {installing && (
-            <div style={{ marginTop: 8, height: 4, borderRadius: 2, background: "var(--border-soft)" }}>
+            <div
+              style={{ marginTop: 8, height: 4, borderRadius: 2, background: "var(--border-soft)" }}
+            >
               <div
                 style={{
                   width: `${engine?.installPercent ?? 0}%`,
@@ -1157,9 +1127,7 @@ function DebugSection({ draft, update }: SectionProps): JSX.Element {
       <Heading eyebrow="Debug" title="Developer options" />
       <Toggle
         checked={draft.debug.mode}
-        onChange={(v) =>
-          update((c) => ({ ...c, debug: { ...c.debug, mode: v } }))
-        }
+        onChange={(v) => update((c) => ({ ...c, debug: { ...c.debug, mode: v } }))}
         label="Enable debug overlay (OCR timing + match visualiser)"
       />
     </>
@@ -1184,7 +1152,8 @@ function AppearanceSection(): JSX.Element {
           const selected = active === name;
           const pct = Math.round(FONT_PRESETS[name] * 100);
           return (
-            <button type="button"
+            <button
+              type="button"
               key={name}
               onClick={() => onPick(name)}
               style={{

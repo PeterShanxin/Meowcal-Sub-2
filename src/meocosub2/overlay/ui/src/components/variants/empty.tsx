@@ -137,14 +137,14 @@ export function EmptyState({
             </div>
           </div>
         </div>
-        <button type="button"
+        <button
+          type="button"
           onClick={onOpenPalette}
           style={{
             padding: "14px",
             borderRadius: 10,
             border: "none",
-            background:
-              "linear-gradient(180deg, var(--accent-hex), var(--accent-deep))",
+            background: "linear-gradient(180deg, var(--accent-hex), var(--accent-deep))",
             color: "#1a0f08",
             fontSize: 14,
             fontWeight: 600,
