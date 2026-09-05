@@ -42,6 +42,7 @@ from meocosub2.subtitle_sources import (
     AggregatedWork,
     SubtitleSearchAggregator,
 )
+from meocosub2.semantic import SemanticIndex
 from meocosub2.subtitle_sources.utils import result_id_for
 from meocosub2.subtitles import align_subtitles, assign_target_translations, load_subtitle_file
 from meocosub2.sync import (
@@ -1250,6 +1251,9 @@ class GuiController:
         debug_cb = self._make_debug_broadcast() if config.debug_mode else None
         opened: list = []
 
+        async def semantic_factory() -> SemanticIndex:
+            return SemanticIndex(await engine.ensure_embedding_ready())
+
         async def translator_factory() -> LiveTranslator:
             # Opened on the first line that needs it, so a session whose subtitles
             # are already paired never waits on the engine.
@@ -1259,7 +1263,9 @@ class GuiController:
 
         try:
             if runtime.source_candidates:
-                session = CandidateSession(runtime.source_candidates, config, translator_factory)
+                session = CandidateSession(
+                    runtime.source_candidates, config, translator_factory, semantic_factory
+                )
             else:
                 session = DirectTranslationSession(
                     runtime.target_lines, config, translator_factory

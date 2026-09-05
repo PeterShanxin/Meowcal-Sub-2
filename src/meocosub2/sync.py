@@ -20,8 +20,10 @@ from time import monotonic
 
 from meocosub2.capture import capture_region, ocr_image
 from meocosub2.config import AppConfig
-from meocosub2.matcher import SubtitleMatcher
+from meocosub2.engine import EngineStartError
+from meocosub2.matcher import BOTH, SubtitleMatcher
 from meocosub2.models import MatchResult, SourceSubtitleCandidate, SubtitleLine
+from meocosub2.semantic import SemanticError, SemanticIndex
 from meocosub2.subtitle_gate import LineChange, SubtitleGate
 from meocosub2.timeline import PlaybackTimeline
 from meocosub2.translator import TranslationClient, is_untranslatable, open_translation_client
@@ -51,6 +53,9 @@ Broadcast = Callable[[str, str], Awaitable[None]]
 DebugBroadcast = Callable[[dict[str, object]], Awaitable[None]]
 RegionSource = Callable[[], tuple[int, ...]]
 TranslatorFactory = Callable[[], Awaitable["LiveTranslator"]]
+# Supplied by whoever starts the session rather than reached for here, so a
+# session can be run - and tested - without an embedding engine behind it.
+SemanticFactory = Callable[[], Awaitable[SemanticIndex]]
 
 
 @dataclass
@@ -116,6 +121,7 @@ class CandidateSession:
         candidates: list[SourceSubtitleCandidate],
         config: AppConfig,
         translator: TranslatorFactory,
+        semantic: SemanticFactory | None = None,
     ) -> None:
         self._matchers = {
             candidate.result_id: SubtitleMatcher(
@@ -128,11 +134,47 @@ class CandidateSession:
             for candidate in candidates
         }
         self._open_translator = translator
+        self._open_index = semantic
         self._timeline = PlaybackTimeline()
         self._locked: str | None = next(iter(self._matchers)) if len(self._matchers) == 1 else None
         self._pending: str = ""
         self._pending_hits = 0
         self._misses = 0
+        self._semantic: SemanticIndex | None = None
+        self._semantic_build: asyncio.Task[None] | None = None
+
+    def close(self) -> None:
+        if self._semantic_build is not None:
+            self._semantic_build.cancel()
+
+    def _open_semantic(self) -> None:
+        """Start encoding the locked candidate, if that has not been tried yet.
+
+        In the background: starting the engine and encoding a whole file takes
+        seconds, and the capture loop cannot stop for them. Until it finishes,
+        reads are matched on text alone, which is what a session did before this
+        model existed. It is attempted once - a machine without the model, or
+        without the engine, is not going to acquire either mid-session.
+        """
+        if self._open_index is None or self._locked is None or self._semantic_build is not None:
+            return
+        lines = [line.text for line in self._matchers[self._locked].subtitles]
+        self._semantic_build = asyncio.create_task(
+            self._build_semantic(self._open_index, lines)
+        )
+
+    async def _build_semantic(self, open_index: SemanticFactory, lines: list[str]) -> None:
+        try:
+            index = await open_index()
+            await index.build(lines)
+        except asyncio.CancelledError:
+            raise
+        except (EngineStartError, SemanticError) as error:
+            # Matching by meaning improves a session; it is not required for
+            # one. Without it, reads are matched on text alone.
+            logger.warning("Matching by meaning is unavailable this session: %s", error)
+            return
+        self._semantic = index
 
     def saw_new_cue(self, at: float | None = None) -> None:
         self._timeline.saw_new_cue(at)
@@ -149,8 +191,9 @@ class CandidateSession:
             "lockedCandidateId": self._locked,
         }
 
-    def match(self, ocr_text: str, follow: bool = True) -> Resolution | None:
-        winner, result = self._match(ocr_text)
+    async def match(self, ocr_text: str, follow: bool = True) -> Resolution | None:
+        self._open_semantic()
+        winner, result = await self._match(ocr_text)
         if winner is None or result is None:
             return self.line_now() if follow else None
         detail: dict[str, object] = {
@@ -158,6 +201,7 @@ class CandidateSession:
             "matchScore": round(result.score, 1),
             "matchSpan": result.span,
             "matchSrc": result.source_text[:60],
+            "matchBy": result.confidence,
             "candidateId": winner,
             "confirmed": True,
             **self.status(),
@@ -238,12 +282,17 @@ class CandidateSession:
         translator = await self._open_translator()
         return await translator.translate(text)
 
-    def _match(self, ocr_text: str) -> tuple[str | None, MatchResult | None]:
+    async def _match(self, ocr_text: str) -> tuple[str | None, MatchResult | None]:
         window = self._timeline.window_ms()
         if self._locked is not None:
-            result = self._matchers[self._locked].match(ocr_text, window)
+            result = await self._matchers[self._locked].match_best(
+                ocr_text, window, self._semantic
+            )
             if result is not None and self._timeline.accepts(
-                result.start_ms, result.line_index, result.score
+                result.start_ms,
+                result.line_index,
+                result.score,
+                confident=result.confidence == BOTH,
             ):
                 self._misses = 0
                 return self._locked, result
@@ -254,6 +303,8 @@ class CandidateSession:
             self._locked = None
             self._misses = 0
 
+        # Candidates are separated on text alone: the semantic index is built
+        # for the one that wins, so there is none to consult until it has.
         best_id, best = "", None
         for result_id, matcher in self._matchers.items():
             result = matcher.match(ocr_text, window)
@@ -326,7 +377,10 @@ class DirectTranslationSession:
     def seconds_to_next_line(self) -> float | None:
         return None
 
-    def match(self, ocr_text: str, follow: bool = True) -> Resolution | None:
+    def close(self) -> None:
+        return None
+
+    async def match(self, ocr_text: str, follow: bool = True) -> Resolution | None:
         # Nothing to match against until the read has been translated, so every
         # read takes the slow path.
         return None
@@ -454,7 +508,7 @@ async def run_session_loop(
         # A read of a cue already on screen may only improve on it by matching
         # outright. Letting the clock answer again would swap the line mid-cue,
         # as soon as the prediction crossed into the next one.
-        resolution = session.match(ocr_text, follow=fresh)
+        resolution = await session.match(ocr_text, follow=fresh)
         if resolution is None:
             if not fresh:
                 # A read of a cue already on screen only gets a second chance at
@@ -556,5 +610,6 @@ async def run_session_loop(
             await asyncio.sleep(max(0.0, interval_s - (monotonic() - started)))
     finally:
         renderer.cancel()
+        session.close()
         if pending is not None:
             pending.cancel()

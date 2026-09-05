@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from meocosub2.config import AppConfig
+from meocosub2.engine import EngineStartError
 from meocosub2.models import SourceSubtitleCandidate, SubtitleLine, SubtitlePair
 from meocosub2.sync import (
     CandidateSession,
@@ -279,28 +280,28 @@ def episode_lines() -> list[SubtitleLine]:
     ]
 
 
-def test_a_read_that_matches_nothing_is_placed_by_the_clock() -> None:
+async def test_a_read_that_matches_nothing_is_placed_by_the_clock() -> None:
     session = CandidateSession([make_candidate("a", episode_lines())], config(), never_translates())
     # One match anchors the session on the file's second line.
-    assert session.match("Goodbye now") is not None
+    assert await session.match("Goodbye now") is not None
     # The next read shares no words with the file, which is the ordinary case:
     # the burned-in subtitles are a different translation. The clock still knows
     # which line the viewer is on.
-    followed = session.match("nothing like the file")
+    followed = await session.match("nothing like the file")
     assert followed is not None
     assert followed.text == "再见"
     assert followed.detail["confirmed"] is False
 
 
-def test_a_repeat_read_is_never_placed_by_the_clock() -> None:
+async def test_a_repeat_read_is_never_placed_by_the_clock() -> None:
     session = CandidateSession([make_candidate("a", episode_lines())], config(), never_translates())
-    assert session.match("Goodbye now") is not None
-    assert session.match("nothing like the file", follow=False) is None
+    assert await session.match("Goodbye now") is not None
+    assert await session.match("nothing like the file", follow=False) is None
 
 
-def test_the_clock_places_nothing_before_a_match_anchors_it() -> None:
+async def test_the_clock_places_nothing_before_a_match_anchors_it() -> None:
     session = CandidateSession([make_candidate("a", episode_lines())], config(), never_translates())
-    assert session.match("nothing like the file") is None
+    assert await session.match("nothing like the file") is None
 
 
 @pytest.mark.asyncio
@@ -357,7 +358,7 @@ async def test_the_clock_plays_the_next_line_without_waiting_for_a_read() -> Non
     assert "再见" in broadcasts
 
 
-def test_the_lead_draws_the_line_the_video_is_about_to_reach() -> None:
+async def test_the_lead_draws_the_line_the_video_is_about_to_reach() -> None:
     """The plate runs slightly ahead of the clock, on purpose.
 
     The clock anchors to the read that first saw a cue, and the cue can have
@@ -369,7 +370,7 @@ def test_the_lead_draws_the_line_the_video_is_about_to_reach() -> None:
         SubtitleLine(index=1, start_ms=300, end_ms=500, text="Goodbye now", translated="再见"),
     ]
     session = CandidateSession([make_candidate("a", lines)], config(), never_translates())
-    assert session.match("Hello there") is not None
+    assert await session.match("Hello there") is not None
 
     # Anchored at the first line, but the lead has already reached the second.
     assert session.clock_ms() >= 300
@@ -423,3 +424,69 @@ async def test_cues_changing_faster_than_a_poll_are_all_drawn(monkeypatch) -> No
         sync_module.capture_region = original_capture
 
     assert [text for text in broadcasts if text] == ["你好", "再见", "回见"]
+
+
+class StubIndex:
+    """An index that is already built, standing in for the embedding engine."""
+
+    ready = True
+
+    def __init__(self, hit) -> None:
+        self._hit = hit
+
+    async def build(self, texts) -> None:
+        return None
+
+    async def best(self, text, indices=None):
+        return self._hit
+
+
+async def settled(session) -> None:
+    """Wait for the background index build the session kicked off.
+
+    Reaching for the task rather than sleeping: the build is deliberately off
+    the capture loop, and a sleep long enough to be safe is a slow flaky test.
+    """
+    if session._semantic_build is not None:
+        await session._semantic_build
+
+
+async def test_a_read_no_wording_can_place_is_placed_by_meaning() -> None:
+    from meocosub2.semantic import SemanticHit
+
+    lines = episode_lines()
+
+    async def open_index() -> StubIndex:
+        return StubIndex(SemanticHit(index=1, score=0.83))
+
+    session = CandidateSession(
+        [make_candidate("a", lines)], config(), never_translates(), open_index
+    )
+    # The first read starts the build; nothing is matched by meaning yet.
+    await session.match("Goodbye now")
+    await settled(session)
+
+    # A different translation of the same line: no shared wording at all.
+    result = await session.match("So long then")
+
+    assert result is not None
+    assert result.text == "再见"
+    assert result.detail["matchBy"] == "semantic"
+
+
+async def test_a_session_without_the_matching_model_still_matches_on_wording() -> None:
+    """A machine that never installed the model, or an adopted v1 engine."""
+
+    async def refuse() -> StubIndex:
+        raise EngineStartError("The subtitle matching model is not installed yet.")
+
+    session = CandidateSession(
+        [make_candidate("a", episode_lines())], config(), never_translates(), refuse
+    )
+    await session.match("Hello there")
+    await settled(session)
+
+    result = await session.match("Goodbye now")
+
+    assert result is not None and result.text == "再见"
+    assert result.detail["matchBy"] == "text"

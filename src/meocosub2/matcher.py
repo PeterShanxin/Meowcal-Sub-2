@@ -1,4 +1,15 @@
-"""Fuzzy matching between OCR text and subtitle lines."""
+"""Finding the subtitle line a read of the screen belongs to.
+
+Two signals answer that. Text similarity costs a millisecond and is decisive
+when it is high, but the streaming site burns in one fansub translation while
+the file carries another, so most reads share almost no characters with the line
+they belong to. Meaning survives that rewording, at the cost of a round trip to
+the embedding engine.
+
+They are not weighed equally. Measured on a real episode, 56 of 64 reads scored
+20-40 on text against a threshold of 65 - a band where first place and twentieth
+are indistinguishable - so text only votes from above a floor.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +18,9 @@ import logging
 import re
 from bisect import bisect_left, bisect_right
 from collections.abc import Iterable
-from typing import Callable
+from typing import Callable, NamedTuple
+
+from meocosub2.semantic import SemanticIndex
 
 from rapidfuzz import fuzz, process
 
@@ -25,6 +38,30 @@ MAX_LENGTH_RATIO = 1.7
 # Two translations of one scene rarely break their cues in the same places, so
 # the file's line often ends a beat before the one burned into the picture does.
 FOLLOW_GRACE_MS = 1_500
+# A read this close to a line is evidence on its own. It is the bar the playback
+# clock already trusts enough to move itself for.
+STRONG_TEXT_SCORE = 88.0
+# Genuine semantic matches scored 0.62-0.93 over a real session, and reads too
+# damaged to be anything scored 0.47-0.55. The bar sits clear of the junk
+# ceiling, which also turns away the weakest genuine matches - deliberately,
+# because the clock draws almost every line either way, so what matters is that
+# the lines it does accept are right.
+SEMANTIC_ACCEPT = 0.66
+# Two translations rarely break their cues in the same places, so the signals
+# landing a line apart is agreement rather than a conflict.
+AGREEING_LINES = 1
+
+TEXT = "text"
+SEMANTIC = "semantic"
+BOTH = "both"
+
+
+class _Candidate(NamedTuple):
+    """A line the text scorer picked, before it is turned into an answer."""
+
+    position: int
+    span: int
+    score: float
 
 
 def _joined(parts: Iterable[str]) -> str:
@@ -255,16 +292,78 @@ class SubtitleMatcher:
         return expires if following is None else min(expires, following)
 
     def match(self, ocr_text: str, window_ms: tuple[int, int] | None = None) -> MatchResult | None:
+        """The best line by text alone."""
         normalized_ocr = self._normalize_for_match(ocr_text)
-        if self._is_too_short(normalized_ocr):
-            logger.debug("MATCH skip: normalized too short (%d chars) for %r", len(normalized_ocr), ocr_text[:40])
+        if not self._worth_matching(normalized_ocr):
+            return None
+        best = self._fuzzy(normalized_ocr, window_ms)
+        return None if best is None else self._result(best, TEXT)
+
+    async def match_best(
+        self,
+        ocr_text: str,
+        window_ms: tuple[int, int] | None = None,
+        semantic: SemanticIndex | None = None,
+    ) -> MatchResult | None:
+        """The best line by text and by meaning together.
+
+        Text wins outright when it is near-exact, which also spares the round
+        trip to the embedding engine on the reads that need it least. Below
+        that, meaning ranks the candidates and text is a second opinion -
+        confirming the line, or taking precedence over a different one.
+        """
+        normalized_ocr = self._normalize_for_match(ocr_text)
+        if not self._worth_matching(normalized_ocr):
             return None
 
+        fuzzy = self._fuzzy(normalized_ocr, window_ms)
+        if fuzzy is not None and fuzzy.score >= STRONG_TEXT_SCORE:
+            return self._result(fuzzy, TEXT)
+        if semantic is None or not semantic.ready:
+            return None if fuzzy is None else self._result(fuzzy, TEXT)
+
+        # With a clock, only the lines it left in the window. Without one the
+        # video could be anywhere in the file, so everything is a candidate.
+        indices = (
+            self._search_indices(window_ms)
+            if window_ms is not None
+            else range(len(self.subtitles))
+        )
+        hit = await semantic.best(ocr_text, indices)
+        if hit is None or hit.score < SEMANTIC_ACCEPT:
+            return None if fuzzy is None else self._result(fuzzy, TEXT)
+
+        if fuzzy is not None:
+            # A text answer at all means the read cleared `fuzzy_threshold`, so
+            # it is real evidence rather than the 20-40 noise most reads score:
+            # it confirms the same line, or takes precedence over a different one.
+            agrees = abs(fuzzy.position - hit.index) <= AGREEING_LINES
+            return self._result(fuzzy, BOTH if agrees else TEXT)
+
+        self._last_match_position = hit.index
+        logger.debug(
+            "MATCH semantic: idx=%d score=%.2f src=%r ocr=%r",
+            hit.index, hit.score, self.subtitles[hit.index].text[:40], normalized_ocr[:40],
+        )
+        return self._result(_Candidate(hit.index, 1, hit.score * 100), SEMANTIC)
+
+    def _worth_matching(self, normalized_ocr: str) -> bool:
+        """Whether this read says anything the last one did not."""
+        if self._is_too_short(normalized_ocr):
+            logger.debug(
+                "MATCH skip: normalized too short (%d chars) for %r",
+                len(normalized_ocr), normalized_ocr[:40],
+            )
+            return False
         current_hash = self._hash_text(normalized_ocr)
         if current_hash == self._last_frame_hash:
-            return None
+            return False
         self._last_frame_hash = current_hash
+        return True
 
+    def _fuzzy(
+        self, normalized_ocr: str, window_ms: tuple[int, int] | None
+    ) -> _Candidate | None:
         # token_set_ratio degenerates on space-stripped CJK (single token); WRatio handles OCR char drops better.
         ocr_is_cjk = any(is_cjk_compactable_char(ch) for ch in normalized_ocr)
         scorer = fuzz.WRatio if ocr_is_cjk else fuzz.token_set_ratio
@@ -283,18 +382,23 @@ class SubtitleMatcher:
 
         position, span, score = best
         self._last_match_position = position
-        covered = self.subtitles[position : position + span]
-        line = covered[0]
         logger.debug(
             "MATCH hit: idx=%d span=%d score=%.1f window=%s src=%r ocr=%r",
-            position, span, score, in_window, line.text[:40], normalized_ocr[:40],
+            position, span, score, in_window, self.subtitles[position].text[:40],
+            normalized_ocr[:40],
         )
+        return _Candidate(position, span, score)
+
+    def _result(self, candidate: _Candidate, confidence: str) -> MatchResult:
+        covered = self.subtitles[candidate.position : candidate.position + candidate.span]
+        line = covered[0]
         return MatchResult(
             line_index=line.index,
-            score=score,
+            score=candidate.score,
             source_text=_joined(part.text for part in covered),
             target_text=_joined((part.translated or part.text) for part in covered),
             start_ms=line.start_ms,
-            span=span,
+            span=candidate.span,
             translated=all(bool(part.translated) for part in covered),
+            confidence=confidence,
         )

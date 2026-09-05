@@ -1,5 +1,6 @@
-from meocosub2.matcher import SubtitleMatcher
+from meocosub2.matcher import BOTH, SEMANTIC, TEXT, SubtitleMatcher
 from meocosub2.models import SubtitleLine
+from meocosub2.semantic import SemanticHit
 
 
 def make_lines(count: int = 100) -> list[SubtitleLine]:
@@ -284,3 +285,103 @@ def test_nothing_changes_after_the_last_line_has_gone() -> None:
 def test_the_first_cue_is_scheduled_from_before_the_file_starts() -> None:
     matcher = SubtitleMatcher(spaced_lines()[1:])
     assert matcher.next_change_ms(0) == 10_000
+
+
+class FakeSemantic:
+    """The embedding engine, reduced to the one answer the matcher acts on.
+
+    What is under test is which signal the matcher believes, so the engine is
+    replaced by its verdict rather than by a fake HTTP server.
+    """
+
+    def __init__(self, hit: SemanticHit | None, ready: bool = True) -> None:
+        self._hit = hit
+        self.ready = ready
+        self.calls = 0
+
+    async def best(self, text: str, indices=None) -> SemanticHit | None:
+        self.calls += 1
+        return self._hit
+
+
+def dialogue() -> list[SubtitleLine]:
+    """Lines that share no wording, so text scores are unambiguous."""
+    return [
+        SubtitleLine(index=0, start_ms=0, end_ms=2000, text="We should go", translated="我们该走了"),
+        SubtitleLine(index=1, start_ms=3000, end_ms=5000, text="Before it gets dark", translated="趁天还没黑"),
+        SubtitleLine(index=2, start_ms=6000, end_ms=8000, text="Nobody is coming", translated="没人会来"),
+    ]
+
+
+async def test_a_near_exact_read_never_troubles_the_embedding_engine() -> None:
+    """The reads that need meaning least are the ones text answers instantly."""
+    semantic = FakeSemantic(SemanticHit(index=2, score=0.99))
+    matcher = SubtitleMatcher(dialogue())
+
+    result = await matcher.match_best("Before it gets dark", semantic=semantic)
+
+    assert result is not None and result.target_text == "趁天还没黑"
+    assert result.confidence == TEXT
+    assert semantic.calls == 0
+
+
+async def test_a_read_text_cannot_place_is_placed_by_meaning() -> None:
+    """The ordinary case: a different translation of the same line."""
+    semantic = FakeSemantic(SemanticHit(index=1, score=0.81))
+    matcher = SubtitleMatcher(dialogue())
+
+    result = await matcher.match_best("while there is still light", semantic=semantic)
+
+    assert result is not None and result.target_text == "趁天还没黑"
+    assert result.confidence == SEMANTIC
+
+
+async def test_both_signals_landing_on_one_line_is_the_strongest_answer() -> None:
+    """A read text places without conviction - it scores 84.6 here - and meaning
+    agrees with. Together they are what the playback clock will anchor on."""
+    semantic = FakeSemantic(SemanticHit(index=1, score=0.88))
+    matcher = SubtitleMatcher(dialogue())
+
+    result = await matcher.match_best("Before dark now", semantic=semantic)
+
+    assert result is not None and result.target_text == "趁天还没黑"
+    assert result.confidence == BOTH
+    assert semantic.calls == 1
+
+
+async def test_a_confident_read_takes_precedence_over_a_different_meaning() -> None:
+    """A text answer at all means the read cleared the threshold - 75.0 here -
+    so it is real evidence rather than the 20-40 noise most reads score."""
+    semantic = FakeSemantic(SemanticHit(index=2, score=0.90))
+    matcher = SubtitleMatcher(dialogue())
+
+    result = await matcher.match_best("Ws shauld ga", semantic=semantic)
+
+    assert result is not None and result.target_text == "我们该走了"
+    assert result.confidence == TEXT
+    assert semantic.calls == 1
+
+
+async def test_a_meaning_below_the_bar_is_not_an_answer() -> None:
+    """Reads too damaged to be anything scored 0.47-0.55 on a real session."""
+    semantic = FakeSemantic(SemanticHit(index=1, score=0.52))
+    matcher = SubtitleMatcher(dialogue())
+
+    assert await matcher.match_best("一了岔子一虽然可能", semantic=semantic) is None
+
+
+async def test_without_the_matching_model_a_session_still_matches_on_text() -> None:
+    matcher = SubtitleMatcher(dialogue())
+
+    result = await matcher.match_best("Before it gets dark", semantic=None)
+
+    assert result is not None and result.confidence == TEXT
+    assert await matcher.match_best("while there is still light", semantic=None) is None
+
+
+async def test_an_index_that_never_built_is_not_consulted() -> None:
+    semantic = FakeSemantic(SemanticHit(index=1, score=0.99), ready=False)
+    matcher = SubtitleMatcher(dialogue())
+
+    assert await matcher.match_best("while there is still light", semantic=semantic) is None
+    assert semantic.calls == 0

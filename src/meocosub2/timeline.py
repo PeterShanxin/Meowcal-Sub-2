@@ -131,13 +131,16 @@ class PlaybackTimeline:
         score: float,
         now: float | None = None,
         seen_at: float | None = None,
+        confident: bool = False,
     ) -> bool:
         """Whether a matched line is where the video actually is.
 
         An anchored clock believes anything near its prediction. Everything else
         - the first match of a session, and a match somewhere the clock did not
         expect - has to be convincing on its own or be agreed with by a second
-        read that puts the video in the same place. That is what a viewer
+        read that puts the video in the same place. `confident` says the read
+        was placed by text and by meaning together, which is the same standard
+        of evidence as a near-exact text score. That is what a viewer
         dragging the progress bar looks like, and what one unlucky match does
         not - and the asymmetry is deliberate, because a wrong anchor draws
         wrong subtitles until something disagrees with it, which can take the
@@ -160,7 +163,7 @@ class PlaybackTimeline:
 
         predicted = self.predicted_ms(now)
         if predicted is None:
-            if score >= SEEK_SCORE or self._agrees_with_pending(offset_ms):
+            if confident or score >= SEEK_SCORE or self._agrees_with_pending(offset_ms):
                 self._anchor(line_start_ms, at, drift=None)
                 return True
             self._pending_offset_ms = offset_ms
@@ -171,7 +174,7 @@ class PlaybackTimeline:
             return True
 
         self._misses += 1
-        if score < SEEK_SCORE:
+        if score < SEEK_SCORE and not confident:
             self._forget_anchor_if_hopeless()
             return False
 
