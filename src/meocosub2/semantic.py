@@ -77,8 +77,17 @@ class SemanticIndex:
         """The nearest line to this read, among `indices` or the whole file."""
         if not self._vectors or not text.strip():
             return None
-        async with httpx.AsyncClient(timeout=QUERY_TIMEOUT_S) as client:
-            query = (await self._encode(client, [text]))[0]
+        try:
+            async with httpx.AsyncClient(timeout=QUERY_TIMEOUT_S) as client:
+                query = (await self._encode(client, [text]))[0]
+        except SemanticError as error:
+            # The engine answered once and has stopped - it exited, or it is no
+            # longer keeping up. Every later read would pay the same timeout and
+            # then be abandoned by the caller, so the index steps aside and the
+            # session carries on matching by wording.
+            logger.warning("Matching by meaning stopped answering: %s", error)
+            self._vectors = []
+            return None
         candidates = range(len(self._vectors)) if indices is None else indices
 
         hit: SemanticHit | None = None

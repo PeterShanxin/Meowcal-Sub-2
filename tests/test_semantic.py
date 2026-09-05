@@ -136,3 +136,21 @@ async def test_an_empty_read_is_not_sent_to_the_engine() -> None:
 
     assert await index.best("   ") is None
     assert route.call_count == calls_after_build
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_an_engine_that_stops_answering_takes_the_index_out_of_service() -> None:
+    """Otherwise every later read pays the timeout and is abandoned with it.
+
+    The caller treats a failed query as a failed read, so an engine that exits
+    mid-session left the plate blank until the session was restarted.
+    """
+    route = respx.post(f"{ENDPOINT}/v1/embeddings").mock(side_effect=_embeddings)
+    index = await built_index(["Morty 等下 你看这个"])
+    assert index.ready
+
+    route.mock(side_effect=httpx.ConnectError("the engine is gone"))
+
+    assert await index.best("嘿 莫迪 等等 瞧瞧这个") is None
+    assert not index.ready

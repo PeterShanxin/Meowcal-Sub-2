@@ -1211,6 +1211,44 @@ async def test_an_interim_result_can_be_resolved_the_moment_it_is_shown(
     assert resolvable == [True]
 
 
+async def test_the_last_provider_landing_does_not_undo_a_preparation(tmp_path: Path) -> None:
+    """Results are selectable before the search finishes, so preparing is too.
+
+    Clearing the selection when the final catalog lands is right for a *new*
+    search and wrong for the one it completes: the user is told the session is
+    ready and then Start fails with "Prepare a session before starting sync".
+    """
+    controller = make_controller(tmp_path / "config.toml")
+    controller._aggregator = _ProgressiveStubAggregator()
+
+    async def prepare_during_the_interim(succeeded, settled, interim) -> None:
+        controller._prepared_search_id = controller._active_search_id
+        controller._prepared_runtime = object()
+        controller._state.prepared_session = object()
+        controller._state.selected_source_file_id = "result-1"
+
+    original = _ProgressiveStubAggregator.search_catalog
+
+    async def hooked(self, title, languages, correlation_id=None, on_provider_update=None):
+        async def both(succeeded, settled, interim):
+            await on_provider_update(succeeded, settled, interim)
+            await prepare_during_the_interim(succeeded, settled, interim)
+
+        return await original(
+            self, title, languages, correlation_id=correlation_id, on_provider_update=both
+        )
+
+    controller._aggregator.search_catalog = hooked.__get__(controller._aggregator)
+
+    await controller.search(
+        SearchRequest(title="Rick and Morty", source_language="en", target_language="en")
+    )
+
+    assert controller._prepared_runtime is not None
+    assert controller._state.prepared_session is not None
+    assert controller._state.selected_source_file_id == "result-1"
+
+
 async def test_a_superseded_search_does_not_clobber_the_newer_ones_state(tmp_path: Path) -> None:
     controller = make_controller(tmp_path / "config.toml")
     controller._aggregator = _ProgressiveStubAggregator()

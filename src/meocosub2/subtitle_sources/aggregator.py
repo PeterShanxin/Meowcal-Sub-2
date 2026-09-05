@@ -40,6 +40,7 @@ from meocosub2.subtitle_sources.utils import (
     language_priority,
     looks_like_release_name,
     match_group_key,
+    match_id_for_key,
     result_id_for,
     split_query_year,
     title_similarity,
@@ -436,7 +437,7 @@ class SubtitleSearchAggregator:
                 group_id = group_order[key]
                 group = groups[group_id]
             else:
-                group_id = f"match-{len(group_order) + 1}"
+                group_id = match_id_for_key(key)
                 group_order[key] = group_id
                 group = groups[group_id] = {
                     "title": title,

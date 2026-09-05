@@ -74,6 +74,7 @@ class _InstallJob:
 _install_job: _InstallJob | None = None
 _install_lock = threading.Lock()
 _start_lock = asyncio.Lock()
+_embedding_install_lock = asyncio.Lock()
 
 
 def _accelerator_label() -> str:
@@ -193,8 +194,15 @@ async def ensure_embedding_ready(timeout_s: float = STARTUP_TIMEOUT_S) -> str:
     runtime = manifest.runtime_for_host()
     paths = resolve_paths(manifest, runtime)
     if not paths.embedding_is_complete(manifest):
-        logger.info("Downloading the subtitle matching model (%s)", manifest.embedding.id)
-        await asyncio.to_thread(install_module.install_embedding, paths, manifest)
+        # Serialised, and checked again inside: a session that switches subtitle
+        # candidates while this is still downloading asks a second time, and two
+        # installers writing the same part file is a corrupt download on Windows
+        # rather than two copies of a small one. Cancelling the caller's task
+        # does not stop a thread already inside the download.
+        async with _embedding_install_lock:
+            if not paths.embedding_is_complete(manifest):
+                logger.info("Downloading the subtitle matching model (%s)", manifest.embedding.id)
+                await asyncio.to_thread(install_module.install_embedding, paths, manifest)
     async with _start_lock:
         endpoint = await runtime_module.ensure_embedding_ready(paths, manifest, timeout_s)
     logger.info("Subtitle matching model ready at %s", endpoint)

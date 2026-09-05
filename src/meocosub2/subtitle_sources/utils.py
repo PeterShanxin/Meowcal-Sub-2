@@ -229,6 +229,18 @@ def work_id_for_key(key: tuple[str, str]) -> str:
     return _stable_id("work", *key)
 
 
+def match_id_for_key(key: tuple[str, str, int, int, int]) -> str:
+    """A title group's identity, on the same terms as :func:`work_id_for_key`.
+
+    Numbering groups by the order they were merged in is stable only while the
+    providers answer in a fixed order, which they do not: whichever lands first
+    takes the first number, and a provider that answers later can insert a title
+    ahead of it. The id then names different content than it did a moment ago,
+    while the studio is still holding it as the user's selection.
+    """
+    return _stable_id("match", *(str(part) for part in key))
+
+
 def result_id_for(provider: str, provider_result_id: str, language: str) -> str:
     """A subtitle file's identity, on the same terms as :func:`work_id_for_key`.
 

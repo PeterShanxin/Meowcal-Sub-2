@@ -181,6 +181,10 @@ class GuiController:
         self._runtime_port = config.overlay_port
         self._aggregator = SubtitleSearchAggregator(config)
         self._search_catalog: AggregatedSearchCatalog | None = None
+        # Which search a preparation was made from. Results are selectable
+        # before every provider has answered, so the last one landing must
+        # not throw away a session prepared from the same search's interim.
+        self._prepared_search_id: str | None = None
         # Guards progressive search updates: a slow provider from an earlier
         # search must not clobber the state of a search the user has since
         # retyped past.
@@ -437,19 +441,21 @@ class GuiController:
         # A newer search may have already replaced this one's state; still hand
         # the caller its own results, just don't clobber the newer state with them.
         if self._active_search_id == correlation_id:
+            prepared_here = self._prepared_search_id == correlation_id
             async with self._lock:
                 self._search_catalog = catalog
                 self._state.status = "idle"
                 self._state.search_results = payload
                 self._state.search_matches = matches
                 self._state.search_works = works
-                self._state.selected_feature_id = None
-                self._state.selected_source_file_id = None
-                self._state.selected_target_file_id = None
-                self._state.prepared_session = None
                 self._state.progress = AppProgress()
                 self._state.warning_message = _search_warning_message(request, catalog.warnings)
-                self._prepared_runtime = None
+                if not prepared_here:
+                    self._state.selected_feature_id = None
+                    self._state.selected_source_file_id = None
+                    self._state.selected_target_file_id = None
+                    self._state.prepared_session = None
+                    self._prepared_runtime = None
             await self._emit_app_state()
             log_event(
                 "search.completed",
@@ -1019,6 +1025,7 @@ class GuiController:
         )
 
         async with self._lock:
+            self._prepared_search_id = self._active_search_id
             self._prepared_runtime = PreparedRuntime(
                 session_mode="subtitle_pair",
                 target_lines=target_lines,
@@ -1186,6 +1193,7 @@ class GuiController:
                 raise RuntimeError(
                     "Stale auto-prepare result ignored because another title is selected."
                 )
+            self._prepared_search_id = self._active_search_id
             self._prepared_runtime = PreparedRuntime(
                 session_mode="auto_candidates",
                 target_lines=target_lines,
@@ -1286,6 +1294,7 @@ class GuiController:
         )
 
         async with self._lock:
+            self._prepared_search_id = self._active_search_id
             self._prepared_runtime = PreparedRuntime(
                 session_mode="ocr_fallback",
                 target_lines=target_lines,

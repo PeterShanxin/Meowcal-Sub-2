@@ -56,10 +56,6 @@ PLATE_LINES = 2
 # Files routinely end one cue on the millisecond the next begins, and treating
 # that as an overlap would put every consecutive pair of lines on the plate.
 SIMULTANEOUS_MS = 300
-# How many cues back to look for one still on screen. A sign or a long speaker
-# cue can outlast several short lines under it, so the search cannot stop at the
-# first finished cue - but it does have to stop somewhere.
-LOOK_BACK_LINES = 8
 # Overlapping cues reach the plate as separate rows, the way they were on the
 # screen they came from. The overlay's own stylesheet is what renders it.
 ROW_BREAK = "\n"
@@ -119,6 +115,13 @@ class SubtitleMatcher:
     ) -> None:
         self.subtitles = subtitles
         self._starts = [line.start_ms for line in subtitles]
+        # The latest end time among this line and every line before it, so
+        # a backward scan for cues still on screen knows where to stop.
+        self._latest_end_by: list[int] = []
+        latest = 0
+        for line in subtitles:
+            latest = max(latest, line.end_ms + FOLLOW_GRACE_MS)
+            self._latest_end_by.append(latest)
         self.fuzzy_threshold = fuzzy_threshold
         self.window_forward = window_forward
         self.window_backward = window_backward
@@ -259,15 +262,18 @@ class SubtitleMatcher:
             return best_pair[0], 2, best_pair[1]
         return best_single[0], 1, best_single[1]
 
-    def _nearby(self, last: int) -> range:
-        """The cues close enough to `last` to still be on screen with it.
+    def _nearby(self, last: int, position_ms: int) -> Iterable[int]:
+        """The cues at or before `last` that could still be on screen.
 
-        Bounded rather than scanning the file: cue ends are not ordered with
-        their starts, so the scan cannot stop at the first finished cue, and
-        without a bound one long sign would be compared against the whole
-        episode under it.
+        Cue ends are not ordered with their starts, so the scan cannot stop at
+        the first finished cue - a sign outlasts the dialogue under it. What it
+        can stop at is the point where no earlier cue ends late enough to
+        matter, which `_latest_end_by` answers in one comparison.
         """
-        return range(last, max(-1, last - LOOK_BACK_LINES), -1)
+        for index in range(last, -1, -1):
+            if self._latest_end_by[index] < position_ms:
+                return
+            yield index
 
     def _showing_at(self, last: int, position_ms: int) -> list[SubtitleLine]:
         """The lines genuinely on screen together at this point, oldest first.
@@ -284,7 +290,7 @@ class SubtitleMatcher:
         """
         showing: list[SubtitleLine] = []
         newest: SubtitleLine | None = None
-        for index in self._nearby(last):
+        for index in self._nearby(last, position_ms):
             line = self.subtitles[index]
             if line.end_ms < position_ms:
                 continue
@@ -307,7 +313,7 @@ class SubtitleMatcher:
         """
         held = [
             self.subtitles[index]
-            for index in self._nearby(last)
+            for index in self._nearby(last, position_ms)
             if self.subtitles[index].end_ms + FOLLOW_GRACE_MS >= position_ms
         ]
         return max(held, key=lambda line: line.end_ms) if held else None

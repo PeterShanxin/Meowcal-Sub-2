@@ -393,6 +393,28 @@ def test_the_schedule_follows_the_cue_that_is_actually_showing() -> None:
     assert SubtitleMatcher(nested).next_change_ms(3_000) == 10_000 + FOLLOW_GRACE_MS + 1
 
 
+def test_a_long_sign_survives_a_run_of_short_cues_under_it() -> None:
+    """The scan is bounded by cue end times, not by a count of cues.
+
+    A fixed look-back drops a cue once enough later ones have started, which is
+    exactly the case a long sign is: it outlasts many short lines.
+    """
+    lines = [SubtitleLine(index=0, start_ms=0, end_ms=60_000, text="On air", translated="直播中")]
+    lines += [
+        SubtitleLine(
+            index=i,
+            start_ms=i * 1_000,
+            end_ms=i * 1_000 + 500,
+            text=f"Line {i}",
+            translated=f"第{i}句",
+        )
+        for i in range(1, 21)
+    ]
+    # Twenty cues have started and finished since the sign did.
+    found = SubtitleMatcher(lines).line_at(20_800)
+    assert found is not None and found.target_text == "直播中"
+
+
 def test_a_line_with_no_translation_does_not_take_its_partner_off_the_plate() -> None:
     """The plate can answer for one of them, and going blank answers for neither."""
     half_paired = [
