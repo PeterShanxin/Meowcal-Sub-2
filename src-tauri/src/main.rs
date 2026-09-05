@@ -1,6 +1,7 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod overlay_window;
+mod process_lifetime;
 
 use overlay_window::OverlayAnchor;
 use reqwest::blocking::Client;
@@ -198,6 +199,10 @@ fn spawn_backend(process: &BackendProcess) {
     match command.spawn() {
         Ok(child) => {
             let pid = child.id();
+            // Before the handle is stored, and before the backend has had time
+            // to start the engine: job membership is inherited, so enrolling the
+            // backend now is what takes the engine down with the shell too.
+            process_lifetime::attach_to_app_lifetime(&child);
             log_shell_event("backend.spawn.started", serde_json::json!({ "pid": pid }));
             *process.0.lock().expect("backend process lock") = Some(child);
         }

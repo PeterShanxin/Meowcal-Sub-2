@@ -82,12 +82,22 @@ letting the clock answer again would swap the line mid-cue.
 ### Stopping the app without leaking the engine
 
 The backend spawns `llama-server.exe` with the translation model resident, about
-**1.1GB each**, on a dynamic loopback port. Killing the shell orphans the backend
-and with it the engine, and nothing reaps strays at startup — issue #37. Ten
-restarts during a testing loop have exhausted the machine's memory and forced a
-hard reboot. Until #37 is fixed this has to be done by hand.
+**1.1GB each**, on a dynamic loopback port. Two mechanisms keep it from
+outliving the app, and both are best-effort:
 
-Stop a session the way the app does — `POST /api/session/stop`, then the shell's
+- the shell puts the backend in a Win32 job object with
+  `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Job membership is inherited, so however
+  the shell ends, the backend and the engine go with it
+  ([process_lifetime.rs](src-tauri/src/process_lifetime.rs));
+- the backend sweeps engines stranded by earlier runs before it starts one
+  ([engine/orphans.py](src/meocosub2/engine/orphans.py)). Ownership is decided
+  by path and by whether the parent is still alive, so another install's working
+  engine is never touched.
+
+Neither covers a backend started by hand (`python -m meocosub2.cli serve`) and
+then force-killed — that one is only covered by the backend's own job object.
+
+Stop a session the way the app does: `POST /api/session/stop`, then the shell's
 own Stop control or closing its window. After stopping, and before launching
 again, confirm nothing survived:
 
@@ -96,9 +106,8 @@ Get-Process llama-server, meowcal-sub-2-shell -ErrorAction SilentlyContinue |
   Select-Object Id, Name, @{n='MB';e={[int]($_.WorkingSet64/1MB)}}
 ```
 
-More than one `llama-server` means an earlier stop leaked one; kill the strays
-before continuing. Any engine started by hand for an experiment — an embedding
-model, a second runtime — is your own to stop in the same session.
+Any engine started by hand for an experiment — an embedding model, a second
+runtime — is your own to stop in the same session.
 - Run `pytest -q` after Python or server changes.
 - Run `npm --prefix src\meocosub2\overlay\ui run build` after studio UI changes (rebuilds `static/index.html` + `static/assets/`).
 - Run `cargo check --manifest-path src-tauri\Cargo.toml` after shell changes.

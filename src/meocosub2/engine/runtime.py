@@ -18,6 +18,7 @@ from pathlib import Path
 
 import httpx
 
+from meocosub2.engine import orphans
 from meocosub2.engine.manifest import ADRENO_RUNTIME_ID, Manifest, Runtime
 from meocosub2.engine.paths import InstallPaths
 
@@ -33,6 +34,7 @@ MIN_ENGINE_THREADS = 4
 
 _lock = threading.Lock()
 _owned: _OwnedEngine | None = None
+_swept = False
 
 
 @dataclass
@@ -181,6 +183,26 @@ def _attach_to_process_lifetime(process: subprocess.Popen) -> None:
     PROCESS_TERMINATE = 0x0001
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    # Declaring the signatures is not tidiness. Undeclared, ctypes assumes a
+    # 32-bit signed int return, so a handle above 2GB comes back sign-extended
+    # into a different value - and the job would then be armed and assigned
+    # against handles that are not the ones Windows gave us.
+    kernel32.CreateJobObjectW.argtypes = (wintypes.LPVOID, wintypes.LPCWSTR)
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.SetInformationJobObject.argtypes = (
+        wintypes.HANDLE,
+        ctypes.c_int,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+    )
+    kernel32.SetInformationJobObject.restype = wintypes.BOOL
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.AssignProcessToJobObject.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
+    kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
     job = kernel32.CreateJobObjectW(None, None)
     if not job:
         logger.debug("Engine job object could not be created; engine may outlive a crash.")
@@ -190,14 +212,24 @@ def _attach_to_process_lifetime(process: subprocess.Popen) -> None:
     if not kernel32.SetInformationJobObject(
         job, JobObjectExtendedLimitInformation, ctypes.byref(info), ctypes.sizeof(info)
     ):
+        # A job that does not kill on close is worse than none: the engine would
+        # join it, still outlive us, and we would have logged success.
+        logger.debug("Engine job object could not be armed; engine may outlive a crash.")
         kernel32.CloseHandle(job)
         return
+    # Reopening by PID is safe here and nowhere else: Popen holds a handle to the
+    # child, so the kernel cannot recycle its PID onto a stranger between the
+    # spawn and this call.
     handle = kernel32.OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, False, process.pid)
     if not handle:
         kernel32.CloseHandle(job)
         return
-    kernel32.AssignProcessToJobObject(job, handle)
+    assigned = kernel32.AssignProcessToJobObject(job, handle)
     kernel32.CloseHandle(handle)
+    if not assigned:
+        logger.debug("Engine could not be assigned to its job; it may outlive a crash.")
+        kernel32.CloseHandle(job)
+        return
     # The job handle is deliberately leaked: the kill-on-close limit fires when the
     # last handle to it closes, which is when this process dies for any reason.
     process._meowcal_job_handle = job  # noqa: SLF001 - keeps the handle alive with the child
@@ -298,6 +330,22 @@ def _log_directory(paths: InstallPaths) -> Path:
     return directory
 
 
+def _sweep_once(executable: Path) -> None:
+    """End engines stranded by earlier runs, once per process.
+
+    Reading the process table costs a subprocess, and `ensure_ready` is called
+    for every translation, so this runs on the first cold start and never again.
+    """
+    global _swept
+    with _lock:
+        if _swept:
+            return
+        _swept = True
+    ended = orphans.reap(executable)
+    if ended:
+        logger.info("Ended %d translation engine(s) left behind by earlier runs", ended)
+
+
 async def ensure_ready(
     paths: InstallPaths,
     manifest: Manifest,
@@ -310,6 +358,8 @@ async def ensure_ready(
     endpoint = active_endpoint()
     if endpoint and await is_endpoint_healthy(endpoint):
         return endpoint
+
+    await asyncio.to_thread(_sweep_once, paths.executable)
 
     for force_cpu in (False, True):
         remaining = deadline - loop.time()
