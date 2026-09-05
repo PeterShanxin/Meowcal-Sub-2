@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 from dataclasses import dataclass
 from time import monotonic
@@ -63,6 +64,18 @@ def capture_region(region: tuple[int, int, int, int]) -> Image.Image:
     with mss.mss() as sct:
         screenshot = sct.grab({"left": left, "top": top, "width": width, "height": height})
         return Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
+
+
+def capture_region_jpeg(region: tuple[int, int, int, int], quality: int = 80) -> bytes:
+    """The screen as it looks right now, for the capture selector to draw on.
+
+    JPEG rather than PNG: nothing reads these pixels, they are only there for the
+    user to aim at, and a full screen encodes and travels an order of magnitude
+    cheaper this way.
+    """
+    buffer = io.BytesIO()
+    capture_region(region).save(buffer, format="JPEG", quality=quality)
+    return buffer.getvalue()
 
 
 def preprocess_for_ocr(image: Image.Image) -> Image.Image:

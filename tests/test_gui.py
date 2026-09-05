@@ -243,3 +243,19 @@ def test_prepare_route_returns_bad_gateway_on_translation_error(tmp_path: Path, 
 
     assert response.status_code == 502
     assert "Foundry Local" in response.json()["detail"]
+
+
+def test_capture_screen_route_returns_the_region_it_was_asked_for(tmp_path: Path, mocker) -> None:
+    server = make_server(tmp_path / "config.toml")
+    grab = mocker.patch(
+        "meocosub2.overlay.server.capture_region_jpeg", return_value=b"\xff\xd8jpeg"
+    )
+    with studio_client(server) as client:
+        response = client.get(
+            "/api/capture/screen", params={"x": -1920, "y": 40, "width": 2560, "height": 1440}
+        )
+    assert response.status_code == 200
+    # A monitor left of the primary one has a negative origin, and the selector
+    # draws on the whole of it: anything lost here is a still of the wrong screen.
+    grab.assert_called_once_with((-1920, 40, 2560, 1440))
+    assert response.json()["dataUrl"].startswith("data:image/jpeg;base64,")

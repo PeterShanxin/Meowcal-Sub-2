@@ -42,6 +42,8 @@ struct MainWindowBounds {
 
 struct ShellState {
     prev_main_bounds: Arc<Mutex<Option<MainWindowBounds>>>,
+    /// The still the capture selector draws on, held only while it is open.
+    selector_backdrop: Arc<Mutex<Option<String>>>,
 }
 
 fn repo_root() -> PathBuf {
@@ -237,7 +239,13 @@ fn hide_window_to_tray(window: &tauri::WebviewWindow) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn open_area_selector(app: AppHandle) -> Result<(), String> {
+async fn open_area_selector(app: AppHandle) -> Result<(), String> {
+    show_area_selector(app).await
+}
+
+/// Puts the selector up over a still of the screen, from wherever it was asked
+/// for - the studio's own button or the tray.
+async fn show_area_selector(app: AppHandle) -> Result<(), String> {
     log_shell_event("selector.open.requested", serde_json::json!({}));
     let window = app
         .get_webview_window("selector")
@@ -248,16 +256,86 @@ fn open_area_selector(app: AppHandle) -> Result<(), String> {
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.hide();
     }
+    let monitor = window
+        .current_monitor()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "no monitor".to_string())?;
+    let origin = *monitor.position();
+    let size = *monitor.size();
+    // The studio window was covering the video a moment ago. The still is taken
+    // after the compositor has had a beat to take it off screen, or the studio
+    // is what the user ends up drawing on.
+    tokio::time::sleep(Duration::from_millis(160)).await;
+    let backdrop = tauri::async_runtime::spawn_blocking(move || {
+        fetch_selector_backdrop(origin.x, origin.y, size.width, size.height)
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    match &backdrop {
+        Ok(_) => log_shell_event("selector.backdrop.captured", serde_json::json!({})),
+        Err(error) => {
+            log_shell_event("selector.backdrop.failed", serde_json::json!({ "error": error }))
+        }
+    }
+    if let Some(shell) = app.try_state::<ShellState>() {
+        *shell
+            .selector_backdrop
+            .lock()
+            .map_err(|_| "backdrop lock poisoned")? = backdrop.ok();
+    }
     window.show().map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())?;
     Ok(())
 }
 
+/// A still of the screen the selector is about to cover.
+///
+/// A player left underneath a full-screen window is free to stop painting its
+/// video, so the live desktop is not something the selector can rely on showing.
+fn fetch_selector_backdrop(x: i32, y: i32, width: u32, height: u32) -> Result<String, String> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let payload: serde_json::Value = authorized(client.get(format!(
+        "{}/api/capture/screen?x={x}&y={y}&width={width}&height={height}",
+        api_base()
+    )))
+    .send()
+    .and_then(|response| response.error_for_status())
+    .map_err(|error| error.to_string())?
+    .json()
+    .map_err(|error| error.to_string())?;
+    payload["dataUrl"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| "capture returned no image".to_string())
+}
+
+/// The still for the selector to paint, one per open.
+#[tauri::command]
+fn get_selector_backdrop(shell: State<'_, ShellState>) -> Result<Option<String>, String> {
+    Ok(shell
+        .selector_backdrop
+        .lock()
+        .map_err(|_| "backdrop lock poisoned")?
+        .clone())
+}
+
+/// Drops the held still. It is a picture of the user's screen, and the next open
+/// takes its own.
+fn release_selector_backdrop(shell: &ShellState) {
+    if let Ok(mut held) = shell.selector_backdrop.lock() {
+        *held = None;
+    }
+}
+
 /// Closes the selector after the user backed out, so a start that was waiting on
 /// a region can stop waiting instead of hanging on an event that never comes.
 #[tauri::command]
-fn cancel_area_selector(app: AppHandle) -> Result<(), String> {
+fn cancel_area_selector(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), String> {
     log_shell_event("selector.cancel.requested", serde_json::json!({}));
+    release_selector_backdrop(&shell);
     if let Some(selector) = app.get_webview_window("selector") {
         selector.hide().map_err(|error| error.to_string())?;
     }
@@ -439,6 +517,7 @@ fn stop_translation(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn set_capture_region(
     app: AppHandle,
+    shell: State<'_, ShellState>,
     x: i32,
     y: i32,
     width: i32,
@@ -505,6 +584,7 @@ fn set_capture_region(
     )
     .map_err(|error| error.to_string())?;
 
+    release_selector_backdrop(&shell);
     if let Some(selector) = app.get_webview_window("selector") {
         let _ = selector.hide();
     }
@@ -575,6 +655,7 @@ fn main() {
     let backend_process = BackendProcess(Arc::new(Mutex::new(None)));
     let shell_state = ShellState {
         prev_main_bounds: Arc::new(Mutex::new(None)),
+        selector_backdrop: Arc::new(Mutex::new(None)),
     };
 
     tauri::Builder::default()
@@ -588,6 +669,7 @@ fn main() {
             open_area_selector,
             cancel_area_selector,
             get_capture_region,
+            get_selector_backdrop,
             hide_main_window,
             show_main_window,
             enter_live_mode,
@@ -640,10 +722,10 @@ fn main() {
                     }
                     "select-area" => {
                         log_shell_event("tray.select_area.selected", serde_json::json!({}));
-                        if let Some(window) = tray.app_handle().get_webview_window("selector") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                        let app_handle = tray.app_handle().clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ = show_area_selector(app_handle).await;
+                        });
                     }
                     "stop" => {
                         log_shell_event("tray.stop.selected", serde_json::json!({}));

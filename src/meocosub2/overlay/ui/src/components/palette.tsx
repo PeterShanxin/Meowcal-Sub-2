@@ -487,7 +487,7 @@ export function Palette(props: PaletteProps): JSX.Element {
         <Kbd dim>↵</Kbd>
         <span>Select</span>
         <div style={{ flex: 1 }} />
-        {hasSelectedEpisode ? (
+        {hasSelectedEpisode || canStart ? (
           <>
             {sourceLabel && (
               <PickedChip
@@ -921,6 +921,7 @@ function WorkList({
                 {work.seasons.map((season) => {
                   const seasonRowIndex = rowIndexForSeason(work.id, season.seasonNumber);
                   const open = expandedSeasonNumber === season.seasonNumber;
+                  const seasonBusy = busy.has(seasonHydrateKey(work.id, season.seasonNumber));
                   return (
                     <div key={`season-group-${work.id}-${season.seasonNumber}`}>
                       <SeasonRow
@@ -928,7 +929,7 @@ function WorkList({
                         open={open}
                         focused={cursorIndex === seasonRowIndex}
                         rowIndex={seasonRowIndex}
-                        busy={busy.has(seasonHydrateKey(work.id, season.seasonNumber))}
+                        busy={seasonBusy}
                         onClick={() => onToggleExpandSeason(work.id, season.seasonNumber)}
                       />
                       {open && season.episodes.map((ep) => {
@@ -950,7 +951,9 @@ function WorkList({
                               picked={false}
                               focused={cursorIndex === epRowIndex}
                               skeleton
-                              hydratable={ep.episode != null && !settledEmpty}
+                              // Nothing to offer while the sweep above is
+                              // already asking after this episode.
+                              hydratable={ep.episode != null && !settledEmpty && !seasonBusy}
                               exhausted={settledEmpty}
                               busy={hydrateKey != null && busy.has(hydrateKey)}
                               rowIndex={epRowIndex}

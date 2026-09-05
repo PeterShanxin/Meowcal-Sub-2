@@ -1,11 +1,18 @@
 import asyncio
+import io
 import sys
 from types import SimpleNamespace
 
 import pytest
 from PIL import Image
 
-from meocosub2.capture import _run_ocr, capture_region, ocr_image, preprocess_for_ocr
+from meocosub2.capture import (
+    _run_ocr,
+    capture_region,
+    capture_region_jpeg,
+    ocr_image,
+    preprocess_for_ocr,
+)
 
 
 def test_capture_region_returns_pil_image(mocker) -> None:
@@ -103,3 +110,11 @@ def test_ocr_output_is_cleaned_before_it_leaves_capture(monkeypatch) -> None:
     monkeypatch.setattr(capture_module, "preprocess_for_ocr", lambda image: image)
     text = asyncio.run(capture_module.ocr_image(object(), "zh-CN"))
     assert text == "很自然我们甚至不会察觉"
+
+
+def test_capture_region_jpeg_encodes_what_was_grabbed(mocker) -> None:
+    mocker.patch(
+        "meocosub2.capture.capture_region", return_value=Image.new("RGB", (4, 3), (10, 20, 30))
+    )
+    encoded = capture_region_jpeg((0, 0, 4, 3))
+    assert Image.open(io.BytesIO(encoded)).format == "JPEG"

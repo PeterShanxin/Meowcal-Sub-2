@@ -14,10 +14,25 @@ body,
   cursor: crosshair;
 }
 
+/* A still of the screen, taken before this window covered it. Live pixels are
+   not dependable here: a video player underneath a full-screen window is free
+   to stop painting, leaving the user drawing a box on black. */
+.selector-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  filter: brightness(0.78);
+  pointer-events: none;
+}
+
 .selector-root::before {
   content: "";
   position: absolute;
   inset: 0;
+  z-index: 1;
   background:
     linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);

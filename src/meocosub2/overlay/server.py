@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import base64
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -15,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from meocosub2.auth import TOKEN_HEADER, TOKEN_QUERY, token_matches
 from meocosub2.config import AppConfig, overlay_style_payload
-from meocosub2.capture import available_ocr_languages
+from meocosub2.capture import available_ocr_languages, capture_region_jpeg
 from meocosub2.errors import SubtitleSourceError, TranslationError
 from meocosub2.event_log import log_event
 from meocosub2.languages import languages_payload
@@ -160,6 +162,19 @@ class OverlayServer:
         @self.app.get("/api/state")
         async def api_get_state() -> dict[str, object]:
             return self.controller.state_snapshot()
+
+        @self.app.get("/api/capture/screen")
+        async def api_capture_screen(x: int, y: int, width: int, height: int) -> dict[str, object]:
+            """A still of the screen for the capture selector's backdrop.
+
+            The selector floats over whatever the user is watching, and a player
+            underneath a full-screen window is free to stop painting its video -
+            so the region gets drawn on a frame taken just before the selector
+            appears rather than on the live desktop.
+            """
+            jpeg = await asyncio.to_thread(capture_region_jpeg, (x, y, width, height))
+            encoded = base64.b64encode(jpeg).decode("ascii")
+            return {"dataUrl": f"data:image/jpeg;base64,{encoded}"}
 
         @self.app.post("/api/log/client")
         async def api_log_client(body: ClientLogBody) -> dict[str, str]:

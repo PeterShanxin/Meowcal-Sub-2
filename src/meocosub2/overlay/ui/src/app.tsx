@@ -542,6 +542,10 @@ export function App(): JSX.Element {
     if (!work) return;
     const key = episodeHydrateKey(workId, season, episode);
     if (store.get().emptyLookups.includes(key)) return;
+    // The season sweep running above this row is already asking after it. A
+    // second request would spend another slot of the provider quota to fill in
+    // a row that is about to fill itself in.
+    if (hydrateInFlight.current.has(seasonHydrateKey(workId, season))) return;
     if (!beginHydrate(key)) return;
     const correlationId = clientEventId("hydrate");
     logClientEvent("ui.episode.hydrate_requested", { workId, season, episode }, correlationId);
@@ -726,7 +730,8 @@ export function App(): JSX.Element {
     } catch {
       // ignore
     }
-    store.resetSelection();
+    // The picks stay: the prepared subtitles are still good, and stopping is
+    // usually the first half of starting again over a better region.
     logClientEvent("ui.session.stop_completed", {}, correlationId);
   }, []);
 
