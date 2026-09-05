@@ -76,6 +76,11 @@ class PlaybackTimeline:
     def anchored(self) -> bool:
         return self._anchor_ms is not None
 
+    @property
+    def anchor_ms(self) -> int | None:
+        """The file position the last accepted match fixed the clock to."""
+        return self._anchor_ms
+
     def status(self, now: float | None = None) -> TimelineStatus:
         return TimelineStatus(
             predicted_ms=self.predicted_ms(now),

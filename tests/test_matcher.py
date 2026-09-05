@@ -1,4 +1,4 @@
-from meocosub2.matcher import BOTH, SEMANTIC, TEXT, SubtitleMatcher
+from meocosub2.matcher import BOTH, PLATE_LINES, SEMANTIC, TEXT, SubtitleMatcher
 from meocosub2.models import SubtitleLine
 from meocosub2.semantic import SemanticHit
 
@@ -306,6 +306,51 @@ def test_nothing_changes_after_the_last_line_has_gone() -> None:
 def test_the_first_cue_is_scheduled_from_before_the_file_starts() -> None:
     matcher = SubtitleMatcher(spaced_lines()[1:])
     assert matcher.next_change_ms(0) == 10_000
+
+
+def two_speakers() -> list[SubtitleLine]:
+    """An exchange where the second speaker starts before the first has finished."""
+    return [
+        SubtitleLine(index=0, start_ms=0, end_ms=4_000, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=2_000, end_ms=6_000, text="Goodbye now", translated="再见"),
+    ]
+
+
+def test_two_cues_running_at_once_are_both_on_the_plate() -> None:
+    """The bug this covers reads as a line the app failed to translate."""
+    found = SubtitleMatcher(two_speakers()).line_at(3_000)
+    assert found is not None
+    assert found.target_text == "你好\n再见"
+    assert found.span == 2
+
+
+def test_cues_sharing_a_start_are_both_on_the_plate() -> None:
+    """A file can give two rows the same timestamp; only one of them was drawn."""
+    together = [
+        SubtitleLine(index=0, start_ms=1_000, end_ms=3_000, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=1_000, end_ms=3_000, text="Goodbye now", translated="再见"),
+    ]
+    found = SubtitleMatcher(together).line_at(2_000)
+    assert found is not None and found.target_text == "你好\n再见"
+
+
+def test_a_cue_that_has_ended_does_not_ride_along_with_the_one_that_follows() -> None:
+    found = SubtitleMatcher(two_speakers()).line_at(5_000)
+    assert found is not None and found.target_text == "再见"
+
+
+def test_no_more_than_the_plate_holds() -> None:
+    stacked = [
+        SubtitleLine(index=i, start_ms=i * 100, end_ms=9_000, text=f"row {i}", translated=f"行{i}")
+        for i in range(4)
+    ]
+    found = SubtitleMatcher(stacked).line_at(500)
+    assert found is not None and found.span == PLATE_LINES
+
+
+def test_the_plate_changes_when_the_first_of_two_cues_runs_out() -> None:
+    """Waking only at the next start would leave the finished line on screen."""
+    assert SubtitleMatcher(two_speakers()).next_change_ms(3_000) == 4_001
 
 
 class FakeSemantic:

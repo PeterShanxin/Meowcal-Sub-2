@@ -1,4 +1,5 @@
 import asyncio
+from time import monotonic
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -368,22 +369,38 @@ async def test_the_clock_plays_the_next_line_without_waiting_for_a_read() -> Non
     assert "再见" in broadcasts
 
 
-async def test_the_lead_draws_the_line_the_video_is_about_to_reach() -> None:
-    """The plate runs slightly ahead of the clock, on purpose.
+async def test_the_plate_holds_back_by_the_display_lag() -> None:
+    """Lines land a beat after the dialogue rather than a beat before it.
 
-    The clock anchors to the read that first saw a cue, and the cue can have
-    gone up any time since the previous capture, so an unshifted clock draws
-    every line a fraction late.
+    Measured against a real player: the clock anchors at the moment a cue was
+    first seen rather than the moment it was recognised, so it needs no help
+    arriving early, and an unshifted plate read half a second ahead.
     """
     lines = [
-        SubtitleLine(index=0, start_ms=0, end_ms=200, text="Hello there", translated="你好"),
-        SubtitleLine(index=1, start_ms=300, end_ms=500, text="Goodbye now", translated="再见"),
+        SubtitleLine(index=0, start_ms=0, end_ms=5_000, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=5_000, end_ms=9_000, text="Goodbye now", translated="再见"),
     ]
     session = CandidateSession([make_candidate("a", lines)], config(), never_translates())
     assert await session.match("Hello there") is not None
 
-    # Anchored at the first line, but the lead has already reached the second.
-    assert session.clock_ms() >= 300
+    # Playback has just reached the second line; the plate is still on the first.
+    now = monotonic() + 5.0
+    assert session._timeline.position_ms(now) >= 5_000
+    assert session.clock_ms(now) < 5_000
+
+
+async def test_the_lag_never_reads_behind_the_line_that_anchored_the_clock() -> None:
+    """Otherwise a match would blank the plate it had just filled."""
+    lines = [
+        SubtitleLine(index=0, start_ms=0, end_ms=2_000, text="Hello there", translated="你好"),
+        SubtitleLine(
+            index=1, start_ms=10_000, end_ms=12_000, text="Goodbye now", translated="再见"
+        ),
+    ]
+    session = CandidateSession([make_candidate("a", lines)], config(), never_translates())
+    assert await session.match("Goodbye now") is not None
+
+    assert session.clock_ms() >= 10_000
     followed = session.line_now()
     assert followed is not None and followed.text == "再见"
 

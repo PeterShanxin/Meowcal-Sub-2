@@ -46,6 +46,10 @@ body {
   color: var(--plate-color, #fff);
   text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7);
   overflow-wrap: anywhere;
+  /* Two speakers overlapping in time arrive as two rows, and so does a cue the
+     file itself wrote across two. The plate reports its own height, so the
+     window grows to fit them. */
+  white-space: pre-line;
 }
 
 /* A line the local model translated because no subtitle line matched yet. */

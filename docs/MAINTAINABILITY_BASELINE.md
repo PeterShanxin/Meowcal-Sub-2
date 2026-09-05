@@ -41,6 +41,19 @@ The second rule is what makes this a ratchet rather than a ceiling nobody ever
 lowers. Ground gained has to be written down in the same change, or it is given
 straight back.
 
+A ceiling may be raised, but only in the change that needs it and only with the
+reason in that change's commit message. The rule exists because the alternative
+is worse: a file pinned at its ceiling either blocks a fix or gets split to
+satisfy a number, and a module split for arithmetic is harder to maintain than
+the long one it replaced. What the ratchet buys is that the raise is visible in
+the diff and has to be argued for, not that it can never happen.
+
+Two have been raised so far. `matcher.py` (405 to 439) and `sync.py` (614 to
+622) grew to draw overlapping subtitle cues: a file can run two speakers' cues
+at once, or give two rows the same timestamp, and taking only the last of them
+dropped the other from the plate, which a viewer reads as a line the app failed
+to translate.
+
 The four largest are the ones worth naming, because they are where the work is:
 
 | File | Lines | What it holds |

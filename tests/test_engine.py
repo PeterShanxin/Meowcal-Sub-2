@@ -1,8 +1,10 @@
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
+from meocosub2 import engine
 from meocosub2.engine import install as install_module
 from meocosub2.engine import paths as paths_module
 from meocosub2.engine.install import EngineInstallError
@@ -95,6 +97,35 @@ def test_the_matching_model_is_not_required_for_a_v1_install_to_be_adopted(
 
     assert paths.is_complete(manifest, runtime)
     assert not paths.embedding_is_complete(manifest)
+
+
+@pytest.mark.asyncio
+async def test_a_session_fetches_the_matching_model_an_adopted_install_never_had(
+    manifest, monkeypatch
+) -> None:
+    """The gap the adoption rule above leaves open.
+
+    An adopted v1 tree reports itself complete, so Settings has nothing left to
+    offer and no other path would ever download this. A session that needs it
+    and finds it missing measured as a session with matching switched off.
+    """
+    runtime = manifest.runtime_for_host()
+    paths = resolve_paths(manifest, runtime)
+    monkeypatch.setattr(paths_module, "_has_size", lambda path, size: path != paths.embedding_model)
+    fetched: list[Path] = []
+    monkeypatch.setattr(
+        engine.install_module,
+        "install_embedding",
+        lambda paths, manifest: fetched.append(paths.embedding_model),
+    )
+    monkeypatch.setattr(
+        engine.runtime_module,
+        "ensure_embedding_ready",
+        AsyncMock(return_value="http://127.0.0.1:11437"),
+    )
+
+    assert await engine.ensure_embedding_ready() == "http://127.0.0.1:11437"
+    assert fetched == [paths.embedding_model]
 
 
 def test_the_matching_model_lives_in_our_own_tree_even_when_v1_is_adopted(

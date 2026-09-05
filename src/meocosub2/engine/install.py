@@ -132,22 +132,41 @@ def install(
         _verify(paths.model, manifest.model.artifact, "translation model")
         paths.runtime_archive.unlink(missing_ok=True)
 
-    if not paths.embedding_is_complete(manifest):
-        # A fortieth of the translation model, so it gets a sliver of the bar.
-        _report(progress, "Downloading the subtitle matching model...", 96)
-        _download(
-            manifest.embedding.artifact.url,
-            paths.embedding_model,
-            manifest.embedding.artifact.size_bytes,
-            "subtitle matching model",
-            progress,
-            96,
-            99,
-        )
-        _verify(paths.embedding_model, manifest.embedding.artifact, "subtitle matching model")
+    # A fortieth of the translation model, so it gets a sliver of the bar.
+    install_embedding(paths, manifest, progress, 96, 99)
 
     _report(progress, "Translation engine installed.", 100)
     return paths
+
+
+def install_embedding(
+    paths: InstallPaths,
+    manifest: Manifest,
+    progress: ProgressCallback | None = None,
+    percent_from: int = 0,
+    percent_to: int = 100,
+) -> None:
+    """Download the model that matches reads to subtitle lines, if it is missing.
+
+    Separate from `install` because a session can reach this on its own. The
+    engine install is refused mid-session because 1.1 GB is not something to
+    start behind the viewer's back; 26 MB is a different question, and an
+    adopted v1 engine tree - which is complete by every other measure - has no
+    other path that would ever fetch this.
+    """
+    if paths.embedding_is_complete(manifest):
+        return
+    artifact = manifest.embedding.artifact
+    _download(
+        artifact.url,
+        paths.embedding_model,
+        artifact.size_bytes,
+        "subtitle matching model",
+        progress,
+        percent_from,
+        percent_to,
+    )
+    _verify(paths.embedding_model, artifact, "subtitle matching model")
 
 
 def _executable_ready(paths: InstallPaths, runtime: Runtime) -> bool:

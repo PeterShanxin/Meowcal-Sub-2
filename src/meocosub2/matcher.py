@@ -49,6 +49,12 @@ SEMANTIC_ACCEPT = 0.66
 # Two translations rarely break their cues in the same places, so the signals
 # landing a line apart is agreement rather than a conflict.
 AGREEING_LINES = 1
+# How many overlapping cues the plate shows at once. Two speakers talking over
+# each other is the case worth covering; past that the plate is a wall of text.
+PLATE_LINES = 2
+# Overlapping cues reach the plate as separate rows, the way they were on the
+# screen they came from. The overlay's own stylesheet is what renders it.
+ROW_BREAK = "\n"
 
 TEXT = "text"
 SEMANTIC = "semantic"
@@ -63,7 +69,7 @@ class _Candidate(NamedTuple):
     score: float
 
 
-def _joined(parts: Iterable[str]) -> str:
+def _joined(parts: Iterable[str], separator: str = " ") -> str:
     """Join the lines a read covered, without saying anything twice.
 
     Two source cues can be paired with one target line - the alignment goes by
@@ -75,7 +81,7 @@ def _joined(parts: Iterable[str]) -> str:
     for part in parts:
         if part and (not kept or kept[-1] != part):
             kept.append(part)
-    return " ".join(kept)
+    return separator.join(kept)
 
 
 def _script_rows(text: str, cjk: bool) -> str:
@@ -245,48 +251,76 @@ class SubtitleMatcher:
             return best_pair[0], 2, best_pair[1]
         return best_single[0], 1, best_single[1]
 
+    def _showing_at(self, last: int, position_ms: int) -> list[SubtitleLine]:
+        """Every line still running at this point, oldest first.
+
+        Two speakers in one exchange overlap in time, and a file can give two
+        cues the same start. Taking only the last of them drops the other from
+        the plate, which the viewer reads as a line that failed to translate.
+        The scan stops at the first line that has ended, so a sign held over a
+        whole scene does not attach itself to the dialogue under it.
+        """
+        showing: list[SubtitleLine] = []
+        for index in range(last, -1, -1):
+            line = self.subtitles[index]
+            if line.end_ms < position_ms or len(showing) == PLATE_LINES:
+                break
+            showing.append(line)
+        showing.reverse()
+        return showing
+
     def line_at(self, position_ms: int) -> MatchResult | None:
-        """The line the file has on screen at this point in the video.
+        """What the file has on screen at this point in the video.
 
         For reads that match nothing. The burned-in subtitles are usually a
         different translation from the file, so most reads share no words with
-        it - but they share a position, and the file's own line at that position
-        is the one the viewer should be reading.
+        it - but they share a position, and the file's own lines at that
+        position are what the viewer should be reading.
         """
-        position = bisect_right(self._starts, position_ms) - 1
-        if position < 0:
+        last = bisect_right(self._starts, position_ms) - 1
+        if last < 0:
             return None
-        line = self.subtitles[position]
-        if position_ms > line.end_ms + FOLLOW_GRACE_MS:
-            return None
+        showing = self._showing_at(last, position_ms)
+        if not showing:
+            # Nothing is still running, but the file's cue can end a beat before
+            # the burned-in one does, so the last line holds through the grace.
+            line = self.subtitles[last]
+            if position_ms > line.end_ms + FOLLOW_GRACE_MS:
+                return None
+            showing = [line]
+        first = showing[0]
         return MatchResult(
-            line_index=line.index,
+            line_index=first.index,
             score=0.0,
-            source_text=line.text,
-            target_text=line.translated or line.text,
-            start_ms=line.start_ms,
-            span=1,
-            translated=bool(line.translated),
+            source_text=_joined((line.text for line in showing), ROW_BREAK),
+            target_text=_joined(((line.translated or line.text) for line in showing), ROW_BREAK),
+            start_ms=first.start_ms,
+            span=len(showing),
+            translated=all(bool(line.translated) for line in showing),
         )
 
     def next_change_ms(self, position_ms: int) -> int | None:
-        """When the line `line_at` returns changes, or None if it never does again.
+        """When what `line_at` returns changes, or None if it never does again.
 
         Deliberately built on the same boundary rule as `line_at`: the renderer
         sleeps until this moment and then asks `line_at` what to draw, so a
         disagreement between the two is either a wasted wake-up or, worse, a
         line the renderer sleeps straight through.
         """
-        position = bisect_right(self._starts, position_ms) - 1
-        following = self._starts[position + 1] if position + 1 < len(self._starts) else None
-        if position < 0:
+        last = bisect_right(self._starts, position_ms) - 1
+        following = self._starts[last + 1] if last + 1 < len(self._starts) else None
+        if last < 0:
             return following
-        # `line_at` keeps showing a line while the clock is within the grace, so
-        # the first position where it stops is one millisecond past the end of it.
-        expires = self.subtitles[position].end_ms + FOLLOW_GRACE_MS + 1
-        if expires <= position_ms:
-            return following
-        return expires if following is None else min(expires, following)
+        showing = self._showing_at(last, position_ms)
+        if len(showing) > 1:
+            # With two cues on the plate, the first to run out changes it. A
+            # single cue running out does not: the grace holds it there.
+            changes = min(line.end_ms for line in showing) + 1
+        else:
+            changes = self.subtitles[last].end_ms + FOLLOW_GRACE_MS + 1
+            if changes <= position_ms:
+                return following
+        return changes if following is None else min(changes, following)
 
     def match(self, ocr_text: str, window_ms: tuple[int, int] | None = None) -> MatchResult | None:
         """The best line by text alone."""

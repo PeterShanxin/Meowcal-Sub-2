@@ -185,16 +185,16 @@ async def ensure_embedding_ready(timeout_s: float = STARTUP_TIMEOUT_S) -> str:
     Separate from `ensure_ready` because the two answer different questions. A
     session without this model still translates; it just falls back on character
     matching, which the burned-in subtitles usually defeat. An install predating
-    this model - including an adopted v1 engine - is exactly that case.
+    this model - including an adopted v1 engine - is exactly that case, and it
+    reports itself complete, so nothing else will ever fetch this. The 26 MB is
+    downloaded here rather than sent back to Settings as a chore.
     """
     manifest = load_manifest()
     runtime = manifest.runtime_for_host()
     paths = resolve_paths(manifest, runtime)
     if not paths.embedding_is_complete(manifest):
-        raise EngineStartError(
-            "The subtitle matching model is not installed yet. Run setup from "
-            "Settings to download it."
-        )
+        logger.info("Downloading the subtitle matching model (%s)", manifest.embedding.id)
+        await asyncio.to_thread(install_module.install_embedding, paths, manifest)
     async with _start_lock:
         endpoint = await runtime_module.ensure_embedding_ready(paths, manifest, timeout_s)
     logger.info("Subtitle matching model ready at %s", endpoint)

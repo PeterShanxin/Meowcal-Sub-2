@@ -21,7 +21,7 @@ from time import monotonic
 
 from meocosub2.capture import capture_region, ocr_image
 from meocosub2.config import AppConfig
-from meocosub2.engine import EngineStartError
+from meocosub2.engine import EngineInstallError, EngineStartError
 from meocosub2.matcher import BOTH, SubtitleMatcher
 from meocosub2.models import MatchResult, SourceSubtitleCandidate, SubtitleLine
 from meocosub2.semantic import SemanticError, SemanticIndex
@@ -39,11 +39,12 @@ AUTO_UNLOCK_MISSES = 3
 # Consecutive empty reads before the overlay clears. One blank frame is a cue
 # transition; several in a row mean nothing is on screen.
 CLEAR_AFTER_EMPTY_READS = 3
-# How far ahead of the clock the plate is drawn. About half a capture interval
-# of this is structural: the clock anchors to the read that first saw a cue, and
-# the cue can have gone up any time since the previous capture. The rest covers
-# the broadcast and the plate's fade-in. Turn it up if lines still read late.
-DISPLAY_LEAD_MS = 350
+# How far ahead of the clock the plate is drawn, negative to hold it back.
+# The clock does not need help arriving early: it anchors at the moment a cue
+# was first seen rather than the moment it was recognised, which already takes
+# the capture and OCR delay out of it. Measured against a real player, lines
+# landed about half a second ahead of the dialogue, so the plate waits.
+DISPLAY_LEAD_MS = -150
 TRANSLATION_CACHE_SIZE = 64
 CONTEXT_LINES = 3
 
@@ -170,7 +171,7 @@ class CandidateSession:
             await index.build(lines)
         except asyncio.CancelledError:
             raise
-        except (EngineStartError, SemanticError) as error:
+        except (EngineInstallError, EngineStartError, SemanticError) as error:
             # Matching by meaning improves a session; it is not required for
             # one. Without it, reads are matched on text alone.
             logger.warning("Matching by meaning is unavailable this session: %s", error)
@@ -229,14 +230,21 @@ class CandidateSession:
     def anchored(self) -> bool:
         return self._locked is not None and self._timeline.anchored
 
-    def clock_ms(self) -> int | None:
-        """Where the plate reads from, which is a little ahead of the video.
+    def clock_ms(self, now: float | None = None) -> int | None:
+        """Where the plate reads from, which is a little behind the video.
 
         Every caller that draws or schedules goes through here, so the line that
         is shown and the moment it is scheduled to change cannot disagree.
         """
-        position = self._timeline.position_ms()
-        return None if position is None else position + DISPLAY_LEAD_MS
+        position = self._timeline.position_ms(now)
+        if position is None:
+            return None
+        anchor = self._timeline.anchor_ms
+        shifted = position + DISPLAY_LEAD_MS
+        # The lag holds the plate back as playback advances; it must never read
+        # behind the line the clock was just anchored to, which is on screen by
+        # definition. Without the floor, a match would blank the plate it filled.
+        return shifted if anchor is None else max(shifted, anchor)
 
     def seconds_to_next_line(self) -> float | None:
         """How long until the file's line changes; None when nothing is placed."""
@@ -269,7 +277,7 @@ class CandidateSession:
         return Resolution(
             text=result.target_text,
             matched=True,
-            covers_through=result.line_index,
+            covers_through=result.line_index + result.span - 1,
             detail={
                 "matchIdx": result.line_index,
                 "matchSrc": result.source_text[:60],
