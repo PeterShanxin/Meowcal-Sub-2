@@ -111,11 +111,41 @@ Get-Process llama-server, meowcal-sub-2-shell -ErrorAction SilentlyContinue |
 
 Any engine started by hand for an experiment — an embedding model, a second
 runtime — is your own to stop in the same session.
-- Run `pytest -q` after Python or server changes.
-- Run `npm --prefix src\meocosub2\overlay\ui run build` after studio UI changes (rebuilds `static/index.html` + `static/assets/`).
-- Run `cargo check --manifest-path src-tauri\Cargo.toml` after shell changes.
-- Run `python -m playwright install chromium` once per machine before the smoke script.
-- Run `python scripts\run_dashboard_smoke.py` when you need a served-dashboard smoke check.
+
+### One command
+
+```powershell
+.\scripts\verify.ps1
+```
+
+Every gate this repository enforces: formatting, lint, types, the Python, Rust
+and studio suites, the served dashboard, and the maintainability ratchets.
+[`.github/workflows/windows-ci.yml`](../.github/workflows/windows-ci.yml) calls
+the same script, so a green local run and a green CI run mean the same thing.
+
+Prerequisites, once per machine:
+
+```powershell
+python -m pip install -e ".[dev]"
+npm --prefix src\meocosub2\overlay\ui install
+python -m playwright install chromium
+rustup component add rustfmt clippy
+```
+
+`-Stage <name>` runs part of it while iterating; `-List` names the stages. A
+full run is the authoritative result.
+
+What it cannot prove: OCR, WebView2 rendering, the capture selector, and the
+overlay plate. Those need a real Windows run of the app.
+
+### While iterating
+
+- `pytest -q` after Python or server changes.
+- `npm --prefix src\meocosub2\overlay\ui run build` after studio UI changes
+  (rebuilds `static/index.html` + `static/assets/`). The bundle is committed;
+  `verify.ps1` checks the sources it is built from, not the bundle.
+- `cargo check --manifest-path src-tauri\Cargo.toml` after shell changes.
+- `python scripts\run_dashboard_smoke.py` for the served-dashboard check alone.
 - For launcher debugging on Windows:
   - `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*meocosub2.cli serve*' }`
   - `Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -eq 8765 }`

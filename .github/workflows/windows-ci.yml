@@ -1,3 +1,13 @@
+# Every gate lives in scripts/verify.ps1, which a developer runs locally. This
+# workflow installs the documented prerequisites and calls it, so CI and a
+# developer cannot enforce two different policies.
+#
+# What a green run proves: formatting, lint, types, the Python/Rust/studio test
+# suites, the served dashboard, and the maintainability ratchets.
+#
+# What it cannot prove: OCR, WebView2 rendering, the capture selector, and the
+# overlay plate. Those need a real Windows run of the app, described in
+# docs/AGENT_GUIDE.md.
 name: Windows CI
 
 on:
@@ -5,12 +15,15 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  checks:
+  verify:
     runs-on: windows-latest
 
     steps:
@@ -28,9 +41,13 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "src/meocosub2/overlay/ui/package-lock.json"
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
@@ -40,22 +57,12 @@ jobs:
       - name: Install Python dependencies
         run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
 
+      - name: Install studio dependencies
+        run: npm --prefix src\meocosub2\overlay\ui ci
+
       - name: Install Playwright browser
         run: python -m playwright install chromium
 
-      - name: Run pytest
-        run: pytest -q
-
-      - name: Check dashboard modules
+      - name: Verify
         shell: pwsh
-        run: |
-          Get-ChildItem src\meocosub2\overlay\static\app*.js | ForEach-Object {
-            node --check $_.FullName
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
-
-      - name: Cargo check
-        run: cargo check --manifest-path src-tauri\Cargo.toml
-
-      - name: Dashboard smoke
-        run: python scripts\run_dashboard_smoke.py
+        run: .\scripts\verify.ps1
