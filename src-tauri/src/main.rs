@@ -15,8 +15,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Listener, Manager,
-    PhysicalPosition, PhysicalSize, State,
+    AppHandle, Emitter, Listener, Manager, PhysicalPosition, PhysicalSize, State,
 };
 use url::Url;
 
@@ -75,7 +74,9 @@ fn python_executable() -> PathBuf {
 
 fn config_path() -> PathBuf {
     let appdata = std::env::var("APPDATA").unwrap_or_else(|_| String::from("."));
-    PathBuf::from(appdata).join("meowcal-sub-2").join("config.toml")
+    PathBuf::from(appdata)
+        .join("meowcal-sub-2")
+        .join("config.toml")
 }
 
 fn event_log_path() -> PathBuf {
@@ -165,7 +166,11 @@ fn backend_ready() -> bool {
         .timeout(Duration::from_secs(2))
         .build()
         .ok()
-        .and_then(|client| authorized(client.get(format!("{api_base}/api/state"))).send().ok())
+        .and_then(|client| {
+            authorized(client.get(format!("{api_base}/api/state")))
+                .send()
+                .ok()
+        })
         .map(|response| response.status().is_success())
         .unwrap_or(false)
 }
@@ -287,9 +292,10 @@ async fn show_area_selector(app: AppHandle) -> Result<(), String> {
     .map_err(|error| error.to_string())?;
     match &backdrop {
         Ok(_) => log_shell_event("selector.backdrop.captured", serde_json::json!({})),
-        Err(error) => {
-            log_shell_event("selector.backdrop.failed", serde_json::json!({ "error": error }))
-        }
+        Err(error) => log_shell_event(
+            "selector.backdrop.failed",
+            serde_json::json!({ "error": error }),
+        ),
     }
     if let Some(shell) = app.try_state::<ShellState>() {
         *shell
@@ -478,9 +484,7 @@ fn enter_live_mode(
     if maximized {
         window.unmaximize().map_err(|e| e.to_string())?;
     }
-    let current_pos = window
-        .outer_position()
-        .map_err(|e| e.to_string())?;
+    let current_pos = window.outer_position().map_err(|e| e.to_string())?;
     let current_size = window.outer_size().map_err(|e| e.to_string())?;
     *shell
         .prev_main_bounds
@@ -539,7 +543,11 @@ async fn animate_dock(
     ticket: u64,
 ) {
     for step in 1..=DOCK_STEPS {
-        if generation.lock().map(|latest| *latest != ticket).unwrap_or(true) {
+        if generation
+            .lock()
+            .map(|latest| *latest != ticket)
+            .unwrap_or(true)
+        {
             return;
         }
         let width = overlay_window::tween(from_px, to_px, step, DOCK_STEPS);
@@ -580,7 +588,11 @@ fn watch_dock(
         let mut open = false;
         loop {
             tokio::time::sleep(Duration::from_millis(DOCK_POLL_MS)).await;
-            if generation.lock().map(|latest| *latest != ticket).unwrap_or(true) {
+            if generation
+                .lock()
+                .map(|latest| *latest != ticket)
+                .unwrap_or(true)
+            {
                 return;
             }
             let Some(window) = app.get_webview_window("main") else {
@@ -678,9 +690,7 @@ fn exit_live_mode(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), St
         .map_err(|_| "prev bounds lock poisoned")?
         .take();
     if let Some(bounds) = restore {
-        window
-            .set_size(bounds.size)
-            .map_err(|e| e.to_string())?;
+        window.set_size(bounds.size).map_err(|e| e.to_string())?;
         window
             .set_position(bounds.position)
             .map_err(|e| e.to_string())?;
@@ -705,7 +715,10 @@ fn get_api_token() -> String {
 
 #[tauri::command]
 fn stop_translation(app: AppHandle) -> Result<(), String> {
-    log_shell_event("session.stop.requested", serde_json::json!({ "source": "tauri" }));
+    log_shell_event(
+        "session.stop.requested",
+        serde_json::json!({ "source": "tauri" }),
+    );
     post_json("/api/session/stop", serde_json::json!({}))?;
     show_main(&app);
     Ok(())
@@ -815,7 +828,10 @@ fn run_backend_boot(app: &AppHandle) {
     log_shell_event("backend.boot.start", serde_json::json!({}));
     emit_splash_status(app, "Checking backend...");
     if backend_ready() {
-        log_shell_event("backend.boot.ready_existing", serde_json::json!({ "duration_ms": started.elapsed().as_millis() }));
+        log_shell_event(
+            "backend.boot.ready_existing",
+            serde_json::json!({ "duration_ms": started.elapsed().as_millis() }),
+        );
         navigate_main_to_backend(app);
         return;
     }
@@ -823,10 +839,16 @@ fn run_backend_boot(app: &AppHandle) {
     spawn_backend(app.state::<BackendProcess>().inner());
     emit_splash_status(app, "Waiting for backend (up to 60s)...");
     if wait_for_backend(Duration::from_secs(60)) {
-        log_shell_event("backend.boot.ready", serde_json::json!({ "duration_ms": started.elapsed().as_millis() }));
+        log_shell_event(
+            "backend.boot.ready",
+            serde_json::json!({ "duration_ms": started.elapsed().as_millis() }),
+        );
         navigate_main_to_backend(app);
     } else {
-        log_shell_event("backend.boot.failed", serde_json::json!({ "duration_ms": started.elapsed().as_millis() }));
+        log_shell_event(
+            "backend.boot.failed",
+            serde_json::json!({ "duration_ms": started.elapsed().as_millis() }),
+        );
         let _ = app.emit_to("main", "splash-error", serde_json::json!({}));
     }
 }
@@ -844,9 +866,13 @@ fn navigate_main_to_backend(app: &AppHandle) {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis().to_string())
         .unwrap_or_else(|_| "0".to_string());
-    url.query_pairs_mut().append_pair("desktopLaunch", &launch_id);
+    url.query_pairs_mut()
+        .append_pair("desktopLaunch", &launch_id);
     url.query_pairs_mut().append_pair("token", &access_token());
-    log_shell_event("window.main.navigate", serde_json::json!({ "url": url.as_str() }));
+    log_shell_event(
+        "window.main.navigate",
+        serde_json::json!({ "url": url.as_str() }),
+    );
     let _ = window.navigate(url);
     let _ = window.set_focus();
     navigate_overlay_to_backend(app);
@@ -926,11 +952,17 @@ fn main() {
             });
 
             let show_item = MenuItem::with_id(app, "show", "Open App", true, None::<&str>)?;
-            let selector_item =
-                MenuItem::with_id(app, "select-area", "Select Capture Area", true, None::<&str>)?;
+            let selector_item = MenuItem::with_id(
+                app,
+                "select-area",
+                "Select Capture Area",
+                true,
+                None::<&str>,
+            )?;
             let stop_item = MenuItem::with_id(app, "stop", "Stop Translation", true, None::<&str>)?;
             let exit_item = MenuItem::with_id(app, "exit", "Exit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &selector_item, &stop_item, &exit_item])?;
+            let menu =
+                Menu::with_items(app, &[&show_item, &selector_item, &stop_item, &exit_item])?;
 
             let icon = app
                 .default_window_icon()
@@ -972,7 +1004,10 @@ fn main() {
                         ..
                     } = event
                     {
-                        log_shell_event("tray.icon.clicked", serde_json::json!({ "button": "left" }));
+                        log_shell_event(
+                            "tray.icon.clicked",
+                            serde_json::json!({ "button": "left" }),
+                        );
                         show_main(tray.app_handle());
                     }
                 })

@@ -275,7 +275,9 @@ fn anchor_for(app: &AppHandle, region: [i32; 4]) -> Result<(OverlayAnchor, f64),
     let monitor = window
         .monitor_from_point(center_x as f64, center_y as f64)
         .map_err(|error| error.to_string())?
-        .or(window.current_monitor().map_err(|error| error.to_string())?)
+        .or(window
+            .current_monitor()
+            .map_err(|error| error.to_string())?)
         .ok_or_else(|| "no monitor".to_string())?;
     let position = *monitor.position();
     let size = *monitor.size();
