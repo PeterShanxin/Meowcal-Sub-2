@@ -1,4 +1,4 @@
-# AGENTS.md
+# Agent Guide
 
 ## Repo Overview
 - Meowcal Sub 2 is a desktop subtitle studio with a Python backend and a Tauri shell.
@@ -7,15 +7,15 @@
 
 ## Runtime Map
 - Backend server: `python -m meocosub2.cli serve`
-- Studio route: [src/meocosub2/overlay/server.py](src/meocosub2/overlay/server.py)
-- Subtitle source aggregator: [src/meocosub2/subtitle_sources](src/meocosub2/subtitle_sources)
-- Capture loop and session strategies: [src/meocosub2/sync.py](src/meocosub2/sync.py)
-- Managed local translation engine: [src/meocosub2/engine](src/meocosub2/engine)
-- Studio UI source (Vite + React + TS): [src/meocosub2/overlay/ui](src/meocosub2/overlay/ui)
-- Studio UI entry: [src/meocosub2/overlay/ui/src/app.tsx](src/meocosub2/overlay/ui/src/app.tsx)
-- Studio UI build output (served at `/`): [src/meocosub2/overlay/static/index.html](src/meocosub2/overlay/static/index.html) + `static/assets/`
-- Tauri shell startup: [src-tauri/src/main.rs](src-tauri/src/main.rs)
-- Tauri window config: [src-tauri/tauri.conf.json](src-tauri/tauri.conf.json)
+- Studio route: [src/meocosub2/overlay/server.py](../src/meocosub2/overlay/server.py)
+- Subtitle source aggregator: [src/meocosub2/subtitle_sources](../src/meocosub2/subtitle_sources)
+- Capture loop and session strategies: [src/meocosub2/sync.py](../src/meocosub2/sync.py)
+- Managed local translation engine: [src/meocosub2/engine](../src/meocosub2/engine)
+- Studio UI source (Vite + React + TS): [src/meocosub2/overlay/ui](../src/meocosub2/overlay/ui)
+- Studio UI entry: [src/meocosub2/overlay/ui/src/app.tsx](../src/meocosub2/overlay/ui/src/app.tsx)
+- Studio UI build output (served at `/`): [src/meocosub2/overlay/static/index.html](../src/meocosub2/overlay/static/index.html) + `static/assets/`
+- Tauri shell startup: [src-tauri/src/main.rs](../src-tauri/src/main.rs)
+- Tauri window config: [src-tauri/tauri.conf.json](../src-tauri/tauri.conf.json)
 
 ## Source Of Truth
 - Treat the server-backed `/` route as the real desktop runtime path.
@@ -25,13 +25,16 @@
 - `docs/plans/` is not authoritative for current behavior and should be ignored for maintenance work.
 
 ## Anti-slop quality bar
-- Treat every artifact as maintainer-owned, not as a trace of an AI session. Apply this to code, comments, documentation, PR and issue text, UI copy, architecture, configuration, and handoff notes.
-- Do not narrate the prompt, agent, implementation journey, discarded approaches, or direction changes unless future maintainers need that rationale.
-- Do not add boilerplate prose, obvious comments, duplicate summaries or rules, ceremonial files or checklists, or placeholder documentation merely to make a change look complete.
-- Do not introduce wrappers, abstractions, fallbacks, compatibility paths, feature flags, or configuration "just in case". Each extra mechanism must satisfy a current requirement or documented risk.
-- Prefer direct code and concise human-quality prose. Comments should explain non-obvious reasons, invariants, or trade-offs rather than restating the code.
-- Current docs, UI copy, PRs, and issues should state current behavior directly. Put history in issues, ADRs, changelogs, or dated plans unless it is required to apply a live safety, compatibility, or unsupported-behavior boundary.
-- Before handoff, inspect the diff specifically for AI slop and remove words, files, layers, and indirection that add neither required behavior nor durable information.
+
+Stated once, in [`AGENTS.md`](../AGENTS.md), because it is the first thing read
+in this repository. It applies to code, comments, documentation, PR and issue
+text, UI copy, architecture, configuration, and handoff notes.
+
+## Coding standards
+
+[`docs/CODING_STANDARDS.md`](CODING_STANDARDS.md) is normative for what the code
+has to look like. [`docs/MAINTAINABILITY_BASELINE.md`](MAINTAINABILITY_BASELINE.md)
+owns the measured limits that `scripts/verify.ps1` enforces.
 
 ## What Fills The Subtitle Plate
 
@@ -88,9 +91,9 @@ outliving the app, and both are best-effort:
 - the shell puts the backend in a Win32 job object with
   `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Job membership is inherited, so however
   the shell ends, the backend and the engine go with it
-  ([process_lifetime.rs](src-tauri/src/process_lifetime.rs));
+  ([process_lifetime.rs](../src-tauri/src/process_lifetime.rs));
 - the backend sweeps engines stranded by earlier runs before it starts one
-  ([engine/orphans.py](src/meocosub2/engine/orphans.py)). Ownership is decided
+  ([engine/orphans.py](../src/meocosub2/engine/orphans.py)). Ownership is decided
   by path and by whether the parent is still alive, so another install's working
   engine is never touched.
 

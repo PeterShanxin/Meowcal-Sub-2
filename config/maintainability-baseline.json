@@ -1,0 +1,42 @@
+{
+  "measuredOn": "2026-09-06",
+  "newFileMaxLines": 400,
+  "legacyFileCeilings": {
+    "src-tauri/src/main.rs": 1033,
+    "src-tauri/src/overlay_window.rs": 467,
+    "src/meocosub2/config.py": 502,
+    "src/meocosub2/engine/runtime.py": 479,
+    "src/meocosub2/matcher.py": 405,
+    "src/meocosub2/opensubtitles/client.py": 877,
+    "src/meocosub2/overlay/controller.py": 1664,
+    "src/meocosub2/overlay/ui/src/app.tsx": 1494,
+    "src/meocosub2/overlay/ui/src/components/palette.tsx": 1478,
+    "src/meocosub2/overlay/ui/src/components/primitives.tsx": 436,
+    "src/meocosub2/overlay/ui/src/components/variants/settings.tsx": 1229,
+    "src/meocosub2/overlay/ui/src/styles/theme.css": 687,
+    "src/meocosub2/subtitle_sources/aggregator.py": 1445,
+    "src/meocosub2/subtitle_sources/subdl.py": 621,
+    "src/meocosub2/sync.py": 614
+  },
+  "lintBudgets": {
+    "ruff": 0,
+    "clippy": 0,
+    "biome": 26
+  },
+  "coverage": {
+    "python": {
+      "floorPercent": 79
+    },
+    "frontend": {
+      "scope": [
+        "src/state/mappers.ts"
+      ],
+      "floors": {
+        "statements": 88,
+        "branches": 74,
+        "functions": 66,
+        "lines": 88
+      }
+    }
+  }
+}

@@ -18,3 +18,8 @@ src/meocosub2/overlay/ui/*.tsbuildinfo
 .coverage.*
 coverage.xml
 htmlcov/
+
+# Verification scratch output
+.coverage.json
+.verify-report.json
+src/meocosub2/overlay/ui/coverage/
