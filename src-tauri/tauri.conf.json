@@ -27,7 +27,6 @@
         "title": "Select Capture Area",
         "label": "selector",
         "url": "selector.html",
-        "fullscreen": true,
         "transparent": true,
         "backgroundColor": [
           0,
@@ -42,7 +41,9 @@
         "focus": true,
         "focusable": true,
         "skipTaskbar": true,
-        "resizable": false
+        "resizable": false,
+        "width": 800,
+        "height": 600
       },
       {
         "title": "Meowcal Subtitles",

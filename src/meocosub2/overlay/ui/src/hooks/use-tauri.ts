@@ -42,8 +42,6 @@ export const tauri = {
   enterLiveMode: (region: number[]) =>
     invokeTauri<void>("enter_live_mode", { region }),
   exitLiveMode: () => invokeTauri<void>("exit_live_mode"),
-  setDockSize: (widthCss: number, heightCss: number) =>
-    invokeTauri<void>("set_dock_size", { widthCss, heightCss }),
   openAreaSelector: () => invokeTauri<void>("open_area_selector"),
   stopTranslation: () => invokeTauri<void>("stop_translation"),
   getApiBase: () => invokeTauri<string>("get_api_base"),

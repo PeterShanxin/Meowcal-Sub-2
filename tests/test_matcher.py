@@ -180,3 +180,38 @@ def test_numbers_beside_latin_text_are_kept() -> None:
 
     assert clean_cjk_text("Chapter 7") == "Chapter 7"
     assert clean_cjk_text("- Can you do it?") == "- Can you do it?"
+
+
+def bilingual_lines() -> list[SubtitleLine]:
+    """A source file that carries the dialogue and its translation in one cue."""
+    rows = [
+        "我们就跳进那缸酸\nwe jump into the vat of acid,",
+        "你不是个发明家么\nAren't you an inventor?",
+        "你带的是假水晶 还带了枪\nYou brought fake crystals and a gun",
+        "慢慢来 老大\nTake your time, boss.",
+    ]
+    return [
+        SubtitleLine(index=i, start_ms=i * 2000, end_ms=i * 2000 + 1500, text=text)
+        for i, text in enumerate(rows)
+    ]
+
+
+def test_a_read_is_scored_against_its_own_half_of_a_bilingual_cue() -> None:
+    matcher = SubtitleMatcher(bilingual_lines(), target_language="en")
+    result = matcher.match("慢慢来老大")
+    assert result is not None
+    assert result.line_index == 3
+    # Against the whole cue, its English half included, the same read scored 90.
+    assert result.score == 100.0
+
+
+def test_a_read_of_something_that_is_not_a_subtitle_matches_nothing() -> None:
+    matcher = SubtitleMatcher(bilingual_lines(), target_language="en")
+    # A stray read of a terminal. Scored against whole bilingual cues it used to
+    # come back at 85.5, because a long line rewards a good match on a fragment.
+    assert matcher.match("o ps c formerd repos meowcal sub 2 src tauri") is None
+
+
+def test_a_read_far_shorter_than_the_line_is_not_that_line() -> None:
+    matcher = SubtitleMatcher(bilingual_lines(), target_language="en")
+    assert matcher.match("你不是说") is None

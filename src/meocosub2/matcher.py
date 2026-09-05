@@ -16,6 +16,12 @@ from meocosub2.textnorm import clean_cjk_text, is_cjk_compactable_char, to_simpl
 
 logger = logging.getLogger(__name__)
 
+# How far a read's length may sit either side of the line it is matched against.
+# Measured over a real session: genuine reads ran between 0.73 and 1.33 times the
+# length of the line they belonged to.
+MIN_LENGTH_RATIO = 0.6
+MAX_LENGTH_RATIO = 1.7
+
 
 def _joined(parts: Iterable[str]) -> str:
     """Join the lines a read covered, without saying anything twice.
@@ -30,6 +36,22 @@ def _joined(parts: Iterable[str]) -> str:
         if part and (not kept or kept[-1] != part):
             kept.append(part)
     return " ".join(kept)
+
+
+def _script_rows(text: str, cjk: bool) -> str:
+    """The rows of a cue written in the script the read is in.
+
+    A subtitle file can carry both languages in one cue - a row of dialogue with
+    its translation underneath. A read is only ever one of them, so scoring it
+    against both at once drags genuine matches down and, because the cue is then
+    several times longer than the read, lets any long read score highly on a
+    fragment of one. A cue written in a single script is left whole.
+    """
+    rows = [row for row in text.splitlines() if row.strip()]
+    if len(rows) < 2:
+        return text
+    wanted = [row for row in rows if any(is_cjk_compactable_char(ch) for ch in row) == cjk]
+    return "\n".join(wanted) if wanted and len(wanted) < len(rows) else text
 
 
 class SubtitleMatcher:
@@ -50,7 +72,12 @@ class SubtitleMatcher:
         self._last_frame_hash: str | None = None
         self._contains_cjk = any(any(is_cjk_compactable_char(ch) for ch in line.text) for line in subtitles)
         self._use_simplified = self._contains_cjk and target_language != "zht"
-        self._normalized = [self._normalize_for_match(line.text) for line in subtitles]
+        self._normalized = [
+            self._normalize_for_match(_script_rows(line.text, True)) for line in subtitles
+        ]
+        self._normalized_latin = [
+            self._normalize_for_match(_script_rows(line.text, False)) for line in subtitles
+        ]
         # Normalising CJK closes the spaces between characters, so a pair of
         # lines has to be joined the same way the lines themselves were.
         self._join = "" if self._contains_cjk else " "
@@ -120,7 +147,7 @@ class SubtitleMatcher:
             return None
         match = process.extractOne(
             normalized_ocr,
-            choices,
+            self._plausible_lengths(normalized_ocr, choices),
             scorer=scorer,
             score_cutoff=self.fuzzy_threshold,
         )
@@ -129,22 +156,38 @@ class SubtitleMatcher:
         _, score, index = match
         return index, float(score)
 
+    def _plausible_lengths(self, normalized_ocr: str, choices: dict[int, str]) -> dict[int, str]:
+        """The candidates this read could be, judged only on how long they are.
+
+        A read of a subtitle is about as long as the subtitle. The scorers used
+        here reward a good match on part of a much longer line, which is how a
+        stray read of a terminal or a chat window scored in the eighties against
+        real dialogue; a line the read could not plausibly be is not scored.
+        """
+        length = len(normalized_ocr)
+        shortest = length / MAX_LENGTH_RATIO
+        longest = length / MIN_LENGTH_RATIO
+        return {
+            index: text
+            for index, text in choices.items()
+            if shortest <= len(text) <= longest
+        }
+
     def _extract_best(
         self,
         normalized_ocr: str,
         indices: range,
         scorer: Callable[[str, str], float],
+        table: list[str],
     ) -> tuple[int, int, float] | None:
         """The best line, or pair of lines, in `indices` - as (index, span, score)."""
-        singles = {index: self._normalized[index] for index in indices if self._normalized[index]}
+        singles = {index: table[index] for index in indices if table[index]}
         best_single = self._best_of(normalized_ocr, singles, scorer)
 
         pairs = {
-            index: self._join.join((self._normalized[index], self._normalized[index + 1]))
+            index: self._join.join((table[index], table[index + 1]))
             for index in indices
-            if index + 1 < len(self._normalized)
-            and self._normalized[index]
-            and self._normalized[index + 1]
+            if index + 1 < len(table) and table[index] and table[index + 1]
         }
         best_pair = self._best_of(normalized_ocr, pairs, scorer)
 
@@ -178,12 +221,15 @@ class SubtitleMatcher:
         # token_set_ratio degenerates on space-stripped CJK (single token); WRatio handles OCR char drops better.
         ocr_is_cjk = any(is_cjk_compactable_char(ch) for ch in normalized_ocr)
         scorer = fuzz.WRatio if ocr_is_cjk else fuzz.token_set_ratio
+        table = self._normalized if ocr_is_cjk else self._normalized_latin
 
         window = self._search_indices(window_ms)
-        best = self._extract_best(normalized_ocr, window, scorer)
+        best = self._extract_best(normalized_ocr, window, scorer, table)
         in_window = best is not None
         if best is None:
-            best = self._extract_best(normalized_ocr, range(len(self.subtitles)), scorer)
+            best = self._extract_best(
+                normalized_ocr, range(len(self.subtitles)), scorer, table
+            )
         if best is None:
             logger.debug("MATCH miss: threshold=%d ocr=%r", self.fuzzy_threshold, normalized_ocr[:60])
             return None

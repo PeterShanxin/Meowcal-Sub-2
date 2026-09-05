@@ -6,6 +6,7 @@ from meocosub2.translator import (
     TranslationClient,
     build_prompt,
     drop_restated_context,
+    echoes_context,
     is_untranslatable,
     is_usable_translation,
     looks_like_a_loop,
@@ -239,3 +240,44 @@ def test_a_single_cjk_character_is_a_whole_word(text: str) -> None:
 @pytest.mark.parametrize("text", ["a", "1", "-"])
 def test_a_single_latin_glyph_is_still_noise(text: str) -> None:
     assert is_untranslatable(text)
+
+
+def test_a_verbatim_context_line_is_an_echo() -> None:
+    context = ["Damn it, I almost parked."]
+    assert echoes_context("Damn it, I almost parked.", context)
+
+
+def test_a_short_context_line_does_not_condemn_a_longer_answer() -> None:
+    # Every word of "Wait." appears in the answer, which a set comparison scores
+    # as a perfect echo; the answer is a translation all the same.
+    assert not echoes_context("Wait, let me see what happens here.", ["Wait."])
+
+
+@pytest.mark.asyncio
+async def test_an_echoed_answer_is_asked_again_without_the_context() -> None:
+    prompts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.read().decode()
+        prompts.append(body)
+        reply = "Wait a moment." if len(prompts) == 1 else "Look at this."
+        return httpx.Response(200, json={"choices": [{"message": {"content": reply}}]})
+
+    client = _client(handler)
+    assert await client.translate("你看这个", "zh", "en", ["Wait a moment."]) == "Look at this."
+    assert len(prompts) == 2
+    assert "Wait a moment." in prompts[0]
+    assert "Wait a moment." not in prompts[1]
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_an_answer_that_echoes_twice_is_still_refused() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": "Wait a moment."}}]}
+        )
+
+    client = _client(handler)
+    assert await client.translate("你看这个", "zh", "en", ["Wait a moment."]) == ""
+    await client.close()

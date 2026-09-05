@@ -255,8 +255,11 @@ def echoes_context(translated: str, context_lines: list[str]) -> bool:
     """
     if not translated:
         return False
+    # Length-sensitive on purpose: a set comparison scores a short context line
+    # whose words all appear in a longer answer as a perfect echo, so "Wait." in
+    # the context would condemn any translation containing the word.
     return any(
-        fuzz.token_set_ratio(translated.lower(), line.lower()) >= ECHOED_CONTEXT_SIMILARITY
+        fuzz.ratio(translated.lower(), line.lower()) >= ECHOED_CONTEXT_SIMILARITY
         for line in context_lines
     )
 
@@ -307,16 +310,7 @@ class TranslationClient:
         self._model = model
         self._client = httpx.AsyncClient(timeout=timeout_s)
 
-    async def translate(
-        self,
-        text: str,
-        source_language: str,
-        target_language: str,
-        context_lines: list[str] | None = None,
-    ) -> str:
-        if is_untranslatable(text):
-            return ""
-        prompt = build_prompt(text, source_language, target_language, context_lines)
+    async def _complete(self, prompt: str) -> str:
         try:
             response = await self._client.post(
                 f"{self._base_url}/v1/chat/completions",
@@ -335,12 +329,36 @@ class TranslationClient:
             raise TranslationError("The local translation engine returned an unreadable reply.") from exc
 
         choices = payload.get("choices") or []
-        content = choices[0].get("message", {}).get("content", "") if choices else ""
-        context = list(context_lines or [])
-        translated = drop_restated_context(sanitize_output(content), context)
-        if echoes_context(translated, context):
-            logger.debug("Discarded echoed context for %r: %r", text[:40], translated[:80])
+        return choices[0].get("message", {}).get("content", "") if choices else ""
+
+    async def translate(
+        self,
+        text: str,
+        source_language: str,
+        target_language: str,
+        context_lines: list[str] | None = None,
+    ) -> str:
+        if is_untranslatable(text):
             return ""
+        context = list(context_lines or [])
+        prompt = build_prompt(text, source_language, target_language, context)
+        translated = drop_restated_context(sanitize_output(await self._complete(prompt)), context)
+
+        if context and echoes_context(translated, context):
+            # Handing back the context is what this model does when the read is
+            # too damaged to translate, and the answer it hands back is the line
+            # already on screen. Asked again with nothing to copy, it either
+            # translates the read or fails in a way the checks below catch - and
+            # either beats a plate that stays blank for the rest of the session,
+            # because the context only advances when a line gets through.
+            logger.debug("Echoed context for %r, retrying without it", text[:40])
+            translated = sanitize_output(
+                await self._complete(build_prompt(text, source_language, target_language, None))
+            )
+            if echoes_context(translated, context):
+                logger.debug("Discarded echoed context for %r: %r", text[:40], translated[:80])
+                return ""
+
         if not is_usable_translation(text, translated, target_language):
             logger.debug("Discarded unusable translation for %r: %r", text[:40], translated[:80])
             return ""

@@ -1,6 +1,8 @@
 (() => {
   const plate = document.getElementById("plate");
   const line = document.getElementById("line");
+  const mark = document.getElementById("mark");
+  const markLabel = document.getElementById("mark-label");
   const token = (window.__MEOWCAL__ || {}).token || "";
 
   function withToken(path) {
@@ -31,8 +33,11 @@
   }
 
   function show(text, source) {
+    const provisional = source === "translated";
     line.textContent = text;
-    line.classList.toggle("is-provisional", source === "translated");
+    line.classList.toggle("is-provisional", provisional);
+    mark.classList.toggle("is-provisional", provisional);
+    markLabel.textContent = provisional ? "AI" : "SUB";
     plate.classList.toggle("is-empty", !text);
     if (text) requestAnimationFrame(reportHeight);
   }

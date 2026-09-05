@@ -50,9 +50,9 @@ struct ShellState {
     /// Where the subtitle plate is anchored, so the page can ask to be a
     /// different height without the shell measuring the region again.
     overlay_anchor: Arc<Mutex<Option<(OverlayAnchor, f64)>>>,
-    /// Which dock resize is the current one. The pointer crossing the bead twice
-    /// in quick succession starts two, and only the later one should finish.
-    dock_resize: Arc<Mutex<u64>>,
+    /// Which live session the dock watcher belongs to. Stopping a session bumps
+    /// it, which is how the watcher started by the previous one knows to stop.
+    dock_generation: Arc<Mutex<u64>>,
 }
 
 fn repo_root() -> PathBuf {
@@ -292,8 +292,39 @@ async fn show_area_selector(app: AppHandle) -> Result<(), String> {
             .lock()
             .map_err(|_| "backdrop lock poisoned")? = backdrop.ok();
     }
+    // The selector is placed over the monitor every time it opens. It used to be
+    // created fullscreen and never sized again; hidden and shown a second time -
+    // which is what asking for the region again does - it came back as an 18x18
+    // window at the origin, and being click-through as well, the drag went to
+    // the player behind it and nothing could be reselected.
+    //
+    // A window that is not resizable is pinned to the size it currently has, so
+    // it has to be let go of before it can be given the monitor's size and then
+    // held at that.
+    // It is shown before it is placed: a hidden window on this platform keeps
+    // the size it is given only once it has been mapped, and it is transparent,
+    // so nothing of the moment before is visible.
     window.show().map_err(|error| error.to_string())?;
+    let _ = window.set_resizable(true);
+    window
+        .set_position(origin)
+        .map_err(|error| error.to_string())?;
+    window.set_size(size).map_err(|error| error.to_string())?;
+    let _ = window.set_resizable(false);
+    window
+        .set_always_on_top(true)
+        .map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())?;
+    let placed = window.outer_size().map_err(|error| error.to_string())?;
+    log_shell_event(
+        "selector.shown",
+        serde_json::json!({
+            "x": origin.x,
+            "y": origin.y,
+            "width": placed.width,
+            "height": placed.height,
+        }),
+    );
     Ok(())
 }
 
@@ -467,65 +498,112 @@ fn enter_live_mode(
     // The dock starts as a bead. The page grows it when the pointer arrives, so
     // the rest of the corner belongs to whatever is playing underneath. The
     // studio's own minimum is far larger than a bead, so it is lifted first.
-    let bead = (overlay_window::DOCK_COLLAPSED_CSS * scale).round() as u32;
+    let bead = (overlay_window::DOCK_HEIGHT_CSS * scale).round() as u32;
     window
         .set_min_size(Some(PhysicalSize {
             width: bead,
             height: bead,
         }))
         .map_err(|e| e.to_string())?;
-    overlay_window::place_dock(
-        &window,
-        overlay_window::DOCK_COLLAPSED_CSS,
-        overlay_window::DOCK_COLLAPSED_CSS,
-    )?;
+    let (at, size, dock_scale) = overlay_window::place_dock(&window)?;
+    watch_dock(&app, &shell, at, size, dock_scale)?;
 
     show_subtitle_plate(&app, &shell, &region);
     Ok(())
 }
 
-/// How a dock resize is drawn: long enough to read as a movement, short enough
-/// that the controls are usable the moment the pointer lands on them.
-const DOCK_RESIZE_STEPS: u32 = 18;
-const DOCK_RESIZE_FRAME_MS: u64 = 14;
+/// How the dock opens and closes: long enough to read as a movement, short
+/// enough that the controls are usable the moment the pointer lands on them.
+const DOCK_STEPS: u32 = 20;
+const DOCK_FRAME_MS: u64 = 12;
+/// How often the pointer is checked against the dock while a session runs.
+const DOCK_POLL_MS: u64 = 90;
 
-/// Resize the live dock to what the page has drawn.
+/// Open or close the dock by clipping the window, a frame at a time.
 ///
-/// The pointer arriving turns a bead into a row of controls, and the window has
-/// to be the size of whichever of those is on screen: any larger and it takes
-/// clicks meant for the video behind it. The window is the shape the viewer
-/// sees, so the change is walked rather than jumped.
-#[tauri::command]
-async fn set_dock_size(
-    app: AppHandle,
-    shell: State<'_, ShellState>,
-    width_css: f64,
-    height_css: f64,
-) -> Result<(), String> {
-    let window = main_window(&app)?;
-    let scale = window.scale_factor().map_err(|e| e.to_string())?;
-    let current = window.outer_size().map_err(|e| e.to_string())?;
-    let from = (
-        f64::from(current.width) / scale,
-        f64::from(current.height) / scale,
-    );
+/// The window itself never changes size. Resizing a webview window once per
+/// frame is what made the dock tear as it grew, and it is also what lost the
+/// pointer: the window moved out from under the cursor mid-gesture and the page
+/// never saw the pointer leave. The region is a clip, not a layout, so the
+/// content behind it stays exactly where it was drawn.
+async fn animate_dock(
+    window: &tauri::WebviewWindow,
+    from_px: f64,
+    to_px: f64,
+    generation: &Arc<Mutex<u64>>,
+    ticket: u64,
+) {
+    for step in 1..=DOCK_STEPS {
+        if generation.lock().map(|latest| *latest != ticket).unwrap_or(true) {
+            return;
+        }
+        let width = overlay_window::tween(from_px, to_px, step, DOCK_STEPS);
+        if let Err(error) = overlay_window::clip_pill(window, width.round() as i32) {
+            log_shell_event("dock.clip.failed", serde_json::json!({ "error": error }));
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(DOCK_FRAME_MS)).await;
+    }
+}
 
-    let resize = {
-        let mut latest = shell.dock_resize.lock().map_err(|_| "dock resize lock poisoned")?;
+/// Watch the pointer for as long as the session runs, and let it open the dock.
+///
+/// The desktop cursor position is the authority rather than the page's own
+/// enter and leave events. Those are what left the dock stuck open: they arrive
+/// only when the webview is told about them, and it is not always told.
+fn watch_dock(
+    app: &AppHandle,
+    shell: &ShellState,
+    at: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+    scale: f64,
+) -> Result<(), String> {
+    let ticket = {
+        let mut latest = shell
+            .dock_generation
+            .lock()
+            .map_err(|_| "dock generation lock poisoned")?;
         *latest += 1;
         *latest
     };
-    let generation = Arc::clone(&shell.dock_resize);
+    let generation = Arc::clone(&shell.dock_generation);
+    let app = app.clone();
+    let collapsed = (overlay_window::DOCK_COLLAPSED_CSS * scale).round();
+    let expanded = f64::from(size.width);
 
-    for step in 1..=DOCK_RESIZE_STEPS {
-        if generation.lock().map(|latest| *latest != resize).unwrap_or(true) {
-            return Ok(());
+    tauri::async_runtime::spawn(async move {
+        let mut open = false;
+        loop {
+            tokio::time::sleep(Duration::from_millis(DOCK_POLL_MS)).await;
+            if generation.lock().map(|latest| *latest != ticket).unwrap_or(true) {
+                return;
+            }
+            let Some(window) = app.get_webview_window("main") else {
+                return;
+            };
+            let Some(point) = overlay_window::cursor_position() else {
+                continue;
+            };
+            let visible = if open { expanded } else { collapsed };
+            let inside = overlay_window::rect_holds(
+                overlay_window::pill_rect(at, size, visible as i32),
+                point,
+            );
+            if inside == open {
+                continue;
+            }
+            open = inside;
+            // The page is told first, so the controls are already fading in as
+            // the pill uncovers them rather than appearing after it stops.
+            let _ = app.emit("dock-open", open);
+            let (from, to) = if open {
+                (collapsed, expanded)
+            } else {
+                (expanded, collapsed)
+            };
+            animate_dock(&window, from, to, &generation, ticket).await;
         }
-        let (width, height) =
-            overlay_window::tween_size(from, (width_css, height_css), step, DOCK_RESIZE_STEPS);
-        overlay_window::place_dock(&window, width, height)?;
-        tokio::time::sleep(Duration::from_millis(DOCK_RESIZE_FRAME_MS)).await;
-    }
+    });
     Ok(())
 }
 
@@ -575,6 +653,9 @@ fn set_overlay_height(
 #[tauri::command]
 fn exit_live_mode(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), String> {
     log_shell_event("window.live.exit_requested", serde_json::json!({}));
+    if let Ok(mut generation) = shell.dock_generation.lock() {
+        *generation += 1;
+    }
     let _ = overlay_window::hide(&app);
     if let Ok(mut anchor) = shell.overlay_anchor.lock() {
         *anchor = None;
@@ -794,7 +875,7 @@ fn main() {
         prev_main_bounds: Arc::new(Mutex::new(None)),
         selector_backdrop: Arc::new(Mutex::new(None)),
         overlay_anchor: Arc::new(Mutex::new(None)),
-        dock_resize: Arc::new(Mutex::new(0)),
+        dock_generation: Arc::new(Mutex::new(0)),
     };
 
     tauri::Builder::default()
@@ -814,7 +895,6 @@ fn main() {
             enter_live_mode,
             exit_live_mode,
             set_overlay_height,
-            set_dock_size,
             get_api_base,
             stop_translation,
             set_capture_region,

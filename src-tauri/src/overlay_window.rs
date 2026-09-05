@@ -81,7 +81,11 @@ pub fn plate_bounds(
 /// Space kept between the dock and the corner it sits in, in CSS pixels.
 const DOCK_MARGIN_CSS: f64 = 16.0;
 /// The dock at rest: a bead the viewer can find but not trip over.
-pub const DOCK_COLLAPSED_CSS: f64 = 52.0;
+pub const DOCK_COLLAPSED_CSS: f64 = 44.0;
+/// The dock with the pointer on it, wide enough for the three controls.
+pub const DOCK_EXPANDED_CSS: f64 = 284.0;
+/// The dock's height, which does not change.
+pub const DOCK_HEIGHT_CSS: f64 = 44.0;
 
 /// Where the live dock goes: the top-right corner.
 ///
@@ -89,18 +93,20 @@ pub const DOCK_COLLAPSED_CSS: f64 = 52.0;
 /// subtitles are - the lower half of the picture, in every player. Putting the
 /// controls in the opposite corner keeps them off both the plate and the
 /// player's own bar along the bottom.
+///
+/// The window is always the expanded size. Only the pill cut out of it changes,
+/// so opening and closing the dock never resizes the webview - resizing it once
+/// per animation frame is what made the dock tear as it grew.
 pub fn dock_bounds(
     monitor_position: (i32, i32),
     monitor_size: (u32, u32),
     scale: f64,
-    width_css: f64,
-    height_css: f64,
 ) -> (PhysicalPosition<i32>, PhysicalSize<u32>) {
     let (monitor_x, monitor_y) = monitor_position;
     let (monitor_w, monitor_h) = monitor_size;
     let margin = (DOCK_MARGIN_CSS * scale).round() as i32;
-    let width = ((width_css * scale).round().max(1.0) as i32).min(monitor_w as i32);
-    let height = ((height_css * scale).round().max(1.0) as i32).min(monitor_h as i32);
+    let width = ((DOCK_EXPANDED_CSS * scale).round() as i32).min(monitor_w as i32);
+    let height = ((DOCK_HEIGHT_CSS * scale).round() as i32).min(monitor_h as i32);
     (
         PhysicalPosition {
             x: monitor_x + monitor_w as i32 - width - margin,
@@ -113,15 +119,38 @@ pub fn dock_bounds(
     )
 }
 
-/// Clip the dock window to a pill.
+/// The part of the dock window the viewer can see and click, given how far open
+/// it is. Right-aligned, because the dock grows out of its corner.
+pub fn pill_rect(
+    dock_at: PhysicalPosition<i32>,
+    dock_size: PhysicalSize<u32>,
+    visible_width_px: i32,
+) -> (i32, i32, i32, i32) {
+    let visible = visible_width_px.clamp(1, dock_size.width as i32);
+    (
+        dock_at.x + dock_size.width as i32 - visible,
+        dock_at.y,
+        visible,
+        dock_size.height as i32,
+    )
+}
+
+/// Whether a point is inside a rectangle given as (x, y, width, height).
+pub fn rect_holds(rect: (i32, i32, i32, i32), point: (i32, i32)) -> bool {
+    let (x, y, width, height) = rect;
+    point.0 >= x && point.0 < x + width && point.1 >= y && point.1 < y + height
+}
+
+/// Cut the dock window down to the pill the viewer sees.
 ///
 /// The studio window is created with decorations, and a decorated window on this
 /// platform does not take a transparent frame - asking for one left the bead as
 /// a black square with the video showing round it. A native window region is not
-/// a paint at all: the corners stop being part of the window, so the shape holds
-/// whatever the webview does behind it.
+/// a paint at all: what falls outside it stops being part of the window, so it
+/// is neither drawn nor clickable, and opening the dock is a clip rather than a
+/// resize.
 #[cfg(windows)]
-fn clip_to_pill(window: &WebviewWindow) -> Result<(), String> {
+pub fn clip_pill(window: &WebviewWindow, visible_width_px: i32) -> Result<(), String> {
     use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, DeleteObject, SetWindowRgn};
 
     let hwnd = window.hwnd().map_err(|error| error.to_string())?;
@@ -132,17 +161,19 @@ fn clip_to_pill(window: &WebviewWindow) -> Result<(), String> {
     let outer = window.outer_position().map_err(|error| error.to_string())?;
     let inner = window.inner_position().map_err(|error| error.to_string())?;
     let size = window.inner_size().map_err(|error| error.to_string())?;
-    let left = inner.x - outer.x;
+    let inset_x = inner.x - outer.x;
     let top = inner.y - outer.y;
     let width = size.width as i32;
     let height = size.height as i32;
+    let visible = visible_width_px.clamp(1, width);
+    let left = inset_x + width - visible;
     // SetWindowRgn takes ownership of the region on success, and the rectangle
     // is exclusive of its right and bottom edge.
     unsafe {
         let region = CreateRoundRectRgn(
             left,
             top,
-            left + width + 1,
+            left + visible + 1,
             top + height + 1,
             height,
             height,
@@ -159,7 +190,7 @@ fn clip_to_pill(window: &WebviewWindow) -> Result<(), String> {
 }
 
 #[cfg(not(windows))]
-fn clip_to_pill(_window: &WebviewWindow) -> Result<(), String> {
+pub fn clip_pill(_window: &WebviewWindow, _visible_width_px: i32) -> Result<(), String> {
     Ok(())
 }
 
@@ -178,42 +209,56 @@ pub fn unclip(window: &WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
-/// Resize the dock around its corner, so it grows leftwards rather than off screen.
-pub fn place_dock(window: &WebviewWindow, width_css: f64, height_css: f64) -> Result<(), String> {
+/// Where the pointer is on the desktop, for deciding whether it is on the dock.
+///
+/// The webview's own leave event is not enough on its own: the pointer can end
+/// up somewhere the dock never hears about, which leaves it stuck open. The
+/// cursor position is the one answer that holds whatever the webview saw.
+#[cfg(windows)]
+pub fn cursor_position() -> Option<(i32, i32)> {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+    let mut point = POINT::default();
+    unsafe { GetCursorPos(&mut point).ok()? };
+    Some((point.x, point.y))
+}
+
+#[cfg(not(windows))]
+pub fn cursor_position() -> Option<(i32, i32)> {
+    None
+}
+
+/// Put the dock in its corner at full size, showing only the bead.
+pub fn place_dock(
+    window: &WebviewWindow,
+) -> Result<(PhysicalPosition<i32>, PhysicalSize<u32>, f64), String> {
     let monitor = window
         .current_monitor()
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "no monitor".to_string())?;
     let position = *monitor.position();
     let size = *monitor.size();
-    let (at, extent) = dock_bounds(
-        (position.x, position.y),
-        (size.width, size.height),
-        monitor.scale_factor(),
-        width_css,
-        height_css,
-    );
+    let scale = monitor.scale_factor();
+    let (at, extent) = dock_bounds((position.x, position.y), (size.width, size.height), scale);
     window.set_size(extent).map_err(|error| error.to_string())?;
     window.set_position(at).map_err(|error| error.to_string())?;
-    clip_to_pill(window)
+    clip_pill(window, (DOCK_COLLAPSED_CSS * scale).round() as i32)?;
+    Ok((at, extent, scale))
 }
 
 /// How far along an ease-out curve the dock is, `t` running 0 to 1.
 ///
 /// Quintic: almost all of the travel happens immediately and the last few pixels
-/// settle, which is what makes a resize read as a movement rather than a jump.
+/// settle, which is what makes the dock read as a movement rather than a jump.
 pub fn ease_out(t: f64) -> f64 {
     let inverse = 1.0 - t.clamp(0.0, 1.0);
     1.0 - inverse * inverse * inverse * inverse * inverse
 }
 
-/// The size the dock should be at step `step` of a resize of `steps` steps.
-pub fn tween_size(from: (f64, f64), to: (f64, f64), step: u32, steps: u32) -> (f64, f64) {
-    let progress = ease_out(f64::from(step) / f64::from(steps.max(1)));
-    (
-        from.0 + (to.0 - from.0) * progress,
-        from.1 + (to.1 - from.1) * progress,
-    )
+/// How wide the pill is at step `step` of an animation of `steps` steps.
+pub fn tween(from: f64, to: f64, step: u32, steps: u32) -> f64 {
+    from + (to - from) * ease_out(f64::from(step) / f64::from(steps.max(1)))
 }
 
 fn overlay_window(app: &AppHandle) -> Result<WebviewWindow, String> {
@@ -355,39 +400,57 @@ mod tests {
 
     #[test]
     fn the_dock_sits_in_the_top_right_corner() {
-        let (position, size) = dock_bounds((0, 0), (1920, 1080), 1.0, 52.0, 52.0);
-        assert_eq!(size.width, 52);
+        let (position, size) = dock_bounds((0, 0), (1920, 1080), 1.0);
+        assert_eq!(size.width, 284);
         assert_eq!(position.y, 16);
         assert_eq!(position.x + size.width as i32, 1920 - 16);
     }
 
     #[test]
-    fn the_dock_grows_leftwards_so_it_stays_on_screen() {
-        let (collapsed, small) = dock_bounds((0, 0), (1920, 1080), 1.0, 52.0, 52.0);
-        let (expanded, wide) = dock_bounds((0, 0), (1920, 1080), 1.0, 330.0, 52.0);
-        assert!(expanded.x < collapsed.x);
-        assert_eq!(
-            collapsed.x + small.width as i32,
-            expanded.x + wide.width as i32
-        );
+    fn the_bead_is_the_right_hand_end_of_the_dock() {
+        let (position, size) = dock_bounds((0, 0), (1920, 1080), 1.0);
+        let bead = pill_rect(position, size, 44);
+        let full = pill_rect(position, size, size.width as i32);
+        // Both end at the same edge, so opening the dock grows it leftwards
+        // rather than moving it.
+        assert_eq!(bead.0 + bead.2, full.0 + full.2);
+        assert_eq!(bead.2, 44);
+        assert!(bead.0 > full.0);
     }
 
     #[test]
-    fn a_resize_starts_where_it_was_and_ends_where_it_was_asked_to() {
-        assert_eq!(tween_size((52.0, 52.0), (296.0, 52.0), 0, 18), (52.0, 52.0));
-        assert_eq!(tween_size((52.0, 52.0), (296.0, 52.0), 18, 18), (296.0, 52.0));
+    fn the_pointer_over_the_video_beside_the_bead_is_not_on_the_dock() {
+        let (position, size) = dock_bounds((0, 0), (1920, 1080), 1.0);
+        let bead = pill_rect(position, size, 44);
+        assert!(rect_holds(bead, (bead.0 + 2, bead.1 + 2)));
+        // The window reaches this far left even while closed; the clip is what
+        // makes it not the dock.
+        assert!(!rect_holds(bead, (position.x + 2, bead.1 + 2)));
     }
 
     #[test]
-    fn a_resize_covers_most_of_its_travel_early() {
-        let (halfway, _) = tween_size((52.0, 52.0), (296.0, 52.0), 9, 18);
-        assert!(halfway > (52.0 + 296.0) / 2.0);
+    fn a_pill_can_never_be_wider_than_the_window_holding_it() {
+        let (position, size) = dock_bounds((0, 0), (1920, 1080), 1.0);
+        let clamped = pill_rect(position, size, 9999);
+        assert_eq!(clamped.2, size.width as i32);
+        assert_eq!(clamped.0, position.x);
+    }
+
+    #[test]
+    fn an_animation_starts_where_it_was_and_ends_where_it_was_asked_to() {
+        assert_eq!(tween(44.0, 284.0, 0, 20), 44.0);
+        assert_eq!(tween(44.0, 284.0, 20, 20), 284.0);
+    }
+
+    #[test]
+    fn an_animation_covers_most_of_its_travel_early() {
+        assert!(tween(44.0, 284.0, 10, 20) > (44.0 + 284.0) / 2.0);
     }
 
     #[test]
     fn the_dock_follows_the_monitor_it_is_on() {
-        let (position, _) = dock_bounds((-1920, 0), (1920, 1080), 1.0, 52.0, 52.0);
-        assert_eq!(position.x, -1920 + 1920 - 52 - 16);
+        let (position, size) = dock_bounds((-1920, 0), (1920, 1080), 1.0);
+        assert_eq!(position.x + size.width as i32, -1920 + 1920 - 16);
     }
 
     #[test]
