@@ -52,6 +52,10 @@ AGREEING_LINES = 1
 # How many overlapping cues the plate shows at once. Two speakers talking over
 # each other is the case worth covering; past that the plate is a wall of text.
 PLATE_LINES = 2
+# How far two cues have to overlap before they count as being said together.
+# Files routinely end one cue on the millisecond the next begins, and treating
+# that as an overlap would put every consecutive pair of lines on the plate.
+SIMULTANEOUS_MS = 300
 # Overlapping cues reach the plate as separate rows, the way they were on the
 # screen they came from. The overlay's own stylesheet is what renders it.
 ROW_BREAK = "\n"
@@ -252,20 +256,29 @@ class SubtitleMatcher:
         return best_single[0], 1, best_single[1]
 
     def _showing_at(self, last: int, position_ms: int) -> list[SubtitleLine]:
-        """Every line still running at this point, oldest first.
+        """The lines genuinely on screen together at this point, oldest first.
 
         Two speakers in one exchange overlap in time, and a file can give two
         cues the same start. Taking only the last of them drops the other from
         the plate, which the viewer reads as a line that failed to translate.
-        The scan stops at the first line that has ended, so a sign held over a
-        whole scene does not attach itself to the dialogue under it.
+
+        Sharing a boundary is not sharing the screen. Most files cut one cue
+        where the next begins, so "still running" alone would pair up every
+        consecutive line in the episode and turn one line of dialogue into two.
+        An earlier cue joins the plate only if it runs `SIMULTANEOUS_MS` past
+        the start of the one below it.
         """
-        showing: list[SubtitleLine] = []
-        for index in range(last, -1, -1):
-            line = self.subtitles[index]
-            if line.end_ms < position_ms or len(showing) == PLATE_LINES:
+        current = self.subtitles[last]
+        if current.end_ms < position_ms:
+            return []
+        showing = [current]
+        for index in range(last - 1, -1, -1):
+            earlier = self.subtitles[index]
+            if len(showing) == PLATE_LINES or earlier.end_ms < position_ms:
                 break
-            showing.append(line)
+            if earlier.end_ms - current.start_ms < SIMULTANEOUS_MS:
+                break
+            showing.append(earlier)
         showing.reverse()
         return showing
 
@@ -288,14 +301,17 @@ class SubtitleMatcher:
             if position_ms > line.end_ms + FOLLOW_GRACE_MS:
                 return None
             showing = [line]
-        first = showing[0]
+        # One of a pair having no translation is not a reason to withhold the
+        # other: the plate would go blank for a line the file could answer.
+        showing = [line for line in showing if line.translated] or showing
+        first, final = showing[0], showing[-1]
         return MatchResult(
             line_index=first.index,
             score=0.0,
             source_text=_joined((line.text for line in showing), ROW_BREAK),
             target_text=_joined(((line.translated or line.text) for line in showing), ROW_BREAK),
             start_ms=first.start_ms,
-            span=len(showing),
+            span=final.index - first.index + 1,
             translated=all(bool(line.translated) for line in showing),
         )
 

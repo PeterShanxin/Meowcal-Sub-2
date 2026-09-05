@@ -353,8 +353,11 @@ async def test_the_clock_plays_the_next_line_without_waiting_for_a_read() -> Non
     import meocosub2.sync as sync_module
 
     original_ocr, original_capture = sync_module.ocr_image, sync_module.capture_region
+    original_lead = sync_module.DISPLAY_LEAD_MS
     sync_module.ocr_image = ocr
     sync_module.capture_region = lambda region: MagicMock()
+    # The lag has its own test; here it would only decide how long to sleep for.
+    sync_module.DISPLAY_LEAD_MS = 0
     try:
         loop = asyncio.create_task(run_session_loop(session, config(), broadcast))
         await asyncio.sleep(0.5)
@@ -364,6 +367,7 @@ async def test_the_clock_plays_the_next_line_without_waiting_for_a_read() -> Non
     finally:
         sync_module.ocr_image = original_ocr
         sync_module.capture_region = original_capture
+        sync_module.DISPLAY_LEAD_MS = original_lead
 
     assert broadcasts[0] == "你好"
     assert "再见" in broadcasts

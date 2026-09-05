@@ -1400,15 +1400,22 @@ class GuiController:
         # panel can inspect OCR timing without changing capture behavior.
         debug_cb = self._make_debug_broadcast() if config.debug_mode else None
         opened: list = []
+        opening = asyncio.Lock()
 
         async def semantic_factory() -> SemanticIndex:
             return SemanticIndex(await engine.ensure_embedding_ready())
 
         async def translator_factory() -> LiveTranslator:
-            # Opened on the first line that needs it, so a session whose subtitles
-            # are already paired never waits on the engine.
-            if not opened:
-                opened.append(await open_live_translator(config))
+            """Open the translator once, however many reads ask for it at once.
+
+            Every unmatched read starts its own task, and until the engine is up
+            they all arrive here together. Checking `opened` without the lock
+            let each of them past - measured as nine engines started in twenty
+            seconds, one per waiting read, competing for the GPU.
+            """
+            async with opening:
+                if not opened:
+                    opened.append(await open_live_translator(config))
             return opened[0][1]
 
         try:

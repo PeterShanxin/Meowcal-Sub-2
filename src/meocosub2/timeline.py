@@ -67,6 +67,7 @@ class PlaybackTimeline:
         self._anchor_at = 0.0
         self._paused_s = 0.0
         self._cue_since: float | None = None
+        self._cue_started_ms: int | None = None
         self._cue_credited_s = 0.0
         self._misses = 0
         self._drift_ms: int | None = None
@@ -89,11 +90,36 @@ class PlaybackTimeline:
             misses=self._misses,
         )
 
-    def predicted_ms(self, now: float | None = None) -> int | None:
+    def _running_ms(self, now: float) -> int | None:
+        """Where the wall clock alone says the video is."""
         if self._anchor_ms is None:
             return None
-        now = monotonic() if now is None else now
         return int(self._anchor_ms + (now - self._anchor_at - self._paused_s) * 1000)
+
+    def _held_ms(self, now: float) -> int | None:
+        """Where the clock stood when the cue now frozen on screen appeared.
+
+        A cue that has outlasted any subtitle is a paused frame, and the line
+        the viewer is looking at is the one that was on screen when it went up -
+        not the two or three the clock ran on through before it stopped.
+        `saw_same_cue` freezes the clock; this walks it back to the pause.
+
+        Provisional on purpose: the moment a different cue is read the video is
+        moving again, and the clock carries on from where it actually was.
+        """
+        if self._cue_since is None or self._cue_started_ms is None:
+            return None
+        if now - self._cue_since <= CUE_HOLD_S:
+            return None
+        return self._cue_started_ms
+
+    def predicted_ms(self, now: float | None = None) -> int | None:
+        now = monotonic() if now is None else now
+        running = self._running_ms(now)
+        held = self._held_ms(now)
+        if running is None or held is None:
+            return running
+        return min(running, held)
 
     def position_ms(self, now: float | None = None) -> int | None:
         """Where the video is, for a caller about to draw a line from the clock.
@@ -114,7 +140,11 @@ class PlaybackTimeline:
 
     def saw_new_cue(self, now: float | None = None) -> None:
         """A different subtitle is on screen, so the clock is running normally."""
-        self._cue_since = monotonic() if now is None else now
+        now = monotonic() if now is None else now
+        self._cue_since = now
+        # Taken from the running clock rather than the reported one, so that
+        # walking back to a pause does not leave the clock walked back forever.
+        self._cue_started_ms = self._running_ms(now)
         self._cue_credited_s = 0.0
 
     def saw_same_cue(self, now: float | None = None) -> None:
@@ -210,6 +240,7 @@ class PlaybackTimeline:
         # clock is being anchored to, so the hold that catches a paused video
         # measures from there too.
         self._cue_since = at
+        self._cue_started_ms = line_start_ms
         self._cue_credited_s = 0.0
         self._drift_ms = drift
         self._misses = 0

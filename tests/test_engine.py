@@ -7,6 +7,7 @@ import pytest
 from meocosub2 import engine
 from meocosub2.engine import install as install_module
 from meocosub2.engine import paths as paths_module
+from meocosub2.engine import runtime as runtime_module
 from meocosub2.engine.install import EngineInstallError
 from meocosub2.engine.manifest import load_manifest
 from meocosub2.engine.paths import InstallPaths, resolve_paths
@@ -138,6 +139,62 @@ def test_the_matching_model_lives_in_our_own_tree_even_when_v1_is_adopted(
 
     assert adopted.model.is_relative_to(v1_root)
     assert not adopted.embedding_model.is_relative_to(v1_root)
+
+
+class FakeProcess:
+    """A spawned engine, reduced to whether it is still running."""
+
+    def __init__(self, pid: int) -> None:
+        self.pid = pid
+        self.terminated = False
+
+    def poll(self):
+        return 1 if self.terminated else None
+
+    def terminate(self) -> None:
+        self.terminated = True
+
+    def wait(self, timeout=None) -> int:
+        return 0
+
+
+def test_starting_an_engine_stops_the_one_it_replaces(tmp_path: Path, monkeypatch) -> None:
+    """A dropped handle does not stop a process holding gigabytes of model.
+
+    Measured once: a race opening the translator started nine engines in twenty
+    seconds, each one abandoning the last, until they were competing for the GPU
+    and crashing each other.
+    """
+    executable = tmp_path / "llama-server.exe"
+    model = tmp_path / "model.gguf"
+    executable.write_bytes(b"x")
+    model.write_bytes(b"x")
+    plan = a_plan(executable=executable, model=model)
+    paths = InstallPaths(
+        root=tmp_path,
+        runtime_dir=tmp_path,
+        runtime_archive=tmp_path / "runtime.zip",
+        executable=executable,
+        model_dir=tmp_path,
+        model=model,
+        embedding_model_dir=tmp_path,
+        embedding_model=tmp_path / "embedding.gguf",
+    )
+    spawned: list[FakeProcess] = []
+    monkeypatch.setattr(
+        runtime_module.subprocess,
+        "Popen",
+        lambda *args, **kwargs: spawned.append(FakeProcess(len(spawned))) or spawned[-1],
+    )
+    monkeypatch.setattr(runtime_module, "_attach_to_process_lifetime", lambda process: None)
+
+    try:
+        runtime_module._start(plan, paths)
+        runtime_module._start(plan, paths)
+        assert spawned[0].terminated, "the engine being replaced must be stopped"
+        assert not spawned[1].terminated
+    finally:
+        runtime_module.shutdown(plan.role)
 
 
 def test_the_engine_leaves_cores_for_capture_and_ocr() -> None:

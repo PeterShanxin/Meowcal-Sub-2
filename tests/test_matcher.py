@@ -353,6 +353,27 @@ def test_the_plate_changes_when_the_first_of_two_cues_runs_out() -> None:
     assert SubtitleMatcher(two_speakers()).next_change_ms(3_000) == 4_001
 
 
+def test_a_cue_ending_where_the_next_begins_is_not_two_speakers() -> None:
+    """Most files are cut this way, so pairing them doubles up the whole episode."""
+    consecutive = [
+        SubtitleLine(index=0, start_ms=0, end_ms=2_000, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=2_000, end_ms=4_000, text="Goodbye now", translated="再见"),
+    ]
+    found = SubtitleMatcher(consecutive).line_at(2_000)
+    assert found is not None and found.target_text == "再见"
+
+
+def test_a_line_with_no_translation_does_not_take_its_partner_off_the_plate() -> None:
+    """The plate can answer for one of them, and going blank answers for neither."""
+    half_paired = [
+        SubtitleLine(index=0, start_ms=0, end_ms=4_000, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=2_000, end_ms=6_000, text="Goodbye now"),
+    ]
+    found = SubtitleMatcher(half_paired).line_at(3_000)
+    assert found is not None and found.translated
+    assert found.target_text == "你好"
+
+
 class FakeSemantic:
     """The embedding engine, reduced to the one answer the matcher acts on.
 

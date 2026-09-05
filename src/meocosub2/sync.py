@@ -42,9 +42,9 @@ CLEAR_AFTER_EMPTY_READS = 3
 # How far ahead of the clock the plate is drawn, negative to hold it back.
 # The clock does not need help arriving early: it anchors at the moment a cue
 # was first seen rather than the moment it was recognised, which already takes
-# the capture and OCR delay out of it. Measured against a real player, lines
-# landed about half a second ahead of the dialogue, so the plate waits.
-DISPLAY_LEAD_MS = -150
+# the capture and OCR delay out of it. Measured against a real player twice,
+# each run about half a second ahead of the dialogue, so the plate waits.
+DISPLAY_LEAD_MS = -650
 TRANSLATION_CACHE_SIZE = 64
 CONTEXT_LINES = 3
 

@@ -72,12 +72,29 @@ def test_two_high_scores_in_different_places_do_not_move_the_clock() -> None:
     assert timeline.predicted_ms(now=6.0) == 606_000
 
 
-def test_a_paused_video_does_not_run_the_clock_on() -> None:
+def test_a_paused_video_walks_the_clock_back_to_where_it_was_paused() -> None:
+    """Not just stopped: returned to the line the viewer is looking at.
+
+    The clock runs on for a few seconds before a hold is long enough to read as
+    a pause, and those seconds put two or three lines on the plate that the
+    viewer never reached.
+    """
     timeline = anchored_at(600_000)
     # The same subtitle sits on screen for half a minute, which no subtitle does
     # while the video is playing.
     for elapsed in range(1, 31):
         timeline.saw_same_cue(now=float(elapsed))
+    assert timeline.predicted_ms(now=30.0) == 600_000
+
+
+def test_the_walk_back_is_given_up_as_soon_as_the_video_moves_again() -> None:
+    """Otherwise a pause would leave the clock behind for the rest of the episode."""
+    timeline = anchored_at(600_000)
+    for elapsed in range(1, 31):
+        timeline.saw_same_cue(now=float(elapsed))
+    timeline.saw_new_cue(now=30.0)
+
+    # The seconds the hold took out of the clock stay out; the walk back does not.
     assert timeline.predicted_ms(now=30.0) == 600_000 + int(CUE_HOLD_S * 1000)
 
 

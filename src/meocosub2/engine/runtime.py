@@ -339,6 +339,16 @@ def shutdown(role: str | None = None) -> None:
 
 
 def _start(plan: LaunchPlan, paths: InstallPaths) -> _OwnedEngine:
+    """Launch the engine for a role, replacing whatever held that role before.
+
+    The replacement is the point of the first line. A model held resident costs
+    gigabytes, and dropping the handle to a running one only loses our ability
+    to stop it - the process itself carries on. Measured once: a race opening
+    the translator started nine engines in twenty seconds, each one abandoning
+    the last, until they were competing for the GPU and crashing each other.
+    """
+    shutdown(plan.role)
+
     if not plan.executable.is_file():
         raise EngineStartError(f"Translation runtime is missing: {plan.executable}")
     if not plan.model.is_file():

@@ -48,11 +48,14 @@ satisfy a number, and a module split for arithmetic is harder to maintain than
 the long one it replaced. What the ratchet buys is that the raise is visible in
 the diff and has to be argued for, not that it can never happen.
 
-Two have been raised so far. `matcher.py` (405 to 439) and `sync.py` (614 to
-622) grew to draw overlapping subtitle cues: a file can run two speakers' cues
-at once, or give two rows the same timestamp, and taking only the last of them
-dropped the other from the plate, which a viewer reads as a line the app failed
-to translate.
+Raised so far, all of them by live testing against a real player:
+
+| File | From | To | Why |
+| --- | ---: | ---: | --- |
+| `matcher.py` | 405 | 455 | drawing cues that genuinely run at once, and only those |
+| `sync.py` | 614 | 622 | holding the plate behind the dialogue without reading behind the anchor |
+| `engine/runtime.py` | 479 | 489 | stopping the engine a new one replaces, instead of dropping its handle |
+| `overlay/controller.py` | 1664 | 1671 | opening the translator once however many reads ask at the same moment |
 
 The four largest are the ones worth naming, because they are where the work is:
 
