@@ -1,5 +1,8 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
+mod overlay_window;
+
+use overlay_window::OverlayAnchor;
 use reqwest::blocking::Client;
 use serde::Serialize;
 use std::fs;
@@ -44,6 +47,12 @@ struct ShellState {
     prev_main_bounds: Arc<Mutex<Option<MainWindowBounds>>>,
     /// The still the capture selector draws on, held only while it is open.
     selector_backdrop: Arc<Mutex<Option<String>>>,
+    /// Where the subtitle plate is anchored, so the page can ask to be a
+    /// different height without the shell measuring the region again.
+    overlay_anchor: Arc<Mutex<Option<(OverlayAnchor, f64)>>>,
+    /// Which dock resize is the current one. The pointer crossing the bead twice
+    /// in quick succession starts two, and only the later one should finish.
+    dock_resize: Arc<Mutex<u64>>,
 }
 
 fn repo_root() -> PathBuf {
@@ -419,8 +428,15 @@ fn show_main_window(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn enter_live_mode(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), String> {
-    log_shell_event("window.live.enter_requested", serde_json::json!({}));
+fn enter_live_mode(
+    app: AppHandle,
+    shell: State<'_, ShellState>,
+    region: Vec<i32>,
+) -> Result<(), String> {
+    log_shell_event(
+        "window.live.enter_requested",
+        serde_json::json!({ "region": region }),
+    );
     let window = main_window(&app)?;
     let maximized = window.is_maximized().map_err(|e| e.to_string())?;
     if maximized {
@@ -443,34 +459,129 @@ fn enter_live_mode(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), S
         .current_monitor()
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "no monitor".to_string())?;
-    let monitor_size = monitor.size();
-    let monitor_pos = monitor.position();
     let scale = monitor.scale_factor();
-    let strip_height = ((220.0_f64) * scale).round() as u32;
-    let strip_height = strip_height.min(monitor_size.height);
 
     window.set_decorations(false).map_err(|e| e.to_string())?;
     window.set_always_on_top(true).map_err(|e| e.to_string())?;
     window.set_resizable(false).map_err(|e| e.to_string())?;
+    // The dock starts as a bead. The page grows it when the pointer arrives, so
+    // the rest of the corner belongs to whatever is playing underneath. The
+    // studio's own minimum is far larger than a bead, so it is lifted first.
+    let bead = (overlay_window::DOCK_COLLAPSED_CSS * scale).round() as u32;
     window
-        .set_size(PhysicalSize {
-            width: monitor_size.width,
-            height: strip_height,
-        })
+        .set_min_size(Some(PhysicalSize {
+            width: bead,
+            height: bead,
+        }))
         .map_err(|e| e.to_string())?;
-    window
-        .set_position(PhysicalPosition {
-            x: monitor_pos.x,
-            y: monitor_pos.y + (monitor_size.height as i32) - (strip_height as i32),
-        })
-        .map_err(|e| e.to_string())?;
+    overlay_window::place_dock(
+        &window,
+        overlay_window::DOCK_COLLAPSED_CSS,
+        overlay_window::DOCK_COLLAPSED_CSS,
+    )?;
+
+    show_subtitle_plate(&app, &shell, &region);
     Ok(())
+}
+
+/// How a dock resize is drawn: long enough to read as a movement, short enough
+/// that the controls are usable the moment the pointer lands on them.
+const DOCK_RESIZE_STEPS: u32 = 18;
+const DOCK_RESIZE_FRAME_MS: u64 = 14;
+
+/// Resize the live dock to what the page has drawn.
+///
+/// The pointer arriving turns a bead into a row of controls, and the window has
+/// to be the size of whichever of those is on screen: any larger and it takes
+/// clicks meant for the video behind it. The window is the shape the viewer
+/// sees, so the change is walked rather than jumped.
+#[tauri::command]
+async fn set_dock_size(
+    app: AppHandle,
+    shell: State<'_, ShellState>,
+    width_css: f64,
+    height_css: f64,
+) -> Result<(), String> {
+    let window = main_window(&app)?;
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let current = window.outer_size().map_err(|e| e.to_string())?;
+    let from = (
+        f64::from(current.width) / scale,
+        f64::from(current.height) / scale,
+    );
+
+    let resize = {
+        let mut latest = shell.dock_resize.lock().map_err(|_| "dock resize lock poisoned")?;
+        *latest += 1;
+        *latest
+    };
+    let generation = Arc::clone(&shell.dock_resize);
+
+    for step in 1..=DOCK_RESIZE_STEPS {
+        if generation.lock().map(|latest| *latest != resize).unwrap_or(true) {
+            return Ok(());
+        }
+        let (width, height) =
+            overlay_window::tween_size(from, (width_css, height_css), step, DOCK_RESIZE_STEPS);
+        overlay_window::place_dock(&window, width, height)?;
+        tokio::time::sleep(Duration::from_millis(DOCK_RESIZE_FRAME_MS)).await;
+    }
+    Ok(())
+}
+
+/// Put the subtitle plate beside the capture region, and remember where.
+///
+/// A session without a usable region has nothing to anchor to; the studio blocks
+/// starting one, so this only guards against a config written by hand.
+fn show_subtitle_plate(app: &AppHandle, shell: &ShellState, region: &[i32]) {
+    let Ok(region) = <[i32; 4]>::try_from(region) else {
+        log_shell_event(
+            "overlay.place.skipped",
+            serde_json::json!({ "reason": "region is not four numbers" }),
+        );
+        return;
+    };
+    match overlay_window::show(app, region) {
+        Ok(placed) => {
+            if let Ok(mut anchor) = shell.overlay_anchor.lock() {
+                *anchor = Some(placed);
+            }
+            log_shell_event("overlay.shown", serde_json::json!({ "region": region }));
+        }
+        Err(error) => log_shell_event("overlay.show.failed", serde_json::json!({ "error": error })),
+    }
+}
+
+/// Resize the plate to the height its content actually needs.
+///
+/// The shell guesses two lines at the default font; the page is the only side
+/// that knows what the viewer's font size and this line's wrapping came to.
+#[tauri::command]
+fn set_overlay_height(
+    app: AppHandle,
+    shell: State<'_, ShellState>,
+    height_css: f64,
+) -> Result<(), String> {
+    let placed = *shell
+        .overlay_anchor
+        .lock()
+        .map_err(|_| "overlay anchor lock poisoned")?;
+    let Some((anchor, scale)) = placed else {
+        return Ok(());
+    };
+    overlay_window::place(&app, anchor, scale, height_css)
 }
 
 #[tauri::command]
 fn exit_live_mode(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), String> {
     log_shell_event("window.live.exit_requested", serde_json::json!({}));
+    let _ = overlay_window::hide(&app);
+    if let Ok(mut anchor) = shell.overlay_anchor.lock() {
+        *anchor = None;
+    }
     let window = main_window(&app)?;
+    let _ = overlay_window::unclip(&window);
+    let _ = window.set_min_size(None::<PhysicalSize<u32>>);
     window.set_always_on_top(false).map_err(|e| e.to_string())?;
     window.set_decorations(true).map_err(|e| e.to_string())?;
     window.set_resizable(true).map_err(|e| e.to_string())?;
@@ -584,6 +695,17 @@ fn set_capture_region(
     )
     .map_err(|error| error.to_string())?;
 
+    // A region re-drawn during a session moves the plate with it; outside one
+    // the plate is hidden and has nothing to follow.
+    if shell
+        .overlay_anchor
+        .lock()
+        .map(|anchor| anchor.is_some())
+        .unwrap_or(false)
+    {
+        show_subtitle_plate(&app, &shell, &region);
+    }
+
     release_selector_backdrop(&shell);
     if let Some(selector) = app.get_webview_window("selector") {
         let _ = selector.hide();
@@ -641,6 +763,21 @@ fn navigate_main_to_backend(app: &AppHandle) {
     log_shell_event("window.main.navigate", serde_json::json!({ "url": url.as_str() }));
     let _ = window.navigate(url);
     let _ = window.set_focus();
+    navigate_overlay_to_backend(app);
+}
+
+/// Point the (hidden) subtitle plate at its page, so it is already listening for
+/// lines by the time a session starts.
+fn navigate_overlay_to_backend(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("overlay") else {
+        return;
+    };
+    let Ok(mut url) = Url::parse(&format!("{}/overlay", api_base())) else {
+        return;
+    };
+    url.query_pairs_mut().append_pair("token", &access_token());
+    log_shell_event("window.overlay.navigate", serde_json::json!({}));
+    let _ = window.navigate(url);
 }
 
 fn show_main(app: &AppHandle) {
@@ -656,6 +793,8 @@ fn main() {
     let shell_state = ShellState {
         prev_main_bounds: Arc::new(Mutex::new(None)),
         selector_backdrop: Arc::new(Mutex::new(None)),
+        overlay_anchor: Arc::new(Mutex::new(None)),
+        dock_resize: Arc::new(Mutex::new(0)),
     };
 
     tauri::Builder::default()
@@ -674,6 +813,8 @@ fn main() {
             show_main_window,
             enter_live_mode,
             exit_live_mode,
+            set_overlay_height,
+            set_dock_size,
             get_api_base,
             stop_translation,
             set_capture_region,

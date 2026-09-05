@@ -219,7 +219,9 @@ export function App(): JSX.Element {
   useEffect(() => {
     const previous = prevPhase.current;
     if (phase === "live") {
-      void tauri.enterLiveMode();
+      // Read at call time rather than from the closure: the region can be
+      // re-drawn between renders, and the plate is placed against it.
+      void tauri.enterLiveMode(store.get().config?.capture.region ?? []);
     } else if (previous === "live") {
       void tauri.exitLiveMode();
     }
@@ -1149,8 +1151,6 @@ export function App(): JSX.Element {
 
         {phase === "live" && (
           <LiveView
-            prev={liveLines[liveLines.length - 2] ?? null}
-            current={liveLines[liveLines.length - 1] ?? null}
             onStop={() => void clearSession()}
             onSelectRegion={() => void tauri.openAreaSelector()}
             onOpenSettings={openSettings}

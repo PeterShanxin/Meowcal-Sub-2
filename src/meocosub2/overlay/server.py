@@ -124,7 +124,15 @@ class OverlayServer:
         @self.app.get("/")
         async def index() -> HTMLResponse:
             return HTMLResponse(
-                self._studio_html(),
+                self._page_html("index.html"),
+                headers={"Cache-Control": "no-store, max-age=0"},
+            )
+
+        @self.app.get("/overlay")
+        async def overlay_page() -> HTMLResponse:
+            """The subtitle plate the shell floats beside the capture region."""
+            return HTMLResponse(
+                self._page_html("overlay.html"),
                 headers={"Cache-Control": "no-store, max-age=0"},
             )
 
@@ -296,9 +304,9 @@ class OverlayServer:
             self._access_token, query_token
         )
 
-    def _studio_html(self) -> str:
-        """The studio page with this run's token, handed only to callers that already have it."""
-        markup = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    def _page_html(self, file_name: str) -> str:
+        """A served page with this run's token, handed only to callers that already have it."""
+        markup = (STATIC_DIR / file_name).read_text(encoding="utf-8")
         bootstrap = (
             "<script>window.__MEOWCAL__="
             + json.dumps({"token": self._access_token})

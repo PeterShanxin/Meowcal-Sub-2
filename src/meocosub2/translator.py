@@ -37,6 +37,9 @@ MIN_CHARS_TO_JUDGE_SCRIPT = 6
 # How closely a leading sentence must restate a line already on screen before it
 # is treated as the model repeating its context rather than translating.
 RESTATED_CONTEXT_SIMILARITY = 80.0
+# How closely a whole answer must restate one context line before it is read as
+# the model handing back what it was given instead of translating.
+ECHOED_CONTEXT_SIMILARITY = 88.0
 
 MAX_SOURCE_CHARS = 300
 MAX_CONTEXT_CHARS = 400
@@ -240,6 +243,24 @@ def is_usable_translation(source: str, translated: str, target_language: str) ->
     return not _wrong_script(translated, target_language)
 
 
+def echoes_context(translated: str, context_lines: list[str]) -> bool:
+    """Whether the answer is one of the lines the model was given as context.
+
+    Measured against a real HY-MT session: asked to translate a new subtitle
+    with the previous two as context, the model sometimes returns the previous
+    one word for word. Sentence-by-sentence trimming does not catch it, because
+    every sentence is genuine - they are just the wrong line. Showing the line
+    already on screen a second time reads as new dialogue, so nothing is shown
+    and the plate keeps the line it has.
+    """
+    if not translated:
+        return False
+    return any(
+        fuzz.token_set_ratio(translated.lower(), line.lower()) >= ECHOED_CONTEXT_SIMILARITY
+        for line in context_lines
+    )
+
+
 def _sentences(text: str) -> list[str]:
     parts = re.split(r"(?<=[.!?。！？])\s+", text.strip())
     return [part for part in parts if part.strip()]
@@ -315,7 +336,11 @@ class TranslationClient:
 
         choices = payload.get("choices") or []
         content = choices[0].get("message", {}).get("content", "") if choices else ""
-        translated = drop_restated_context(sanitize_output(content), list(context_lines or []))
+        context = list(context_lines or [])
+        translated = drop_restated_context(sanitize_output(content), context)
+        if echoes_context(translated, context):
+            logger.debug("Discarded echoed context for %r: %r", text[:40], translated[:80])
+            return ""
         if not is_usable_translation(text, translated, target_language):
             logger.debug("Discarded unusable translation for %r: %r", text[:40], translated[:80])
             return ""

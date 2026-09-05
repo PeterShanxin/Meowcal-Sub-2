@@ -51,18 +51,22 @@ def never_translates():
     return open_it
 
 
-async def drive(session, config, reads: list[str]) -> list[str]:
+async def drive_with_source(session, config, reads: list[str]) -> list[tuple[str, str]]:
     """Run the capture loop over a fixed list of OCR reads and collect broadcasts."""
-    broadcasts: list[str] = []
+    broadcasts: list[tuple[str, str]] = []
     remaining = list(reads)
 
     async def ocr(_image, _language) -> str:
         if not remaining:
+            # Translations run as tasks beside the loop. Giving them a few turns
+            # before it unwinds is what a session gets from its next capture.
+            for _ in range(3):
+                await asyncio.sleep(0)
             raise asyncio.CancelledError()
         return remaining.pop(0)
 
-    async def broadcast(text: str) -> None:
-        broadcasts.append(text)
+    async def broadcast(text: str, source: str) -> None:
+        broadcasts.append((text, source))
 
     import meocosub2.sync as sync_module
 
@@ -77,6 +81,10 @@ async def drive(session, config, reads: list[str]) -> list[str]:
         sync_module.ocr_image = original_ocr
         sync_module.capture_region = original_capture
     return broadcasts
+
+
+async def drive(session, config, reads: list[str]) -> list[str]:
+    return [text for text, _ in await drive_with_source(session, config, reads)]
 
 
 def config(**overrides) -> AppConfig:
@@ -178,7 +186,7 @@ async def test_the_loop_follows_a_region_reselected_mid_session() -> None:
             await run_session_loop(
                 session,
                 config(),
-                lambda text: asyncio.sleep(0),
+                lambda text, source: asyncio.sleep(0),
                 region_source=lambda: selected[0],
             )
     finally:
@@ -195,3 +203,59 @@ async def test_a_fully_paired_session_never_opens_the_engine() -> None:
         [make_candidate("a", paired_lines())], config(), never_translates()
     )
     assert await drive(session, config(), ["Hello there", "Goodbye now"]) == ["你好", "再见"]
+
+
+@pytest.mark.asyncio
+async def test_a_read_that_matches_nothing_is_translated_and_marked_as_such() -> None:
+    session = CandidateSession(
+        [make_candidate("a", paired_lines())], config(), fake_translator("临时翻译")
+    )
+    # Nothing in the file resembles this, so the plate is filled by the model
+    # rather than left blank while the viewer waits.
+    assert await drive_with_source(session, config(), ["Something else entirely"]) == [
+        ("临时翻译", "translated")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_matched_line_is_marked_as_coming_from_the_file() -> None:
+    session = CandidateSession([make_candidate("a", paired_lines())], config(), never_translates())
+    assert await drive_with_source(session, config(), ["Hello there"]) == [("你好", "matched")]
+
+
+@pytest.mark.asyncio
+async def test_a_cue_that_matches_on_a_later_read_stops_being_provisional() -> None:
+    client = MagicMock()
+    client.translate = AsyncMock(return_value="临时翻译")
+    session = CandidateSession(
+        [make_candidate("a", paired_lines())],
+        config(),
+        translator_factory(LiveTranslator(client, "en", "zh")),
+    )
+    # The first read is too damaged to match and gets a translation; the same
+    # cue read again is clean, and the file's line replaces it.
+    broadcasts = await drive_with_source(session, config(), ["He11o 1here", "Hello there"])
+    assert broadcasts[-1] == ("你好", "matched")
+
+
+@pytest.mark.asyncio
+async def test_a_cue_the_file_splits_in_two_is_matched_as_the_pair() -> None:
+    split = [
+        SubtitleLine(index=0, start_ms=0, end_ms=1500, text="We should go", translated="我们该走了"),
+        SubtitleLine(index=1, start_ms=1500, end_ms=3000, text="before it gets dark", translated="趁天还没黑"),
+    ]
+    session = CandidateSession([make_candidate("a", split)], config(), never_translates())
+    shown = await drive(session, config(), ["We should go before it gets dark"])
+    assert shown == ["我们该走了 趁天还没黑"]
+
+
+@pytest.mark.asyncio
+async def test_a_pair_sharing_one_target_line_does_not_say_it_twice() -> None:
+    # Alignment pairs by time overlap, so a target file that breaks the sentence
+    # elsewhere can hand both halves the same line.
+    shared = [
+        SubtitleLine(index=0, start_ms=0, end_ms=1500, text="for the rest", translated="今天剩下的时间"),
+        SubtitleLine(index=1, start_ms=1500, end_ms=3000, text="of the day", translated="今天剩下的时间"),
+    ]
+    session = CandidateSession([make_candidate("a", shared)], config(), never_translates())
+    assert await drive(session, config(), ["for the rest of the day"]) == ["今天剩下的时间"]

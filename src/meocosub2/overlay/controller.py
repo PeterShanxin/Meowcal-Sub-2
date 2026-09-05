@@ -45,6 +45,7 @@ from meocosub2.subtitle_sources import (
 from meocosub2.subtitle_sources.utils import result_id_for
 from meocosub2.subtitles import align_subtitles, assign_target_translations, load_subtitle_file
 from meocosub2.sync import (
+    MATCHED,
     CandidateSession,
     DirectTranslationSession,
     LiveTranslator,
@@ -1191,7 +1192,7 @@ class GuiController:
                 self._state.progress = AppProgress()
                 self._state.warning_message = ""
             await self._emit_app_state()
-            await self._emit_app_event("subtitle", {"text": ""})
+            await self._emit_app_event("subtitle", {"text": "", "source": MATCHED})
             return {"status": self._state.status}
 
         async with self._lock:
@@ -1214,7 +1215,7 @@ class GuiController:
             self._state.progress = AppProgress()
             self._state.warning_message = ""
         await self._emit_app_state()
-        await self._emit_app_event("subtitle", {"text": ""})
+        await self._emit_app_event("subtitle", {"text": "", "source": MATCHED})
         return {"status": self._state.status}
 
     def _make_debug_broadcast(self) -> Callable[[dict[str, object]], Awaitable[None]]:
@@ -1222,10 +1223,11 @@ class GuiController:
             await self._emit_app_event("debug", {"data": data})
         return cb
 
-    async def broadcast_overlay_subtitle(self, subtitle_text: str) -> None:
+    async def broadcast_overlay_subtitle(self, subtitle_text: str, source: str = MATCHED) -> None:
+        """Put a line on the plate, saying whether it came from a file or the model."""
         async with self._lock:
             self._state.last_subtitle = subtitle_text
-        await self._emit_app_event("subtitle", {"text": subtitle_text})
+        await self._emit_app_event("subtitle", {"text": subtitle_text, "source": source})
 
     async def shutdown(self) -> None:
         task = self._sync_task

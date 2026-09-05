@@ -43,6 +43,28 @@
         "focusable": true,
         "skipTaskbar": true,
         "resizable": false
+      },
+      {
+        "title": "Meowcal Subtitles",
+        "label": "overlay",
+        "url": "overlay.html",
+        "width": 800,
+        "height": 120,
+        "transparent": true,
+        "backgroundColor": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "decorations": false,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "visible": false,
+        "focus": false,
+        "focusable": false,
+        "skipTaskbar": true,
+        "resizable": false
       }
     ],
     "security": {

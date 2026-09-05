@@ -172,6 +172,8 @@ def test_app_websocket_receives_initial_state_and_subtitle_events(tmp_path: Path
     assert state_event["type"] == "state"
     assert state_event["state"]["status"] == "idle"
     assert style_event["type"] == "style"
-    assert subtitle_event == {"type": "subtitle", "text": "hello"}
+    # The plate needs to know whether a line came from the subtitle file or
+    # from the local model, so it can show the second one as provisional.
+    assert subtitle_event == {"type": "subtitle", "text": "hello", "source": "matched"}
 
 
