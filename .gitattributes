@@ -1,0 +1,13 @@
+# Line endings are decided here rather than by each machine's core.autocrlf.
+# Without this a fresh clone on Windows checks every file out with CRLF, and
+# `biome format --check` fails on a checkout nobody has touched.
+* text=auto eol=lf
+
+# Windows Script Host and cmd.exe are the two things that still want CRLF.
+*.vbs text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.png binary
+*.ico binary
+*.svg text eol=lf

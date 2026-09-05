@@ -15,8 +15,8 @@ from scripts.check_maintainability import (
     REPO_ROOT,
     check_frontend_coverage,
     check_lint_budgets,
-    frontend_coverage,
     check_python_coverage,
+    frontend_coverage,
     run,
 )
 
