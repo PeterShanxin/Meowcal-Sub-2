@@ -101,6 +101,34 @@ def _studio_url(appdata: str) -> str:
     return f"{DASHBOARD_ORIGIN}/?token={token}"
 
 
+def _plate_height(page, text: str) -> float:
+    page.eval_on_selector("#line", "(node, value) => { node.textContent = value; }", text)
+    return page.eval_on_selector("#plate", "node => node.getBoundingClientRect().height")
+
+
+def _check_the_plate_grows_for_a_second_line(browser) -> None:
+    """The overlay plate must measure the room it needs, not the room it has.
+
+    The shell sizes the overlay window from what this page reports. Capping the
+    plate to the window made the page measure its own output: it could shrink
+    but never grow, so the moment two cues ran at once the second was cut off
+    for the rest of the session. A short viewport is what a shrunk window looks
+    like, and the plate still has to ask for more.
+    """
+    page = browser.new_page(viewport={"width": 640, "height": 60})
+    try:
+        page.goto(f"{DASHBOARD_ORIGIN}/static/overlay.html", wait_until="load")
+        one = _plate_height(page, "Jump into the same vat of acid")
+        two = _plate_height(page, "Jump into the same vat of acid\nI jump into")
+        if two <= one:
+            raise RuntimeError(
+                f"The plate did not grow for a second line ({one}px then {two}px), "
+                "so the overlay window will never be told to make room for one."
+            )
+    finally:
+        page.close()
+
+
 def main() -> int:
     env = os.environ.copy()
     env.setdefault("PYTHONUTF8", "1")
@@ -153,6 +181,7 @@ def main() -> int:
             # #search-form, #results-flow, #session-view-title) are gone.
             page.wait_for_selector("#root")
             page.wait_for_selector('input[data-palette="true"]', timeout=15000)
+            _check_the_plate_grows_for_a_second_line(browser)
 
             browser.close()
 
