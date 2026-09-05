@@ -23,12 +23,27 @@ from Settings; an existing Meowcal Sub v1 engine install is reused as-is.
 
 ## Install
 
-```bash
+```powershell
 pip install -e ".[dev]"
+npm --prefix src\meocosub2\overlay\ui install
 python -m playwright install chromium
+rustup component add rustfmt clippy
 ```
 
-The `dev` extra installs the Playwright Python package. Run `python -m playwright install chromium` once on each machine before using the served-dashboard smoke script.
+That is everything `scripts\verify.ps1` needs. The `dev` extra installs the
+Playwright Python package; `python -m playwright install chromium` downloads the
+browser it drives, once per machine. `rustfmt` and `clippy` are only needed to
+work on the Tauri shell.
+
+## Verify
+
+```powershell
+.\scripts\verify.ps1
+```
+
+One command for every gate this repository enforces, and the same one CI runs.
+See [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md) for what it does and does not
+prove.
 
 ## Runtime Modes
 
