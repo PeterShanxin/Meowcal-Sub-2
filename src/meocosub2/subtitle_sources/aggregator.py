@@ -112,6 +112,7 @@ class ProviderUnreachable(Exception):
     def __init__(self) -> None:
         super().__init__("could not be reached.")
 
+
 PROVIDER_CHIP_LABELS = {
     "opensubtitles": "OpenSubtitles",
     "subdl": "SubDL",
@@ -175,7 +176,10 @@ class SubtitleSearchAggregator:
         query: str,
         languages: str,
         correlation_id: str | None = None,
-        on_provider_update: Callable[[list[str], list[str], AggregatedSearchCatalog], Awaitable[None]] | None = None,
+        on_provider_update: Callable[
+            [list[str], list[str], AggregatedSearchCatalog], Awaitable[None]
+        ]
+        | None = None,
     ) -> AggregatedSearchCatalog:
         clean_title, query_year = split_query_year(query)
         dispatch_query = _rewrite_query_alias(clean_title or query)
@@ -229,7 +233,9 @@ class SubtitleSearchAggregator:
                         # Succeeded and settled are reported separately: a provider
                         # that fails is done (it must drop off "waiting on...") but
                         # never appears in the interim results.
-                        await on_provider_update(list(catalogs_by_provider.keys()), list(settled_codes), interim)
+                        await on_provider_update(
+                            list(catalogs_by_provider.keys()), list(settled_codes), interim
+                        )
 
         catalogs = [
             catalogs_by_provider[p.provider_code]
@@ -267,7 +273,9 @@ class SubtitleSearchAggregator:
         works_are_ranked = False
         if self._tmdb_client is not None and self._tmdb_client.enabled and aggregated.works:
             tmdb_started = time.perf_counter()
-            identified_works = await self._merge_works_via_tmdb(aggregated.works, dispatch_query, correlation_id)
+            identified_works = await self._merge_works_via_tmdb(
+                aggregated.works, dispatch_query, correlation_id
+            )
             ranked_works = self._sort_works(identified_works, dispatch_query, query_year)
             works_are_ranked = True
             eager_limit = self._tmdb_eager_limit(dispatch_query, ranked_works)
@@ -543,7 +551,10 @@ class SubtitleSearchAggregator:
         assrt_orphans = [
             item
             for item in aggregated_results
-            if item.provider == "assrt" and item.year is None and item.season is None and item.episode is None
+            if item.provider == "assrt"
+            and item.year is None
+            and item.season is None
+            and item.episode is None
         ]
         for item in assrt_orphans:
             current_group_id = item.match_id
@@ -562,12 +573,16 @@ class SubtitleSearchAggregator:
             ]
             if not candidate_group_ids:
                 continue
-            winning_group_id = max(candidate_group_ids, key=lambda group_id: float(groups[group_id]["match_score"]))
+            winning_group_id = max(
+                candidate_group_ids, key=lambda group_id: float(groups[group_id]["match_score"])
+            )
             source_group = groups.get(current_group_id)
             winning_group = groups[winning_group_id]
             item.match_id = winning_group_id
             winning_group["subtitles_count"] = int(winning_group["subtitles_count"]) + 1
-            winning_group["match_score"] = max(float(winning_group["match_score"]), item.match_score)
+            winning_group["match_score"] = max(
+                float(winning_group["match_score"]), item.match_score
+            )
             winning_group["providers"].add(item.provider)
             winning_group["provider_labels"].add(item.provider_label)
             if source_group is not None:
@@ -597,7 +612,9 @@ class SubtitleSearchAggregator:
             for group in groups.values():
                 if str(group["media_type"]) == "episode" and group["parent_title"]:
                     year_value = group["year"] if isinstance(group["year"], int) else 0
-                    episode_parent_keys.add((canonical_title(str(group["parent_title"])), year_value))
+                    episode_parent_keys.add(
+                        (canonical_title(str(group["parent_title"])), year_value)
+                    )
             for group in groups.values():
                 media_type = str(group["media_type"])
                 if media_type in {"series", "tvshow"}:
@@ -619,10 +636,16 @@ class SubtitleSearchAggregator:
             if parent_series_keys:
                 series_key_year = year_value or 0
                 if media_type in {"series", "tvshow"}:
-                    if (canonical_title(str(group["title"])), series_key_year) in parent_series_keys:
+                    if (
+                        canonical_title(str(group["title"])),
+                        series_key_year,
+                    ) in parent_series_keys:
                         adjusted_score += PARENT_SERIES_BONUS
                 elif media_type == "episode" and group["parent_title"]:
-                    episode_parent_key = (canonical_title(str(group["parent_title"])), series_key_year)
+                    episode_parent_key = (
+                        canonical_title(str(group["parent_title"])),
+                        series_key_year,
+                    )
                     if episode_parent_key in parent_series_keys:
                         adjusted_score -= IMPLICIT_EPISODE_PENALTY
             matches.append(
@@ -643,7 +666,10 @@ class SubtitleSearchAggregator:
                     provider_labels=tuple(sorted(group["provider_labels"])),
                 )
             )
-        matches.sort(key=lambda item: (item.match_score, item.provider_count, item.subtitles_count), reverse=True)
+        matches.sort(
+            key=lambda item: (item.match_score, item.provider_count, item.subtitles_count),
+            reverse=True,
+        )
 
         group_scores = {item.id: item.match_score for item in matches}
         aggregated_results.sort(
@@ -678,7 +704,9 @@ class SubtitleSearchAggregator:
             for group in [works_groups_snapshot[group_id]]
         ]
 
-        works = self._sort_works(self._build_works(full_matches_for_works, aggregated_results), query, query_year)
+        works = self._sort_works(
+            self._build_works(full_matches_for_works, aggregated_results), query, query_year
+        )
         return AggregatedSearchCatalog(matches=matches, results=aggregated_results, works=works)
 
     def _build_works(
@@ -746,7 +774,9 @@ class SubtitleSearchAggregator:
         query_key = canonical_title(query)
         exact_series_exists = bool(
             query_key
-            and any(w.media_type == "series" and canonical_title(w.title) == query_key for w in works)
+            and any(
+                w.media_type == "series" and canonical_title(w.title) == query_key for w in works
+            )
         )
 
         def relation_rank(work: AggregatedWork, title_key: str) -> int:
@@ -755,11 +785,19 @@ class SubtitleSearchAggregator:
             if not title_key:
                 return 0
             if title_key == query_key:
-                if work.media_type == "movie" and query_year is not None and work.year == query_year:
+                if (
+                    work.media_type == "movie"
+                    and query_year is not None
+                    and work.year == query_year
+                ):
                     return WORK_RANK_EXACT_MOVIE_YEAR
                 if work.media_type == "series":
                     return WORK_RANK_EXACT_SERIES
-                return WORK_RANK_EXACT_MOVIE_WITH_SERIES if exact_series_exists else WORK_RANK_EXACT_MOVIE
+                return (
+                    WORK_RANK_EXACT_MOVIE_WITH_SERIES
+                    if exact_series_exists
+                    else WORK_RANK_EXACT_MOVIE
+                )
             if title_key.startswith(f"{query_key} "):
                 return WORK_RANK_PREFIX
             if query_key in title_key:
@@ -819,7 +857,8 @@ class SubtitleSearchAggregator:
             work = enriched[idx]
             first_air_year = (
                 series.first_air_year
-                if series.first_air_year and (work.year is None or series.first_air_year < work.year)
+                if series.first_air_year
+                and (work.year is None or series.first_air_year < work.year)
                 else work.year
             )
             enriched[idx] = replace(
@@ -838,7 +877,11 @@ class SubtitleSearchAggregator:
             correlation_id=correlation_id,
             duration_ms=round((time.perf_counter() - started) * 1000),
             series=len(series_indices),
-            hits=sum(1 for identity in identities if not isinstance(identity, Exception) and identity is not None),
+            hits=sum(
+                1
+                for identity in identities
+                if not isinstance(identity, Exception) and identity is not None
+            ),
             errors=sum(1 for identity in identities if isinstance(identity, Exception)),
         )
 
@@ -857,7 +900,11 @@ class SubtitleSearchAggregator:
         for i, work in enumerate(enriched):
             if i in merged_indices:
                 continue
-            if work.media_type == "series" and work.tmdb_id and len(by_tmdb.get(work.tmdb_id, [])) > 1:
+            if (
+                work.media_type == "series"
+                and work.tmdb_id
+                and len(by_tmdb.get(work.tmdb_id, [])) > 1
+            ):
                 group_indices = by_tmdb[work.tmdb_id]
                 primary_idx = max(
                     group_indices,
@@ -912,9 +959,7 @@ class SubtitleSearchAggregator:
             ]
             new_seasons = build_season_skeleton(catalog, work.seasons)
             total_ep = sum(
-                1 for season in new_seasons
-                for ep in season.episodes
-                if ep.episode is not None
+                1 for season in new_seasons for ep in season.episodes if ep.episode is not None
             )
             ep_chip = WorkChip(kind="episodes", label=f"{total_ep} eps")
             other_chips = [c for c in work.info_chips if c.kind != "episodes"]
@@ -923,8 +968,11 @@ class SubtitleSearchAggregator:
                 seasons=new_seasons,
                 total_episodes=total_ep,
                 info_chips=[*other_chips, ep_chip],
-                poster_url=work.poster_url or poster_url_from_path(
-                    details.get("poster_path") if isinstance(details.get("poster_path"), str) else None
+                poster_url=work.poster_url
+                or poster_url_from_path(
+                    details.get("poster_path")
+                    if isinstance(details.get("poster_path"), str)
+                    else None
                 ),
             )
 
@@ -938,10 +986,7 @@ class SubtitleSearchAggregator:
             enriched=sum(1 for result in results if not isinstance(result, Exception)),
             errors=sum(1 for result in results if isinstance(result, Exception)),
         )
-        return [
-            r if not isinstance(r, Exception) else works[i]
-            for i, r in enumerate(results)
-        ]
+        return [r if not isinstance(r, Exception) else works[i] for i, r in enumerate(results)]
 
     async def _apply_tmdb_posters(
         self,
@@ -975,10 +1020,7 @@ class SubtitleSearchAggregator:
             enriched=sum(1 for result in results if not isinstance(result, Exception)),
             errors=sum(1 for result in results if isinstance(result, Exception)),
         )
-        return [
-            r if not isinstance(r, Exception) else works[i]
-            for i, r in enumerate(results)
-        ]
+        return [r if not isinstance(r, Exception) else works[i] for i, r in enumerate(results)]
 
     async def _lookup_series_identity(
         self,
@@ -1055,11 +1097,15 @@ class SubtitleSearchAggregator:
     ) -> AggregatedWork:
         series_candidates = [m for m in members if m.media_type in {"series", "tvshow"}]
         episode_candidates = [m for m in members if m.media_type == "episode"]
-        other_candidates = [m for m in members if m not in series_candidates and m not in episode_candidates]
+        other_candidates = [
+            m for m in members if m not in series_candidates and m not in episode_candidates
+        ]
 
         title_source = series_candidates or episode_candidates or other_candidates
         head = max(title_source, key=lambda m: (m.match_score, m.subtitles_count))
-        display_title = head.parent_title if head.media_type == "episode" and head.parent_title else head.title
+        display_title = (
+            head.parent_title if head.media_type == "episode" and head.parent_title else head.title
+        )
 
         providers, provider_labels = _collect_providers(members)
         imdb_id = next((m.imdb_id for m in series_candidates if m.imdb_id), None)
@@ -1189,7 +1235,9 @@ def _fold_series_works(
 
     years = [w.year for w in all_works if w.year]
     year_lo = min(years) if years else primary.year
-    year_hi = max([w.year_end or w.year for w in all_works if w.year_end or w.year], default=primary.year_end)
+    year_hi = max(
+        [w.year_end or w.year for w in all_works if w.year_end or w.year], default=primary.year_end
+    )
 
     imdb_id = primary.imdb_id or next((w.imdb_id for w in partners if w.imdb_id), None)
     tmdb_id = primary.tmdb_id or next((w.tmdb_id for w in partners if w.tmdb_id), None)
@@ -1241,7 +1289,8 @@ def _fold_series_works(
         match_score=match_score,
         primary_match_id=primary_match_id,
         info_chips=chips,
-        poster_url=primary.poster_url or next((w.poster_url for w in partners if w.poster_url), None),
+        poster_url=primary.poster_url
+        or next((w.poster_url for w in partners if w.poster_url), None),
     )
 
 
@@ -1281,7 +1330,9 @@ def _collect_providers(
     return providers, labels
 
 
-def _episode_coverage_summary(works: list[AggregatedWork], limit: int = 5) -> list[dict[str, object]]:
+def _episode_coverage_summary(
+    works: list[AggregatedWork], limit: int = 5
+) -> list[dict[str, object]]:
     summary: list[dict[str, object]] = []
     for work in works:
         if work.media_type != "series" or not work.seasons:

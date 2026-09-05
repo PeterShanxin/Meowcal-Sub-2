@@ -58,9 +58,7 @@ class TMDbCache:
             if self.path.exists():
                 raw = json.loads(self.path.read_text(encoding="utf-8"))
                 if isinstance(raw, dict):
-                    self._data = {
-                        str(k): v for k, v in raw.items() if isinstance(v, dict)
-                    }
+                    self._data = {str(k): v for k, v in raw.items() if isinstance(v, dict)}
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("TMDb cache read failed: %s", exc)
             self._data = {}
@@ -383,6 +381,8 @@ def _deserialize_series(value: Any) -> TMDbSeries | None:
         imdb_id=value.get("imdb_id"),
         name=str(value.get("name") or ""),
         original_name=str(value.get("original_name") or ""),
-        first_air_year=value.get("first_air_year") if isinstance(value.get("first_air_year"), int) else None,
+        first_air_year=value.get("first_air_year")
+        if isinstance(value.get("first_air_year"), int)
+        else None,
         poster_path=value.get("poster_path") if isinstance(value.get("poster_path"), str) else None,
     )

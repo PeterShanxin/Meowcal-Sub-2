@@ -252,8 +252,12 @@ class OverlayServer:
                 session = await self.controller.prepare_session(
                     mode=body.mode,
                     feature_id=body.matchId if body.matchId is not None else body.featureId,
-                    source_file_id=body.sourceResultId if body.sourceResultId is not None else body.sourceFileId,
-                    target_file_id=body.targetResultId if body.targetResultId is not None else body.targetFileId,
+                    source_file_id=body.sourceResultId
+                    if body.sourceResultId is not None
+                    else body.sourceFileId,
+                    target_file_id=body.targetResultId
+                    if body.targetResultId is not None
+                    else body.targetFileId,
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -308,9 +312,7 @@ class OverlayServer:
         """A served page with this run's token, handed only to callers that already have it."""
         markup = (STATIC_DIR / file_name).read_text(encoding="utf-8")
         bootstrap = (
-            "<script>window.__MEOWCAL__="
-            + json.dumps({"token": self._access_token})
-            + ";</script>"
+            "<script>window.__MEOWCAL__=" + json.dumps({"token": self._access_token}) + ";</script>"
         )
         return markup.replace("</head>", f"{bootstrap}</head>", 1)
 
@@ -318,8 +320,12 @@ class OverlayServer:
         await websocket.accept()
         logger.debug("App WebSocket connected (total: %d)", len(self.app_connections) + 1)
         self.app_connections.append(websocket)
-        await websocket.send_text(json.dumps({"type": "state", "state": self.controller.state_snapshot()}))
-        await websocket.send_text(json.dumps({"type": "style", "style": overlay_style_payload(self.config)}))
+        await websocket.send_text(
+            json.dumps({"type": "state", "state": self.controller.state_snapshot()})
+        )
+        await websocket.send_text(
+            json.dumps({"type": "style", "style": overlay_style_payload(self.config)})
+        )
         try:
             while True:
                 await websocket.receive_text()

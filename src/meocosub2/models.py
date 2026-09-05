@@ -47,7 +47,6 @@ class MatchResult:
     confidence: str = ""
 
 
-
 @dataclass
 class SearchRequest:
     title: str

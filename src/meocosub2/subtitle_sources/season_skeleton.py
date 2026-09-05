@@ -25,9 +25,7 @@ def build_season_skeleton(
         Merged season list, sorted by season_number ascending.
     """
     # Index existing data for fast lookup
-    existing_by_season: dict[int, AggregatedSeason] = {
-        s.season_number: s for s in existing_seasons
-    }
+    existing_by_season: dict[int, AggregatedSeason] = {s.season_number: s for s in existing_seasons}
     existing_ep_by_key: dict[tuple[int, int], AggregatedEpisode] = {}
     season_packs_by_season: dict[int, list[AggregatedEpisode]] = {}
 
@@ -44,8 +42,10 @@ def build_season_skeleton(
     for season_no, tmdb_episodes in tmdb_catalog:
         packs = season_packs_by_season.get(season_no, [])
         provider_season = existing_by_season.get(season_no)
-        subtitles_count = provider_season.subtitles_count if provider_season else sum(
-            ep.subtitles_count for ep in packs
+        subtitles_count = (
+            provider_season.subtitles_count
+            if provider_season
+            else sum(ep.subtitles_count for ep in packs)
         )
 
         episodes: list[AggregatedEpisode] = list(packs)

@@ -178,9 +178,7 @@ def test_a_short_latin_answer_is_not_judged_by_script() -> None:
 
 
 def test_an_english_answer_with_a_quoted_chinese_name_is_kept() -> None:
-    assert is_usable_translation(
-        "他叫做小明", "His name is 小明, and he lives nearby.", "en"
-    )
+    assert is_usable_translation("他叫做小明", "His name is 小明, and he lives nearby.", "en")
 
 
 def test_leading_sentences_that_restate_the_context_are_dropped() -> None:
@@ -193,10 +191,7 @@ def test_leading_sentences_that_restate_the_context_are_dropped() -> None:
         "Isn't that the real inspiration, right? "
         "Yes, we will continue to do so in our dreams."
     )
-    assert (
-        drop_restated_context(answer, context)
-        == "Yes, we will continue to do so in our dreams."
-    )
+    assert drop_restated_context(answer, context) == "Yes, we will continue to do so in our dreams."
 
 
 def test_a_fresh_translation_is_left_alone() -> None:
@@ -274,9 +269,7 @@ async def test_an_echoed_answer_is_asked_again_without_the_context() -> None:
 @pytest.mark.asyncio
 async def test_an_answer_that_echoes_twice_is_still_refused() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200, json={"choices": [{"message": {"content": "Wait a moment."}}]}
-        )
+        return httpx.Response(200, json={"choices": [{"message": {"content": "Wait a moment."}}]})
 
     client = _client(handler)
     assert await client.translate("你看这个", "zh", "en", ["Wait a moment."]) == ""

@@ -444,7 +444,9 @@ def test_subdl_limit_subtitles_keeps_best_ranked_episode_representatives() -> No
         _subdl_result(f"low-{episode}", season=1, episode=episode, score=1.0, downloads=episode)
         for episode in range(1, 41)
     ]
-    subtitles.append(_subdl_result("high-late-season", season=4, episode=10, score=99.0, downloads=100))
+    subtitles.append(
+        _subdl_result("high-late-season", season=4, episode=10, score=99.0, downloads=100)
+    )
 
     limited = provider._limit_subtitles(subtitles)
 
@@ -491,6 +493,7 @@ def _subdl_result(
         match_score=score,
         download_ref=f"{result_id}.zip",
     )
+
 
 @pytest.mark.asyncio
 async def test_subdl_search_uses_api_results_and_subtitles(monkeypatch) -> None:
@@ -560,7 +563,9 @@ async def test_subdl_search_uses_api_results_and_subtitles(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_subdl_search_keeps_matches_when_one_detail_fetch_is_forbidden(monkeypatch) -> None:
     provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
-    request = httpx.Request("GET", "https://api.subdl.com/api/v1/subtitles?api_key=subdl-key&sd_id=bad")
+    request = httpx.Request(
+        "GET", "https://api.subdl.com/api/v1/subtitles?api_key=subdl-key&sd_id=bad"
+    )
     forbidden = httpx.HTTPStatusError(
         "Client error '403 Forbidden'",
         request=request,
@@ -573,7 +578,13 @@ async def test_subdl_search_keeps_matches_when_one_detail_fetch_is_forbidden(mon
                 "status": True,
                 "results": [
                     {"sd_id": 1, "name": "From", "type": "tv", "year": 2022, "subtitles_count": 7},
-                    {"sd_id": "bad", "name": "From: Blocked", "type": "tv", "year": 2022, "subtitles_count": 3},
+                    {
+                        "sd_id": "bad",
+                        "name": "From: Blocked",
+                        "type": "tv",
+                        "year": 2022,
+                        "subtitles_count": 3,
+                    },
                 ],
             }
         if params["sd_id"] == "bad":
@@ -600,11 +611,15 @@ async def test_subdl_search_keeps_matches_when_one_detail_fetch_is_forbidden(mon
     assert [match.title for match in catalog.matches] == ["From", "From: Blocked"]
     assert len(catalog.results) == 1
     assert catalog.results[0].episode == 1
-    assert catalog.warnings == ["SubDL: authentication failed (HTTP 403). Check the saved API key or token."]
+    assert catalog.warnings == [
+        "SubDL: authentication failed (HTTP 403). Check the saved API key or token."
+    ]
 
 
 @pytest.mark.asyncio
-async def test_subdl_search_suppresses_non_auth_detail_misses_when_results_survive(monkeypatch) -> None:
+async def test_subdl_search_suppresses_non_auth_detail_misses_when_results_survive(
+    monkeypatch,
+) -> None:
     provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
 
     async def fake_fetch_api(client, params: dict[str, object]) -> dict[str, object]:
@@ -613,7 +628,13 @@ async def test_subdl_search_suppresses_non_auth_detail_misses_when_results_survi
                 "status": True,
                 "results": [
                     {"sd_id": 1, "name": "From", "type": "tv", "year": 2022, "subtitles_count": 7},
-                    {"sd_id": 2, "name": "From Out", "type": "movie", "year": 2016, "subtitles_count": 1},
+                    {
+                        "sd_id": 2,
+                        "name": "From Out",
+                        "type": "movie",
+                        "year": 2016,
+                        "subtitles_count": 1,
+                    },
                 ],
             }
         if str(params["sd_id"]) == "2":
@@ -644,7 +665,9 @@ async def test_subdl_search_suppresses_non_auth_detail_misses_when_results_survi
 @pytest.mark.asyncio
 async def test_subdl_search_returns_safe_warning_when_root_fetch_forbidden(monkeypatch) -> None:
     provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
-    request = httpx.Request("GET", "https://api.subdl.com/api/v1/subtitles?api_key=subdl-key&film_name=from")
+    request = httpx.Request(
+        "GET", "https://api.subdl.com/api/v1/subtitles?api_key=subdl-key&film_name=from"
+    )
     forbidden = httpx.HTTPStatusError(
         "Client error '403 Forbidden'",
         request=request,
@@ -660,7 +683,9 @@ async def test_subdl_search_returns_safe_warning_when_root_fetch_forbidden(monke
 
     assert catalog.matches == []
     assert catalog.results == []
-    assert catalog.warnings == ["SubDL: authentication failed (HTTP 403). Check the saved API key or token."]
+    assert catalog.warnings == [
+        "SubDL: authentication failed (HTTP 403). Check the saved API key or token."
+    ]
 
 
 @pytest.mark.asyncio
@@ -747,7 +772,13 @@ def test_subdl_api_parser_scopes_unpacked_ids_by_pack() -> None:
                 "name": "Pack A",
                 "url": "/subtitle/111.zip",
                 "unpack_files": [
-                    {"file_n_id": "s04e01", "name": "From.S04E01.A.srt", "season": 4, "episode": 1, "language": "EN"}
+                    {
+                        "file_n_id": "s04e01",
+                        "name": "From.S04E01.A.srt",
+                        "season": 4,
+                        "episode": 1,
+                        "language": "EN",
+                    }
                 ],
             },
             {
@@ -756,13 +787,22 @@ def test_subdl_api_parser_scopes_unpacked_ids_by_pack() -> None:
                 "name": "Pack B",
                 "url": "/subtitle/222.zip",
                 "unpack_files": [
-                    {"file_n_id": "s04e01", "name": "From.S04E01.B.srt", "season": 4, "episode": 1, "language": "EN"}
+                    {
+                        "file_n_id": "s04e01",
+                        "name": "From.S04E01.B.srt",
+                        "season": 4,
+                        "episode": 1,
+                        "language": "EN",
+                    }
                 ],
             },
         ],
     )
 
-    assert [result.id for result in results] == ["subdl-result-111-s04e01", "subdl-result-222-s04e01"]
+    assert [result.id for result in results] == [
+        "subdl-result-111-s04e01",
+        "subdl-result-222-s04e01",
+    ]
 
 
 def test_aggregator_work_sort_prefers_exact_series_and_franchise_movies() -> None:
@@ -928,7 +968,9 @@ async def test_assrt_search_strips_episode_marker_from_hydration_query_filelist(
                             "down_count": 4,
                             "filelist": [
                                 {"f": "README.nfo"},
-                                {"f": "From S03E01 Shatter 1080p AMZN WEB-DL DDP5 1 H 264-FLUX.ass"},
+                                {
+                                    "f": "From S03E01 Shatter 1080p AMZN WEB-DL DDP5 1 H 264-FLUX.ass"
+                                },
                             ],
                         }
                     ]
@@ -1459,7 +1501,9 @@ async def test_aggregator_redacts_provider_error_secrets() -> None:
         FakeProvider(
             "subdl",
             "SubDL",
-            error=RuntimeError("GET https://api.subdl.com/api/v1/subtitles?api_key=secret-value&q=from failed"),
+            error=RuntimeError(
+                "GET https://api.subdl.com/api/v1/subtitles?api_key=secret-value&q=from failed"
+            ),
         ),
     )
 
@@ -1471,7 +1515,9 @@ async def test_aggregator_redacts_provider_error_secrets() -> None:
 
 @pytest.mark.asyncio
 async def test_aggregator_turns_provider_auth_status_into_safe_warning() -> None:
-    request = httpx.Request("GET", "https://api.subdl.com/api/v1/subtitles?api_key=secret-value&q=from")
+    request = httpx.Request(
+        "GET", "https://api.subdl.com/api/v1/subtitles?api_key=secret-value&q=from"
+    )
     response = httpx.Response(403, request=request)
     error = httpx.HTTPStatusError(
         "Client error '403 Forbidden' for url 'https://api.subdl.com/api/v1/subtitles?api_key=secret-value&q=from'",
@@ -1507,7 +1553,10 @@ async def test_aggregator_turns_provider_auth_status_into_safe_warning() -> None
 
     catalog = await aggregator.search_catalog("Movie", "en")
 
-    assert "SubDL: authentication failed (HTTP 403). Check the saved API key or token." in catalog.warnings
+    assert (
+        "SubDL: authentication failed (HTTP 403). Check the saved API key or token."
+        in catalog.warnings
+    )
     assert all("secret-value" not in warning for warning in catalog.warnings)
 
 
@@ -1996,7 +2045,9 @@ async def test_a_season_built_from_release_names_shows_plain_episode_numbers() -
 
     aggregated = await aggregator.search_catalog("Rick and Morty", "en")
 
-    episodes = [ep for work in aggregated.works for season in work.seasons for ep in season.episodes]
+    episodes = [
+        ep for work in aggregated.works for season in work.seasons for ep in season.episodes
+    ]
     assert episodes and all(ep.title == "" for ep in episodes)
 
 
@@ -2109,7 +2160,11 @@ async def test_a_late_provider_does_not_renumber_works_the_user_can_already_see(
     aggregator.providers = (
         FakeProvider("subdl", "SubDL", _movie_catalog("subdl", "SubDL", "Rick and Morty")),
         GatedProvider("assrt", "ASSRT", _movie_catalog("assrt", "ASSRT", "Solar Opposites"), gate),
-        FakeProvider("opensubtitles", "OpenSubtitles", _movie_catalog("opensubtitles", "OpenSubtitles", "Bojack Horseman")),
+        FakeProvider(
+            "opensubtitles",
+            "OpenSubtitles",
+            _movie_catalog("opensubtitles", "OpenSubtitles", "Bojack Horseman"),
+        ),
     )
 
     interim_ids: list[dict[str, str]] = []

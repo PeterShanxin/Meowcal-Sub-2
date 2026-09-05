@@ -109,7 +109,12 @@ def status() -> EngineStatus:
 
     paths = resolve_paths(manifest, runtime)
     if paths.is_complete(manifest, runtime):
-        return EngineStatus("idle", "Local translation is installed and starts with a session.", model, install_percent=100)
+        return EngineStatus(
+            "idle",
+            "Local translation is installed and starts with a session.",
+            model,
+            install_percent=100,
+        )
     return EngineStatus(
         "needsSetup",
         "Local translation needs a one-time 1.1 GB download before it can run.",

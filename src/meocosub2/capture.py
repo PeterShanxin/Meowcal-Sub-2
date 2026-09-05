@@ -50,11 +50,21 @@ def resolve_ocr_language(language: str) -> OcrResolution:
             return OcrResolution(requested, candidate)
 
     if requested == "zh-TW" and "zh-Hans-CN" in installed:
-        return OcrResolution(requested, "zh-Hans-CN", "Traditional Chinese OCR pack is missing. Falling back to Simplified Chinese OCR.")
+        return OcrResolution(
+            requested,
+            "zh-Hans-CN",
+            "Traditional Chinese OCR pack is missing. Falling back to Simplified Chinese OCR.",
+        )
     if requested == "zh-CN" and "zh-TW" in installed:
-        return OcrResolution(requested, "zh-TW", "Simplified Chinese OCR pack is missing. Falling back to Traditional Chinese OCR.")
+        return OcrResolution(
+            requested,
+            "zh-TW",
+            "Simplified Chinese OCR pack is missing. Falling back to Traditional Chinese OCR.",
+        )
     if requested == "en-US" and "en-GB" in installed:
-        return OcrResolution(requested, "en-GB", "English (US) OCR pack is missing. Falling back to English.")
+        return OcrResolution(
+            requested, "en-GB", "English (US) OCR pack is missing. Falling back to English."
+        )
 
     return OcrResolution(requested, requested, f"OCR language '{requested}' is not installed.")
 
@@ -135,6 +145,10 @@ async def ocr_image(image: Image.Image, language: str) -> str:
     elapsed_ms = int((monotonic() - t0) * 1000)
     logger.debug(
         "OCR pass=%s score=%s len=%d text=%r duration_ms=%d",
-        best_pass, best_score, len(best_text), best_text[:80], elapsed_ms,
+        best_pass,
+        best_score,
+        len(best_text),
+        best_text[:80],
+        elapsed_ms,
     )
     return best_text

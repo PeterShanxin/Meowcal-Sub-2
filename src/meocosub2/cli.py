@@ -63,6 +63,7 @@ def _setup_logging(verbose: bool = True) -> None:
 def _has_console() -> bool:
     """Return True when stderr is attached to a real console or pipe."""
     import sys
+
     try:
         return sys.stderr is not None and sys.stderr.fileno() >= 0
     except Exception:
@@ -82,7 +83,9 @@ def _get_config() -> AppConfig:
 def _ensure_websocket_runtime() -> None:
     if importlib.util.find_spec("websockets") or importlib.util.find_spec("wsproto"):
         return
-    console.print("[red]A websocket runtime dependency is missing. Install the project dependencies again.[/red]")
+    console.print(
+        "[red]A websocket runtime dependency is missing. Install the project dependencies again.[/red]"
+    )
     raise typer.Exit(1)
 
 
@@ -122,9 +125,7 @@ async def _serve_studio(config: AppConfig) -> None:
         if server.started:
             auth.publish_runtime(token, config.overlay_port)
             published = True
-            console.print(
-                f"Meowcal Studio: http://127.0.0.1:{config.overlay_port}/?token={token}"
-            )
+            console.print(f"Meowcal Studio: http://127.0.0.1:{config.overlay_port}/?token={token}")
         await serving
     finally:
         engine.shutdown()

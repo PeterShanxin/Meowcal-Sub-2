@@ -53,7 +53,10 @@ async def test_ocr_image_calls_preprocess_before_run_ocr(mocker) -> None:
     prepared = object()
     preprocess = mocker.patch("meocosub2.capture.preprocess_for_ocr", return_value=prepared)
     run_ocr = mocker.patch("meocosub2.capture._run_ocr", new=mocker.AsyncMock(return_value="hello"))
-    mocker.patch("meocosub2.capture.resolve_ocr_language", return_value=SimpleNamespace(resolved_language="en-US"))
+    mocker.patch(
+        "meocosub2.capture.resolve_ocr_language",
+        return_value=SimpleNamespace(resolved_language="en-US"),
+    )
     image = Image.new("RGB", (1, 1))
     result = await ocr_image(image, "en")
     assert result == "hello"
@@ -63,7 +66,9 @@ async def test_ocr_image_calls_preprocess_before_run_ocr(mocker) -> None:
 
 @pytest.mark.asyncio
 async def test_ocr_image_returns_empty_string_on_exception(mocker) -> None:
-    mocker.patch("meocosub2.capture._run_ocr", new=mocker.AsyncMock(side_effect=RuntimeError("boom")))
+    mocker.patch(
+        "meocosub2.capture._run_ocr", new=mocker.AsyncMock(side_effect=RuntimeError("boom"))
+    )
     result = await ocr_image(Image.new("RGB", (1, 1)), "en")
     assert result == ""
 
@@ -81,8 +86,12 @@ async def test_run_ocr_uses_running_loop(mocker) -> None:
             return future
 
     fake_loop = FakeLoop()
-    running_loop = mocker.patch("meocosub2.capture.asyncio.get_running_loop", return_value=fake_loop)
-    sys.modules["winocr"] = SimpleNamespace(recognize_pil=lambda image, language: SimpleNamespace(text="hello"))
+    running_loop = mocker.patch(
+        "meocosub2.capture.asyncio.get_running_loop", return_value=fake_loop
+    )
+    sys.modules["winocr"] = SimpleNamespace(
+        recognize_pil=lambda image, language: SimpleNamespace(text="hello")
+    )
     try:
         result = await _run_ocr(Image.new("RGB", (1, 1)), "en")
     finally:

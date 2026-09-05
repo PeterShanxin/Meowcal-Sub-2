@@ -22,11 +22,7 @@ def test_load_subtitle_file_strips_formatting_tags() -> None:
 
 
 def test_load_subtitle_file_falls_back_to_latin1(tmp_path: Path) -> None:
-    subtitle = (
-        "1\n"
-        "00:00:01,000 --> 00:00:02,000\n"
-        "Ol\xe9 mundo\n"
-    )
+    subtitle = "1\n00:00:01,000 --> 00:00:02,000\nOl\xe9 mundo\n"
     path = tmp_path / "latin1.srt"
     path.write_bytes(subtitle.encode("latin-1"))
     lines = load_subtitle_file(path)

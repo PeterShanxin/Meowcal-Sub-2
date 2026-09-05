@@ -20,7 +20,10 @@ _SEPARATORS = re.compile(r"[\\/]+")
 _UNSAFE = re.compile(r"[\x00-\x1f<>:\"|?*]")
 # Windows refuses these as file names whatever the extension.
 _RESERVED = {
-    "con", "prn", "aux", "nul",
+    "con",
+    "prn",
+    "aux",
+    "nul",
     *(f"com{digit}" for digit in "123456789"),
     *(f"lpt{digit}" for digit in "123456789"),
 }

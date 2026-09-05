@@ -24,7 +24,9 @@ def test_a_short_reply_is_not_swallowed_by_a_longer_line() -> None:
 
 
 def test_a_second_row_arriving_is_an_extension() -> None:
-    assert classify("However, isn't he", "However, isn't he a hero from an era") is LineChange.EXTENDED
+    assert (
+        classify("However, isn't he", "However, isn't he a hero from an era") is LineChange.EXTENDED
+    )
 
 
 def test_one_more_resolved_character_is_not_an_extension() -> None:

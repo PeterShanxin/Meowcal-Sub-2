@@ -57,7 +57,9 @@ class AssrtProvider:
         if not self.config.assrt_enabled:
             return ProviderSearchCatalog(matches=[], results=[], warnings=["ASSRT is disabled."])
         if not self.config.assrt_token:
-            return ProviderSearchCatalog(matches=[], results=[], warnings=["ASSRT token is not configured."])
+            return ProviderSearchCatalog(
+                matches=[], results=[], warnings=["ASSRT token is not configured."]
+            )
 
         requested_languages = {code.strip() for code in languages.split(",") if code.strip()}
         payload = await self._request(
@@ -72,7 +74,9 @@ class AssrtProvider:
             lang_block = item.get("lang") if isinstance(item.get("lang"), dict) else {}
             lang = map_assrt_language(
                 str(lang_block.get("desc", "")),
-                lang_block.get("langlist") if isinstance(lang_block.get("langlist"), dict) else None,
+                lang_block.get("langlist")
+                if isinstance(lang_block.get("langlist"), dict)
+                else None,
             )
             if requested_languages and lang not in requested_languages:
                 continue
@@ -88,7 +92,9 @@ class AssrtProvider:
                 (name for name in file_names if name.casefold().endswith(SUBTITLE_EXTENSIONS)),
                 file_names[0]
                 if file_names
-                else str(item.get("videoname") or item.get("native_name") or f"{item.get('id')}.srt"),
+                else str(
+                    item.get("videoname") or item.get("native_name") or f"{item.get('id')}.srt"
+                ),
             )
             metadata_values = [native_name, videoname, *file_names]
             season, episode = extract_episode_info(*metadata_values)
@@ -127,7 +133,9 @@ class AssrtProvider:
         subtitle_id = str(result.download_ref or "")
         if not subtitle_id:
             raise SubtitleSourceError("ASSRT result is missing a subtitle id.")
-        payload = await self._request("/sub/detail", {"token": self.config.assrt_token, "id": subtitle_id})
+        payload = await self._request(
+            "/sub/detail", {"token": self.config.assrt_token, "id": subtitle_id}
+        )
         subs = payload.get("sub", {}).get("subs", [])
         if not subs:
             raise SubtitleSourceError("ASSRT detail did not return subtitle files.")
@@ -155,14 +163,18 @@ class AssrtProvider:
             subtitle_file_name(file_name, "subtitle"),
         )
         destination.parent.mkdir(parents=True, exist_ok=True)
-        async with httpx.AsyncClient(timeout=provider_timeout(30.0), follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=provider_timeout(30.0), follow_redirects=True
+        ) as client:
             response = await client.get(direct_url)
             response.raise_for_status()
             destination.write_bytes(response.content)
         return destination
 
     async def _request(self, path: str, params: dict[str, object]) -> dict[str, object]:
-        async with httpx.AsyncClient(timeout=provider_timeout(30.0), follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=provider_timeout(30.0), follow_redirects=True
+        ) as client:
             started = time.perf_counter()
             response = await client.get(f"{API_BASE}{path}", params=params)
             log_event(

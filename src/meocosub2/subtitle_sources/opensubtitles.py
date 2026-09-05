@@ -28,9 +28,13 @@ class OpenSubtitlesProvider:
 
     async def search_catalog(self, query: str, languages: str) -> ProviderSearchCatalog:
         if not self.config.opensubtitles_enabled:
-            return ProviderSearchCatalog(matches=[], results=[], warnings=["OpenSubtitles is disabled."])
+            return ProviderSearchCatalog(
+                matches=[], results=[], warnings=["OpenSubtitles is disabled."]
+            )
         if not self.config.opensubtitles_api_key:
-            return ProviderSearchCatalog(matches=[], results=[], warnings=["OpenSubtitles API key is not configured."])
+            return ProviderSearchCatalog(
+                matches=[], results=[], warnings=["OpenSubtitles API key is not configured."]
+            )
 
         async with OpenSubtitlesClient(
             api_key=self.config.opensubtitles_api_key,

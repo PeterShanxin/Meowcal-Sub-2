@@ -139,7 +139,9 @@ async def test_a_matched_line_without_a_translation_is_translated_live() -> None
 @pytest.mark.asyncio
 async def test_several_candidates_need_agreement_before_text_is_shown() -> None:
     weak = [SubtitleLine(index=0, start_ms=0, end_ms=3000, text="Hello there", translated="你好")]
-    other = [SubtitleLine(index=0, start_ms=0, end_ms=3000, text="Total mismatch", translated="别的")]
+    other = [
+        SubtitleLine(index=0, start_ms=0, end_ms=3000, text="Total mismatch", translated="别的")
+    ]
     session = CandidateSession(
         [make_candidate("a", weak), make_candidate("b", other)], config(), never_translates()
     )
@@ -209,9 +211,7 @@ async def test_the_loop_follows_a_region_reselected_mid_session() -> None:
 
 @pytest.mark.asyncio
 async def test_a_fully_paired_session_never_opens_the_engine() -> None:
-    session = CandidateSession(
-        [make_candidate("a", paired_lines())], config(), never_translates()
-    )
+    session = CandidateSession([make_candidate("a", paired_lines())], config(), never_translates())
     assert await drive(session, config(), ["Hello there", "Goodbye now"]) == ["你好", "再见"]
 
 
@@ -251,8 +251,12 @@ async def test_a_cue_that_matches_on_a_later_read_stops_being_provisional() -> N
 @pytest.mark.asyncio
 async def test_a_cue_the_file_splits_in_two_is_matched_as_the_pair() -> None:
     split = [
-        SubtitleLine(index=0, start_ms=0, end_ms=1500, text="We should go", translated="我们该走了"),
-        SubtitleLine(index=1, start_ms=1500, end_ms=3000, text="before it gets dark", translated="趁天还没黑"),
+        SubtitleLine(
+            index=0, start_ms=0, end_ms=1500, text="We should go", translated="我们该走了"
+        ),
+        SubtitleLine(
+            index=1, start_ms=1500, end_ms=3000, text="before it gets dark", translated="趁天还没黑"
+        ),
     ]
     session = CandidateSession([make_candidate("a", split)], config(), never_translates())
     shown = await drive(session, config(), ["We should go before it gets dark"])
@@ -264,8 +268,12 @@ async def test_a_pair_sharing_one_target_line_does_not_say_it_twice() -> None:
     # Alignment pairs by time overlap, so a target file that breaks the sentence
     # elsewhere can hand both halves the same line.
     shared = [
-        SubtitleLine(index=0, start_ms=0, end_ms=1500, text="for the rest", translated="今天剩下的时间"),
-        SubtitleLine(index=1, start_ms=1500, end_ms=3000, text="of the day", translated="今天剩下的时间"),
+        SubtitleLine(
+            index=0, start_ms=0, end_ms=1500, text="for the rest", translated="今天剩下的时间"
+        ),
+        SubtitleLine(
+            index=1, start_ms=1500, end_ms=3000, text="of the day", translated="今天剩下的时间"
+        ),
     ]
     session = CandidateSession([make_candidate("a", shared)], config(), never_translates())
     assert await drive(session, config(), ["for the rest of the day"]) == ["今天剩下的时间"]
@@ -275,7 +283,9 @@ def episode_lines() -> list[SubtitleLine]:
     """Three cues a few seconds apart, each with a translation ready to show."""
     return [
         SubtitleLine(index=0, start_ms=0, end_ms=2000, text="Hello there", translated="你好"),
-        SubtitleLine(index=1, start_ms=10_000, end_ms=12_000, text="Goodbye now", translated="再见"),
+        SubtitleLine(
+            index=1, start_ms=10_000, end_ms=12_000, text="Goodbye now", translated="再见"
+        ),
         SubtitleLine(index=2, start_ms=20_000, end_ms=22_000, text="See you", translated="回见"),
     ]
 

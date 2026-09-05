@@ -91,9 +91,7 @@ def test_the_matching_model_is_not_required_for_a_v1_install_to_be_adopted(
     runtime = manifest.runtime_for_host()
     paths = resolve_paths(manifest, runtime)
     # A tree carrying the runtime and the translation model, and nothing else.
-    monkeypatch.setattr(
-        paths_module, "_has_size", lambda path, size: path != paths.embedding_model
-    )
+    monkeypatch.setattr(paths_module, "_has_size", lambda path, size: path != paths.embedding_model)
 
     assert paths.is_complete(manifest, runtime)
     assert not paths.embedding_is_complete(manifest)

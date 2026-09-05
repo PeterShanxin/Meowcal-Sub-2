@@ -10,9 +10,7 @@ from tests.conftest import TEST_TOKEN, studio_client
 
 
 def make_server(tmp_path: Path) -> OverlayServer:
-    return OverlayServer(
-        AppConfig(), config_path=tmp_path / "config.toml", access_token=TEST_TOKEN
-    )
+    return OverlayServer(AppConfig(), config_path=tmp_path / "config.toml", access_token=TEST_TOKEN)
 
 
 PRIVILEGED_GETS = ["/", "/config", "/api/state", "/api/config", "/api/languages"]

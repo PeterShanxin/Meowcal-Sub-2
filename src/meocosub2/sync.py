@@ -83,7 +83,9 @@ class Resolution:
 class LiveTranslator:
     """Caches translations and carries recent lines as context, like v1's session cache."""
 
-    def __init__(self, client: TranslationClient, source_language: str, target_language: str) -> None:
+    def __init__(
+        self, client: TranslationClient, source_language: str, target_language: str
+    ) -> None:
         self._client = client
         self._source_language = source_language
         self._target_language = target_language
@@ -160,9 +162,7 @@ class CandidateSession:
         if self._open_index is None or self._locked is None or self._semantic_build is not None:
             return
         lines = [line.text for line in self._matchers[self._locked].subtitles]
-        self._semantic_build = asyncio.create_task(
-            self._build_semantic(self._open_index, lines)
-        )
+        self._semantic_build = asyncio.create_task(self._build_semantic(self._open_index, lines))
 
     async def _build_semantic(self, open_index: SemanticFactory, lines: list[str]) -> None:
         try:
@@ -286,9 +286,7 @@ class CandidateSession:
     async def _match(self, ocr_text: str) -> tuple[str | None, MatchResult | None]:
         window = self._timeline.window_ms()
         if self._locked is not None:
-            result = await self._matchers[self._locked].match_best(
-                ocr_text, window, self._semantic
-            )
+            result = await self._matchers[self._locked].match_best(ocr_text, window, self._semantic)
             if result is not None and self._timeline.accepts(
                 result.start_ms,
                 result.line_index,
@@ -300,7 +298,9 @@ class CandidateSession:
             self._misses += 1
             if len(self._matchers) == 1 or self._misses < AUTO_UNLOCK_MISSES:
                 return None, None
-            logger.debug("Unlocking subtitle candidate %s after %d misses", self._locked, self._misses)
+            logger.debug(
+                "Unlocking subtitle candidate %s after %d misses", self._locked, self._misses
+            )
             self._locked = None
             self._misses = 0
 

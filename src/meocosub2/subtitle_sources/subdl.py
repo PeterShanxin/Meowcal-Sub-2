@@ -64,11 +64,17 @@ class SubdlProvider:
         if not self.config.subdl_enabled:
             return ProviderSearchCatalog(matches=[], results=[], warnings=["SubDL is disabled."])
         if not self.config.subdl_api_key:
-            return ProviderSearchCatalog(matches=[], results=[], warnings=["SubDL API key is not configured."])
+            return ProviderSearchCatalog(
+                matches=[], results=[], warnings=["SubDL API key is not configured."]
+            )
 
         requested_languages = {code.strip() for code in languages.split(",") if code.strip()}
         warnings: list[str] = []
-        async with httpx.AsyncClient(timeout=provider_timeout(30.0), follow_redirects=True, headers={"Accept": "application/json"}) as client:
+        async with httpx.AsyncClient(
+            timeout=provider_timeout(30.0),
+            follow_redirects=True,
+            headers={"Accept": "application/json"},
+        ) as client:
             try:
                 page = await self._fetch_api(
                     client,
@@ -104,14 +110,19 @@ class SubdlProvider:
                         tmdb_id=self._coerce_optional_string(item.get("tmdb_id")),
                         media_type="tvshow" if str(item.get("type")) == "tv" else "movie",
                         subtitles_count=self._coerce_int(item.get("subtitles_count")) or 0,
-                        match_score=title_similarity(query, [str(item.get("name") or ""), str(item.get("original_name") or "")]),
+                        match_score=title_similarity(
+                            query,
+                            [str(item.get("name") or ""), str(item.get("original_name") or "")],
+                        ),
                     )
                 )
 
             async def collect(item: dict[str, object]) -> list[ProviderSubtitleResult]:
                 return await self._collect_api_title_results(item, requested_languages, client)
 
-            collected = await asyncio.gather(*(collect(item) for item in selected_items), return_exceptions=True)
+            collected = await asyncio.gather(
+                *(collect(item) for item in selected_items), return_exceptions=True
+            )
             deferred_warnings: list[str] = []
             for item_results in collected:
                 if isinstance(item_results, Exception):
@@ -136,7 +147,11 @@ class SubdlProvider:
             raise SubtitleSourceError("SubDL result is missing a download link.")
 
         extract_dir = contained_path(self._cache_dir, safe_segment(result.id, "subdl"))
-        async with httpx.AsyncClient(timeout=provider_timeout(30.0), follow_redirects=True, headers={"User-Agent": USER_AGENT}) as client:
+        async with httpx.AsyncClient(
+            timeout=provider_timeout(30.0),
+            follow_redirects=True,
+            headers={"User-Agent": USER_AGENT},
+        ) as client:
             response = await client.get(self._download_url(link))
             response.raise_for_status()
             try:
@@ -332,7 +347,10 @@ class SubdlProvider:
         file_n_id = self._coerce_optional_string(entry.get("file_n_id"))
         if file_n_id:
             pack_key = self._coerce_optional_string(
-                entry.get("pack_id") or entry.get("pack_url") or entry.get("id") or item.get("sd_id")
+                entry.get("pack_id")
+                or entry.get("pack_url")
+                or entry.get("id")
+                or item.get("sd_id")
             )
             return f"{pack_key}-{file_n_id}" if pack_key else file_n_id
         return link or entry.get("id") or raw_title
@@ -352,11 +370,15 @@ class SubdlProvider:
             merged["pack_id"] = entry.get("id")
             merged["pack_url"] = entry.get("url") or entry.get("link")
             if not merged.get("id") and file_entry.get("file_n_id"):
-                merged["id"] = f"{entry.get('id') or entry.get('url') or 'pack'}-{file_entry['file_n_id']}"
+                merged["id"] = (
+                    f"{entry.get('id') or entry.get('url') or 'pack'}-{file_entry['file_n_id']}"
+                )
             expanded.append(merged)
         return expanded
 
-    async def _fetch_api(self, client: httpx.AsyncClient, params: dict[str, object]) -> dict[str, object]:
+    async def _fetch_api(
+        self, client: httpx.AsyncClient, params: dict[str, object]
+    ) -> dict[str, object]:
         query_params = {"api_key": self.config.subdl_api_key, **params}
         started = time.perf_counter()
         response = await client.get(API_URL, params=query_params)
@@ -429,16 +451,24 @@ class SubdlProvider:
                         language=mapped_language,
                         download_count=self._coerce_int(entry.get("downloads")) or 0,
                         file_name=file_name,
-                        match_score=title_similarity(title, [subtitle_title, *self._string_list(entry.get("releases"))]),
+                        match_score=title_similarity(
+                            title, [subtitle_title, *self._string_list(entry.get("releases"))]
+                        ),
                         download_ref=str(entry.get("link") or ""),
                         raw={"link": entry.get("link"), "slug": entry.get("slug")},
                     )
                 )
         return results
 
-    async def _fetch_next_data(self, url: str, client: httpx.AsyncClient | None = None) -> dict[str, object]:
+    async def _fetch_next_data(
+        self, url: str, client: httpx.AsyncClient | None = None
+    ) -> dict[str, object]:
         if client is None:
-            async with httpx.AsyncClient(timeout=provider_timeout(30.0), follow_redirects=True, headers={"User-Agent": USER_AGENT}) as scoped_client:
+            async with httpx.AsyncClient(
+                timeout=provider_timeout(30.0),
+                follow_redirects=True,
+                headers={"User-Agent": USER_AGENT},
+            ) as scoped_client:
                 return await self._fetch_next_data(url, scoped_client)
         started = time.perf_counter()
         response = await client.get(url)
@@ -485,7 +515,9 @@ class SubdlProvider:
             return link
         return DOWNLOAD_URL.format(link=link.lstrip("/").removeprefix("subtitle/"))
 
-    def _write_raw_subtitle(self, content: bytes, destination: Path, result: ProviderSubtitleResult) -> Path:
+    def _write_raw_subtitle(
+        self, content: bytes, destination: Path, result: ProviderSubtitleResult
+    ) -> Path:
         destination.mkdir(parents=True, exist_ok=True)
         path = contained_path(
             destination, subtitle_file_name(result.file_name or result.id, "subtitle")
@@ -540,10 +572,14 @@ class SubdlProvider:
             value = entry.get(key)
             if value:
                 values.append(unicodedata.normalize("NFKC", str(value)))
-        values.extend(unicodedata.normalize("NFKC", item) for item in self._string_list(entry.get("releases")))
+        values.extend(
+            unicodedata.normalize("NFKC", item) for item in self._string_list(entry.get("releases"))
+        )
         return values
 
-    def _limit_subtitles(self, subtitles: list[ProviderSubtitleResult]) -> list[ProviderSubtitleResult]:
+    def _limit_subtitles(
+        self, subtitles: list[ProviderSubtitleResult]
+    ) -> list[ProviderSubtitleResult]:
         ranked = sorted(subtitles, key=self._subtitle_rank, reverse=True)
         selected: list[ProviderSubtitleResult] = []
         selected_ids: set[str] = set()

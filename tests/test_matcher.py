@@ -5,7 +5,13 @@ from meocosub2.semantic import SemanticHit
 
 def make_lines(count: int = 100) -> list[SubtitleLine]:
     return [
-        SubtitleLine(index=i, start_ms=i * 1000, end_ms=(i + 1) * 1000, text=f"Line {i}", translated=f"译文 {i}")
+        SubtitleLine(
+            index=i,
+            start_ms=i * 1000,
+            end_ms=(i + 1) * 1000,
+            text=f"Line {i}",
+            translated=f"译文 {i}",
+        )
         for i in range(count)
     ]
 
@@ -28,7 +34,9 @@ def test_short_noise_returns_none() -> None:
 
 
 def test_match_returns_translated_text() -> None:
-    matcher = SubtitleMatcher([SubtitleLine(index=0, start_ms=0, end_ms=1000, text="Hello there", translated="你好")])
+    matcher = SubtitleMatcher(
+        [SubtitleLine(index=0, start_ms=0, end_ms=1000, text="Hello there", translated="你好")]
+    )
     result = matcher.match("Hello there")
     assert result is not None
     assert result.target_text == "你好"
@@ -91,6 +99,7 @@ def test_cjk_match_tolerates_ocr_char_drop() -> None:
 
 def _unique_lines(count: int = 100) -> list[SubtitleLine]:
     import hashlib
+
     out: list[SubtitleLine] = []
     for i in range(count):
         digest = hashlib.sha1(f"line-{i}".encode()).hexdigest()
@@ -146,7 +155,15 @@ def test_threshold_blocks_weak_matches() -> None:
 
 def test_match_handles_spaced_cjk_and_script_variants() -> None:
     matcher = SubtitleMatcher(
-        [SubtitleLine(index=0, start_ms=0, end_ms=1000, text="之前拿到的资料，我都看过了", translated="I already read it.")]
+        [
+            SubtitleLine(
+                index=0,
+                start_ms=0,
+                end_ms=1000,
+                text="之前拿到的资料，我都看过了",
+                translated="I already read it.",
+            )
+        ]
     )
     result = matcher.match("之 前 拿 到 的 資 料 ， 我 都 看 過 了")
     assert result is not None
@@ -221,7 +238,9 @@ def test_a_read_far_shorter_than_the_line_is_not_that_line() -> None:
 def episode_lines() -> list[SubtitleLine]:
     return [
         SubtitleLine(index=0, start_ms=0, end_ms=2000, text="Hello there", translated="你好"),
-        SubtitleLine(index=1, start_ms=10_000, end_ms=12_000, text="Goodbye now", translated="再见"),
+        SubtitleLine(
+            index=1, start_ms=10_000, end_ms=12_000, text="Goodbye now", translated="再见"
+        ),
     ]
 
 
@@ -250,7 +269,9 @@ def spaced_lines() -> list[SubtitleLine]:
     """Three cues with real gaps between them, so the grace period is reachable."""
     return [
         SubtitleLine(index=0, start_ms=0, end_ms=2000, text="Hello there", translated="你好"),
-        SubtitleLine(index=1, start_ms=10_000, end_ms=12_000, text="Goodbye now", translated="再见"),
+        SubtitleLine(
+            index=1, start_ms=10_000, end_ms=12_000, text="Goodbye now", translated="再见"
+        ),
         SubtitleLine(index=2, start_ms=20_000, end_ms=22_000, text="See you", translated="回见"),
     ]
 
@@ -307,9 +328,15 @@ class FakeSemantic:
 def dialogue() -> list[SubtitleLine]:
     """Lines that share no wording, so text scores are unambiguous."""
     return [
-        SubtitleLine(index=0, start_ms=0, end_ms=2000, text="We should go", translated="我们该走了"),
-        SubtitleLine(index=1, start_ms=3000, end_ms=5000, text="Before it gets dark", translated="趁天还没黑"),
-        SubtitleLine(index=2, start_ms=6000, end_ms=8000, text="Nobody is coming", translated="没人会来"),
+        SubtitleLine(
+            index=0, start_ms=0, end_ms=2000, text="We should go", translated="我们该走了"
+        ),
+        SubtitleLine(
+            index=1, start_ms=3000, end_ms=5000, text="Before it gets dark", translated="趁天还没黑"
+        ),
+        SubtitleLine(
+            index=2, start_ms=6000, end_ms=8000, text="Nobody is coming", translated="没人会来"
+        ),
     ]
 
 

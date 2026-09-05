@@ -214,7 +214,9 @@ class PlaybackTimeline:
 
     def _expire_stale_anchor(self, now: float) -> None:
         if self._anchor_ms is not None and now - self._anchor_at > ANCHOR_MAX_AGE_S:
-            logger.debug("Timeline dropped an anchor nothing agreed with for %.0fs", ANCHOR_MAX_AGE_S)
+            logger.debug(
+                "Timeline dropped an anchor nothing agreed with for %.0fs", ANCHOR_MAX_AGE_S
+            )
             self.reset()
 
     def reset(self) -> None:

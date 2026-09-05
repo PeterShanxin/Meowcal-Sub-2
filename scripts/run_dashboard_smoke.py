@@ -142,9 +142,9 @@ def main() -> int:
             page = browser.new_page()
             page.on(
                 "console",
-                lambda message: console_errors.append(message.text)
-                if message.type == "error"
-                else None,
+                lambda message: (
+                    console_errors.append(message.text) if message.type == "error" else None
+                ),
             )
             page.on("pageerror", lambda exc: page_errors.append(str(exc)))
             page.goto(_studio_url(studio_appdata), wait_until="domcontentloaded")
@@ -152,7 +152,7 @@ def main() -> int:
             # palette input to mount. Legacy DOM IDs (#app-shell, #hero-title-main,
             # #search-form, #results-flow, #session-view-title) are gone.
             page.wait_for_selector("#root")
-            page.wait_for_selector("input[data-palette=\"true\"]", timeout=15000)
+            page.wait_for_selector('input[data-palette="true"]', timeout=15000)
 
             browser.close()
 

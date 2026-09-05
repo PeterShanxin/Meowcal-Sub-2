@@ -34,14 +34,18 @@ MAX_SUBTITLE_RESULTS_PER_QUERY = 200
 MAX_SUBTITLE_PAGES_PER_QUERY = 4
 MAX_PARALLEL_SUBTITLE_FETCHES = 5
 MAX_SEARCH_RESULTS = 400
-_TITLE_BONUS_EXACT = 120.0    # added when canonical alias == canonical title
-_TITLE_BONUS_PREFIX = 72.0    # added when one is a prefix of the other
-_TITLE_BONUS_SUBSTR = 42.0    # added when one contains the other
+_TITLE_BONUS_EXACT = 120.0  # added when canonical alias == canonical title
+_TITLE_BONUS_PREFIX = 72.0  # added when one is a prefix of the other
+_TITLE_BONUS_SUBSTR = 42.0  # added when one contains the other
 STRONG_MATCH_THRESHOLD = 185.0  # exact title ratio plus _TITLE_BONUS_EXACT exceeds this
 ORG_SEARCH_URL = "https://www.opensubtitles.org/en/search2/moviename-{query}/sublanguageid-all"
 ORG_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0 Safari/537.36"
-PAREN_YEAR_SUFFIX_PATTERN = re.compile(r"^(?P<title>.+?)\s*\((?P<year>19\d{2}|20\d{2}|21\d{2})\)\s*$")
-TRAILING_YEAR_SUFFIX_PATTERN = re.compile(r"^(?P<title>.+?)\s+(?P<year>19\d{2}|20\d{2}|21\d{2})\s*$")
+PAREN_YEAR_SUFFIX_PATTERN = re.compile(
+    r"^(?P<title>.+?)\s*\((?P<year>19\d{2}|20\d{2}|21\d{2})\)\s*$"
+)
+TRAILING_YEAR_SUFFIX_PATTERN = re.compile(
+    r"^(?P<title>.+?)\s+(?P<year>19\d{2}|20\d{2}|21\d{2})\s*$"
+)
 EPISODE_PATTERN = re.compile(r"\bS(?P<season>\d{1,2})E(?P<episode>\d{1,3})\b", re.IGNORECASE)
 SEASON_PATTERN = re.compile(r"\bS(?P<season>\d{1,2})\b", re.IGNORECASE)
 
@@ -74,7 +78,7 @@ class _OpenSubtitlesOrgAliasParser(HTMLParser):
         if "bnone" not in css or not title.lower().startswith("subtitles - "):
             return
 
-        cleaned = html.unescape(title[len("subtitles - "):]).strip()
+        cleaned = html.unescape(title[len("subtitles - ") :]).strip()
         if cleaned:
             self.titles.append(re.sub(r"\s+", " ", cleaned))
 
@@ -158,12 +162,18 @@ class OpenSubtitlesClient:
     ) -> SearchCatalog:
         intent = self._build_search_intent(query, media_type)
         normalized_languages = self._normalize_languages(languages)
-        results, matches = await self._search_with_queries(intent, normalized_languages, list(intent.aliases))
+        results, matches = await self._search_with_queries(
+            intent, normalized_languages, list(intent.aliases)
+        )
 
         if self.enable_org_fallback and not self._has_strong_results(results):
             org_aliases = await self._search_org_aliases(intent.query)
             extra_queries = self._dedupe_queries(
-                [alias for alias in org_aliases if alias.casefold() not in {item.casefold() for item in intent.aliases}]
+                [
+                    alias
+                    for alias in org_aliases
+                    if alias.casefold() not in {item.casefold() for item in intent.aliases}
+                ]
             )
             for extra_query in extra_queries:
                 extra_results, extra_matches = await self._search_with_queries(
@@ -173,7 +183,11 @@ class OpenSubtitlesClient:
                     feature_hint_alias=extra_query,
                 )
                 for result in extra_results:
-                    query_alignment = self._score_alias_values(intent.normalized_query, [extra_query]) if intent.normalized_query else 0.0
+                    query_alignment = (
+                        self._score_alias_values(intent.normalized_query, [extra_query])
+                        if intent.normalized_query
+                        else 0.0
+                    )
                     alias_bonus = min(
                         60.0,
                         self._score_alias_values(
@@ -188,19 +202,29 @@ class OpenSubtitlesClient:
                 matches = self._merge_features(matches, extra_matches)
 
         slash_variant = self._maybe_slash_variant(intent.query)
-        if slash_variant and slash_variant.casefold() not in {alias.casefold() for alias in intent.aliases} and not results:
-            slash_results, slash_matches = await self._search_with_queries(intent, normalized_languages, [slash_variant])
+        if (
+            slash_variant
+            and slash_variant.casefold() not in {alias.casefold() for alias in intent.aliases}
+            and not results
+        ):
+            slash_results, slash_matches = await self._search_with_queries(
+                intent, normalized_languages, [slash_variant]
+            )
             if slash_matches:
                 matches = self._merge_features(matches, slash_matches)
             if self._has_strong_title_results(intent, slash_results):
                 results = self._merge_results(results, slash_results)
 
-        return SearchCatalog(results=self._sort_results(results), matches=self._sort_features(matches))
+        return SearchCatalog(
+            results=self._sort_results(results), matches=self._sort_features(matches)
+        )
 
     async def get_download_link(self, file_id: int) -> tuple[str, int]:
         response = await self._request("POST", "/download", json={"file_id": file_id})
         if response.status_code != 200:
-            raise OpenSubtitlesError(f"OpenSubtitles download lookup failed: {response.status_code}")
+            raise OpenSubtitlesError(
+                f"OpenSubtitles download lookup failed: {response.status_code}"
+            )
 
         payload = response.json()
         link = payload.get("link")
@@ -217,7 +241,9 @@ class OpenSubtitlesClient:
             return destination
 
         link, _ = await self.get_download_link(file_id)
-        async with httpx.AsyncClient(timeout=provider_timeout(30.0), follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=provider_timeout(30.0), follow_redirects=True
+        ) as client:
             response = await client.get(link)
             response.raise_for_status()
             destination.write_bytes(response.content)
@@ -232,7 +258,9 @@ class OpenSubtitlesClient:
     ) -> tuple[list[SearchResult], list[FeatureCandidate]]:
         collected: dict[str, SearchResult] = {}
         matched_features: dict[int, FeatureCandidate] = {}
-        ranked_features = await self._collect_ranked_features(intent, queries, feature_hint_alias=feature_hint_alias)
+        ranked_features = await self._collect_ranked_features(
+            intent, queries, feature_hint_alias=feature_hint_alias
+        )
         for feature in ranked_features:
             matched_features[feature.id] = feature
 
@@ -246,18 +274,27 @@ class OpenSubtitlesClient:
         all_feature_results = await asyncio.gather(*[_fetch_guarded(f) for f in candidates])
         for feature, feature_results in zip(candidates, all_feature_results, strict=True):
             for result in feature_results:
-                result.match_score = max(result.match_score, feature.match_score + self._score_search_result(intent, result))
+                result.match_score = max(
+                    result.match_score,
+                    feature.match_score + self._score_search_result(intent, result),
+                )
                 self._store_result(collected, result)
 
         direct_exact_only = self._should_run_exact_direct_recovery(intent, list(collected.values()))
-        if direct_exact_only or self._should_run_direct_subtitle_lookup(intent, list(collected.values())):
+        if direct_exact_only or self._should_run_direct_subtitle_lookup(
+            intent, list(collected.values())
+        ):
             for query_index, query_variant in enumerate(queries[:MAX_QUERY_VARIANTS]):
-                direct_results = await self._search_direct_subtitles(intent, languages, query_variant)
+                direct_results = await self._search_direct_subtitles(
+                    intent, languages, query_variant
+                )
                 query_bonus = max(0.0, 10.0 - (query_index * 2.0))
                 for result in direct_results:
                     if direct_exact_only and not self._result_matches_query_exactly(intent, result):
                         continue
-                    result.match_score = max(result.match_score, self._score_search_result(intent, result) + query_bonus)
+                    result.match_score = max(
+                        result.match_score, self._score_search_result(intent, result) + query_bonus
+                    )
                     self._store_result(collected, result)
 
         return list(collected.values()), list(matched_features.values())
@@ -280,17 +317,25 @@ class OpenSubtitlesClient:
 
             response = await self._request("GET", "/features", params=params)
             if response.status_code != 200:
-                raise OpenSubtitlesError(f"OpenSubtitles feature search failed: {response.status_code}")
+                raise OpenSubtitlesError(
+                    f"OpenSubtitles feature search failed: {response.status_code}"
+                )
 
             payload = response.json()
-            logger.debug("OS /features query=%r → %d features", query_variant, len(payload.get("data", [])))
+            logger.debug(
+                "OS /features query=%r → %d features", query_variant, len(payload.get("data", []))
+            )
             for item in payload.get("data", [])[:MAX_FEATURES_PER_QUERY]:
                 feature = self._parse_feature(item)
                 score = self._score_feature(intent, feature, query_index)
                 if hint_alias:
                     score += min(
                         50.0,
-                        self._score_alias_values(hint_alias, [feature.title, feature.parent_title or "", *feature.aka_titles]) * 0.2,
+                        self._score_alias_values(
+                            hint_alias,
+                            [feature.title, feature.parent_title or "", *feature.aka_titles],
+                        )
+                        * 0.2,
                     )
                 feature.match_score = score
                 existing = features_by_id.get(feature.id)
@@ -326,7 +371,11 @@ class OpenSubtitlesClient:
             for id_key, id_val in [("imdb_id", feature.imdb_id), ("tmdb_id", feature.tmdb_id)]:
                 if not id_val:
                     continue
-                fallback: dict[str, str] = {"languages": params["languages"], id_key: id_val, "type": "episode"}
+                fallback: dict[str, str] = {
+                    "languages": params["languages"],
+                    id_key: id_val,
+                    "type": "episode",
+                }
                 if intent.season is not None:
                     fallback["season_number"] = str(intent.season)
                 if intent.episode is not None:
@@ -404,7 +453,9 @@ class OpenSubtitlesClient:
             if isinstance(total_pages, int) and page >= total_pages:
                 break
         lang_summary = ",".join(sorted({r.language for r in results})) if results else "none"
-        logger.debug("OS /subtitles params=%s → %d results [langs: %s]", params, len(results), lang_summary)
+        logger.debug(
+            "OS /subtitles params=%s → %d results [langs: %s]", params, len(results), lang_summary
+        )
         return results
 
     async def _search_org_aliases(self, query: str) -> list[str]:
@@ -516,12 +567,16 @@ class OpenSubtitlesClient:
         codes = [c.strip() for c in languages.split(",") if c.strip()]
         return ",".join(self._INTERNAL_TO_OS_LANG.get(c, c) for c in codes)
 
-    def _score_feature(self, intent: SearchIntent, feature: FeatureCandidate, query_index: int) -> float:
+    def _score_feature(
+        self, intent: SearchIntent, feature: FeatureCandidate, query_index: int
+    ) -> float:
         title_score = self._score_title_values(
             intent,
             [feature.title, feature.parent_title or "", *feature.aka_titles],
         )
-        score = title_score + min(feature.subtitles_count, 20) + max(0.0, 12.0 - (query_index * 2.0))
+        score = (
+            title_score + min(feature.subtitles_count, 20) + max(0.0, 12.0 - (query_index * 2.0))
+        )
 
         if intent.media_type:
             score += 24.0 if feature.media_type == intent.media_type else -16.0
@@ -622,12 +677,16 @@ class OpenSubtitlesClient:
     def _has_strong_results(self, results: list[SearchResult]) -> bool:
         return any(result.match_score >= STRONG_MATCH_THRESHOLD for result in results)
 
-    def _should_run_direct_subtitle_lookup(self, intent: SearchIntent, results: list[SearchResult]) -> bool:
+    def _should_run_direct_subtitle_lookup(
+        self, intent: SearchIntent, results: list[SearchResult]
+    ) -> bool:
         if intent.season is not None:
             return not self._has_exact_episode_scope_result(intent, results)
         return not self._has_strong_results(results)
 
-    def _has_exact_episode_scope_result(self, intent: SearchIntent, results: list[SearchResult]) -> bool:
+    def _has_exact_episode_scope_result(
+        self, intent: SearchIntent, results: list[SearchResult]
+    ) -> bool:
         if intent.season is None:
             return False
         for result in results:
@@ -639,7 +698,9 @@ class OpenSubtitlesClient:
                 return True
         return False
 
-    def _should_run_exact_direct_recovery(self, intent: SearchIntent, results: list[SearchResult]) -> bool:
+    def _should_run_exact_direct_recovery(
+        self, intent: SearchIntent, results: list[SearchResult]
+    ) -> bool:
         if not self._has_strong_results(results):
             return False
         if not self._is_short_generic_query(intent):
@@ -668,7 +729,9 @@ class OpenSubtitlesClient:
     def _has_strong_title_results(self, intent: SearchIntent, results: list[SearchResult]) -> bool:
         for result in results:
             if (
-                self._score_title_values(intent, [result.parent_title or "", result.title, result.movie_name or ""])
+                self._score_title_values(
+                    intent, [result.parent_title or "", result.title, result.movie_name or ""]
+                )
                 >= STRONG_MATCH_THRESHOLD
             ):
                 return True
@@ -681,17 +744,24 @@ class OpenSubtitlesClient:
                 return True
         return False
 
-    def _merge_results(self, left: list[SearchResult], right: list[SearchResult]) -> list[SearchResult]:
+    def _merge_results(
+        self, left: list[SearchResult], right: list[SearchResult]
+    ) -> list[SearchResult]:
         merged: dict[str, SearchResult] = {}
         for result in [*left, *right]:
             self._store_result(merged, result)
         return list(merged.values())
 
-    def _merge_features(self, left: list[FeatureCandidate], right: list[FeatureCandidate]) -> list[FeatureCandidate]:
+    def _merge_features(
+        self, left: list[FeatureCandidate], right: list[FeatureCandidate]
+    ) -> list[FeatureCandidate]:
         merged: dict[int, FeatureCandidate] = {}
         for feature in [*left, *right]:
             current = merged.get(feature.id)
-            if current is None or (feature.match_score, feature.subtitles_count) > (current.match_score, current.subtitles_count):
+            if current is None or (feature.match_score, feature.subtitles_count) > (
+                current.match_score,
+                current.subtitles_count,
+            ):
                 merged[feature.id] = feature
         return list(merged.values())
 
@@ -733,7 +803,11 @@ class OpenSubtitlesClient:
 
         title = str(attributes.get("original_title") or attributes.get("title") or "")
         aka_titles_raw = attributes.get("title_aka", [])
-        aka_titles = tuple(str(title_aka) for title_aka in aka_titles_raw if str(title_aka).strip()) if isinstance(aka_titles_raw, list) else ()
+        aka_titles = (
+            tuple(str(title_aka) for title_aka in aka_titles_raw if str(title_aka).strip())
+            if isinstance(aka_titles_raw, list)
+            else ()
+        )
 
         return FeatureCandidate(
             id=self._coerce_int(item.get("id") or attributes.get("feature_id")),

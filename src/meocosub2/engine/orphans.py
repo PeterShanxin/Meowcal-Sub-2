@@ -153,9 +153,7 @@ def _terminate(pid: int, expected: Path) -> bool:
     kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
     kernel32.CloseHandle.restype = wintypes.BOOL
 
-    handle = kernel32.OpenProcess(
-        PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION, False, pid
-    )
+    handle = kernel32.OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
     if not handle:
         return False
     try:

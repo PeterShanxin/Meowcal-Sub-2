@@ -151,9 +151,7 @@ def install(
 
 
 def _executable_ready(paths: InstallPaths, runtime: Runtime) -> bool:
-    return file_matches(
-        paths.executable, runtime.executable.size_bytes, runtime.executable.sha256
-    )
+    return file_matches(paths.executable, runtime.executable.size_bytes, runtime.executable.sha256)
 
 
 def _model_ready(paths: InstallPaths, manifest: Manifest) -> bool:
@@ -173,9 +171,7 @@ def _extract(paths: InstallPaths, runtime: Runtime) -> None:
         raise EngineInstallError(f"The translation runtime archive is unusable: {error}") from error
 
     candidate = staging / runtime.executable.relative_path
-    if not file_matches(
-        candidate, runtime.executable.size_bytes, runtime.executable.sha256
-    ):
+    if not file_matches(candidate, runtime.executable.size_bytes, runtime.executable.sha256):
         shutil.rmtree(staging, ignore_errors=True)
         raise EngineInstallError("The extracted translation runtime failed its integrity check.")
 

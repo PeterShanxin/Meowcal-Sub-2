@@ -93,9 +93,7 @@ class SemanticIndex:
 
     async def _encode(self, client: httpx.AsyncClient, texts: list[str]) -> list[list[float]]:
         try:
-            response = await client.post(
-                f"{self._endpoint}/v1/embeddings", json={"input": texts}
-            )
+            response = await client.post(f"{self._endpoint}/v1/embeddings", json={"input": texts})
             response.raise_for_status()
             payload = response.json()
         except (httpx.HTTPError, ValueError) as error:

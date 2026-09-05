@@ -18,12 +18,21 @@ SUBTITLE_EXTENSIONS = (".srt", ".ass", ".ssa", ".vtt")
 EPISODE_PATTERN = re.compile(r"\bS(?P<season>\d{1,2})E(?P<episode>\d{1,3})\b", re.IGNORECASE)
 YEAR_PATTERN = re.compile(r"\b(?P<year>19\d{2}|20\d{2}|21\d{2})\b")
 SEPARATOR_PATTERN = re.compile(r"[|]+")
-QUERY_PAREN_YEAR_PATTERN = re.compile(r"^(?P<title>.+?)\s*\((?P<year>19\d{2}|20\d{2}|21\d{2})\)\s*$")
+QUERY_PAREN_YEAR_PATTERN = re.compile(
+    r"^(?P<title>.+?)\s*\((?P<year>19\d{2}|20\d{2}|21\d{2})\)\s*$"
+)
 QUERY_TRAILING_YEAR_PATTERN = re.compile(r"^(?P<title>.+?)\s+(?P<year>19\d{2}|20\d{2}|21\d{2})\s*$")
 
 _ROMAN_SEASON_MAP = {
-    "II": 2, "III": 3, "IV": 4, "V": 5,
-    "VI": 6, "VII": 7, "VIII": 8, "IX": 9, "X": 10,
+    "II": 2,
+    "III": 3,
+    "IV": 4,
+    "V": 5,
+    "VI": 6,
+    "VII": 7,
+    "VIII": 8,
+    "IX": 9,
+    "X": 10,
 }
 # Ordered: most specific first to avoid "Overlord II" being caught by season-digit.
 _SEASON_SUFFIX_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -74,6 +83,7 @@ def split_query_year(query: str) -> tuple[str, int | None]:
             return title, year
     return text, None
 
+
 SUBDL_LANGUAGE_MAP = {
     "english": "en",
     "japanese": "ja",
@@ -117,8 +127,6 @@ ASSRT_LANG_MAP = {
 PROVIDER_RANK = {"subdl": 0, "assrt": 1, "opensubtitles": 2}
 
 
-
-
 def title_similarity(query: str, candidates: Iterable[str]) -> float:
     normalized_query = canonical_title(query)
     if not normalized_query:
@@ -157,12 +165,18 @@ def best_title_guess(query: str, *values: str | None) -> str:
     for value in values:
         if not value:
             continue
-        parts = [part.strip() for part in SEPARATOR_PATTERN.split(value.replace("\\/", "/")) if part.strip()]
+        parts = [
+            part.strip()
+            for part in SEPARATOR_PATTERN.split(value.replace("\\/", "/"))
+            if part.strip()
+        ]
         for part in parts:
             segments.extend(segment.strip() for segment in part.split("/") if segment.strip())
     if not segments:
         return query
-    ranked = sorted(segments, key=lambda item: (title_similarity(query, [item]), len(item)), reverse=True)
+    ranked = sorted(
+        segments, key=lambda item: (title_similarity(query, [item]), len(item)), reverse=True
+    )
     return ranked[0]
 
 
@@ -240,7 +254,9 @@ def language_priority(language: str, requested_languages: set[str]) -> int:
     normalized = normalize_source_language(language)
     if normalized in requested_languages:
         return 0
-    if is_chinese_family(normalized) and any(is_chinese_family(code) for code in requested_languages):
+    if is_chinese_family(normalized) and any(
+        is_chinese_family(code) for code in requested_languages
+    ):
         return 1
     return 2
 
@@ -260,7 +276,9 @@ def map_subdl_language(value: str) -> str:
         return "zht"
     if compact in {"gb", "gbcode"}:
         return "zh"
-    if "chinese" in normalized and ("traditional" in normalized or compact.endswith("bgcode") or "big5" in compact):
+    if "chinese" in normalized and (
+        "traditional" in normalized or compact.endswith("bgcode") or "big5" in compact
+    ):
         return "zht"
     if "chinese" in normalized:
         return "zh"
@@ -296,7 +314,9 @@ def choose_subtitle_path(paths: Iterable[Path]) -> Path:
     candidates = [path for path in paths if path.suffix.casefold() in SUBTITLE_EXTENSIONS]
     if not candidates:
         raise ValueError("Downloaded archive does not contain a supported subtitle file.")
-    candidates.sort(key=lambda item: (SUBTITLE_EXTENSIONS.index(item.suffix.casefold()), len(item.name)))
+    candidates.sort(
+        key=lambda item: (SUBTITLE_EXTENSIONS.index(item.suffix.casefold()), len(item.name))
+    )
     return candidates[0]
 
 

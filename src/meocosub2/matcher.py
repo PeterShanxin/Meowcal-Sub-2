@@ -110,7 +110,9 @@ class SubtitleMatcher:
         self.window_backward = window_backward
         self._last_match_position: int | None = None
         self._last_frame_hash: str | None = None
-        self._contains_cjk = any(any(is_cjk_compactable_char(ch) for ch in line.text) for line in subtitles)
+        self._contains_cjk = any(
+            any(is_cjk_compactable_char(ch) for ch in line.text) for line in subtitles
+        )
         self._use_simplified = self._contains_cjk and target_language != "zht"
         self._normalized = [
             self._normalize_for_match(_script_rows(line.text, True)) for line in subtitles
@@ -207,11 +209,7 @@ class SubtitleMatcher:
         length = len(normalized_ocr)
         shortest = length / MAX_LENGTH_RATIO
         longest = length / MIN_LENGTH_RATIO
-        return {
-            index: text
-            for index, text in choices.items()
-            if shortest <= len(text) <= longest
-        }
+        return {index: text for index, text in choices.items() if shortest <= len(text) <= longest}
 
     def _extract_best(
         self,
@@ -324,9 +322,7 @@ class SubtitleMatcher:
         # With a clock, only the lines it left in the window. Without one the
         # video could be anywhere in the file, so everything is a candidate.
         indices = (
-            self._search_indices(window_ms)
-            if window_ms is not None
-            else range(len(self.subtitles))
+            self._search_indices(window_ms) if window_ms is not None else range(len(self.subtitles))
         )
         hit = await semantic.best(ocr_text, indices)
         if hit is None or hit.score < SEMANTIC_ACCEPT:
@@ -342,7 +338,10 @@ class SubtitleMatcher:
         self._last_match_position = hit.index
         logger.debug(
             "MATCH semantic: idx=%d score=%.2f src=%r ocr=%r",
-            hit.index, hit.score, self.subtitles[hit.index].text[:40], normalized_ocr[:40],
+            hit.index,
+            hit.score,
+            self.subtitles[hit.index].text[:40],
+            normalized_ocr[:40],
         )
         return self._result(_Candidate(hit.index, 1, hit.score * 100), SEMANTIC)
 
@@ -351,7 +350,8 @@ class SubtitleMatcher:
         if self._is_too_short(normalized_ocr):
             logger.debug(
                 "MATCH skip: normalized too short (%d chars) for %r",
-                len(normalized_ocr), normalized_ocr[:40],
+                len(normalized_ocr),
+                normalized_ocr[:40],
             )
             return False
         current_hash = self._hash_text(normalized_ocr)
@@ -360,9 +360,7 @@ class SubtitleMatcher:
         self._last_frame_hash = current_hash
         return True
 
-    def _fuzzy(
-        self, normalized_ocr: str, window_ms: tuple[int, int] | None
-    ) -> _Candidate | None:
+    def _fuzzy(self, normalized_ocr: str, window_ms: tuple[int, int] | None) -> _Candidate | None:
         # token_set_ratio degenerates on space-stripped CJK (single token); WRatio handles OCR char drops better.
         ocr_is_cjk = any(is_cjk_compactable_char(ch) for ch in normalized_ocr)
         scorer = fuzz.WRatio if ocr_is_cjk else fuzz.token_set_ratio
@@ -372,18 +370,22 @@ class SubtitleMatcher:
         best = self._extract_best(normalized_ocr, window, scorer, table)
         in_window = best is not None
         if best is None:
-            best = self._extract_best(
-                normalized_ocr, range(len(self.subtitles)), scorer, table
-            )
+            best = self._extract_best(normalized_ocr, range(len(self.subtitles)), scorer, table)
         if best is None:
-            logger.debug("MATCH miss: threshold=%d ocr=%r", self.fuzzy_threshold, normalized_ocr[:60])
+            logger.debug(
+                "MATCH miss: threshold=%d ocr=%r", self.fuzzy_threshold, normalized_ocr[:60]
+            )
             return None
 
         position, span, score = best
         self._last_match_position = position
         logger.debug(
             "MATCH hit: idx=%d span=%d score=%.1f window=%s src=%r ocr=%r",
-            position, span, score, in_window, self.subtitles[position].text[:40],
+            position,
+            span,
+            score,
+            in_window,
+            self.subtitles[position].text[:40],
             normalized_ocr[:40],
         )
         return _Candidate(position, span, score)

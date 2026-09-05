@@ -124,7 +124,9 @@ def build_prompt(
             f"{context}\nBased on the information above, translate the text below into "
             f"{label}. Do not translate the context or add explanations:\n{source}"
         )
-    return f"Translate the following segment into {label}, without additional explanation.\n\n{source}"
+    return (
+        f"Translate the following segment into {label}, without additional explanation.\n\n{source}"
+    )
 
 
 def sanitize_output(text: str) -> str:
@@ -186,9 +188,7 @@ def _looks_like_a_proper_name(text: str) -> bool:
     if not token or " " in token:
         return False
     parts = re.split(r"[-']", token)
-    return all(
-        part and part.isalpha() and (part.istitle() or part.isupper()) for part in parts
-    )
+    return all(part and part.isalpha() and (part.istitle() or part.isupper()) for part in parts)
 
 
 def _wrong_script(translated: str, target_language: str) -> bool:
@@ -231,7 +231,9 @@ def is_usable_translation(source: str, translated: str, target_language: str) ->
     length = len(translated)
     if length > MAX_OUTPUT_CHARS:
         return False
-    cjk_to_english = any(is_cjk_char(ch) for ch in source) and target_language.lower().startswith("en")
+    cjk_to_english = any(is_cjk_char(ch) for ch in source) and target_language.lower().startswith(
+        "en"
+    )
     ratio, floor = (
         (CJK_TO_ENGLISH_RATIO, MIN_CJK_TO_ENGLISH_CHARS)
         if cjk_to_english
@@ -327,7 +329,9 @@ class TranslationClient:
         except httpx.HTTPError as exc:
             raise TranslationError(f"The local translation engine did not respond: {exc}") from exc
         except ValueError as exc:
-            raise TranslationError("The local translation engine returned an unreadable reply.") from exc
+            raise TranslationError(
+                "The local translation engine returned an unreadable reply."
+            ) from exc
 
         choices = payload.get("choices") or []
         return choices[0].get("message", {}).get("content", "") if choices else ""

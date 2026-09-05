@@ -14,9 +14,7 @@ def isolated_event_log(tmp_path, monkeypatch):
     Without this every run appends to the same file the desktop app writes, so a
     real failure is buried among events no user ever produced.
     """
-    monkeypatch.setenv(
-        "MEOCOSUB2_EVENT_LOG_PATH", str(tmp_path / "meowcal-sub-2.events.jsonl")
-    )
+    monkeypatch.setenv("MEOCOSUB2_EVENT_LOG_PATH", str(tmp_path / "meowcal-sub-2.events.jsonl"))
 
 
 def studio_client(server: OverlayServer) -> TestClient:

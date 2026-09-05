@@ -169,7 +169,7 @@ def _validated_adreno_present() -> bool:
                 "-NoProfile",
                 "-Command",
                 "Get-CimInstance Win32_VideoController | "
-                "ForEach-Object { \"$($_.Name)|$($_.DriverVersion)\" }",
+                'ForEach-Object { "$($_.Name)|$($_.DriverVersion)" }',
             ],
             capture_output=True,
             text=True,
@@ -217,9 +217,17 @@ def _attach_to_process_lifetime(process: subprocess.Popen) -> None:
         ]
 
     class _IoCounters(ctypes.Structure):
-        _fields_ = [(name, ctypes.c_uint64) for name in
-                    ("ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
-                     "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
+        _fields_ = [
+            (name, ctypes.c_uint64)
+            for name in (
+                "ReadOperationCount",
+                "WriteOperationCount",
+                "OtherOperationCount",
+                "ReadTransferCount",
+                "WriteTransferCount",
+                "OtherTransferCount",
+            )
+        ]
 
     class _JobObjectExtendedLimitInformation(ctypes.Structure):
         _fields_ = [
@@ -347,9 +355,10 @@ def _start(plan: LaunchPlan, paths: InstallPaths) -> _OwnedEngine:
         port,
         "Adreno GPU" if gpu_active else "CPU",
     )
-    with open(log_dir / f"{plan.log_stem}.log", "a", encoding="utf-8") as stdout, open(
-        log_dir / f"{plan.log_stem}.err.log", "a", encoding="utf-8"
-    ) as stderr:
+    with (
+        open(log_dir / f"{plan.log_stem}.log", "a", encoding="utf-8") as stdout,
+        open(log_dir / f"{plan.log_stem}.err.log", "a", encoding="utf-8") as stderr,
+    ):
         process = subprocess.Popen(
             [str(plan.executable), *arguments],
             cwd=str(plan.executable.parent),

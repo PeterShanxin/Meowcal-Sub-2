@@ -9,7 +9,7 @@ from meocosub2.devtools.window_capture import (
 
 
 def test_sanitize_filename_replaces_reserved_characters() -> None:
-    assert sanitize_filename('Meowcal Sub 2: Main/Studio?*') == "meowcal-sub-2-main-studio"
+    assert sanitize_filename("Meowcal Sub 2: Main/Studio?*") == "meowcal-sub-2-main-studio"
 
 
 def test_filter_windows_matches_title_case_insensitive() -> None:
@@ -25,7 +25,9 @@ def test_filter_windows_matches_title_case_insensitive() -> None:
 
 
 def test_build_output_path_uses_explicit_path_when_provided(tmp_path: Path) -> None:
-    output = build_output_path("Meowcal Sub 2", output_dir=tmp_path, explicit_path=tmp_path / "window.png")
+    output = build_output_path(
+        "Meowcal Sub 2", output_dir=tmp_path, explicit_path=tmp_path / "window.png"
+    )
 
     assert output == tmp_path / "window.png"
 
