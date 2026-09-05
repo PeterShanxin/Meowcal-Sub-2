@@ -355,3 +355,71 @@ async def test_the_clock_plays_the_next_line_without_waiting_for_a_read() -> Non
 
     assert broadcasts[0] == "你好"
     assert "再见" in broadcasts
+
+
+def test_the_lead_draws_the_line_the_video_is_about_to_reach() -> None:
+    """The plate runs slightly ahead of the clock, on purpose.
+
+    The clock anchors to the read that first saw a cue, and the cue can have
+    gone up any time since the previous capture, so an unshifted clock draws
+    every line a fraction late.
+    """
+    lines = [
+        SubtitleLine(index=0, start_ms=0, end_ms=200, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=300, end_ms=500, text="Goodbye now", translated="再见"),
+    ]
+    session = CandidateSession([make_candidate("a", lines)], config(), never_translates())
+    assert session.match("Hello there") is not None
+
+    # Anchored at the first line, but the lead has already reached the second.
+    assert session.clock_ms() >= 300
+    followed = session.line_now()
+    assert followed is not None and followed.text == "再见"
+
+
+@pytest.mark.asyncio
+async def test_cues_changing_faster_than_a_poll_are_all_drawn(monkeypatch) -> None:
+    """Fast dialogue changes cue faster than any poll worth running notices.
+
+    Each line is scheduled at the timestamp the file gives it, so a cue that is
+    up for barely longer than a frame still reaches the plate.
+    """
+    import meocosub2.sync as sync_module
+
+    # The lead is a separate concern; zero it so this measures the scheduling.
+    monkeypatch.setattr(sync_module, "DISPLAY_LEAD_MS", 0)
+    lines = [
+        SubtitleLine(index=0, start_ms=0, end_ms=90, text="Hello there", translated="你好"),
+        # Up for 40ms, and starting between two ticks of any 100ms poll.
+        SubtitleLine(index=1, start_ms=120, end_ms=160, text="Goodbye now", translated="再见"),
+        SubtitleLine(index=2, start_ms=180, end_ms=380, text="See you", translated="回见"),
+    ]
+    session = CandidateSession([make_candidate("a", lines)], config(), never_translates())
+    broadcasts: list[str] = []
+
+    async def broadcast(text: str, source: str) -> None:
+        broadcasts.append(text)
+
+    reads = ["Hello there"]
+
+    async def ocr(_image, _language) -> str:
+        if reads:
+            return reads.pop(0)
+        # OCR stalls, which is the case this whole mechanism exists for.
+        await asyncio.sleep(10)
+        return ""
+
+    original_ocr, original_capture = sync_module.ocr_image, sync_module.capture_region
+    sync_module.ocr_image = ocr
+    sync_module.capture_region = lambda region: MagicMock()
+    try:
+        loop = asyncio.create_task(run_session_loop(session, config(), broadcast))
+        await asyncio.sleep(0.45)
+        loop.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await loop
+    finally:
+        sync_module.ocr_image = original_ocr
+        sync_module.capture_region = original_capture
+
+    assert [text for text in broadcasts if text] == ["你好", "再见", "回见"]

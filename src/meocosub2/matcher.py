@@ -235,6 +235,25 @@ class SubtitleMatcher:
             translated=bool(line.translated),
         )
 
+    def next_change_ms(self, position_ms: int) -> int | None:
+        """When the line `line_at` returns changes, or None if it never does again.
+
+        Deliberately built on the same boundary rule as `line_at`: the renderer
+        sleeps until this moment and then asks `line_at` what to draw, so a
+        disagreement between the two is either a wasted wake-up or, worse, a
+        line the renderer sleeps straight through.
+        """
+        position = bisect_right(self._starts, position_ms) - 1
+        following = self._starts[position + 1] if position + 1 < len(self._starts) else None
+        if position < 0:
+            return following
+        # `line_at` keeps showing a line while the clock is within the grace, so
+        # the first position where it stops is one millisecond past the end of it.
+        expires = self.subtitles[position].end_ms + FOLLOW_GRACE_MS + 1
+        if expires <= position_ms:
+            return following
+        return expires if following is None else min(expires, following)
+
     def match(self, ocr_text: str, window_ms: tuple[int, int] | None = None) -> MatchResult | None:
         normalized_ocr = self._normalize_for_match(ocr_text)
         if self._is_too_short(normalized_ocr):

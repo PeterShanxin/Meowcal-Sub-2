@@ -243,3 +243,44 @@ def test_a_line_still_counts_just_past_its_own_end() -> None:
     matcher = SubtitleMatcher(episode_lines())
     assert matcher.line_at(13_000) is not None
     assert matcher.line_at(14_000) is None
+
+
+def spaced_lines() -> list[SubtitleLine]:
+    """Three cues with real gaps between them, so the grace period is reachable."""
+    return [
+        SubtitleLine(index=0, start_ms=0, end_ms=2000, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=10_000, end_ms=12_000, text="Goodbye now", translated="再见"),
+        SubtitleLine(index=2, start_ms=20_000, end_ms=22_000, text="See you", translated="回见"),
+    ]
+
+
+def test_a_line_on_screen_changes_when_its_grace_runs_out() -> None:
+    matcher = SubtitleMatcher(spaced_lines())
+    # The next cue is ten seconds off, so this line expiring is what changes first.
+    assert matcher.next_change_ms(500) == 2000 + 1500 + 1
+
+
+def test_a_clock_in_a_gap_waits_for_the_next_cue() -> None:
+    matcher = SubtitleMatcher(spaced_lines())
+    assert matcher.line_at(5000) is None
+    assert matcher.next_change_ms(5000) == 10_000
+
+
+def test_a_cue_that_ends_after_the_next_one_starts_changes_at_the_next_one() -> None:
+    overlapping = [
+        SubtitleLine(index=0, start_ms=0, end_ms=1000, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=1200, end_ms=2000, text="Goodbye now", translated="再见"),
+    ]
+    matcher = SubtitleMatcher(overlapping)
+    # The first line's grace would carry it to 2501, past where the second begins.
+    assert matcher.next_change_ms(500) == 1200
+
+
+def test_nothing_changes_after_the_last_line_has_gone() -> None:
+    matcher = SubtitleMatcher(spaced_lines())
+    assert matcher.next_change_ms(25_000) is None
+
+
+def test_the_first_cue_is_scheduled_from_before_the_file_starts() -> None:
+    matcher = SubtitleMatcher(spaced_lines()[1:])
+    assert matcher.next_change_ms(0) == 10_000
