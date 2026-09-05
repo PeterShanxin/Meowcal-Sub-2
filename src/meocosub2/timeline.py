@@ -263,6 +263,7 @@ class PlaybackTimeline:
         self._anchor_at = 0.0
         self._paused_s = 0.0
         self._cue_since = None
+        self._cue_started_ms = None
         self._cue_credited_s = 0.0
         self._misses = 0
         self._drift_ms = None
