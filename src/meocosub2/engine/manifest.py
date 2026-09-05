@@ -51,9 +51,27 @@ class Model:
 
 
 @dataclass(frozen=True)
+class Embedding:
+    """The model that matches a read to a subtitle line by meaning.
+
+    Carries its own launch settings rather than sharing the translation model's:
+    it runs on a second port, needs a fraction of the context, and is started in
+    embedding mode with the pooling it was trained for.
+    """
+
+    id: str
+    install_directory: str
+    artifact: Artifact
+    preferred_port: int
+    context_size: int
+    extra_args: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Manifest:
     engine_version: str
     model: Model
+    embedding: Embedding
     runtimes: tuple[Runtime, ...]
     host: str
     preferred_port: int
@@ -92,6 +110,18 @@ def _artifact(data: dict) -> Artifact:
     )
 
 
+def _embedding(data: dict) -> Embedding:
+    launch = data["launch"]
+    return Embedding(
+        id=data["id"],
+        install_directory=data["installDirectory"],
+        artifact=_artifact(data["artifact"]),
+        preferred_port=int(launch["preferredPort"]),
+        context_size=int(launch["contextSize"]),
+        extra_args=tuple(launch["extraArgs"]),
+    )
+
+
 @lru_cache(maxsize=1)
 def load_manifest() -> Manifest:
     data = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
@@ -104,6 +134,7 @@ def load_manifest() -> Manifest:
             install_directory=data["model"]["installDirectory"],
             artifact=_artifact(data["model"]["artifact"]),
         ),
+        embedding=_embedding(data["embedding"]),
         runtimes=tuple(
             Runtime(
                 id=runtime["id"],

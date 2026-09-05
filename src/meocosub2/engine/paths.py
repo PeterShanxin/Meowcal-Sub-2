@@ -23,12 +23,24 @@ class InstallPaths:
     executable: Path
     model_dir: Path
     model: Path
+    embedding_model_dir: Path
+    embedding_model: Path
     adopted: bool = False
 
     def is_complete(self, manifest: Manifest, runtime: Runtime) -> bool:
+        """Whether this install can translate.
+
+        Deliberately says nothing about the embedding model. This is what
+        decides whether a v1 install is adopted instead of downloading 1.1 GB
+        again, and a v1 tree predates the embedding model entirely - requiring
+        it here would reject every v1 install there is.
+        """
         return _has_size(self.executable, runtime.executable.size_bytes) and _has_size(
             self.model, manifest.model.artifact.size_bytes
         )
+
+    def embedding_is_complete(self, manifest: Manifest) -> bool:
+        return _has_size(self.embedding_model, manifest.embedding.artifact.size_bytes)
 
 
 def _has_size(path: Path, expected: int) -> bool:
@@ -45,6 +57,11 @@ def _local_app_data() -> Path:
 def _from_root(root: Path, manifest: Manifest, runtime: Runtime, adopted: bool) -> InstallPaths:
     runtime_dir = root / "runtime" / runtime.install_directory
     model_dir = root / "models" / manifest.model.install_directory
+    # Always our own tree, whatever `root` is: an adopted v1 install does not
+    # carry this model, and v2 never writes into that tree to put it there.
+    embedding_dir = (
+        _local_app_data() / OWN_ENGINE_ROOT / "models" / manifest.embedding.install_directory
+    )
     return InstallPaths(
         root=root,
         runtime_dir=runtime_dir,
@@ -52,6 +69,8 @@ def _from_root(root: Path, manifest: Manifest, runtime: Runtime, adopted: bool) 
         executable=runtime_dir / runtime.executable.relative_path,
         model_dir=model_dir,
         model=model_dir / manifest.model.artifact.file_name,
+        embedding_model_dir=embedding_dir,
+        embedding_model=embedding_dir / manifest.embedding.artifact.file_name,
         adopted=adopted,
     )
 

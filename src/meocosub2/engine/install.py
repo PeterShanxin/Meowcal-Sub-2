@@ -126,11 +126,25 @@ def install(
             "translation model",
             progress,
             12,
-            96,
+            94,
         )
-        _report(progress, "Verifying the translation model...", 97)
+        _report(progress, "Verifying the translation model...", 95)
         _verify(paths.model, manifest.model.artifact, "translation model")
         paths.runtime_archive.unlink(missing_ok=True)
+
+    if not paths.embedding_is_complete(manifest):
+        # A fortieth of the translation model, so it gets a sliver of the bar.
+        _report(progress, "Downloading the subtitle matching model...", 96)
+        _download(
+            manifest.embedding.artifact.url,
+            paths.embedding_model,
+            manifest.embedding.artifact.size_bytes,
+            "subtitle matching model",
+            progress,
+            96,
+            99,
+        )
+        _verify(paths.embedding_model, manifest.embedding.artifact, "subtitle matching model")
 
     _report(progress, "Translation engine installed.", 100)
     return paths

@@ -27,6 +27,7 @@ __all__ = [
     "EngineInstallError",
     "EngineStartError",
     "EngineStatus",
+    "ensure_embedding_ready",
     "ensure_ready",
     "install_engine",
     "shutdown",
@@ -170,4 +171,26 @@ async def ensure_ready(timeout_s: float = STARTUP_TIMEOUT_S) -> str:
     async with _start_lock:
         endpoint = await runtime_module.ensure_ready(paths, manifest, runtime, timeout_s)
     logger.info("Translation engine ready at %s (%s)", endpoint, _accelerator_label())
+    return endpoint
+
+
+async def ensure_embedding_ready(timeout_s: float = STARTUP_TIMEOUT_S) -> str:
+    """Return a healthy endpoint for the model that matches reads to subtitle lines.
+
+    Separate from `ensure_ready` because the two answer different questions. A
+    session without this model still translates; it just falls back on character
+    matching, which the burned-in subtitles usually defeat. An install predating
+    this model - including an adopted v1 engine - is exactly that case.
+    """
+    manifest = load_manifest()
+    runtime = manifest.runtime_for_host()
+    paths = resolve_paths(manifest, runtime)
+    if not paths.embedding_is_complete(manifest):
+        raise EngineStartError(
+            "The subtitle matching model is not installed yet. Run setup from "
+            "Settings to download it."
+        )
+    async with _start_lock:
+        endpoint = await runtime_module.ensure_embedding_ready(paths, manifest, timeout_s)
+    logger.info("Subtitle matching model ready at %s", endpoint)
     return endpoint
