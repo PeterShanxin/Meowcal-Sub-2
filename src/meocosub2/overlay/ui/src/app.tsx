@@ -66,6 +66,7 @@ export function App(): JSX.Element {
   const selectedTargetId = useStore((s) => s.selectedTargetId);
   const cursorIndex = useStore((s) => s.cursorIndex);
   const hydrating = useStore((s) => s.hydrating);
+  const emptyLookups = useStore((s) => s.emptyLookups);
   const liveLines = useStore((s) => s.liveLines);
   const languages = useStore((s) => s.languages);
   const wsConnected = useStore((s) => s.wsConnected);
@@ -283,6 +284,7 @@ export function App(): JSX.Element {
       selectedSourceId: null,
       selectedTargetId: null,
       hydrating: [],
+      emptyLookups: [],
     });
     try {
       const res = await api.search(
@@ -375,6 +377,9 @@ export function App(): JSX.Element {
       selectedSourceId: null,
       selectedTargetId: null,
       query: "",
+      // Settling one step opens the next one's list, so the step the footer
+      // names is the step the palette is showing.
+      tab: "source",
       cursorIndex: -1,
     });
   }, []);
@@ -536,6 +541,7 @@ export function App(): JSX.Element {
     const work = works.find((item) => item.id === workId);
     if (!work) return;
     const key = episodeHydrateKey(workId, season, episode);
+    if (store.get().emptyLookups.includes(key)) return;
     if (!beginHydrate(key)) return;
     const correlationId = clientEventId("hydrate");
     logClientEvent("ui.episode.hydrate_requested", { workId, season, episode }, correlationId);
@@ -546,6 +552,8 @@ export function App(): JSX.Element {
       store.set({ snapshot: fresh, config: fresh.config });
       if (hydrated.matchId) {
         selectTitle(workId, hydrated.matchId);
+      } else {
+        store.set((s) => ({ emptyLookups: [...s.emptyLookups, key] }));
       }
       logClientEvent("ui.episode.hydrate_completed", {
         workId,
@@ -574,7 +582,10 @@ export function App(): JSX.Element {
 
   const onPickTarget = useCallback(async (id: string) => {
     const correlationId = clientEventId("prepare");
-    store.set({ selectedTargetId: id, tab: "titles", cursorIndex: -1 });
+    // Staying on the pick that was just made keeps the last step settled.
+    // Dropping back to the title list read as "start over" and invited the
+    // reader to pick their way around a session that was already prepared.
+    store.set({ selectedTargetId: id, cursorIndex: -1 });
     const currentEpisode = store.get().selectedEpisodeMatchId;
     const currentSource = store.get().selectedSourceId;
     if (!currentEpisode || !currentSource) return;
@@ -809,13 +820,21 @@ export function App(): JSX.Element {
       return;
     }
     if (preparing) return;
+    // A session that is ready to run starts from wherever the reader has
+    // browsed to. This outranks the picks, which live in the page and are gone
+    // after a reload even though the session behind them survives.
     if (phase === "prep" && !preparingReplacement) {
       void startWithRegion();
       return;
     }
     if (!episodeMatchId) return;
-    // Not ready to start yet, so send the user to whichever pick is still open.
-    store.set({ tab: selectedSourceId ? "target" : "source", cursorIndex: -1 });
+    if (tab === "titles") {
+      store.set({ tab: "source", cursorIndex: -1 });
+      return;
+    }
+    if (tab === "source" && selectedSourceId) {
+      store.set({ tab: "target", cursorIndex: -1 });
+    }
   }, [phase, tab, query, runSearch, startWithRegion, preparing, preparingReplacement, episodeMatchId, selectedSourceId]);
 
   const onMoveCursor = useCallback(
@@ -1086,6 +1105,7 @@ export function App(): JSX.Element {
               searching={searching}
               searchStatusMessage={searchStatusMessage}
               hydrating={hydrating}
+              emptyLookups={emptyLookups}
               errorMessage={paletteError}
               onRetrySearch={lastSearchedQuery.current || query.trim() ? retrySearch : null}
               onDismissError={dismissError}

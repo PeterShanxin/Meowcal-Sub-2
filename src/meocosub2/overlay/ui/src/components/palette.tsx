@@ -51,6 +51,7 @@ interface PaletteProps {
   searching: boolean;
   searchStatusMessage: string | null;
   hydrating: string[];
+  emptyLookups: string[];
   errorMessage: string | null;
   onRetrySearch: (() => void) | null;
   onDismissError: () => void;
@@ -99,6 +100,7 @@ export function Palette(props: PaletteProps): JSX.Element {
     searching,
     searchStatusMessage,
     hydrating,
+    emptyLookups,
     errorMessage,
     onRetrySearch,
     onDismissError,
@@ -192,15 +194,42 @@ export function Palette(props: PaletteProps): JSX.Element {
   const sourceLabel = pickedSource?.file ?? null;
   const targetLabel = pickedTarget?.title ?? pickedTarget?.file ?? null;
   const canStart = phase === "prep" && !preparingReplacement && !preparing;
+  // The footer offers one step: the one after whichever list is open. Offering
+  // all three at once left the reader to work out which was the one to press.
+  // A prepared session outranks the tabs — otherwise browsing back to an
+  // earlier list took away the only way to start what is already ready.
+  const stage: "source" | "target" | "start" = canStart
+    ? "start"
+    : tab === "titles"
+      ? "source"
+      : tab === "source"
+        ? "target"
+        : "start";
+  const primaryLabel = preparing
+    ? "Preparing"
+    : stage === "source"
+      ? "Select source subtitle"
+      : stage === "target"
+        ? "Select target subtitle"
+        : "Start OCR and sync";
+  const primaryEnabled = preparing
+    ? false
+    : stage === "source"
+      ? true
+      : stage === "target"
+        ? !!sourceLabel
+        : canStart;
   const startHint = preparing
     ? "Downloading the subtitles you picked…"
-    : !sourceLabel
-      ? "Pick a source subtitle first"
-      : !targetLabel
-        ? "Pick a target subtitle first"
+    : stage === "source"
+      ? "The subtitles burned into the picture"
+      : stage === "target"
+        ? sourceLabel
+          ? "The language you want to read"
+          : "Pick a source subtitle first"
         : canStart
           ? "Draw the on-screen subtitle area, then sync starts"
-          : "Preparing the session…";
+          : "Pick a target subtitle first";
 
   return (
     <div
@@ -404,6 +433,7 @@ export function Palette(props: PaletteProps): JSX.Element {
                 searching={searching}
                 searchStatusMessage={searchStatusMessage}
                 hydrating={hydrating}
+                emptyLookups={emptyLookups}
                 emptyHint={
                   totalWorksCount > 0
                     ? "No titles match these filters"
@@ -459,29 +489,35 @@ export function Palette(props: PaletteProps): JSX.Element {
         <div style={{ flex: 1 }} />
         {hasSelectedEpisode ? (
           <>
-            <PickerChip
-              label="Source"
-              value={sourceLabel}
-              placeholder="Select source subtitle"
-              active={tab === "source"}
-              onClick={() => onTabChange("source")}
-            />
-            <PickerChip
-              label="Target"
-              value={targetLabel}
-              placeholder="Select target subtitle"
-              active={tab === "target"}
-              onClick={() => onTabChange("target")}
-            />
+            {sourceLabel && (
+              <PickedChip
+                label="Source"
+                value={sourceLabel}
+                active={tab === "source"}
+                onClick={() => onTabChange("source")}
+              />
+            )}
+            {targetLabel && (
+              <PickedChip
+                label="Target"
+                value={targetLabel}
+                active={tab === "target"}
+                onClick={() => onTabChange("target")}
+              />
+            )}
             <button
               onClick={onPrimary}
-              disabled={!canStart}
+              disabled={!primaryEnabled}
               title={startHint}
-              style={{ ...primaryStyle, opacity: canStart ? 1 : 0.45, cursor: canStart ? "pointer" : "default" }}
+              style={{
+                ...primaryStyle,
+                opacity: primaryEnabled ? 1 : 0.45,
+                cursor: primaryEnabled ? "pointer" : "default",
+              }}
             >
               {preparing && <span className="mini-spinner" aria-hidden />}
-              {preparing ? "Preparing" : "Start OCR and sync"}
-              {canStart && <Kbd>⌘↵</Kbd>}
+              {primaryLabel}
+              {primaryEnabled && <Kbd>⌘↵</Kbd>}
             </button>
           </>
         ) : (
@@ -525,24 +561,22 @@ function ErrorBar({
   );
 }
 
-/** Footer entry to one of the two subtitle lists, doubling as the current pick. */
-function PickerChip({
+/** A step already settled: what was picked, and a way back to change it. */
+function PickedChip({
   label,
   value,
-  placeholder,
   active,
   onClick,
 }: {
   label: string;
-  value: string | null;
-  placeholder: string;
+  value: string;
   active: boolean;
   onClick: () => void;
 }): JSX.Element {
   return (
     <button
       onClick={onClick}
-      title={value ?? placeholder}
+      title={value}
       style={{
         display: "flex",
         alignItems: "center",
@@ -552,14 +586,12 @@ function PickerChip({
         borderRadius: 7,
         fontSize: 12.5,
         cursor: "pointer",
-        color: value ? "var(--text-body)" : "var(--text-label)",
-        background: active ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.02)",
-        border: value
-          ? "1px solid rgba(255,255,255,0.12)"
-          : "1px dashed rgba(255,255,255,0.18)",
+        color: "var(--text-body)",
+        background: active ? "rgba(255,255,255,0.07)" : "transparent",
+        border: "1px solid transparent",
       }}
     >
-      {value && <span style={{ color: "var(--ok-hex)" }}>✓</span>}
+      <span style={{ color: "var(--ok-hex)" }}>✓</span>
       <span style={{ color: "var(--text-label)" }}>{label}</span>
       <span
         style={{
@@ -568,7 +600,7 @@ function PickerChip({
           whiteSpace: "nowrap",
         }}
       >
-        {value ?? placeholder}
+        {value}
       </span>
     </button>
   );
@@ -795,6 +827,7 @@ function WorkList({
   searching,
   searchStatusMessage,
   hydrating,
+  emptyLookups,
   emptyHint,
 }: {
   items: WorkItem[];
@@ -811,6 +844,7 @@ function WorkList({
   searching: boolean;
   searchStatusMessage: string | null;
   hydrating: string[];
+  emptyLookups: string[];
   emptyHint?: string;
 }): JSX.Element {
   if (items.length === 0) {
@@ -828,6 +862,7 @@ function WorkList({
   }
 
   const busy = new Set(hydrating);
+  const alreadyLookedUp = new Set(emptyLookups);
   const rows = flattenNavRows(items, expandedWorkId, expandedSeasonNumber);
   const rowIndexByKey = new Map<string, number>();
   rows.forEach((row, index) => {
@@ -900,6 +935,13 @@ function WorkList({
                         const epRowIndex = rowIndexForEpisode(work.id, season.seasonNumber, ep.matchId);
                         const isSkeleton = ep.matchId.startsWith("skeleton:");
                         if (isSkeleton) {
+                          const hydrateKey =
+                            ep.episode != null
+                              ? episodeHydrateKey(work.id, season.seasonNumber, ep.episode)
+                              : null;
+                          // Its own lookup already ran and came back with nothing.
+                          // Offering it again would spend a request to be told so twice.
+                          const settledEmpty = hydrateKey != null && alreadyLookedUp.has(hydrateKey);
                           return (
                             <EpisodeRow
                               key={`skep-${ep.matchId}`}
@@ -908,11 +950,9 @@ function WorkList({
                               picked={false}
                               focused={cursorIndex === epRowIndex}
                               skeleton
-                              hydratable={ep.episode != null}
-                              busy={
-                                ep.episode != null &&
-                                busy.has(episodeHydrateKey(work.id, season.seasonNumber, ep.episode))
-                              }
+                              hydratable={ep.episode != null && !settledEmpty}
+                              exhausted={settledEmpty}
+                              busy={hydrateKey != null && busy.has(hydrateKey)}
                               rowIndex={epRowIndex}
                               onClick={() => ep.episode != null && onHydrateEpisode(work.id, season.seasonNumber, ep.episode)}
                             />
@@ -1069,6 +1109,7 @@ function EpisodeRow({
   onClick,
   skeleton,
   hydratable,
+  exhausted,
   rowIndex,
   busy,
 }: {
@@ -1079,6 +1120,7 @@ function EpisodeRow({
   onClick: () => void;
   skeleton?: boolean;
   hydratable?: boolean;
+  exhausted?: boolean;
   rowIndex?: number;
   busy?: boolean;
 }): JSX.Element {
@@ -1125,7 +1167,10 @@ function EpisodeRow({
       {skeleton && hydratable && !busy && !focused && (
         <span style={{ fontSize: 10.5, color: "var(--accent-text)" }}>Search</span>
       )}
-      {focused && !busy && <Kbd>{skeleton ? "Search" : "↵"}</Kbd>}
+      {exhausted && !busy && (
+        <span style={{ fontSize: 10.5, color: "var(--text-label)" }}>No subtitles found</span>
+      )}
+      {focused && !busy && !exhausted && <Kbd>{skeleton ? "Search" : "↵"}</Kbd>}
     </div>
   );
 }

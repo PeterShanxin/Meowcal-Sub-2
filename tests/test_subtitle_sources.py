@@ -2156,3 +2156,28 @@ async def test_a_failing_provider_is_settled_even_though_it_never_succeeds() -> 
     succeeded, settled = updates[-1]
     assert succeeded == ["subdl"]
     assert sorted(settled) == ["assrt", "subdl"]
+
+
+def test_a_source_switched_off_is_never_dialled() -> None:
+    """A disabled provider used to answer with an empty catalog.
+
+    That counted as an answer: the progress line credited it, and the search
+    spent one of the account's request slots to be told nothing.
+    """
+    aggregator = SubtitleSearchAggregator(
+        AppConfig(assrt_enabled=False, subdl_enabled=True, opensubtitles_enabled=True)
+    )
+    codes = [provider.provider_code for provider in aggregator.providers]
+    assert "assrt" not in codes
+    assert sorted(codes) == ["opensubtitles", "subdl"]
+
+
+@pytest.mark.asyncio
+async def test_switching_every_source_off_says_so_rather_than_reporting_failure() -> None:
+    aggregator = SubtitleSearchAggregator(
+        AppConfig(assrt_enabled=False, subdl_enabled=False, opensubtitles_enabled=False)
+    )
+    assert aggregator.providers == ()
+    with pytest.raises(SubtitleSourceError) as excinfo:
+        await aggregator.search_catalog("Rick and Morty", "en")
+    assert "switched off" in str(excinfo.value)

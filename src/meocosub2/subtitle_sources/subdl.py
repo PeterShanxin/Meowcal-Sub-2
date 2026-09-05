@@ -56,6 +56,10 @@ class SubdlProvider:
         self.config = config
         self._cache_dir = Path.home() / ".cache" / "meowcal-sub-2" / "subdl"
 
+    @property
+    def enabled(self) -> bool:
+        return self.config.subdl_enabled
+
     async def search_catalog(self, query: str, languages: str) -> ProviderSearchCatalog:
         if not self.config.subdl_enabled:
             return ProviderSearchCatalog(matches=[], results=[], warnings=["SubDL is disabled."])

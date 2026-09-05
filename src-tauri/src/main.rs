@@ -242,6 +242,12 @@ fn open_area_selector(app: AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("selector")
         .ok_or("Selector window not found")?;
+    // The region being drawn is the subtitle band of whatever the user is
+    // watching, which is behind this window. Both the confirm and the cancel
+    // path bring it back.
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.hide();
+    }
     window.show().map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())?;
     Ok(())

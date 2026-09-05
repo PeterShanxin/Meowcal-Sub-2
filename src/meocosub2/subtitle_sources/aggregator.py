@@ -156,10 +156,17 @@ class SubtitleSearchAggregator:
         tmdb_client: TMDbClient | None = None,
     ) -> None:
         self.config = config
-        self.providers: tuple[SubtitleSourceProvider, ...] = (
-            SubdlProvider(config),
-            AssrtProvider(config),
-            OpenSubtitlesProvider(config),
+        # A source the user switched off is not dialled at all. Left in, it
+        # returned an empty catalog that read as an answer, so the progress line
+        # credited it and the search spent a request slot to learn nothing.
+        self.providers: tuple[SubtitleSourceProvider, ...] = tuple(
+            provider
+            for provider in (
+                SubdlProvider(config),
+                AssrtProvider(config),
+                OpenSubtitlesProvider(config),
+            )
+            if provider.enabled
         )
         if tmdb_client is None and config.tmdb_api_key and config.tmdb_merge_enabled:
             tmdb_client = TMDbClient(config.tmdb_api_key)
@@ -234,6 +241,10 @@ class SubtitleSearchAggregator:
         warnings = [w for catalog in catalogs for w in catalog.warnings]
 
         if not catalogs:
+            if not self.providers:
+                raise SubtitleSourceError(
+                    "Every subtitle source is switched off. Turn one on in Settings."
+                )
             # The per-provider reasons are the only thing the user can act on, so
             # they travel with the failure rather than collapsing into a summary.
             raise SubtitleSourceError(

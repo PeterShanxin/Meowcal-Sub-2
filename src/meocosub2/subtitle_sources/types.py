@@ -218,6 +218,11 @@ class SubtitleSourceProvider(Protocol):
     provider_label: str
     capabilities: ProviderCapabilities
 
+    @property
+    def enabled(self) -> bool:
+        """Whether the user has this source switched on."""
+        ...
+
     async def search_catalog(self, query: str, languages: str) -> ProviderSearchCatalog:
         ...
 

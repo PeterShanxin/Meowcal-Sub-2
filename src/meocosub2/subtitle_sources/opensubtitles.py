@@ -22,6 +22,10 @@ class OpenSubtitlesProvider:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
 
+    @property
+    def enabled(self) -> bool:
+        return self.config.opensubtitles_enabled
+
     async def search_catalog(self, query: str, languages: str) -> ProviderSearchCatalog:
         if not self.config.opensubtitles_enabled:
             return ProviderSearchCatalog(matches=[], results=[], warnings=["OpenSubtitles is disabled."])
