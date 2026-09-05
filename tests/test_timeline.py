@@ -1,4 +1,5 @@
 from meocosub2.timeline import (
+    AGREEING_OFFSET_MS,
     ANCHOR_ABANDON_MISSES,
     ANCHOR_MAX_AGE_S,
     CUE_HOLD_S,
@@ -30,7 +31,7 @@ def test_an_unanchored_timeline_has_nothing_to_offer_the_matcher() -> None:
     assert not timeline.anchored
 
 
-def test_the_first_match_is_believed_and_becomes_the_anchor() -> None:
+def test_a_near_exact_first_match_anchors_on_its_own() -> None:
     timeline = anchored_at(600_000)
     assert timeline.anchored
     assert timeline.predicted_ms(now=0.0) == 600_000
@@ -91,14 +92,17 @@ def test_an_anchor_nothing_agrees_with_is_eventually_abandoned() -> None:
     for attempt in range(ANCHOR_ABANDON_MISSES):
         assert not timeline.accepts(1_200_000, 400, score=70.0, now=1.0 + attempt)
     assert not timeline.anchored
-    # With no anchor left the session can find the video again from scratch.
-    assert timeline.accepts(1_200_000, 400, score=70.0, now=10.0)
+    # With no anchor left the session can find the video again, on the same
+    # evidence any first match needs.
+    assert timeline.accepts(1_200_000, 400, score=100.0, now=10.0)
 
 
 def test_an_anchor_no_match_has_confirmed_for_a_long_time_expires() -> None:
     timeline = anchored_at(600_000)
     late = ANCHOR_MAX_AGE_S + 1
-    assert read(timeline, 60_000, 20, score=70.0, now=late)
+    assert timeline.position_ms(now=late) is None
+    assert not timeline.anchored
+    assert read(timeline, 60_000, 20, score=100.0, now=late)
     assert timeline.predicted_ms(now=late) == 60_000
 
 
@@ -125,3 +129,41 @@ def test_the_clock_anchors_to_when_the_cue_appeared_not_when_it_was_read() -> No
     # The line began half a second ago, so the video is half a second past its
     # start - not sitting on it, which is what made every drawn line late.
     assert timeline.predicted_ms(now=10.5) == 600_500
+
+
+def test_a_weak_first_match_waits_for_a_second_that_agrees_with_it() -> None:
+    """One ordinary match is not enough to place a whole episode.
+
+    Most reads share no words with the file, so the score that gets one over the
+    threshold is often circumstantial. A wrong anchor then draws wrong subtitles
+    until something disagrees with it, which is far more expensive than waiting.
+    """
+    timeline = PlaybackTimeline()
+    assert not read(timeline, 600_000, 10, score=70.0, now=0.0)
+    assert not timeline.anchored
+    # Four seconds later, four seconds further into the file: the same playback.
+    assert read(timeline, 604_000, 12, score=70.0, now=4.0)
+    assert timeline.predicted_ms(now=4.0) == 604_000
+
+
+def test_a_weak_first_match_is_refused_when_the_second_disagrees() -> None:
+    timeline = PlaybackTimeline()
+    assert not read(timeline, 600_000, 10, score=70.0, now=0.0)
+    # Four seconds of playback cannot have moved the video a minute on, so these
+    # two reads are not describing the same video.
+    assert not read(timeline, 660_000, 90, score=70.0, now=4.0)
+    assert not timeline.anchored
+
+
+def test_agreement_is_judged_on_position_rather_than_on_the_line_number() -> None:
+    """Two matches agree when they put the video in the same place.
+
+    Lines are not evenly spaced - a minute of silence and a minute of argument
+    are the same number of lines apart or wildly different - so the distance
+    between two line numbers says nothing about whether they agree.
+    """
+    timeline = PlaybackTimeline()
+    assert not read(timeline, 600_000, 10, score=70.0, now=0.0)
+    drifted = 600_000 + 4_000 + AGREEING_OFFSET_MS + 1
+    assert not read(timeline, drifted, 11, score=70.0, now=4.0)
+    assert not timeline.anchored
