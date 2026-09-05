@@ -33,6 +33,21 @@
 - Current docs, UI copy, PRs, and issues should state current behavior directly. Put history in issues, ADRs, changelogs, or dated plans unless it is required to apply a live safety, compatibility, or unsupported-behavior boundary.
 - Before handoff, inspect the diff specifically for AI slop and remove words, files, layers, and indirection that add neither required behavior nor durable information.
 
+## What Fills The Subtitle Plate
+
+Three things answer a read of the capture region, in this order:
+
+1. A text match against the downloaded subtitle file (~1ms). Anchors the
+   playback clock.
+2. The file's own line at the clock's predicted position, when the read matched
+   nothing. Measured over a real session, the distance between file position and
+   playback held to within a second across six minutes, so one match places
+   every line after it. An anchor nothing has agreed with for 90s is dropped.
+3. The local model translating the read (~1s), when there is no anchor.
+
+Reads of a cue already on screen may only improve on it by matching outright —
+letting the clock answer again would swap the line mid-cue.
+
 ## Log Inspection
 
 - Log file: `%APPDATA%\meowcal-sub-2\logs\meowcal-sub-2.log` (always DEBUG level).
@@ -46,7 +61,12 @@
   - `OS /subtitles params=` — OpenSubtitles subtitle search: params (including language codes) and result count
   - `Discarded unusable translation` — model output refused before it reached the overlay
 - Miss rate diagnosis: count `MATCH miss` vs `MATCH hit` over a run window.
-- If OCR text in logs looks correct but misses dominate → lower `fuzzy_threshold` (try 55).
+- A high miss rate is normal and is not a threshold problem. Streaming sites burn
+  in one fansub's translation while the downloaded file carries another's, so
+  most reads share no characters with the file — measured at 12% matched on a
+  real episode, with the rest peaking at 20-40 against a threshold of 65.
+  Lowering `fuzzy_threshold` buys wrong lines, not right ones. Lines that do not
+  match are placed by the playback clock instead (see below).
 - If OCR text looks garbled → wrong capture region or OCR language; check `capture.region` in config.
 - If subtitle search returns 0 results → grep `OS /subtitles params=` to confirm language codes (`zhs` for Simplified Chinese) and `parent_feature_id` are present.
 - Live debug panel: set `[debug] mode = true` in config.toml, open the studio while a session is running; panel appears bottom-right showing the last 20 iterations.
@@ -54,6 +74,31 @@
 
 ## Verification
 
+- The shell reuses whatever backend already answers on port 8765 rather than
+  spawning its own. Rebuilding and relaunching the shell therefore does **not**
+  pick up Python changes — stop the `python.exe` running the backend first, or
+  the session under test is still running the old code.
+
+### Stopping the app without leaking the engine
+
+The backend spawns `llama-server.exe` with the translation model resident, about
+**1.1GB each**, on a dynamic loopback port. Killing the shell orphans the backend
+and with it the engine, and nothing reaps strays at startup — issue #37. Ten
+restarts during a testing loop have exhausted the machine's memory and forced a
+hard reboot. Until #37 is fixed this has to be done by hand.
+
+Stop a session the way the app does — `POST /api/session/stop`, then the shell's
+own Stop control or closing its window. After stopping, and before launching
+again, confirm nothing survived:
+
+```powershell
+Get-Process llama-server, meowcal-sub-2-shell -ErrorAction SilentlyContinue |
+  Select-Object Id, Name, @{n='MB';e={[int]($_.WorkingSet64/1MB)}}
+```
+
+More than one `llama-server` means an earlier stop leaked one; kill the strays
+before continuing. Any engine started by hand for an experiment — an embedding
+model, a second runtime — is your own to stop in the same session.
 - Run `pytest -q` after Python or server changes.
 - Run `npm --prefix src\meocosub2\overlay\ui run build` after studio UI changes (rebuilds `static/index.html` + `static/assets/`).
 - Run `cargo check --manifest-path src-tauri\Cargo.toml` after shell changes.

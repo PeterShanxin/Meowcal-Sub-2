@@ -1,10 +1,14 @@
 """Where the video is, judged from the subtitle lines that have matched.
 
-Nothing on screen is drawn from this clock. The overlay only ever shows a line
-the OCR just read, which is what keeps it in step with the viewer. The clock
-exists to answer a different question: a subtitle file repeats short lines -
-"yes", "what?", a name - dozens of times across an episode, and text alone
-cannot say which of them is on screen. Position can.
+Most reads never match: the burned-in subtitles are usually a different
+translation from the downloaded file, so the words differ where the dialogue
+does not. What every read does carry is a position, and one match fixes it for
+the rest of the episode - so this clock is what the overlay plays from, and
+matching is what keeps it honest.
+
+It also settles a question text alone cannot. A subtitle file repeats short
+lines - "yes", "what?", a name - dozens of times across an episode, and only
+position says which of them is the one on screen.
 """
 
 from __future__ import annotations
@@ -79,6 +83,17 @@ class PlaybackTimeline:
         now = monotonic() if now is None else now
         return int(self._anchor_ms + (now - self._anchor_at - self._paused_s) * 1000)
 
+    def position_ms(self, now: float | None = None) -> int | None:
+        """Where the video is, for a caller about to draw a line from the clock.
+
+        Unlike `predicted_ms` this first drops an anchor nothing has agreed with
+        for too long. A caller that only reads the clock would otherwise keep a
+        wrong anchor alive forever, because nothing else would be checking it.
+        """
+        now = monotonic() if now is None else now
+        self._expire_stale_anchor(now)
+        return self.predicted_ms(now)
+
     def window_ms(self, now: float | None = None) -> tuple[int, int] | None:
         predicted = self.predicted_ms(now)
         if predicted is None:
@@ -105,7 +120,14 @@ class PlaybackTimeline:
             self._paused_s += overrun - self._cue_credited_s
             self._cue_credited_s = overrun
 
-    def accepts(self, line_start_ms: int, line_index: int, score: float, now: float | None = None) -> bool:
+    def accepts(
+        self,
+        line_start_ms: int,
+        line_index: int,
+        score: float,
+        now: float | None = None,
+        seen_at: float | None = None,
+    ) -> bool:
         """Whether a matched line is where the video actually is.
 
         An unanchored clock believes the first thing it is told. An anchored one
@@ -114,15 +136,22 @@ class PlaybackTimeline:
         dragging the progress bar looks like, and what one unlucky match does not.
         """
         now = monotonic() if now is None else now
+        # The line was on screen before the frame that read it: a capture every
+        # `interval` plus the OCR itself puts every read a beat behind the
+        # picture. Anchoring at the moment this cue was first seen, rather than
+        # at the moment it was recognised, keeps that beat out of the clock -
+        # otherwise every line the clock places is late by the same amount.
+        at = self._cue_since if seen_at is None else seen_at
+        at = now if at is None else min(at, now)
         self._expire_stale_anchor(now)
 
         predicted = self.predicted_ms(now)
         if predicted is None:
-            self._anchor(line_start_ms, now, drift=None)
+            self._anchor(line_start_ms, at, drift=None)
             return True
 
         if predicted - WINDOW_BACK_MS <= line_start_ms <= predicted + WINDOW_FORWARD_MS:
-            self._anchor(line_start_ms, now, drift=line_start_ms - predicted)
+            self._anchor(line_start_ms, at, drift=line_start_ms - predicted)
             return True
 
         self._misses += 1
@@ -133,21 +162,25 @@ class PlaybackTimeline:
         pending = self._pending_seek_index
         if pending is not None and abs(line_index - pending) <= SEEK_CLUSTER_LINES:
             logger.debug("Timeline re-anchored to line %d after a seek", line_index)
-            self._anchor(line_start_ms, now, drift=None)
+            self._anchor(line_start_ms, at, drift=None)
             return True
 
         self._pending_seek_index = line_index
         self._forget_anchor_if_hopeless()
         return False
 
-    def _anchor(self, line_start_ms: int, now: float, drift: int | None) -> None:
+    def _anchor(self, line_start_ms: int, at: float, drift: int | None) -> None:
         self._anchor_ms = line_start_ms
-        self._anchor_at = now
+        self._anchor_at = at
         self._paused_s = 0.0
+        # The cue this line was matched from went up at the same moment the
+        # clock is being anchored to, so the hold that catches a paused video
+        # measures from there too.
+        self._cue_since = at
+        self._cue_credited_s = 0.0
         self._drift_ms = drift
         self._misses = 0
         self._pending_seek_index = None
-        self.saw_new_cue(now)
 
     def _forget_anchor_if_hopeless(self) -> None:
         if self._misses >= ANCHOR_ABANDON_MISSES:

@@ -215,3 +215,31 @@ def test_a_read_of_something_that_is_not_a_subtitle_matches_nothing() -> None:
 def test_a_read_far_shorter_than_the_line_is_not_that_line() -> None:
     matcher = SubtitleMatcher(bilingual_lines(), target_language="en")
     assert matcher.match("你不是说") is None
+
+
+def episode_lines() -> list[SubtitleLine]:
+    return [
+        SubtitleLine(index=0, start_ms=0, end_ms=2000, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=10_000, end_ms=12_000, text="Goodbye now", translated="再见"),
+    ]
+
+
+def test_the_file_line_at_a_point_in_the_video() -> None:
+    matcher = SubtitleMatcher(episode_lines())
+    found = matcher.line_at(11_000)
+    assert found is not None and found.line_index == 1
+    assert found.target_text == "再见"
+
+
+def test_the_file_has_no_line_in_the_silence_between_its_cues() -> None:
+    matcher = SubtitleMatcher(episode_lines())
+    assert matcher.line_at(6_000) is None
+    assert matcher.line_at(-1) is None
+
+
+def test_a_line_still_counts_just_past_its_own_end() -> None:
+    # Two translations of one scene rarely break their cues in the same places,
+    # so the file's line often ends a beat before the burned-in one does.
+    matcher = SubtitleMatcher(episode_lines())
+    assert matcher.line_at(13_000) is not None
+    assert matcher.line_at(14_000) is None

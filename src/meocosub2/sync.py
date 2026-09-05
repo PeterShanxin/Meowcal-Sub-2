@@ -1,11 +1,12 @@
 """The live capture loop: read the subtitle strip, decide what it says, show it.
 
-Two things can answer a read, and they answer at very different speeds. Matching
-it against a downloaded subtitle file takes about a millisecond and gives the
-line a translator already wrote. Translating it here takes closer to a second.
-So every read is matched first, and only a read that matches nothing is sent to
-the model - which keeps the plate filled through the seconds before a session
-has locked onto its subtitles, and through lines the file does not carry.
+Three things can answer a read. Matching it against the downloaded subtitle file
+takes about a millisecond and gives the line a translator already wrote. Most
+reads do not match - the burned-in subtitles are usually a different translation
+from the file - but a read that does match says where the video is, and from
+then on the file's own line at that position answers the rest. Only a read with
+no match and no anchor behind it goes to the local model, which costs closer to
+a second, and which is what fills the plate until the first match lands.
 """
 
 from __future__ import annotations
@@ -35,6 +36,9 @@ AUTO_UNLOCK_MISSES = 3
 # Consecutive empty reads before the overlay clears. One blank frame is a cue
 # transition; several in a row mean nothing is on screen.
 CLEAR_AFTER_EMPTY_READS = 3
+# How often the plate is redrawn from the clock. Fine enough that a line
+# arrives with the dialogue rather than after it, and far cheaper than a read.
+RENDER_INTERVAL_S = 0.1
 TRANSLATION_CACHE_SIZE = 64
 CONTEXT_LINES = 3
 
@@ -125,11 +129,11 @@ class CandidateSession:
         self._pending_hits = 0
         self._misses = 0
 
-    def saw_new_cue(self) -> None:
-        self._timeline.saw_new_cue()
+    def saw_new_cue(self, at: float | None = None) -> None:
+        self._timeline.saw_new_cue(at)
 
-    def saw_same_cue(self) -> None:
-        self._timeline.saw_same_cue()
+    def saw_same_cue(self, at: float | None = None) -> None:
+        self._timeline.saw_same_cue(at)
 
     def status(self) -> dict[str, object]:
         timeline = self._timeline.status()
@@ -140,16 +144,17 @@ class CandidateSession:
             "lockedCandidateId": self._locked,
         }
 
-    def match(self, ocr_text: str) -> Resolution | None:
+    def match(self, ocr_text: str, follow: bool = True) -> Resolution | None:
         winner, result = self._match(ocr_text)
         if winner is None or result is None:
-            return None
+            return self.line_now() if follow else None
         detail: dict[str, object] = {
             "matchIdx": result.line_index,
             "matchScore": round(result.score, 1),
             "matchSpan": result.span,
             "matchSrc": result.source_text[:60],
             "candidateId": winner,
+            "confirmed": True,
             **self.status(),
         }
         if result.translated:
@@ -158,6 +163,40 @@ class CandidateSession:
         # subtitle's own words beats translating the read: same sentence, none
         # of the OCR damage.
         return Resolution(translate=result.source_text, matched=True, detail=detail)
+
+    @property
+    def anchored(self) -> bool:
+        return self._locked is not None and self._timeline.anchored
+
+    def line_now(self) -> Resolution | None:
+        """The file's own line for wherever the video has reached.
+
+        Most reads do not match: the burned-in subtitles are usually a different
+        translation from the file, so the words differ where the dialogue does
+        not. The position does not differ. Measured over a real session, every
+        accepted match implied the same distance between the file and the
+        playback to within a second across six minutes, so one match places
+        every line after it, and later matches only have to keep agreeing.
+        """
+        if self._locked is None:
+            return None
+        position = self._timeline.position_ms()
+        if position is None:
+            return None
+        result = self._matchers[self._locked].line_at(position)
+        if result is None or not result.translated:
+            return None
+        return Resolution(
+            text=result.target_text,
+            matched=True,
+            detail={
+                "matchIdx": result.line_index,
+                "matchSrc": result.source_text[:60],
+                "candidateId": self._locked,
+                "confirmed": False,
+                **self.status(),
+            },
+        )
 
     async def translate(self, text: str) -> str:
         translator = await self._open_translator()
@@ -232,16 +271,23 @@ class DirectTranslationSession:
             else None
         )
 
-    def saw_new_cue(self) -> None:
+    def saw_new_cue(self, at: float | None = None) -> None:
         return None
 
-    def saw_same_cue(self) -> None:
+    def saw_same_cue(self, at: float | None = None) -> None:
         return None
 
     def status(self) -> dict[str, object]:
         return {}
 
-    def match(self, ocr_text: str) -> Resolution | None:
+    @property
+    def anchored(self) -> bool:
+        return False
+
+    def line_now(self) -> Resolution | None:
+        return None
+
+    def match(self, ocr_text: str, follow: bool = True) -> Resolution | None:
         # Nothing to match against until the read has been translated, so every
         # read takes the slow path.
         return None
@@ -265,6 +311,10 @@ class _Screen:
     seq: int = 0
     text: str = ""
     matched: bool = False
+    # Whether the read itself matched, rather than the clock placing the line.
+    # A followed line is right about as often as the anchor is, so reads of the
+    # same cue keep trying to match until one of them confirms it.
+    confirmed: bool = False
 
 
 async def open_live_translator(config: AppConfig) -> tuple[TranslationClient, LiveTranslator]:
@@ -288,6 +338,14 @@ async def run_session_loop(
     empty_reads = 0
     iteration = 0
 
+    async def show(text: str, source: str) -> bool:
+        if text == screen.text and source == (MATCHED if screen.matched else TRANSLATED):
+            return False
+        screen.text = text
+        screen.matched = source == MATCHED
+        await broadcast(text, source)
+        return True
+
     async def publish(text: str, source: str, seq: int) -> None:
         if seq != screen.seq or not text:
             return
@@ -295,11 +353,25 @@ async def run_session_loop(
         # arrives after it is stale by the time it lands.
         if source == TRANSLATED and screen.matched:
             return
-        if text == screen.text and source == (MATCHED if screen.matched else TRANSLATED):
-            return
-        screen.text = text
-        screen.matched = source == MATCHED
-        await broadcast(text, source)
+        await show(text, source)
+
+    async def render_from_the_clock() -> None:
+        """Play the file forward, once a match has said where the video is.
+
+        A read places the video; it is not what draws it. OCR misses lines - a
+        frame caught mid-fade, white text over a white background - and drawing
+        only what a read returned left those lines blank and every other line a
+        beat late.
+        """
+        while True:
+            await asyncio.sleep(RENDER_INTERVAL_S)
+            if not session.anchored:
+                continue
+            line = session.line_now()
+            if await show(line.text if line else "", MATCHED):
+                # A line the clock turned to is not one a read has agreed with,
+                # so reads of it start looking for a match again.
+                screen.confirmed = False
 
     async def translate_into(resolution: Resolution, seq: int) -> None:
         try:
@@ -316,7 +388,10 @@ async def run_session_loop(
 
     async def handle(ocr_text: str, fresh: bool) -> dict[str, object]:
         nonlocal pending
-        resolution = session.match(ocr_text)
+        # A read of a cue already on screen may only improve on it by matching
+        # outright. Letting the clock answer again would swap the line mid-cue,
+        # as soon as the prediction crossed into the next one.
+        resolution = session.match(ocr_text, follow=fresh)
         if resolution is None:
             if not fresh:
                 # A read of a cue already on screen only gets a second chance at
@@ -327,7 +402,13 @@ async def run_session_loop(
             if pending is not None:
                 pending.cancel()
                 pending = None
+            screen.confirmed = screen.confirmed or bool(resolution.detail.get("confirmed"))
             await publish(resolution.text, resolution.source, screen.seq)
+            return resolution.detail
+        if session.anchored and not resolution.matched:
+            # The clock is drawing the plate and the file has no line here, so
+            # the video is between cues however it looked to OCR. A translation
+            # would only be wiped by the next redraw.
             return resolution.detail
         if not fresh and pending is not None and not pending.done():
             return resolution.detail
@@ -336,6 +417,7 @@ async def run_session_loop(
         pending = start_translation(resolution, screen.seq)
         return resolution.detail
 
+    renderer = asyncio.create_task(render_from_the_clock())
     try:
         while True:
             iteration += 1
@@ -349,27 +431,40 @@ async def run_session_loop(
 
                 if is_untranslatable(ocr_text):
                     empty_reads += 1
-                    if empty_reads >= CLEAR_AFTER_EMPTY_READS and screen.text:
+                    # While the clock is running it decides what is on screen.
+                    # A read comes back empty often enough - a frame caught
+                    # mid-fade, pale text over a pale background - that letting
+                    # it blank the plate loses lines that are plainly there.
+                    if (
+                        empty_reads >= CLEAR_AFTER_EMPTY_READS
+                        and screen.text
+                        and not session.anchored
+                    ):
                         gate.clear()
                         screen.seq += 1
                         screen.text = ""
                         screen.matched = False
+                        screen.confirmed = False
                         await broadcast("", MATCHED)
                 else:
                     empty_reads = 0
                     change = gate.classify(ocr_text)
                     if change is LineChange.REPEAT:
-                        session.saw_same_cue()
+                        session.saw_same_cue(started)
                         # The same subtitle is read many times over the seconds it
                         # is up, and a read that was too damaged to match can come
                         # back clean. Only worth trying while nothing has matched.
-                        if not screen.matched:
+                        if not screen.confirmed:
                             detail = await handle(ocr_text, fresh=False)
                     else:
                         gate.remember(ocr_text)
                         screen.seq += 1
                         screen.matched = False
-                        session.saw_new_cue()
+                        screen.confirmed = False
+                        # Timed from before the capture, not from after the
+                        # OCR: the recognising is what puts a read behind the
+                        # picture, and the clock should not inherit it.
+                        session.saw_new_cue(started)
                         detail = await handle(ocr_text, fresh=True)
             except asyncio.CancelledError:
                 raise
@@ -390,5 +485,6 @@ async def run_session_loop(
                 )
             await asyncio.sleep(max(0.0, interval_s - (monotonic() - started)))
     finally:
+        renderer.cancel()
         if pending is not None:
             pending.cancel()

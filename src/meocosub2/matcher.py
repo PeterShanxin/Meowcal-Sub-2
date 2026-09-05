@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 # length of the line they belonged to.
 MIN_LENGTH_RATIO = 0.6
 MAX_LENGTH_RATIO = 1.7
+# How far past a line's own end the clock may be and still be showing that line.
+# Two translations of one scene rarely break their cues in the same places, so
+# the file's line often ends a beat before the one burned into the picture does.
+FOLLOW_GRACE_MS = 1_500
 
 
 def _joined(parts: Iterable[str]) -> str:
@@ -206,6 +210,30 @@ class SubtitleMatcher:
         if pair_fit > single_fit:
             return best_pair[0], 2, best_pair[1]
         return best_single[0], 1, best_single[1]
+
+    def line_at(self, position_ms: int) -> MatchResult | None:
+        """The line the file has on screen at this point in the video.
+
+        For reads that match nothing. The burned-in subtitles are usually a
+        different translation from the file, so most reads share no words with
+        it - but they share a position, and the file's own line at that position
+        is the one the viewer should be reading.
+        """
+        position = bisect_right(self._starts, position_ms) - 1
+        if position < 0:
+            return None
+        line = self.subtitles[position]
+        if position_ms > line.end_ms + FOLLOW_GRACE_MS:
+            return None
+        return MatchResult(
+            line_index=line.index,
+            score=0.0,
+            source_text=line.text,
+            target_text=line.translated or line.text,
+            start_ms=line.start_ms,
+            span=1,
+            translated=bool(line.translated),
+        )
 
     def match(self, ocr_text: str, window_ms: tuple[int, int] | None = None) -> MatchResult | None:
         normalized_ocr = self._normalize_for_match(ocr_text)

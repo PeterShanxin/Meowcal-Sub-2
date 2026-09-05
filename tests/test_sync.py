@@ -113,9 +113,18 @@ async def test_the_next_line_is_broadcast_when_the_cue_changes() -> None:
 
 @pytest.mark.asyncio
 async def test_the_overlay_clears_after_the_region_reads_empty() -> None:
+    # Nothing has matched, so a run of empty reads is all there is to go on.
+    session = DirectTranslationSession([], config(), fake_translator("你好"))
+    assert await drive(session, config(), ["Hello there", "", "", ""]) == ["你好", ""]
+
+
+@pytest.mark.asyncio
+async def test_empty_reads_do_not_blank_a_line_the_clock_is_sure_of() -> None:
+    # OCR comes back empty often enough - a frame caught mid-fade, pale text on
+    # a pale background - that it cannot be allowed to take down a line the
+    # subtitle file says is on screen.
     session = CandidateSession([make_candidate("a", paired_lines())], config(), never_translates())
-    reads = ["Hello there", "", "", ""]
-    assert await drive(session, config(), reads) == ["你好", ""]
+    assert await drive(session, config(), ["Hello there", "", "", ""]) == ["你好"]
 
 
 @pytest.mark.asyncio
@@ -259,3 +268,90 @@ async def test_a_pair_sharing_one_target_line_does_not_say_it_twice() -> None:
     ]
     session = CandidateSession([make_candidate("a", shared)], config(), never_translates())
     assert await drive(session, config(), ["for the rest of the day"]) == ["今天剩下的时间"]
+
+
+def episode_lines() -> list[SubtitleLine]:
+    """Three cues a few seconds apart, each with a translation ready to show."""
+    return [
+        SubtitleLine(index=0, start_ms=0, end_ms=2000, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=10_000, end_ms=12_000, text="Goodbye now", translated="再见"),
+        SubtitleLine(index=2, start_ms=20_000, end_ms=22_000, text="See you", translated="回见"),
+    ]
+
+
+def test_a_read_that_matches_nothing_is_placed_by_the_clock() -> None:
+    session = CandidateSession([make_candidate("a", episode_lines())], config(), never_translates())
+    # One match anchors the session on the file's second line.
+    assert session.match("Goodbye now") is not None
+    # The next read shares no words with the file, which is the ordinary case:
+    # the burned-in subtitles are a different translation. The clock still knows
+    # which line the viewer is on.
+    followed = session.match("nothing like the file")
+    assert followed is not None
+    assert followed.text == "再见"
+    assert followed.detail["confirmed"] is False
+
+
+def test_a_repeat_read_is_never_placed_by_the_clock() -> None:
+    session = CandidateSession([make_candidate("a", episode_lines())], config(), never_translates())
+    assert session.match("Goodbye now") is not None
+    assert session.match("nothing like the file", follow=False) is None
+
+
+def test_the_clock_places_nothing_before_a_match_anchors_it() -> None:
+    session = CandidateSession([make_candidate("a", episode_lines())], config(), never_translates())
+    assert session.match("nothing like the file") is None
+
+
+@pytest.mark.asyncio
+async def test_a_followed_line_keeps_trying_to_match_until_one_confirms_it() -> None:
+    session = CandidateSession([make_candidate("a", episode_lines())], config(), never_translates())
+    shown = await drive_with_source(session, config(), ["Hello there", "utterly different words"])
+    # Both reads put a line from the file on the plate, the second by position.
+    assert [source for _, source in shown] == ["matched", "matched"]
+
+
+@pytest.mark.asyncio
+async def test_the_clock_plays_the_next_line_without_waiting_for_a_read() -> None:
+    """Once a match has placed the video, the file plays itself forward.
+
+    OCR does not see every cue - and even when it does, it sees it a beat after
+    the picture. Holding each line until a read arrives is what left lines
+    missing and the rest late.
+    """
+    lines = [
+        SubtitleLine(index=0, start_ms=0, end_ms=150, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=250, end_ms=900, text="Goodbye now", translated="再见"),
+    ]
+    session = CandidateSession([make_candidate("a", lines)], config(), never_translates())
+    broadcasts: list[str] = []
+
+    async def broadcast(text: str, source: str) -> None:
+        broadcasts.append(text)
+
+    reads = ["Hello there"]
+
+    async def ocr(_image, _language) -> str:
+        if reads:
+            return reads.pop(0)
+        # The reader stalls, as it does whenever OCR cannot make out the strip.
+        await asyncio.sleep(10)
+        return ""
+
+    import meocosub2.sync as sync_module
+
+    original_ocr, original_capture = sync_module.ocr_image, sync_module.capture_region
+    sync_module.ocr_image = ocr
+    sync_module.capture_region = lambda region: MagicMock()
+    try:
+        loop = asyncio.create_task(run_session_loop(session, config(), broadcast))
+        await asyncio.sleep(0.5)
+        loop.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await loop
+    finally:
+        sync_module.ocr_image = original_ocr
+        sync_module.capture_region = original_capture
+
+    assert broadcasts[0] == "你好"
+    assert "再见" in broadcasts
