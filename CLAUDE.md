@@ -5,13 +5,12 @@ This repository's working contract lives in
 
 Before making changes:
 
-1. read [`docs/AGENT_GUIDE.md`](docs/AGENT_GUIDE.md);
+1. read [`docs/AGENT_GUIDE.md`](docs/AGENT_GUIDE.md), including the anti-slop
+   quality bar it sets for every artifact produced here;
 2. read [`docs/CODING_STANDARDS.md`](docs/CODING_STANDARDS.md), which is
    normative for what the code has to look like, and
    [`docs/MAINTAINABILITY_BASELINE.md`](docs/MAINTAINABILITY_BASELINE.md), which
-   owns the measured limits enforced by `scripts/verify.ps1`;
-3. read [`AGENTS.md`](AGENTS.md). Its anti-slop quality bar applies to every
-   artifact produced here.
+   owns the measured limits enforced by `scripts/verify.ps1`.
 
 Two rules this repository learned the hard way, stated in full in the coding
 standards, and worth knowing before you run anything:
@@ -23,5 +22,4 @@ standards, and worth knowing before you run anything:
 - **No private subtitle or OCR text in logs, issues, or screenshots.** The debug
   log records whatever the user is watching.
 
-Keep this file a Claude entrypoint. Shared repository rules belong in the guide
-and `AGENTS.md`.
+Keep this file a Claude entrypoint. Shared repository rules belong in the guide.
