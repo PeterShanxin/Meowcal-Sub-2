@@ -17,14 +17,13 @@ import hashlib
 import logging
 import re
 from bisect import bisect_left, bisect_right
-from collections.abc import Iterable
-from typing import Callable, NamedTuple
-
-from meocosub2.semantic import SemanticIndex
+from collections.abc import Callable, Iterable
+from typing import NamedTuple
 
 from rapidfuzz import fuzz, process
 
 from meocosub2.models import MatchResult, SubtitleLine
+from meocosub2.semantic import SemanticIndex
 from meocosub2.textnorm import clean_cjk_text, is_cjk_compactable_char, to_simplified
 
 logger = logging.getLogger(__name__)

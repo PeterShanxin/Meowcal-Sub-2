@@ -15,13 +15,12 @@ from urllib.parse import quote_plus
 import httpx
 from rapidfuzz import fuzz
 
-from meocosub2.http_timeouts import provider_timeout
-
-from meocosub2.subtitle_sources.cache_paths import contained_path, subtitle_file_name
 from meocosub2.errors import OpenSubtitlesError
 from meocosub2.event_log import log_event
+from meocosub2.http_timeouts import provider_timeout
 from meocosub2.languages import normalize_source_language
 from meocosub2.opensubtitles.types import FeatureCandidate, SearchCatalog, SearchResult
+from meocosub2.subtitle_sources.cache_paths import contained_path, subtitle_file_name
 from meocosub2.titleutil import canonical_title
 
 logger = logging.getLogger(__name__)
@@ -106,7 +105,7 @@ class OpenSubtitlesClient:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def __aenter__(self) -> "OpenSubtitlesClient":
+    async def __aenter__(self) -> OpenSubtitlesClient:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
@@ -245,7 +244,7 @@ class OpenSubtitlesClient:
 
         candidates = ranked_features[:MAX_FEATURES_TO_RESOLVE]
         all_feature_results = await asyncio.gather(*[_fetch_guarded(f) for f in candidates])
-        for feature, feature_results in zip(candidates, all_feature_results):
+        for feature, feature_results in zip(candidates, all_feature_results, strict=True):
             for result in feature_results:
                 result.match_score = max(result.match_score, feature.match_score + self._score_search_result(intent, result))
                 self._store_result(collected, result)
@@ -626,9 +625,7 @@ class OpenSubtitlesClient:
     def _should_run_direct_subtitle_lookup(self, intent: SearchIntent, results: list[SearchResult]) -> bool:
         if intent.season is not None:
             return not self._has_exact_episode_scope_result(intent, results)
-        if not self._has_strong_results(results):
-            return True
-        return False
+        return not self._has_strong_results(results)
 
     def _has_exact_episode_scope_result(self, intent: SearchIntent, results: list[SearchResult]) -> bool:
         if intent.season is None:

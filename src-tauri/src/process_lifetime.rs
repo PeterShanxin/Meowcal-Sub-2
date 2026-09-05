@@ -136,11 +136,10 @@ mod windows_impl {
 
             let enrolled = job_handle().is_some_and(|job| {
                 let mut inside = BOOL(0);
-                unsafe {
-                    IsProcessInJob(HANDLE(child.as_raw_handle()), Some(job), &mut inside).is_ok()
-                }
-                .then(|| inside.as_bool())
-                .unwrap_or(false)
+                let asked = unsafe {
+                    IsProcessInJob(HANDLE(child.as_raw_handle()), Some(job), &mut inside)
+                };
+                asked.is_ok() && inside.as_bool()
             });
 
             let _ = child.kill();

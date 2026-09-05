@@ -15,6 +15,7 @@ import asyncio
 import logging
 from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from time import monotonic
 
@@ -466,10 +467,8 @@ async def run_session_loop(
         anchor at any time, which moves every boundary after it.
         """
         while True:
-            try:
+            with suppress(TimeoutError):
                 await asyncio.wait_for(nudge.wait(), timeout=session.seconds_to_next_line())
-            except TimeoutError:
-                pass
             nudge.clear()
             if not session.anchored:
                 continue

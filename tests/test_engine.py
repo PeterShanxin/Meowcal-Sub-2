@@ -9,9 +9,9 @@ from meocosub2.engine.install import EngineInstallError
 from meocosub2.engine.manifest import load_manifest
 from meocosub2.engine.paths import InstallPaths, resolve_paths
 from meocosub2.engine.runtime import (
-    gpu_launch_supported,
     LaunchPlan,
     embedding_plan,
+    gpu_launch_supported,
     launch_arguments,
     select_loopback_port,
     worker_threads,

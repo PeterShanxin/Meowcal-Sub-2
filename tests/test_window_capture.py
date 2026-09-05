@@ -1,6 +1,11 @@
 from pathlib import Path
 
-from meocosub2.devtools.window_capture import WindowInfo, build_output_path, filter_windows, sanitize_filename
+from meocosub2.devtools.window_capture import (
+    WindowInfo,
+    build_output_path,
+    filter_windows,
+    sanitize_filename,
+)
 
 
 def test_sanitize_filename_replaces_reserved_characters() -> None:

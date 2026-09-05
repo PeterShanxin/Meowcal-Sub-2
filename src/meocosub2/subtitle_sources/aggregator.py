@@ -5,10 +5,9 @@ from __future__ import annotations
 import asyncio
 import re
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import replace
 from pathlib import Path
-from typing import Iterable
 
 import httpx
 
@@ -17,8 +16,8 @@ from meocosub2.errors import SubtitleSourceError
 from meocosub2.event_log import event_correlation, log_event
 from meocosub2.subtitle_sources.assrt import AssrtProvider
 from meocosub2.subtitle_sources.opensubtitles import OpenSubtitlesProvider
-from meocosub2.subtitle_sources.subdl import SubdlProvider
 from meocosub2.subtitle_sources.season_skeleton import build_season_skeleton
+from meocosub2.subtitle_sources.subdl import SubdlProvider
 from meocosub2.subtitle_sources.tmdb import TMDbClient, TMDbSeries, poster_url_from_path
 from meocosub2.subtitle_sources.types import (
     AggregatedEpisode,
@@ -41,7 +40,6 @@ from meocosub2.subtitle_sources.utils import (
     language_priority,
     looks_like_release_name,
     match_group_key,
-    media_type_category,
     result_id_for,
     split_query_year,
     title_similarity,
@@ -910,7 +908,7 @@ class SubtitleSearchAggregator:
             )
             catalog = [
                 (s, eps if isinstance(eps, list) else [])
-                for s, eps in zip(range(1, n_seasons + 1), season_results)
+                for s, eps in zip(range(1, n_seasons + 1), season_results, strict=True)
             ]
             new_seasons = build_season_skeleton(catalog, work.seasons)
             total_ep = sum(
@@ -1081,7 +1079,6 @@ class SubtitleSearchAggregator:
         episode_keys: set[tuple[int, int]] = set()
         for match in episode_candidates:
             season_no = match.season or 0
-            episode_no = match.episode or 0
             season = seasons_map.get(season_no)
             if season is None:
                 season = AggregatedSeason(season_number=season_no, episodes=[], subtitles_count=0)

@@ -122,10 +122,7 @@ def _title_score(query: str, candidate: dict[str, Any]) -> float:
     aliases = candidate.get("alternative_titles") or []
     if isinstance(aliases, list):
         for alias in aliases:
-            if isinstance(alias, dict):
-                title = alias.get("title")
-            else:
-                title = alias
+            title = alias.get("title") if isinstance(alias, dict) else alias
             if not title:
                 continue
             score = float(fuzz.token_sort_ratio(q, _normalize_for_key(str(title))))
@@ -348,7 +345,7 @@ class TMDbClient:
         try:
             client = await self._client_obj()
             response = await client.get(url, params=query_params, headers=headers)
-        except (httpx.HTTPError, asyncio.TimeoutError) as exc:
+        except (TimeoutError, httpx.HTTPError) as exc:
             logger.warning("TMDb request failed (%s): %s", path, exc)
             return None
         if response.status_code == 404:

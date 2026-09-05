@@ -86,7 +86,7 @@ class SemanticIndex:
             if not 0 <= index < len(self._vectors):
                 continue
             vector = self._vectors[index]
-            score = sum(a * b for a, b in zip(query, vector))
+            score = sum(a * b for a, b in zip(query, vector, strict=True))
             if hit is None or score > hit.score:
                 hit = SemanticHit(index=index, score=score)
         return hit

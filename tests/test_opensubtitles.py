@@ -4,13 +4,13 @@ import httpx
 import pytest
 import respx
 
-from meocosub2.errors import OpenSubtitlesError
 from meocosub2.config import AppConfig
+from meocosub2.errors import OpenSubtitlesError
 from meocosub2.opensubtitles.client import (
+    _TITLE_BONUS_EXACT,
     BASE_URL,
     MAX_RETRIES,
     STRONG_MATCH_THRESHOLD,
-    _TITLE_BONUS_EXACT,
     OpenSubtitlesClient,
     _OpenSubtitlesOrgAliasParser,
 )

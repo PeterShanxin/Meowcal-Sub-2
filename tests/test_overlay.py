@@ -2,7 +2,6 @@ import asyncio
 import json
 from pathlib import Path
 
-
 from meocosub2.config import AppConfig
 from meocosub2.overlay.server import OverlayServer
 from tests.conftest import TEST_TOKEN, studio_client
@@ -162,12 +161,11 @@ def test_put_config_with_language_only_merge_persists_languages_without_resettin
 
 def test_app_websocket_receives_initial_state_and_subtitle_events(tmp_path: Path) -> None:
     server = make_server(tmp_path / "config.toml")
-    with studio_client(server) as client:
-        with client.websocket_connect("/ws/app") as websocket:
-            state_event = json.loads(websocket.receive_text())
-            style_event = json.loads(websocket.receive_text())
-            asyncio.run(server.controller.broadcast_overlay_subtitle("hello"))
-            subtitle_event = json.loads(websocket.receive_text())
+    with studio_client(server) as client, client.websocket_connect("/ws/app") as websocket:
+        state_event = json.loads(websocket.receive_text())
+        style_event = json.loads(websocket.receive_text())
+        asyncio.run(server.controller.broadcast_overlay_subtitle("hello"))
+        subtitle_event = json.loads(websocket.receive_text())
 
     assert state_event["type"] == "state"
     assert state_event["state"]["status"] == "idle"

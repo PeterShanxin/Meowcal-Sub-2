@@ -4,15 +4,24 @@ import zipfile
 import httpx
 import pytest
 
+import meocosub2.subtitle_sources.aggregator as aggregator_module
 import meocosub2.subtitle_sources.subdl as subdl_module
 from meocosub2.config import AppConfig
 from meocosub2.errors import SubtitleSourceError
-from meocosub2.subtitle_sources.assrt import AssrtProvider
-import meocosub2.subtitle_sources.aggregator as aggregator_module
 from meocosub2.subtitle_sources.aggregator import SubtitleSearchAggregator
+from meocosub2.subtitle_sources.assrt import AssrtProvider
 from meocosub2.subtitle_sources.subdl import SubdlProvider
-from meocosub2.subtitle_sources.types import AggregatedWork, ProviderSearchCatalog, ProviderSubtitleMatch, ProviderSubtitleResult
-from meocosub2.subtitle_sources.utils import canonical_title, looks_like_release_name, map_subdl_language
+from meocosub2.subtitle_sources.types import (
+    AggregatedWork,
+    ProviderSearchCatalog,
+    ProviderSubtitleMatch,
+    ProviderSubtitleResult,
+)
+from meocosub2.subtitle_sources.utils import (
+    canonical_title,
+    looks_like_release_name,
+    map_subdl_language,
+)
 
 
 class FakeProvider:

@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 
-
 from meocosub2.config import AppConfig
 from meocosub2.errors import OpenSubtitlesError, TranslationError
 from meocosub2.overlay.server import OverlayServer

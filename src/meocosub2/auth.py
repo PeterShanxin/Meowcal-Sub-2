@@ -13,6 +13,7 @@ import json
 import os
 import secrets
 import stat
+from contextlib import suppress
 from pathlib import Path
 
 TOKEN_HEADER = "x-meowcal-token"
@@ -36,12 +37,10 @@ def publish_runtime(token: str, port: int, path: Path | None = None) -> Path:
     target.write_text(
         json.dumps({"token": token, "port": port}, indent=2), encoding="utf-8"
     )
-    try:
+    # Windows profile directories are already per-user; a failed chmod there
+    # must not stop the app from starting.
+    with suppress(OSError):
         target.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    except OSError:
-        # Windows profile directories are already per-user; a failed chmod there
-        # must not stop the app from starting.
-        pass
     return target
 
 

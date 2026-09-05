@@ -5,8 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from meocosub2.config import AppConfig
-from meocosub2.models import PreparedRuntime
-from meocosub2.models import SearchRequest
+from meocosub2.models import PreparedRuntime, SearchRequest
 from meocosub2.overlay.controller import GuiController
 from meocosub2.subtitle_sources.types import (
     AggregatedEpisode,

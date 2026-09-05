@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+from itertools import pairwise
 
 import httpx
 from rapidfuzz import fuzz
@@ -159,7 +160,7 @@ def looks_like_a_loop(text: str) -> bool:
     if len(tokens) < MIN_TOKENS_FOR_REPETITION:
         return False
     streak = longest = 1
-    for previous, token in zip(tokens, tokens[1:]):
+    for previous, token in pairwise(tokens):
         streak = streak + 1 if token == previous else 1
         longest = max(longest, streak)
     return longest >= MAX_REPEATED_TOKEN_STREAK or len(set(tokens)) * 3 <= len(tokens)

@@ -1,7 +1,13 @@
 import tomllib
 from pathlib import Path
 
-from meocosub2.config import AppConfig, config_from_payload, config_to_payload, load_config, save_config
+from meocosub2.config import (
+    AppConfig,
+    config_from_payload,
+    config_to_payload,
+    load_config,
+    save_config,
+)
 
 
 def test_default_config() -> None:

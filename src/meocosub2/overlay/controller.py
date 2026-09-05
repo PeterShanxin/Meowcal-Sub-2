@@ -10,29 +10,34 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from dataclasses import asdict, replace
 from pathlib import Path
 from uuid import uuid4
 
-logger = logging.getLogger(__name__)
-CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
-AUTO_SOURCE_CANDIDATE_LIMIT = 3
-AUTO_TARGET_CANDIDATE_LIMIT = 1
-
+from meocosub2 import engine
 from meocosub2.capture import available_ocr_languages, resolve_ocr_language
 from meocosub2.config import AppConfig, config_to_payload, overlay_style_payload, save_config
-from meocosub2.errors import SubtitleSourceError, TranslationError
+from meocosub2.errors import TranslationError
 from meocosub2.event_log import log_event
-from meocosub2 import engine
 from meocosub2.languages import (
     is_chinese_family,
     language_label,
-    normalize_source_language,
     normalize_ocr_language,
+    normalize_source_language,
     source_language_mode,
     source_result_matches_requested_language,
 )
-from meocosub2.models import AppProgress, AppStateSnapshot, PreparedRuntime, PreparedSession, SearchRequest, SourceSubtitleCandidate, SubtitlePair
+from meocosub2.models import (
+    AppProgress,
+    AppStateSnapshot,
+    PreparedRuntime,
+    PreparedSession,
+    SearchRequest,
+    SourceSubtitleCandidate,
+    SubtitlePair,
+)
+from meocosub2.semantic import SemanticIndex
 from meocosub2.subtitle_sources import (
     AggregatedEpisode,
     AggregatedSearchCatalog,
@@ -42,7 +47,6 @@ from meocosub2.subtitle_sources import (
     AggregatedWork,
     SubtitleSearchAggregator,
 )
-from meocosub2.semantic import SemanticIndex
 from meocosub2.subtitle_sources.utils import result_id_for
 from meocosub2.subtitles import align_subtitles, assign_target_translations, load_subtitle_file
 from meocosub2.sync import (
@@ -53,6 +57,11 @@ from meocosub2.sync import (
     open_live_translator,
     run_session_loop,
 )
+
+logger = logging.getLogger(__name__)
+CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+AUTO_SOURCE_CANDIDATE_LIMIT = 3
+AUTO_TARGET_CANDIDATE_LIMIT = 1
 
 
 def search_result_payload(result: AggregatedSubtitleResult) -> dict[str, object]:
@@ -282,7 +291,7 @@ class GuiController:
         log_event(
             "config.save.requested",
             layer="backend",
-            sections=sorted(str(key) for key in payload.keys()),
+            sections=sorted(str(key) for key in payload),
         )
         from meocosub2.config import config_from_payload
 
@@ -1234,10 +1243,8 @@ class GuiController:
         task = self._sync_task
         if task is not None and not task.done():
             task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
 
     async def _start_translation_engine(self) -> None:
         try:

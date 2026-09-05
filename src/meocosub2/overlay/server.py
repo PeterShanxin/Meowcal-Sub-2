@@ -16,8 +16,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from meocosub2.auth import TOKEN_HEADER, TOKEN_QUERY, token_matches
-from meocosub2.config import AppConfig, overlay_style_payload
 from meocosub2.capture import available_ocr_languages, capture_region_jpeg
+from meocosub2.config import AppConfig, overlay_style_payload
 from meocosub2.errors import SubtitleSourceError, TranslationError
 from meocosub2.event_log import log_event
 from meocosub2.languages import languages_payload

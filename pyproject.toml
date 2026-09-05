@@ -30,6 +30,8 @@ meowcal-sub-2 = "meocosub2.cli:app"
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.16",
     "pytest-asyncio>=0.23",
     "respx>=0.21",
     "pytest-mock>=3.12",
@@ -42,3 +44,20 @@ packages = ["src/meocosub2"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.ruff]
+# Measured against the code as written: half of all lines fit in 34 characters,
+# 95% in 87, and the tail runs to 109. At 88 the formatter would rewrap twice as
+# many lines as at 100 without making anything clearer.
+line-length = 100
+extend-exclude = [
+    "src/meocosub2/overlay/static/assets",
+    "src/meocosub2/overlay/ui/node_modules",
+    "src-tauri/target",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+# The formatter owns line width. Left on, E501 also condemns the lines it
+# cannot split - long URLs, digests, prose in comments - which is noise.
+ignore = ["E501"]

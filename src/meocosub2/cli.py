@@ -8,7 +8,6 @@ import logging
 import os
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
-from typing import Optional
 
 import typer
 import uvicorn
@@ -89,7 +88,7 @@ def _ensure_websocket_runtime() -> None:
 
 @app.callback()
 def main(
-    version: Optional[bool] = typer.Option(
+    version: bool | None = typer.Option(
         None,
         "--version",
         callback=_version_callback,

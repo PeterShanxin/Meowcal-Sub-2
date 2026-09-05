@@ -76,16 +76,20 @@ def test_the_static_bundle_stays_reachable_without_the_token(tmp_path: Path) -> 
 def test_the_websocket_refuses_a_caller_without_the_token(tmp_path: Path) -> None:
     from starlette.websockets import WebSocketDisconnect
 
-    with TestClient(make_server(tmp_path).app) as client:
-        with pytest.raises(WebSocketDisconnect):
-            with client.websocket_connect("/ws/app") as socket:
-                socket.receive_text()
+    with (
+        TestClient(make_server(tmp_path).app) as client,
+        pytest.raises(WebSocketDisconnect),
+        client.websocket_connect("/ws/app") as socket,
+    ):
+        socket.receive_text()
 
 
 def test_the_websocket_accepts_the_token_from_the_query_string(tmp_path: Path) -> None:
-    with TestClient(make_server(tmp_path).app) as client:
-        with client.websocket_connect(f"/ws/app?token={TEST_TOKEN}") as socket:
-            assert socket.receive_json()["type"] == "state"
+    with (
+        TestClient(make_server(tmp_path).app) as client,
+        client.websocket_connect(f"/ws/app?token={TEST_TOKEN}") as socket,
+    ):
+        assert socket.receive_json()["type"] == "state"
 
 
 def test_the_runtime_file_round_trips_the_token(tmp_path: Path) -> None:

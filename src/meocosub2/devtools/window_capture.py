@@ -8,6 +8,7 @@ import os
 import re
 import tempfile
 import time
+from contextlib import suppress
 from ctypes import wintypes
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,10 +69,8 @@ def _become_dpi_aware() -> None:
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
     except (AttributeError, OSError):
-        try:
+        with suppress(AttributeError, OSError):
             ctypes.windll.user32.SetProcessDPIAware()
-        except (AttributeError, OSError):
-            pass
 
 
 def enumerate_windows() -> list[WindowInfo]:

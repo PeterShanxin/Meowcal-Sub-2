@@ -10,8 +10,11 @@ from typing import Any
 
 import tomli_w
 
-from meocosub2.languages import derive_ocr_language, normalize_source_language, normalize_target_language
-
+from meocosub2.languages import (
+    derive_ocr_language,
+    normalize_source_language,
+    normalize_target_language,
+)
 
 DEFAULT_CAPTURE_INTERVAL_MS = 250
 # The default before capture pacing was measured; an install still on it never chose it.

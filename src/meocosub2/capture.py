@@ -12,10 +12,10 @@ import mss
 from PIL import Image, ImageOps
 from winocr import OcrEngine
 
-logger = logging.getLogger(__name__)
-
 from meocosub2.languages import normalize_ocr_language
 from meocosub2.textnorm import clean_cjk_text, is_cjk_char
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -120,7 +120,7 @@ async def ocr_image(image: Image.Image, language: str) -> str:
     best_score = (0, 0)
     best_pass = "none"
     t0 = monotonic()
-    for pass_name, candidate in zip(pass_names, passes):
+    for pass_name, candidate in zip(pass_names, passes, strict=True):
         try:
             text = await _run_ocr(candidate, resolution.resolved_language)
         except Exception as exc:

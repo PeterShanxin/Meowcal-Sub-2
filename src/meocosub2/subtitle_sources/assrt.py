@@ -13,11 +13,15 @@ from meocosub2.config import AppConfig
 from meocosub2.errors import SubtitleSourceError
 from meocosub2.event_log import log_event
 from meocosub2.http_timeouts import provider_timeout
-from meocosub2.subtitle_sources.types import ProviderCapabilities, ProviderSearchCatalog, ProviderSubtitleResult
 from meocosub2.subtitle_sources.cache_paths import (
     contained_path,
     safe_segment,
     subtitle_file_name,
+)
+from meocosub2.subtitle_sources.types import (
+    ProviderCapabilities,
+    ProviderSearchCatalog,
+    ProviderSubtitleResult,
 )
 from meocosub2.subtitle_sources.utils import (
     SUBTITLE_EXTENSIONS,
