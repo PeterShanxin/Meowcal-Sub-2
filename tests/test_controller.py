@@ -1153,6 +1153,64 @@ async def test_search_pushes_an_interim_state_before_the_final_provider_answers(
     assert titles == ["Interim Result", "Final Result"]
 
 
+async def test_an_interim_result_can_be_resolved_the_moment_it_is_shown(
+    tmp_path: Path,
+) -> None:
+    """The catalog has to arrive with the results, not when the search finishes.
+
+    Interim results are selectable as soon as they are on screen, and every
+    lookup behind that click goes through the catalog. Published late, the first
+    click on a fast provider's result failed as unresolvable.
+    """
+    resolvable: list[bool] = []
+
+    class _Labelled:
+        def display_label(self) -> str:
+            return "SubDL - interim.srt"
+
+    class _AggregatorWithAnInterimResult(_ProgressiveStubAggregator):
+        async def search_catalog(
+            self, title, languages, correlation_id=None, on_provider_update=None
+        ):
+            interim = AggregatedSearchCatalog(
+                matches=[],
+                results=[
+                    AggregatedSubtitleResult(
+                        result_id="interim-1",
+                        match_id="match-1",
+                        provider="subdl",
+                        provider_label="SubDL",
+                        title="Interim Result",
+                        year=None,
+                        imdb_id=None,
+                        tmdb_id=None,
+                        media_type="movie",
+                        season=None,
+                        episode=None,
+                        parent_title=None,
+                        language="en",
+                        download_count=1,
+                        file_name="interim.srt",
+                        provider_result=_Labelled(),
+                    )
+                ],
+            )
+            if on_provider_update is not None:
+                await on_provider_update(["subdl"], ["subdl"], interim)
+                resolvable.append(self_controller._catalog_result("interim-1") is not None)
+            return AggregatedSearchCatalog(matches=[], results=[])
+
+    controller = make_controller(tmp_path / "config.toml")
+    self_controller = controller
+    controller._aggregator = _AggregatorWithAnInterimResult()
+
+    await controller.search(
+        SearchRequest(title="Rick and Morty", source_language="en", target_language="en")
+    )
+
+    assert resolvable == [True]
+
+
 async def test_a_superseded_search_does_not_clobber_the_newer_ones_state(tmp_path: Path) -> None:
     controller = make_controller(tmp_path / "config.toml")
     controller._aggregator = _ProgressiveStubAggregator()

@@ -52,16 +52,16 @@ Raised so far, all of them by live testing against a real player:
 
 | File | From | To | Why |
 | --- | ---: | ---: | --- |
-| `matcher.py` | 405 | 455 | drawing cues that genuinely run at once, and only those |
-| `sync.py` | 614 | 622 | holding the plate behind the dialogue without reading behind the anchor |
+| `matcher.py` | 405 | 486 | drawing the cues that genuinely run at once, and only those |
+| `sync.py` | 614 | 634 | holding the plate behind the dialogue, and keeping stale answers off it |
 | `engine/runtime.py` | 479 | 489 | stopping the engine a new one replaces, instead of dropping its handle |
-| `overlay/controller.py` | 1664 | 1671 | opening the translator once however many reads ask at the same moment |
+| `overlay/controller.py` | 1664 | 1675 | opening the translator once however many reads ask at the same moment, and publishing a search catalog with the results it describes |
 
 The four largest are the ones worth naming, because they are where the work is:
 
 | File | Lines | What it holds |
 | --- | ---: | --- |
-| `overlay/controller.py` | 1,664 | session lifecycle, search orchestration, config, engine startup |
+| `overlay/controller.py` | 1,675 | session lifecycle, search orchestration, config, engine startup |
 | `overlay/ui/src/app.tsx` | 1,494 | the studio's whole screen state |
 | `overlay/ui/src/components/palette.tsx` | 1,478 | the search palette |
 | `subtitle_sources/aggregator.py` | 1,445 | provider-neutral search aggregation |

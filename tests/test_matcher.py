@@ -1,4 +1,11 @@
-from meocosub2.matcher import BOTH, PLATE_LINES, SEMANTIC, TEXT, SubtitleMatcher
+from meocosub2.matcher import (
+    BOTH,
+    FOLLOW_GRACE_MS,
+    PLATE_LINES,
+    SEMANTIC,
+    TEXT,
+    SubtitleMatcher,
+)
 from meocosub2.models import SubtitleLine
 from meocosub2.semantic import SemanticHit
 
@@ -361,6 +368,29 @@ def test_a_cue_ending_where_the_next_begins_is_not_two_speakers() -> None:
     ]
     found = SubtitleMatcher(consecutive).line_at(2_000)
     assert found is not None and found.target_text == "再见"
+
+
+def test_a_cue_still_running_under_a_finished_one_keeps_the_plate() -> None:
+    """Cue ends are not ordered with their starts.
+
+    A sign, or one speaker holding a line, outlasts the shorter cues under it.
+    Reading only the newest cue drops the one actually still on screen.
+    """
+    nested = [
+        SubtitleLine(index=0, start_ms=0, end_ms=10_000, text="On air", translated="直播中"),
+        SubtitleLine(index=1, start_ms=1_000, end_ms=2_000, text="Hello there", translated="你好"),
+    ]
+    found = SubtitleMatcher(nested).line_at(3_000)
+    assert found is not None and found.target_text == "直播中"
+
+
+def test_the_schedule_follows_the_cue_that_is_actually_showing() -> None:
+    """Waking on the finished cue's grace would redraw at the wrong moment."""
+    nested = [
+        SubtitleLine(index=0, start_ms=0, end_ms=10_000, text="On air", translated="直播中"),
+        SubtitleLine(index=1, start_ms=1_000, end_ms=2_000, text="Hello there", translated="你好"),
+    ]
+    assert SubtitleMatcher(nested).next_change_ms(3_000) == 10_000 + FOLLOW_GRACE_MS + 1
 
 
 def test_a_line_with_no_translation_does_not_take_its_partner_off_the_plate() -> None:

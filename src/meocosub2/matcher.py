@@ -56,6 +56,10 @@ PLATE_LINES = 2
 # Files routinely end one cue on the millisecond the next begins, and treating
 # that as an overlap would put every consecutive pair of lines on the plate.
 SIMULTANEOUS_MS = 300
+# How many cues back to look for one still on screen. A sign or a long speaker
+# cue can outlast several short lines under it, so the search cannot stop at the
+# first finished cue - but it does have to stop somewhere.
+LOOK_BACK_LINES = 8
 # Overlapping cues reach the plate as separate rows, the way they were on the
 # screen they came from. The overlay's own stylesheet is what renders it.
 ROW_BREAK = "\n"
@@ -255,6 +259,16 @@ class SubtitleMatcher:
             return best_pair[0], 2, best_pair[1]
         return best_single[0], 1, best_single[1]
 
+    def _nearby(self, last: int) -> range:
+        """The cues close enough to `last` to still be on screen with it.
+
+        Bounded rather than scanning the file: cue ends are not ordered with
+        their starts, so the scan cannot stop at the first finished cue, and
+        without a bound one long sign would be compared against the whole
+        episode under it.
+        """
+        return range(last, max(-1, last - LOOK_BACK_LINES), -1)
+
     def _showing_at(self, last: int, position_ms: int) -> list[SubtitleLine]:
         """The lines genuinely on screen together at this point, oldest first.
 
@@ -265,22 +279,38 @@ class SubtitleMatcher:
         Sharing a boundary is not sharing the screen. Most files cut one cue
         where the next begins, so "still running" alone would pair up every
         consecutive line in the episode and turn one line of dialogue into two.
-        An earlier cue joins the plate only if it runs `SIMULTANEOUS_MS` past
-        the start of the one below it.
+        An earlier cue joins the plate only if it is still running
+        `SIMULTANEOUS_MS` after the newer one started.
         """
-        current = self.subtitles[last]
-        if current.end_ms < position_ms:
-            return []
-        showing = [current]
-        for index in range(last - 1, -1, -1):
-            earlier = self.subtitles[index]
-            if len(showing) == PLATE_LINES or earlier.end_ms < position_ms:
+        showing: list[SubtitleLine] = []
+        newest: SubtitleLine | None = None
+        for index in self._nearby(last):
+            line = self.subtitles[index]
+            if line.end_ms < position_ms:
+                continue
+            if newest is None:
+                newest, showing = line, [line]
+                continue
+            if len(showing) == PLATE_LINES:
                 break
-            if earlier.end_ms - current.start_ms < SIMULTANEOUS_MS:
-                break
-            showing.append(earlier)
+            if line.end_ms - newest.start_ms >= SIMULTANEOUS_MS:
+                showing.append(line)
         showing.reverse()
         return showing
+
+    def _holding_at(self, last: int, position_ms: int) -> SubtitleLine | None:
+        """The cue to keep on the plate when none is still running.
+
+        The file's cue can end a beat before the burned-in one does, so the most
+        recently finished line holds through the grace rather than leaving the
+        plate blank between every pair of cues.
+        """
+        held = [
+            self.subtitles[index]
+            for index in self._nearby(last)
+            if self.subtitles[index].end_ms + FOLLOW_GRACE_MS >= position_ms
+        ]
+        return max(held, key=lambda line: line.end_ms) if held else None
 
     def line_at(self, position_ms: int) -> MatchResult | None:
         """What the file has on screen at this point in the video.
@@ -295,12 +325,10 @@ class SubtitleMatcher:
             return None
         showing = self._showing_at(last, position_ms)
         if not showing:
-            # Nothing is still running, but the file's cue can end a beat before
-            # the burned-in one does, so the last line holds through the grace.
-            line = self.subtitles[last]
-            if position_ms > line.end_ms + FOLLOW_GRACE_MS:
+            held = self._holding_at(last, position_ms)
+            if held is None:
                 return None
-            showing = [line]
+            showing = [held]
         # One of a pair having no translation is not a reason to withhold the
         # other: the plate would go blank for a line the file could answer.
         showing = [line for line in showing if line.translated] or showing
@@ -333,9 +361,12 @@ class SubtitleMatcher:
             # single cue running out does not: the grace holds it there.
             changes = min(line.end_ms for line in showing) + 1
         else:
-            changes = self.subtitles[last].end_ms + FOLLOW_GRACE_MS + 1
-            if changes <= position_ms:
+            # Whichever line `line_at` would settle on, running or held, is the
+            # one whose grace decides when the plate next changes.
+            settled = showing[0] if showing else self._holding_at(last, position_ms)
+            if settled is None:
                 return following
+            changes = settled.end_ms + FOLLOW_GRACE_MS + 1
         return changes if following is None else min(changes, following)
 
     def match(self, ocr_text: str, window_ms: tuple[int, int] | None = None) -> MatchResult | None:

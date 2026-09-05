@@ -505,6 +505,34 @@ async def test_a_read_no_wording_can_place_is_placed_by_meaning() -> None:
     assert result.detail["matchBy"] == "semantic"
 
 
+async def test_switching_candidates_throws_away_the_index_built_for_the_old_one() -> None:
+    """Its row numbers mean different lines in a different subtitle file.
+
+    Kept across a switch, the vectors of the abandoned candidate would let the
+    new one anchor the clock on an unrelated line.
+    """
+    from meocosub2.semantic import SemanticHit
+
+    async def open_index() -> StubIndex:
+        return StubIndex(SemanticHit(index=1, score=0.83))
+
+    session = CandidateSession(
+        [make_candidate("a", episode_lines()), make_candidate("b", episode_lines())],
+        config(),
+        never_translates(),
+        open_index,
+    )
+    session._lock("a")
+    await session.match("Goodbye now")
+    await settled(session)
+    assert session._semantic is not None
+
+    session._lock("b")
+
+    assert session._semantic is None
+    assert session._semantic_build is None
+
+
 async def test_a_session_without_the_matching_model_still_matches_on_wording() -> None:
     """A machine that never installed the model, or an adopted v1 engine."""
 

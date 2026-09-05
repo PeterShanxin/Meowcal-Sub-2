@@ -391,6 +391,10 @@ class GuiController:
             async with self._lock:
                 if self._active_search_id != correlation_id:
                     return
+                # Stored with the results it describes, not when the search
+                # finishes. These results are selectable the moment they are
+                # shown, and every lookup behind that click reads the catalog.
+                self._search_catalog = interim
                 self._state.search_results = [
                     search_result_payload(result) for result in interim.results
                 ]

@@ -339,6 +339,13 @@ class CandidateSession:
 
     def _lock(self, result_id: str) -> None:
         logger.debug("Locked subtitle candidate %s", result_id)
+        # An index built for the candidate being left behind holds vectors for a
+        # different subtitle file, and its row numbers mean different lines
+        # there. Kept, it would let the new candidate anchor on an unrelated
+        # line; dropped, the next read starts building an index for this one.
+        self.close()
+        self._semantic = None
+        self._semantic_build = None
         self._locked = result_id
         self._pending, self._pending_hits, self._misses = "", 0, 0
 
@@ -493,7 +500,12 @@ async def run_session_loop(
                 continue
             if await show(line.text, MATCHED):
                 # A line the clock turned to is not one a read has agreed with,
-                # so reads of it start looking for a match again.
+                # so reads of it start looking for a match again. The sequence
+                # moves with it: a translation still in flight belongs to the
+                # cue that has just been replaced, and lands as a matched line
+                # rather than a translated one, so nothing else would stop it
+                # overwriting this one with the previous dialogue.
+                screen.seq += 1
                 screen.confirmed = False
                 screen.covers_through = None
 
