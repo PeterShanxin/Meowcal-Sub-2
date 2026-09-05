@@ -137,7 +137,7 @@ export function EmptyState({
             </div>
           </div>
         </div>
-        <button
+        <button type="button"
           onClick={onOpenPalette}
           style={{
             padding: "14px",

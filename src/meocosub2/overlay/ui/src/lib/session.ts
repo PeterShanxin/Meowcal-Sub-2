@@ -25,5 +25,3 @@ export function withToken(path: string): string {
   const separator = path.includes("?") ? "&" : "?";
   return `${path}${separator}token=${encodeURIComponent(accessToken)}`;
 }
-
-export {};

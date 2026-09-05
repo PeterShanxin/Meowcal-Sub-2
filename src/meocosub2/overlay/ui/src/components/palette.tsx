@@ -505,7 +505,7 @@ export function Palette(props: PaletteProps): JSX.Element {
                 onClick={() => onTabChange("target")}
               />
             )}
-            <button
+            <button type="button"
               onClick={onPrimary}
               disabled={!primaryEnabled}
               title={startHint}
@@ -574,7 +574,7 @@ function PickedChip({
   onClick: () => void;
 }): JSX.Element {
   return (
-    <button
+    <button type="button"
       onClick={onClick}
       title={value}
       style={{

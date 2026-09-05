@@ -305,7 +305,7 @@ export function TopBar({
           {wsConnected ? "●" : "○"}
         </span>
         {onClearSession && (
-          <button
+          <button type="button"
             onClick={onClearSession}
             aria-label="Clear session"
             title="Clear session (⇧⌫)"
@@ -317,7 +317,7 @@ export function TopBar({
           </button>
         )}
         {onOpenSettings && (
-          <button
+          <button type="button"
             onClick={onOpenSettings}
             aria-label="Open settings"
             title="Settings (,)"
@@ -406,7 +406,7 @@ export function PaletteTabs({
           fontWeight: 500,
         };
         return (
-          <button key={t.id} onClick={() => onChange(t.id)} style={style}>
+          <button type="button" key={t.id} onClick={() => onChange(t.id)} style={style}>
             {t.label}
             <span
               style={{

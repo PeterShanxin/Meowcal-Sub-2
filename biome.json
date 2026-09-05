@@ -1,0 +1,31 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.12/schema.json",
+  "files": {
+    "includes": [
+      "src/meocosub2/overlay/ui/src/**/*.ts",
+      "src/meocosub2/overlay/ui/src/**/*.tsx",
+      "src/meocosub2/overlay/ui/src/**/*.css",
+      "src/meocosub2/overlay/ui/*.ts",
+      "src/meocosub2/overlay/static/*.js",
+      "src/meocosub2/overlay/static/*.css"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always"
+    }
+  }
+}

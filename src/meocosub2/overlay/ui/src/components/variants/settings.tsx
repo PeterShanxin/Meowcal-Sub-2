@@ -242,7 +242,7 @@ export function SettingsView({
             "0 30px 86px rgba(0,0,0,0.42), 0 0 0 1px rgba(242,199,143,0.04)",
         }}
       >
-        <button
+        <button type="button"
           ref={closeButtonRef}
           onClick={onClose}
           aria-label="Close settings"
@@ -293,7 +293,7 @@ export function SettingsView({
           {SECTIONS.map((s) => {
             const active = s.id === section;
             return (
-              <button
+              <button type="button"
                 key={s.id}
                 onClick={() => setSection(s.id)}
                 style={{
@@ -393,7 +393,7 @@ export function SettingsView({
               "linear-gradient(to bottom, transparent, rgba(18,18,24,0.95) 30%)",
           }}
         >
-          <button
+          <button type="button"
             onClick={() => {
               setDraft(initialConfig);
               setDirty(false);
@@ -414,7 +414,7 @@ export function SettingsView({
             Reset
           </button>
           <div style={{ display: "flex", gap: 10 }}>
-            <button
+            <button type="button"
               onClick={onClose}
               style={{
                 padding: "10px 16px",
@@ -428,7 +428,7 @@ export function SettingsView({
             >
               Close settings <Kbd dim>Esc</Kbd>
             </button>
-            <button
+            <button type="button"
               onClick={save}
               disabled={!dirty || saving}
               style={{
@@ -917,7 +917,7 @@ function CaptureSection({ draft, update }: SectionProps): JSX.Element {
             {x}, {y} · {w} × {h}
           </div>
         </div>
-        <button
+        <button type="button"
           onClick={() => {
             void tauri.openAreaSelector();
           }}
@@ -1184,7 +1184,7 @@ function AppearanceSection(): JSX.Element {
           const selected = active === name;
           const pct = Math.round(FONT_PRESETS[name] * 100);
           return (
-            <button
+            <button type="button"
               key={name}
               onClick={() => onPick(name)}
               style={{

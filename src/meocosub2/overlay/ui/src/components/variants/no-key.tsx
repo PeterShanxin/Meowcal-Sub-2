@@ -72,7 +72,7 @@ export function NoApiKey({
             SubDL now requires an API key; ASSRT uses a token.
           </p>
           <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
-            <button
+            <button type="button"
               onClick={onOpenSettings}
               style={{
                 padding: "10px 16px",

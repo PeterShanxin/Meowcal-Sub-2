@@ -3,7 +3,7 @@
   const line = document.getElementById("line");
   const mark = document.getElementById("mark");
   const markLabel = document.getElementById("mark-label");
-  const token = (window.__MEOWCAL__ || {}).token || "";
+  const token = window.__MEOWCAL__?.token || "";
 
   function withToken(path) {
     return token ? `${path}?token=${encodeURIComponent(token)}` : path;
