@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import re
 import zipfile
@@ -197,6 +198,30 @@ def work_key(
     if media_type == "movie" and imdb_id:
         return ("movie", f"imdb:{imdb_id}")
     return ("movie", f"title:{canonical_title(title)}|{year or 0}")
+
+
+def _stable_id(prefix: str, *parts: str) -> str:
+    digest = hashlib.blake2s("\x1f".join(parts).encode("utf-8"), digest_size=6).hexdigest()
+    return f"{prefix}-{digest}"
+
+
+def work_id_for_key(key: tuple[str, str]) -> str:
+    """A work's identity, independent of how many providers have answered.
+
+    Search results are merged again every time a provider lands, so an id taken
+    from a work's position in that merge names a different show each time the
+    list grows underneath the reader.
+    """
+    return _stable_id("work", *key)
+
+
+def result_id_for(provider: str, provider_result_id: str, language: str) -> str:
+    """A subtitle file's identity, on the same terms as :func:`work_id_for_key`.
+
+    The studio remembers the picked file by this id, so a positional one meant a
+    later merge could point an unchanged selection at a different download.
+    """
+    return _stable_id("result", provider, provider_result_id, language)
 
 
 def match_group_key(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Iterable
@@ -41,8 +42,10 @@ from meocosub2.subtitle_sources.utils import (
     looks_like_release_name,
     match_group_key,
     media_type_category,
+    result_id_for,
     split_query_year,
     title_similarity,
+    work_id_for_key,
     work_key,
 )
 
@@ -167,6 +170,7 @@ class SubtitleSearchAggregator:
         query: str,
         languages: str,
         correlation_id: str | None = None,
+        on_provider_update: Callable[[list[str], list[str], AggregatedSearchCatalog], Awaitable[None]] | None = None,
     ) -> AggregatedSearchCatalog:
         clean_title, query_year = split_query_year(query)
         dispatch_query = _rewrite_query_alias(clean_title or query)
@@ -180,21 +184,54 @@ class SubtitleSearchAggregator:
             providers=[provider.provider_code for provider in self.providers],
             tmdb_enabled=bool(self._tmdb_client and self._tmdb_client.enabled),
         )
+        # SubDL typically answers in ~1-2s while ASSRT can take 5s+, so the
+        # slowest provider used to hold the whole card list behind one spinner.
+        # Providers are awaited as they land and merged in fixed provider order
+        # (never completion order), so a match/work id assigned in an early
+        # interim merge is exactly what the final merge assigns too — nothing
+        # the user clicked on while only some providers had answered goes stale.
         with event_correlation(correlation_id):
-            responses = await asyncio.gather(
-                *(self._search_provider(provider, dispatch_query, languages, correlation_id) for provider in self.providers),
-                return_exceptions=True,
-            )
+            tasks = {
+                asyncio.create_task(
+                    self._search_provider(provider, dispatch_query, languages, correlation_id)
+                ): provider
+                for provider in self.providers
+            }
+            catalogs_by_provider: dict[str, ProviderSearchCatalog] = {}
+            errors: list[str] = []
+            settled_codes: list[str] = []
+            pending = set(tasks)
+            while pending:
+                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                for task in done:
+                    provider = tasks[task]
+                    try:
+                        catalogs_by_provider[provider.provider_code] = task.result()
+                    except Exception as exc:
+                        errors.append(_provider_error_warning(provider.provider_label, exc))
+                    settled_codes.append(provider.provider_code)
+                    if on_provider_update is not None:
+                        ordered = [
+                            catalogs_by_provider[p.provider_code]
+                            for p in self.providers
+                            if p.provider_code in catalogs_by_provider
+                        ]
+                        interim = (
+                            self._merge_catalogs(ordered, languages, query_year, dispatch_query)
+                            if ordered
+                            else AggregatedSearchCatalog(matches=[], results=[])
+                        )
+                        # Succeeded and settled are reported separately: a provider
+                        # that fails is done (it must drop off "waiting on...") but
+                        # never appears in the interim results.
+                        await on_provider_update(list(catalogs_by_provider.keys()), list(settled_codes), interim)
 
-        catalogs: list[ProviderSearchCatalog] = []
-        warnings: list[str] = []
-        errors: list[str] = []
-        for provider, response in zip(self.providers, responses, strict=False):
-            if isinstance(response, Exception):
-                errors.append(_provider_error_warning(provider.provider_label, response))
-                continue
-            catalogs.append(response)
-            warnings.extend(response.warnings)
+        catalogs = [
+            catalogs_by_provider[p.provider_code]
+            for p in self.providers
+            if p.provider_code in catalogs_by_provider
+        ]
+        warnings = [w for catalog in catalogs for w in catalog.warnings]
 
         if not catalogs:
             # The per-provider reasons are the only thing the user can act on, so
@@ -421,7 +458,7 @@ class SubtitleSearchAggregator:
             )
 
         aggregated_results: list[AggregatedSubtitleResult] = []
-        for index, item in enumerate(all_results, start=1):
+        for item in all_results:
             mapped_match_id = provider_match_map.get(item.match_id)
             # If a result carries explicit episode metadata, route it to a per-
             # episode group instead of collapsing it into the parent tvshow group.
@@ -471,7 +508,7 @@ class SubtitleSearchAggregator:
                 group["provider_labels"].add(item.provider_label)
             aggregated_results.append(
                 AggregatedSubtitleResult(
-                    result_id=f"result-{index}",
+                    result_id=result_id_for(item.provider, item.id, item.language),
                     match_id=match_id,
                     provider=item.provider,
                     provider_label=item.provider_label,
@@ -610,7 +647,6 @@ class SubtitleSearchAggregator:
             ),
             reverse=True,
         )
-        aggregated_results = [replace(item, result_id=f"result-{index}") for index, item in enumerate(aggregated_results, start=1)]
 
         full_matches_for_works = [
             AggregatedTitleMatch(
@@ -667,13 +703,14 @@ class SubtitleSearchAggregator:
             buckets[key].append(match)
 
         works: list[AggregatedWork] = []
-        for index, key in enumerate(bucket_order, start=1):
+        for key in bucket_order:
             members = buckets[key]
             category = key[0]
+            work_id = work_id_for_key(key)
             work = (
-                self._build_series_work(members, results_by_match, f"work-{index}")
+                self._build_series_work(members, results_by_match, work_id)
                 if category == "series"
-                else self._build_movie_work(members, results_by_match, f"work-{index}")
+                else self._build_movie_work(members, results_by_match, work_id)
             )
             works.append(work)
 

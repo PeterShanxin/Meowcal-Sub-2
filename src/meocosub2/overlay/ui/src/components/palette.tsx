@@ -49,6 +49,7 @@ interface PaletteProps {
   sourceLang: string;
   targetLang: string;
   searching: boolean;
+  searchStatusMessage: string | null;
   hydrating: string[];
   errorMessage: string | null;
   onRetrySearch: (() => void) | null;
@@ -96,6 +97,7 @@ export function Palette(props: PaletteProps): JSX.Element {
     sourceLang,
     targetLang,
     searching,
+    searchStatusMessage,
     hydrating,
     errorMessage,
     onRetrySearch,
@@ -372,6 +374,7 @@ export function Palette(props: PaletteProps): JSX.Element {
           filteredCount={works.length}
           totalCount={totalWorksCount}
           searching={listSearching}
+          statusMessage={searchStatusMessage}
           onMediaFilterChange={onTitleMediaFilterChange}
           onToggleSeason={onToggleSeasonFilter}
           onClearSeasons={onClearSeasonFilters}
@@ -399,6 +402,7 @@ export function Palette(props: PaletteProps): JSX.Element {
                 onPickEpisode={onPickEpisode}
                 onHydrateEpisode={onHydrateEpisode}
                 searching={searching}
+                searchStatusMessage={searchStatusMessage}
                 hydrating={hydrating}
                 emptyHint={
                   totalWorksCount > 0
@@ -611,6 +615,7 @@ function TitleFilters({
   filteredCount,
   totalCount,
   searching,
+  statusMessage,
   onMediaFilterChange,
   onToggleSeason,
   onClearSeasons,
@@ -621,6 +626,7 @@ function TitleFilters({
   filteredCount: number;
   totalCount: number;
   searching: boolean;
+  statusMessage: string | null;
   onMediaFilterChange: (filter: TitleMediaFilter) => void;
   onToggleSeason: (seasonNumber: number) => void;
   onClearSeasons: () => void;
@@ -658,7 +664,7 @@ function TitleFilters({
         </div>
         <div style={{ flex: 1 }} />
         {searching ? (
-          <RowBusy label="Searching" />
+          <RowBusy label={statusMessage || "Searching"} />
         ) : (
           <span style={{ fontSize: 11.5, color: "var(--text-dim)", whiteSpace: "nowrap" }}>
             {filteredCount === totalCount
@@ -787,6 +793,7 @@ function WorkList({
   onPickEpisode,
   onHydrateEpisode,
   searching,
+  searchStatusMessage,
   hydrating,
   emptyHint,
 }: {
@@ -802,6 +809,7 @@ function WorkList({
   onPickEpisode: (workId: string, matchId: string) => void;
   onHydrateEpisode: (workId: string, season: number, episode: number) => void;
   searching: boolean;
+  searchStatusMessage: string | null;
   hydrating: string[];
   emptyHint?: string;
 }): JSX.Element {
@@ -811,7 +819,7 @@ function WorkList({
         <div className="empty-searching">
           <div className="empty-searching-card">
             <span className="empty-searching-spinner" aria-hidden />
-            <span>Searching</span>
+            <span>{searchStatusMessage || "Searching"}</span>
           </div>
         </div>
       );

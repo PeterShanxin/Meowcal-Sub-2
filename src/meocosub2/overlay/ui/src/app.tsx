@@ -124,6 +124,8 @@ export function App(): JSX.Element {
   const sourceLang = (config?.languages.source ?? snapshot?.source_language ?? "en").toUpperCase();
   const targetLang = config?.languages.target ?? snapshot?.target_language ?? "zh-TW";
   const episodeMatchId = selectedEpisodeMatchId;
+  const searchStatusMessage =
+    snapshot?.progress.stage === "search" ? snapshot.progress.message : null;
   const works = useMemo<WorkItem[]>(
     () => mapWorksToItems(snapshot?.search_works ?? []),
     [snapshot?.search_works],
@@ -267,9 +269,9 @@ export function App(): JSX.Element {
       sourceLanguage: config?.languages.source ?? snapshot?.source_language,
       targetLanguage: config?.languages.target ?? snapshot?.target_language,
     }, correlationId);
-    // Hydration keys name rows in the catalog this search replaces, and the
-    // aggregator reuses ordinal work ids, so stale keys could mark a row of the
-    // new catalog busy.
+    // These keys track lookups belonging to the search being replaced. Work ids
+    // are content-derived, so a re-search of the same title mints the same keys
+    // and a leftover one would leave a row of the new catalog marked busy.
     hydrateInFlight.current.clear();
     store.set({
       error: null,
@@ -1082,6 +1084,7 @@ export function App(): JSX.Element {
               sourceLang={sourceLang}
               targetLang={targetLang}
               searching={searching}
+              searchStatusMessage={searchStatusMessage}
               hydrating={hydrating}
               errorMessage={paletteError}
               onRetrySearch={lastSearchedQuery.current || query.trim() ? retrySearch : null}

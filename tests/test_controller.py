@@ -1007,6 +1007,100 @@ async def test_preparing_after_the_catalog_is_dropped_reports_a_stale_search(tmp
         await controller.prepare_session(mode="auto_candidates", feature_id="match-1")
 
 
+class _StubProvider:
+    def __init__(self, code: str, label: str) -> None:
+        self.provider_code = code
+        self.provider_label = label
+
+
+class _ProgressiveStubAggregator:
+    """Reports SubDL landing, then ASSRT, mirroring the real aggregator's callback contract."""
+
+    providers = (_StubProvider("subdl", "SubDL"), _StubProvider("assrt", "ASSRT"))
+
+    async def search_catalog(self, title, languages, correlation_id=None, on_provider_update=None):
+        interim = AggregatedSearchCatalog(
+            matches=[AggregatedTitleMatch(id="match-1", title="Interim Result", year=None, imdb_id=None, tmdb_id=None, media_type="movie")],
+            results=[],
+        )
+        if on_provider_update is not None:
+            await on_provider_update(["subdl"], ["subdl"], interim)
+        return AggregatedSearchCatalog(
+            matches=[AggregatedTitleMatch(id="match-1", title="Final Result", year=None, imdb_id=None, tmdb_id=None, media_type="movie")],
+            results=[],
+        )
+
+
+async def test_search_pushes_an_interim_state_before_the_final_provider_answers(tmp_path: Path) -> None:
+    emitted_states: list[dict] = []
+
+    async def capture(event_type, payload) -> None:
+        if event_type == "state":
+            emitted_states.append(payload["state"])
+
+    controller = GuiController(AppConfig(), capture, config_path=tmp_path / "config.toml")
+    controller._aggregator = _ProgressiveStubAggregator()
+
+    await controller.search(SearchRequest(title="Rick and Morty", source_language="en", target_language="en"))
+
+    titles = [s["search_matches"][0]["title"] for s in emitted_states if s["search_matches"]]
+    assert titles == ["Interim Result", "Final Result"]
+
+
+async def test_a_superseded_search_does_not_clobber_the_newer_ones_state(tmp_path: Path) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+    controller._aggregator = _ProgressiveStubAggregator()
+
+    real_search_catalog = _ProgressiveStubAggregator.search_catalog
+
+    async def search_catalog_with_hook(self, title, languages, correlation_id=None, on_provider_update=None):
+        async def hooked(succeeded_codes, settled_codes, interim):
+            # Simulate the user retyping and a new search starting before this
+            # (now-stale) search's provider callback gets a chance to run.
+            controller._active_search_id = "a-newer-search"
+            await on_provider_update(succeeded_codes, settled_codes, interim)
+
+        return await real_search_catalog(self, title, languages, correlation_id=correlation_id, on_provider_update=hooked)
+
+    controller._aggregator.search_catalog = search_catalog_with_hook.__get__(controller._aggregator)
+
+    result = await controller.search(SearchRequest(title="Rick and Morty", source_language="en", target_language="en"))
+
+    assert result["matches"][0]["title"] == "Final Result"
+    # The superseded search's own results are handed back to its caller, but
+    # they must not have overwritten the (simulated) newer search's state.
+    assert controller._state.search_matches == []
+
+
+async def test_a_failed_provider_drops_off_the_waiting_on_message(tmp_path: Path) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+
+    class FailingAssrtAggregator:
+        providers = (_StubProvider("subdl", "SubDL"), _StubProvider("assrt", "ASSRT"))
+
+        async def search_catalog(self, title, languages, correlation_id=None, on_provider_update=None):
+            empty = AggregatedSearchCatalog(matches=[], results=[])
+            if on_provider_update is not None:
+                # ASSRT settles (by failing) before SubDL succeeds.
+                await on_provider_update([], ["assrt"], empty)
+                await on_provider_update(["subdl"], ["assrt", "subdl"], empty)
+            return empty
+
+    controller._aggregator = FailingAssrtAggregator()
+    messages: list[str] = []
+
+    async def capture(event_type, payload) -> None:
+        if event_type == "progress":
+            messages.append(payload["progress"]["message"])
+
+    controller._emit_app_event = capture
+
+    await controller.search(SearchRequest(title="Rick and Morty", source_language="en", target_language="en"))
+
+    assert "ASSRT" not in messages[-2]  # Failed already: not "still waiting on".
+    assert "ASSRT" not in messages[-1]
+
+
 async def test_starting_without_a_capture_region_is_refused(tmp_path: Path) -> None:
     controller = make_controller(tmp_path / "config.toml")
     controller._prepared_runtime = PreparedRuntime(session_mode="ocr_fallback")

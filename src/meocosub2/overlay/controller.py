@@ -42,6 +42,7 @@ from meocosub2.subtitle_sources import (
     AggregatedWork,
     SubtitleSearchAggregator,
 )
+from meocosub2.subtitle_sources.utils import result_id_for
 from meocosub2.subtitles import align_subtitles, assign_target_translations, load_subtitle_file
 from meocosub2.sync import (
     CandidateSession,
@@ -170,6 +171,10 @@ class GuiController:
         self._runtime_port = config.overlay_port
         self._aggregator = SubtitleSearchAggregator(config)
         self._search_catalog: AggregatedSearchCatalog | None = None
+        # Guards progressive search updates: a slow provider from an earlier
+        # search must not clobber the state of a search the user has since
+        # retyped past.
+        self._active_search_id: str | None = None
         self._state = AppStateSnapshot(
             source_language=config.source_language,
             target_language=config.target_language,
@@ -329,6 +334,7 @@ class GuiController:
             source_language=request.source_language,
             target_language=request.target_language,
         )
+        self._active_search_id = correlation_id
         async with self._lock:
             self._state.status = "searching"
             self._state.title = request.title
@@ -340,9 +346,45 @@ class GuiController:
         await self._emit_app_state()
         await self._emit_app_progress()
 
+        async def on_provider_update(
+            succeeded_codes: list[str], settled_codes: list[str], interim: AggregatedSearchCatalog
+        ) -> None:
+            if self._active_search_id != correlation_id:
+                return  # A newer search has already replaced this one.
+            done_labels = [
+                provider.provider_label
+                for provider in self._aggregator.providers
+                if provider.provider_code in succeeded_codes
+            ]
+            # A provider that failed is still settled — it must not linger in
+            # "waiting on..." after it has already given up.
+            pending_labels = [
+                provider.provider_label
+                for provider in self._aggregator.providers
+                if provider.provider_code not in settled_codes
+            ]
+            total = len(self._aggregator.providers)
+            if not pending_labels:
+                message = f"{', '.join(done_labels)} answered — finishing up…" if done_labels else "Finishing up…"
+            elif done_labels:
+                message = f"{', '.join(done_labels)} answered — waiting on {', '.join(pending_labels)}…"
+            else:
+                message = f"Waiting on {', '.join(pending_labels)}…"
+            async with self._lock:
+                if self._active_search_id != correlation_id:
+                    return
+                self._state.search_results = [search_result_payload(result) for result in interim.results]
+                self._state.search_matches = [search_match_payload(match) for match in interim.matches]
+                self._state.search_works = [search_work_payload(work) for work in interim.works]
+                self._state.progress = AppProgress(stage="search", message=message, current=len(settled_codes), total=total)
+            await self._emit_app_state()
+            await self._emit_app_progress()
+
         languages = _expand_search_languages(request.source_language, request.target_language)
         try:
-            catalog = await self._aggregator.search_catalog(request.title, languages, correlation_id=correlation_id)
+            catalog = await self._aggregator.search_catalog(
+                request.title, languages, correlation_id=correlation_id, on_provider_update=on_provider_update
+            )
         except Exception as exc:
             log_event(
                 "search.failed",
@@ -354,37 +396,41 @@ class GuiController:
                 error_type=type(exc).__name__,
                 error=str(exc),
             )
-            await self._set_error(str(exc))
+            if self._active_search_id == correlation_id:
+                await self._set_error(str(exc))
             raise
 
         payload = [search_result_payload(result) for result in catalog.results]
         matches = [search_match_payload(match) for match in catalog.matches]
         works = [search_work_payload(work) for work in catalog.works]
-        async with self._lock:
-            self._search_catalog = catalog
-            self._state.status = "idle"
-            self._state.search_results = payload
-            self._state.search_matches = matches
-            self._state.search_works = works
-            self._state.selected_feature_id = None
-            self._state.selected_source_file_id = None
-            self._state.selected_target_file_id = None
-            self._state.prepared_session = None
-            self._state.progress = AppProgress()
-            self._state.warning_message = _search_warning_message(request, catalog.warnings)
-            self._prepared_runtime = None
-        await self._emit_app_state()
-        log_event(
-            "search.completed",
-            layer="backend",
-            correlation_id=correlation_id,
-            title=request.title,
-            duration_ms=round((time.perf_counter() - started) * 1000),
-            results=len(payload),
-            matches=len(matches),
-            works=len(works),
-            warnings=len(catalog.warnings),
-        )
+        # A newer search may have already replaced this one's state; still hand
+        # the caller its own results, just don't clobber the newer state with them.
+        if self._active_search_id == correlation_id:
+            async with self._lock:
+                self._search_catalog = catalog
+                self._state.status = "idle"
+                self._state.search_results = payload
+                self._state.search_matches = matches
+                self._state.search_works = works
+                self._state.selected_feature_id = None
+                self._state.selected_source_file_id = None
+                self._state.selected_target_file_id = None
+                self._state.prepared_session = None
+                self._state.progress = AppProgress()
+                self._state.warning_message = _search_warning_message(request, catalog.warnings)
+                self._prepared_runtime = None
+            await self._emit_app_state()
+            log_event(
+                "search.completed",
+                layer="backend",
+                correlation_id=correlation_id,
+                title=request.title,
+                duration_ms=round((time.perf_counter() - started) * 1000),
+                results=len(payload),
+                matches=len(matches),
+                works=len(works),
+                warnings=len(catalog.warnings),
+            )
         return {
             "results": payload,
             "matches": matches,
@@ -614,7 +660,6 @@ class GuiController:
         }
 
         appended: list[AggregatedSubtitleResult] = []
-        next_index = len(self._search_catalog.results) + 1
         for result in results:
             key = (result.provider, getattr(result.provider_result, "id", result.file_name), result.language)
             if key in existing_keys:
@@ -623,11 +668,10 @@ class GuiController:
             appended.append(
                 replace(
                     result,
-                    result_id=f"result-{next_index}",
+                    result_id=result_id_for(*key),
                     match_id=match_id,
                 )
             )
-            next_index += 1
         match_results = [
             result for result in self._search_catalog.results if result.match_id == match_id
         ]

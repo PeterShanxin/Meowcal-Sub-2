@@ -1989,3 +1989,170 @@ async def test_a_season_built_from_release_names_shows_plain_episode_numbers() -
 
     episodes = [ep for work in aggregated.works for season in work.seasons for ep in season.episodes]
     assert episodes and all(ep.title == "" for ep in episodes)
+
+
+class GatedProvider(FakeProvider):
+    """Only answers once the test releases it, so completion order is deterministic."""
+
+    def __init__(self, code: str, label: str, catalog: ProviderSearchCatalog, gate: asyncio.Event):
+        super().__init__(code, label, catalog)
+        self._gate = gate
+
+    async def search_catalog(self, query: str, languages: str) -> ProviderSearchCatalog:
+        await self._gate.wait()
+        return await super().search_catalog(query, languages)
+
+
+@pytest.mark.asyncio
+async def test_progressive_updates_land_per_provider_with_ids_stable_into_the_final_merge() -> None:
+    aggregator_module.provider_availability.reset()
+    gate = asyncio.Event()
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider("subdl", "SubDL", _catalog_with_one_result("subdl", "SubDL")),
+        GatedProvider("assrt", "ASSRT", _catalog_with_one_result("assrt", "ASSRT"), gate),
+    )
+
+    updates: list[tuple[list[str], ProviderSearchCatalog]] = []
+
+    async def on_update(succeeded_codes: list[str], settled_codes: list[str], interim) -> None:
+        updates.append((list(succeeded_codes), interim))
+        assert succeeded_codes == settled_codes  # No provider fails in this test.
+        if len(updates) == 1:
+            gate.set()  # Let ASSRT answer only after SubDL's interim update landed.
+
+    final = await aggregator.search_catalog("Rick and Morty", "en", on_provider_update=on_update)
+
+    assert len(updates) == 2
+    first_done, first_interim = updates[0]
+    second_done, second_interim = updates[1]
+    assert first_done == ["subdl"]
+    assert sorted(second_done) == ["assrt", "subdl"]
+
+    # SubDL's interim result is shown before ASSRT answers.
+    assert len(first_interim.matches) == 1
+    assert first_interim.matches[0].providers == ("subdl",)
+
+    # The final merge folds ASSRT into the same episode, but keeps the id the
+    # interim update already showed the user — nothing the user clicked on
+    # while SubDL-only results were on screen becomes stale.
+    assert len(second_interim.matches) == 1
+    assert first_interim.matches[0].id == second_interim.matches[0].id == final.matches[0].id
+    assert sorted(final.matches[0].providers) == ["assrt", "subdl"]
+
+
+def _movie_catalog(code: str, label: str, title: str) -> ProviderSearchCatalog:
+    return ProviderSearchCatalog(
+        matches=[
+            ProviderSubtitleMatch(
+                id=f"{code}-match-1",
+                provider=code,
+                provider_label=label,
+                title=title,
+                year=2019,
+                imdb_id=None,
+                tmdb_id=None,
+                media_type="movie",
+                season=None,
+                episode=None,
+                parent_title=None,
+                subtitles_count=1,
+                match_score=90.0,
+            )
+        ],
+        results=[
+            ProviderSubtitleResult(
+                id=f"{code}-result-1",
+                match_id=f"{code}-match-1",
+                provider=code,
+                provider_label=label,
+                title=title,
+                year=2019,
+                imdb_id=None,
+                media_type="movie",
+                language="en",
+                download_count=10,
+                file_name=f"{code}.srt",
+                season=None,
+                episode=None,
+                parent_title=None,
+                tmdb_id=None,
+                match_score=90.0,
+                download_ref=None,
+                raw={},
+            )
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_late_provider_does_not_renumber_works_the_user_can_already_see() -> None:
+    """A provider that answers last must not change the identity of a visible card.
+
+    Interim merges keep providers in a fixed order, so a provider listed early
+    but answering late inserts its works ahead of a later provider's. With
+    positional ids that silently repointed a card the user was already looking
+    at at something else.
+    """
+    aggregator_module.provider_availability.reset()
+    gate = asyncio.Event()
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider("subdl", "SubDL", _movie_catalog("subdl", "SubDL", "Rick and Morty")),
+        GatedProvider("assrt", "ASSRT", _movie_catalog("assrt", "ASSRT", "Solar Opposites"), gate),
+        FakeProvider("opensubtitles", "OpenSubtitles", _movie_catalog("opensubtitles", "OpenSubtitles", "Bojack Horseman")),
+    )
+
+    interim_ids: list[dict[str, str]] = []
+    interim_result_ids: list[dict[str, str]] = []
+
+    async def on_update(succeeded_codes, settled_codes, interim) -> None:
+        interim_ids.append({work.title: work.id for work in interim.works})
+        interim_result_ids.append({r.file_name: r.result_id for r in interim.results})
+        if "opensubtitles" in succeeded_codes and "assrt" not in succeeded_codes:
+            gate.set()  # ASSRT answers only after the user can see the other two.
+
+    final = await aggregator.search_catalog("movies", "en", on_provider_update=on_update)
+
+    final_ids = {work.title: work.id for work in final.works}
+    assert set(final_ids) == {"Rick and Morty", "Solar Opposites", "Bojack Horseman"}
+    # Every card the user could already see keeps the identity it was shown with,
+    # including the one ASSRT's late answer pushed down the merged list.
+    assert any("Bojack Horseman" in snapshot for snapshot in interim_ids)
+    for snapshot in interim_ids:
+        for title, work_id in snapshot.items():
+            assert final_ids[title] == work_id
+
+    # Same for the subtitle files themselves: the studio remembers the picked
+    # source by result id, so a shifted id downloads a different file.
+    final_result_ids = {r.file_name: r.result_id for r in final.results}
+    for snapshot in interim_result_ids:
+        for file_name, result_id in snapshot.items():
+            assert final_result_ids[file_name] == result_id
+
+
+@pytest.mark.asyncio
+async def test_a_failing_provider_is_settled_even_though_it_never_succeeds() -> None:
+    """A provider that errors out must still drop off "still waiting on...".
+
+    Only successes went into the done list at first, so a failed provider
+    stayed "pending" forever even after it had already given up.
+    """
+    aggregator_module.provider_availability.reset()
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider("subdl", "SubDL", _catalog_with_one_result("subdl", "SubDL")),
+        FakeProvider("assrt", "ASSRT", error=RuntimeError("connection refused")),
+    )
+
+    updates: list[tuple[list[str], list[str]]] = []
+
+    async def on_update(succeeded_codes, settled_codes, interim) -> None:
+        updates.append((list(succeeded_codes), list(settled_codes)))
+
+    await aggregator.search_catalog("Rick and Morty", "en", on_provider_update=on_update)
+
+    assert len(updates) == 2
+    succeeded, settled = updates[-1]
+    assert succeeded == ["subdl"]
+    assert sorted(settled) == ["assrt", "subdl"]
