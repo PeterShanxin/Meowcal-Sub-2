@@ -119,3 +119,39 @@ async def test_a_source_that_turns_out_not_to_be_bilingual_still_prepares(
 
     assert payload["used_translation"] is True
     assert payload["target_line_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_a_chosen_target_leaves_its_gaps_to_the_source_own_words(
+    tmp_path: Path, mocker
+) -> None:
+    """Three sources of an answer, in the order the viewer would want them.
+
+    The target file the viewer picked wins the cues it answers. The ones it has
+    nothing over fall to the translation already inside the source, which beats
+    anything the model would write for them and costs nothing. Only a cue no
+    file answers reaches the model at all.
+    """
+    controller, _, download = _pair_controller(tmp_path, mocker)
+    source = tmp_path / "bilingual-source.srt"
+    source.write_text(BILINGUAL_SRT, encoding="utf-8")
+    # Answers the first cue only.
+    target = tmp_path / "partial-target.srt"
+    target.write_text("1\n00:00:00,000 --> 00:00:02,000\nHi there\n", encoding="utf-8")
+    download.side_effect = [source, target, target]
+
+    payload = await controller.prepare_session(
+        mode="subtitle_pair",
+        feature_id="match-1",
+        source_file_id="result-1",
+        target_file_id="result-2",
+    )
+
+    runtime = controller._prepared_runtime
+    assert runtime is not None
+    lines = runtime.source_candidates[0].pair.source_lines
+    # The plate never sees both scripts at once, whatever answered the cue.
+    assert [line.text for line in lines] == ["你好", "再见"]
+    assert lines[0].translated == "Hi there"
+    assert lines[1].translated == "Goodbye now"
+    assert payload["used_translation"] is False

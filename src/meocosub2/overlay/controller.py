@@ -16,7 +16,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from meocosub2 import engine
-from meocosub2.bilingual import BilingualReport, split_bilingual
+from meocosub2.bilingual import split_bilingual
 from meocosub2.capture import available_ocr_languages, resolve_ocr_language
 from meocosub2.config import AppConfig, config_to_payload, overlay_style_payload, save_config
 from meocosub2.errors import TranslationError
@@ -1049,21 +1049,25 @@ class GuiController:
             source_lines = load_subtitle_file(source_path)
             target_lines = load_subtitle_file(target_path) if target_path else []
 
-            used_translation = False
-            bilingual = BilingualReport(len(source_lines), 0)
-            if own_translation:
-                # The rows of one cue: aligned by construction rather than by
-                # time overlap, so nothing is downloaded and nothing is weighed.
-                bilingual = split_bilingual(
-                    source_lines, self._state.source_language, self._state.target_language
-                )
-                used_translation = not bilingual.split_cues
-            elif target_lines:
+            # Split first, whatever the viewer chose. It leaves every cue's text
+            # in one language, which is what the plate draws and what the model
+            # is asked to translate - an unsplit bilingual cue put both scripts
+            # on the plate and handed the model a string containing its own
+            # answer. The translation it yields then sits underneath whatever
+            # comes next: a chosen target file overwrites the cues it answers
+            # and leaves the rest to the file's own words, which beat anything
+            # the model would write for them and cost nothing.
+            bilingual = split_bilingual(
+                source_lines, self._state.source_language, self._state.target_language
+            )
+
+            if target_lines and not own_translation:
                 assign_target_translations(source_lines, target_lines)
-            else:
-                # Matched lines are translated as they appear rather than up front:
-                # a local 1.8B model needs hours for a whole subtitle file.
-                used_translation = True
+            # Matched lines are translated as they appear rather than up front:
+            # a local 1.8B model needs hours for a whole subtitle file. It is
+            # needed only where nothing else answered - neither a target file
+            # nor the source's own rows.
+            used_translation = not target_lines and not bilingual.split_cues
             engine_warning = await self._start_translation_engine(required=used_translation)
         except Exception as exc:
             await self._set_error(str(exc))
