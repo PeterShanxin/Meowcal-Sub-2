@@ -4,6 +4,7 @@ import type {
   BackendWork,
   InfoChip,
   Phase,
+  SourceInspection,
   SourceItem,
   TargetItem,
   WorkItem,
@@ -133,6 +134,7 @@ export function mapResultsToTarget(
   results: BackendResult[],
   matchId: string | null,
   targetLanguage: string,
+  inspection?: SourceInspection | null,
 ): TargetItem[] {
   const ranked = results
     .filter((r) => {
@@ -152,6 +154,21 @@ export function mapResultsToTarget(
     raw: r,
   }));
 
+  // A source that carries its own translation leads the list. It shares the cue
+  // with the dialogue rather than being matched to it by time overlap, so it is
+  // aligned exactly, and it is already downloaded.
+  const carried: TargetItem[] = inspection?.carriesTranslation
+    ? [
+        {
+          id: "__source__",
+          kind: "source" as const,
+          title: "Translation inside the source file",
+          note: `${inspection.translatedCues} of ${inspection.totalCues} lines · exact timing · nothing to download`,
+          recommended: true,
+        },
+      ]
+    : [];
+
   // Neither fallback is a subtitle in the target language, so they sit after the
   // real files rather than competing with them for the top of the list.
   const local: TargetItem = {
@@ -169,7 +186,7 @@ export function mapResultsToTarget(
     recommended: false,
   };
 
-  return [...fileEntries, local, ocr];
+  return [...carried, ...fileEntries, local, ocr];
 }
 
 // Backend normalizes Chinese codes: "zh" = Simplified, "zht" = Traditional.

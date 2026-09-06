@@ -27,6 +27,7 @@ from meocosub2.semantic import SemanticIndex
 from meocosub2.textnorm import (
     clean_cjk_text,
     collapse_whitespace,
+    is_cjk_char,
     is_cjk_compactable_char,
     normalize_ocr_spaced_cjk,
     to_simplified,
@@ -137,7 +138,12 @@ def _script_rows(text: str, cjk: bool) -> str:
     rows = [row for row in text.splitlines() if row.strip()]
     if len(rows) < 2:
         return text
-    wanted = [row for row in rows if any(is_cjk_compactable_char(ch) for ch in row) == cjk]
+    # Which script a row is written in, and whether its whitespace may be
+    # compacted, are separate questions. `is_cjk_compactable_char` answers the
+    # second - it leaves out Hangul because Korean needs its spaces - and asking
+    # it the first classified both rows of a Korean cue alike, so they were never
+    # told apart and every read was scored against the pair.
+    wanted = [row for row in rows if any(is_cjk_char(ch) for ch in row) == cjk]
     return "\n".join(wanted) if wanted and len(wanted) < len(rows) else text
 
 
@@ -487,10 +493,15 @@ class SubtitleMatcher:
         return True
 
     def _fuzzy(self, normalized_ocr: str, window_ms: tuple[int, int] | None) -> _Candidate | None:
+        # Two separate questions, and one predicate cannot answer both. Which
+        # half of a bilingual cue this read belongs to is about script, so it
+        # counts Hangul; which scorer suits it is about spacing, and Korean
+        # keeps its spaces, so token_set_ratio serves it as it does English.
         # token_set_ratio degenerates on space-stripped CJK (single token); WRatio handles OCR char drops better.
-        ocr_is_cjk = any(is_cjk_compactable_char(ch) for ch in normalized_ocr)
-        scorer = fuzz.WRatio if ocr_is_cjk else fuzz.token_set_ratio
-        table = self._normalized if ocr_is_cjk else self._normalized_latin
+        ocr_written_in_cjk = any(is_cjk_char(ch) for ch in normalized_ocr)
+        ocr_runs_together = any(is_cjk_compactable_char(ch) for ch in normalized_ocr)
+        scorer = fuzz.WRatio if ocr_runs_together else fuzz.token_set_ratio
+        table = self._normalized if ocr_written_in_cjk else self._normalized_latin
 
         window = self._search_indices(window_ms)
         best = self._extract_best(normalized_ocr, window, scorer, table)

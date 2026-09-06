@@ -73,15 +73,22 @@ Raised so far, all of them by live testing against a real player:
 | `opensubtitles/client.py` | 877 | 885 | keeping the download allowance the provider reports on every download, instead of discarding it |
 | `subtitle_sources/aggregator.py` | 1446 | 1458 | asking a provider what is left of its download allowance |
 | `overlay/controller.py` | 1812 | 1840 | keeping back enough of a metered download allowance for the viewer to start a session with |
+| `matcher.py` | 533 | 544 | telling the two rows of a Korean bilingual cue apart, which asks about script rather than about spacing |
+| `overlay/controller.py` | 1840 | 1910 | reading a chosen source for the translation it carries, and preparing a session from it |
+| `overlay/ui/src/app.tsx` | 1519 | 1566 | reading the chosen source at the target step, and holding what it found |
+| `overlay/ui/src/components/palette.tsx` | 1478 | 1489 | the target step waiting on that read, and the row it can add |
+| `overlay/controller.py` | 1906 | 1947 | reusing the source the target step fetched, and measuring candidates over what the file already answers |
+| `overlay/ui/src/app.tsx` | 1566 | 1580 | keeping the target list unreachable by keyboard while that read is in flight |
+| `sync.py` | 737 | 742 | judging a session by what has been answered rather than by whether a target file exists |
 | `src-tauri/src/overlay_window.rs` | 467 | 469 | a dock wide enough for the timing control |
 
 The four largest are the ones worth naming, because they are where the work is:
 
 | File | Lines | What it holds |
 | --- | ---: | --- |
-| `overlay/controller.py` | 1,840 | session lifecycle, search orchestration, config, engine startup |
-| `overlay/ui/src/app.tsx` | 1,519 | the studio's whole screen state |
-| `overlay/ui/src/components/palette.tsx` | 1,478 | the search palette |
+| `overlay/controller.py` | 1,947 | session lifecycle, search orchestration, config, engine startup |
+| `overlay/ui/src/app.tsx` | 1,580 | the studio's whole screen state |
+| `overlay/ui/src/components/palette.tsx` | 1,489 | the search palette |
 | `subtitle_sources/aggregator.py` | 1,458 | provider-neutral search aggregation |
 
 No module is to be split to satisfy a number. A cohesive exception is better

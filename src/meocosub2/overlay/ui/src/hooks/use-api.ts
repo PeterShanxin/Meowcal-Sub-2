@@ -1,4 +1,9 @@
-import type { BackendSnapshot, EngineStatus, LanguagesPayload } from "../lib/types";
+import type {
+  BackendSnapshot,
+  EngineStatus,
+  LanguagesPayload,
+  SourceInspection,
+} from "../lib/types";
 import { accessToken } from "../lib/session";
 
 const API_BASE = "";
@@ -108,6 +113,8 @@ export const api = {
   ): Promise<HydrateSeasonResponse> =>
     request("POST", "/api/search/season", { workId, title, season, correlationId }),
   logClient: (body: ClientLogBody) => request<{ status: string }>("POST", "/api/log/client", body),
+  inspectSource: (body: { sourceResultId: string; matchId?: string | null }) =>
+    request<SourceInspection>("POST", "/api/source/inspect", body),
   prepareSession: (body: PrepareBody) =>
     request<{ session: BackendSnapshot["prepared_session"] }>("POST", "/api/session/prepare", body),
   startSession: (sessionId?: string | null) =>

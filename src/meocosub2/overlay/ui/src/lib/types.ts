@@ -53,6 +53,7 @@ export interface BackendPreparedSession {
   session_mode: "subtitle_pair" | "ocr_fallback" | "auto_candidates";
   target_match_mode:
     | "subtitle_file"
+    | "source_own_translation"
     | "local_translation"
     | "target_subtitle_match"
     | "direct_translation"
@@ -235,7 +236,17 @@ export interface SourceItem {
   raw: BackendResult;
 }
 
-export type TargetKind = "local" | "ocr" | "file";
+export type TargetKind = "source" | "local" | "ocr" | "file";
+
+/** What inspecting the chosen source found inside it. */
+export interface SourceInspection {
+  sourceFileId: string;
+  fileName: string;
+  featureId: string | null;
+  carriesTranslation: boolean;
+  totalCues: number;
+  translatedCues: number;
+}
 
 export interface TargetItem {
   id: string;

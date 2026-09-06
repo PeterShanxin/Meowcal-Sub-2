@@ -136,6 +136,44 @@ describe("mapResultsToTarget", () => {
     expect(targets.map((t) => t.id)).toEqual(["first", "second", "__local__", "__ocr__"]);
     expect(targets.map((t) => t.recommended)).toEqual([true, true, false, false]);
   });
+
+  it("puts a source that carries its own translation at the top", () => {
+    const results = [
+      makeResult({ resultId: "first", matchId: "m1", language: "en", matchScore: 80 }),
+      makeResult({ resultId: "second", matchId: "m1", language: "en", matchScore: 20 }),
+    ];
+    const targets = mapResultsToTarget(results, "m1", "en", {
+      sourceFileId: "src-1",
+      fileName: "bilingual.srt",
+      featureId: "m1",
+      carriesTranslation: true,
+      totalCues: 450,
+      translatedCues: 442,
+    });
+    expect(targets[0].id).toBe("__source__");
+    expect(targets[0].kind).toBe("source");
+    expect(targets[0].note).toContain("442 of 450");
+    expect(targets.map((t) => t.id)).toEqual([
+      "__source__",
+      "first",
+      "second",
+      "__local__",
+      "__ocr__",
+    ]);
+  });
+
+  it("offers nothing extra when the source carries no translation", () => {
+    const results = [makeResult({ resultId: "first", matchId: "m1", language: "en" })];
+    const targets = mapResultsToTarget(results, "m1", "en", {
+      sourceFileId: "src-1",
+      fileName: "plain.srt",
+      featureId: "m1",
+      carriesTranslation: false,
+      totalCues: 450,
+      translatedCues: 0,
+    });
+    expect(targets.map((t) => t.id)).toEqual(["first", "__local__", "__ocr__"]);
+  });
 });
 
 describe("applyLanguageChoice", () => {

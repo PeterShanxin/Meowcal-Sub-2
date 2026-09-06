@@ -49,6 +49,8 @@ interface PaletteProps {
   sourceLang: string;
   targetLang: string;
   searching: boolean;
+  /** The chosen source is being read to see whether it answers itself. */
+  inspectingSource: boolean;
   searchStatusMessage: string | null;
   hydrating: string[];
   emptyLookups: string[];
@@ -98,6 +100,7 @@ export function Palette(props: PaletteProps): JSX.Element {
     sourceLang,
     targetLang,
     searching,
+    inspectingSource,
     searchStatusMessage,
     hydrating,
     emptyLookups,
@@ -489,15 +492,20 @@ export function Palette(props: PaletteProps): JSX.Element {
             <EmptyTab hint="Pick a title (and episode) first" />
           ))}
         {tab === "target" &&
-          (hasSelectedEpisode ? (
+          (!hasSelectedEpisode ? (
+            <EmptyTab hint="Pick a title (and episode) first" />
+          ) : inspectingSource ? (
+            // The chosen source may answer itself, and only reading it says so.
+            // Offering the list before the answer lands would invite a choice
+            // that the row about to appear at the top of it makes unnecessary.
+            <EmptyTab hint="Reading the source subtitles…" />
+          ) : (
             <TargetList
               items={targets}
               selectedId={selectedTargetId}
               cursorIndex={cursorIndex}
               onPick={onPickTarget}
             />
-          ) : (
-            <EmptyTab hint="Pick a title (and episode) first" />
           ))}
       </div>
 
@@ -1309,7 +1317,10 @@ function TargetList({
       {items.map((r, i) => {
         const sel = selectedId === r.id;
         const focused = cursorIndex === i;
-        const isSpecial = r.kind === "local" || r.kind === "ocr";
+        // Everything that is not one of the downloadable files reads as an
+        // offer rather than a file name. The source's own translation keeps
+        // the file icon, because that is what it is - just not one to fetch.
+        const isSpecial = r.kind !== "file";
         return (
           <Row
             key={r.id}
