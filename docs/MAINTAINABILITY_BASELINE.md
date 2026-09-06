@@ -53,6 +53,7 @@ Raised so far, all of them by live testing against a real player:
 | File | From | To | Why |
 | --- | ---: | ---: | --- |
 | `matcher.py` | 405 | 492 | drawing the cues that genuinely run at once, and only those |
+| `matcher.py` | 492 | 516 | flattening a cue the file wrapped, so a row on the plate means a second voice |
 | `sync.py` | 614 | 634 | holding the plate behind the dialogue, and keeping stale answers off it |
 | `engine/runtime.py` | 479 | 489 | stopping the engine a new one replaces, instead of dropping its handle |
 | `overlay/controller.py` | 1664 | 1684 | opening the translator once however many reads ask at the same moment, and publishing a search catalog with the results it describes |

@@ -6,7 +6,7 @@
     "src-tauri/src/overlay_window.rs": 467,
     "src/meocosub2/config.py": 502,
     "src/meocosub2/engine/runtime.py": 521,
-    "src/meocosub2/matcher.py": 492,
+    "src/meocosub2/matcher.py": 516,
     "src/meocosub2/opensubtitles/client.py": 877,
     "src/meocosub2/overlay/controller.py": 1690,
     "src/meocosub2/overlay/ui/src/app.tsx": 1494,

@@ -24,7 +24,13 @@ from rapidfuzz import fuzz, process
 
 from meocosub2.models import MatchResult, SubtitleLine
 from meocosub2.semantic import SemanticIndex
-from meocosub2.textnorm import clean_cjk_text, is_cjk_compactable_char, to_simplified
+from meocosub2.textnorm import (
+    clean_cjk_text,
+    collapse_whitespace,
+    is_cjk_compactable_char,
+    normalize_ocr_spaced_cjk,
+    to_simplified,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +62,10 @@ PLATE_LINES = 2
 # Files routinely end one cue on the millisecond the next begins, and treating
 # that as an overlap would put every consecutive pair of lines on the plate.
 SIMULTANEOUS_MS = 300
-# Overlapping cues reach the plate as separate rows, the way they were on the
-# screen they came from. The overlay's own stylesheet is what renders it.
+# Cues that genuinely run at once reach the plate as separate rows, the way they
+# were on the screen they came from. The overlay's own stylesheet is what renders
+# it, and `_one_row` is what keeps a single cue from claiming a row it does not
+# need.
 ROW_BREAK = "\n"
 
 TEXT = "text"
@@ -71,6 +79,20 @@ class _Candidate(NamedTuple):
     position: int
     span: int
     score: float
+
+
+def _one_row(text: str) -> str:
+    """One cue on one row, however the file chose to break it.
+
+    Subtitle files routinely wrap a single sentence across two rows to suit a
+    narrower plate than this one. Kept, that wrap reaches the overlay as a row
+    break and reads as a second speaker, turning a line of dialogue into a block.
+    A row belongs to a cue, not to a file's typesetting.
+
+    `normalize_ocr_spaced_cjk` is general despite its name: it decides whether
+    the join needs a space, which between two CJK characters it does not.
+    """
+    return normalize_ocr_spaced_cjk(collapse_whitespace(text))
 
 
 def _joined(parts: Iterable[str], separator: str = " ") -> str:
@@ -342,8 +364,10 @@ class SubtitleMatcher:
         return MatchResult(
             line_index=first.index,
             score=0.0,
-            source_text=_joined((line.text for line in showing), ROW_BREAK),
-            target_text=_joined(((line.translated or line.text) for line in showing), ROW_BREAK),
+            source_text=_joined((_one_row(line.text) for line in showing), ROW_BREAK),
+            target_text=_joined(
+                (_one_row(line.translated or line.text) for line in showing), ROW_BREAK
+            ),
             start_ms=first.start_ms,
             span=final.index - first.index + 1,
             translated=all(bool(line.translated) for line in showing),
@@ -483,8 +507,8 @@ class SubtitleMatcher:
         return MatchResult(
             line_index=line.index,
             score=candidate.score,
-            source_text=_joined(part.text for part in covered),
-            target_text=_joined((part.translated or part.text) for part in covered),
+            source_text=_joined(_one_row(part.text) for part in covered),
+            target_text=_joined(_one_row(part.translated or part.text) for part in covered),
             start_ms=line.start_ms,
             span=candidate.span,
             translated=all(bool(part.translated) for part in covered),

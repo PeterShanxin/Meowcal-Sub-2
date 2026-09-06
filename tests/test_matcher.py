@@ -530,3 +530,49 @@ async def test_an_index_that_never_built_is_not_consulted() -> None:
 
     assert await matcher.match_best("while there is still light", semantic=semantic) is None
     assert semantic.calls == 0
+
+
+def test_a_cue_the_file_wrote_across_two_rows_reaches_the_plate_as_one() -> None:
+    # Files wrap a sentence to suit a narrower plate than this one. Kept, the
+    # wrap reads as a second speaker.
+    matcher = SubtitleMatcher(
+        [
+            SubtitleLine(
+                index=0,
+                start_ms=0,
+                end_ms=2000,
+                text="Hello there",
+                translated="Goodbye now\nand good luck",
+            )
+        ]
+    )
+    found = matcher.line_at(1000)
+    assert found is not None
+    assert found.target_text == "Goodbye now and good luck"
+
+
+def test_a_wrapped_chinese_cue_is_rejoined_without_a_space() -> None:
+    matcher = SubtitleMatcher(
+        [
+            SubtitleLine(
+                index=0, start_ms=0, end_ms=2000, text="Hello", translated="再见了\n祝你好运"
+            )
+        ]
+    )
+    found = matcher.line_at(1000)
+    assert found is not None
+    assert found.target_text == "再见了祝你好运"
+
+
+def test_two_cues_genuinely_running_at_once_still_get_a_row_each() -> None:
+    matcher = SubtitleMatcher(
+        [
+            SubtitleLine(index=0, start_ms=0, end_ms=2000, text="Hello there", translated="你好"),
+            SubtitleLine(
+                index=1, start_ms=1000, end_ms=3000, text="Goodbye now", translated="再见"
+            ),
+        ]
+    )
+    found = matcher.line_at(1500)
+    assert found is not None
+    assert found.target_text == "你好\n再见"
