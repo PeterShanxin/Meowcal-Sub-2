@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { BackendResult, BackendWork } from "../lib/types";
+import type { BackendResult, BackendTargetAlignment, BackendWork } from "../lib/types";
 import {
   applyLanguageChoice,
+  coverageLabel,
   mapResultsToSource,
   mapResultsToTarget,
   mapWorksToItems,
@@ -252,5 +253,41 @@ describe("mapResultsToSource", () => {
   it("does not recommend a lone result", () => {
     const results = [makeResult({ resultId: "r1", matchId: "m1", language: "en" })];
     expect(mapResultsToSource(results, "m1", "en")[0].recommended).toBe(false);
+  });
+});
+
+const chosenTarget: BackendTargetAlignment = {
+  result_id: "result-2",
+  file_name: "target.srt",
+  unpaired_cues: 12,
+  unpaired_ms: 47_000,
+  chosen: true,
+};
+
+describe("coverageLabel", () => {
+  it("says what the target file leaves for the model before anything is written", () => {
+    expect(coverageLabel(chosenTarget, null)).toBe("12 lines written on this device · 47s");
+  });
+
+  it("counts up while the model is writing them", () => {
+    expect(coverageLabel(chosenTarget, { filled: 5, total: 12, active: true })).toBe(
+      "writing 5 of 12 lines the file leaves blank…",
+    );
+  });
+
+  it("says so once every line has an answer", () => {
+    expect(coverageLabel(chosenTarget, { filled: 12, total: 12, active: false })).toBe(
+      "every line answered",
+    );
+  });
+
+  it("drops the seconds for a fill that stopped partway, which they no longer measure", () => {
+    expect(coverageLabel(chosenTarget, { filled: 9, total: 12, active: false })).toBe(
+      "3 of 12 blank lines still to write",
+    );
+  });
+
+  it("names a file that answers every cue, which has no alignment to report", () => {
+    expect(coverageLabel(null, null)).toBe("every line answered");
   });
 });

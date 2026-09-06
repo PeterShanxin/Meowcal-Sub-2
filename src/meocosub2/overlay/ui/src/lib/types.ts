@@ -86,6 +86,13 @@ export interface BackendTargetAlignment {
   chosen: boolean;
 }
 
+/** How far the model has got through the cues the target file left unpaired. */
+export interface BackendGapFill {
+  filled: number;
+  total: number;
+  active: boolean;
+}
+
 export interface BackendProgress {
   stage: string;
   message: string;
@@ -181,6 +188,7 @@ export interface BackendSnapshot {
   last_subtitle: string;
   error_message: string;
   warning_message: string;
+  gap_fill: BackendGapFill | null;
   config: BackendConfig;
 }
 

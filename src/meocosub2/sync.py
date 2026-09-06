@@ -307,6 +307,14 @@ class CandidateSession:
         # ahead of their player.
         return lagged + self._bias_ms()
 
+    @property
+    def followed_position(self) -> int | None:
+        """How far into the followed file the video has reached, None until placed."""
+        position = self.clock_ms()
+        if self._locked is None or position is None:
+            return None
+        return self._matchers[self._locked].position_at(position)
+
     def seconds_to_next_line(self) -> float | None:
         """How long until the file's line changes; None when nothing is placed."""
         position = self.clock_ms()
@@ -638,6 +646,11 @@ async def run_session_loop(
         filled in its turn. What is remembered is which files were answered all
         the way through, not which was answered last - a file the session left
         partway and later comes back to still has the rest of its gaps.
+
+        Gaps are answered from wherever the video has reached, wrapping to the
+        ones behind it afterwards. A viewer who starts partway into an episode,
+        or seeks, would otherwise have the engine spend its pass on cues that
+        have already gone by.
         """
         if not isinstance(session, CandidateSession) or not session.has_target_file:
             return
@@ -649,7 +662,8 @@ async def run_session_loop(
                     lambda: session.followed_lines,
                     session.translate_from_file,
                     lambda: pending is not None and not pending.done(),
-                    nudge.set,
+                    redraw,
+                    lambda: session.followed_position,
                 )
                 if outcome.completed:
                     answered.add(id(following))
@@ -662,6 +676,10 @@ async def run_session_loop(
             await asyncio.sleep(FOLLOW_POLL_S)
 
     nudge = asyncio.Event()
+
+    async def redraw() -> None:
+        nudge.set()
+
     renderer = asyncio.create_task(render_from_the_clock())
     filler = asyncio.create_task(fill_what_the_file_left_unpaired())
     try:

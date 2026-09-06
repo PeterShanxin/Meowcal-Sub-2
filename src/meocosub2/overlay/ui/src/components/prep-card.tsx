@@ -1,10 +1,11 @@
 import type {
+  BackendGapFill,
   BackendPreparedSession,
-  BackendTargetAlignment,
   LiveLine,
   SourceItem,
   TargetItem,
 } from "../lib/types";
+import { coverageLabel } from "../state/mappers";
 import { Kbd } from "./primitives";
 
 interface PrepCardProps {
@@ -13,15 +14,8 @@ interface PrepCardProps {
   source: SourceItem | null;
   target: TargetItem | null;
   prepared: BackendPreparedSession | null;
+  gapFill: BackendGapFill | null;
   onPickTarget: (resultId: string) => void;
-}
-
-/** What the chosen target file leaves for the model, in the viewer's terms. */
-function coverageLabel(chosen: BackendTargetAlignment): string {
-  if (chosen.unpaired_cues === 0) return "every line answered";
-  const seconds = Math.round(chosen.unpaired_ms / 1000);
-  const lines = chosen.unpaired_cues === 1 ? "1 line" : `${chosen.unpaired_cues} lines`;
-  return `${lines} written on this device · ${seconds}s`;
 }
 
 export function PrepCard({
@@ -30,6 +24,7 @@ export function PrepCard({
   source,
   target,
   prepared,
+  gapFill,
   onPickTarget,
 }: PrepCardProps): JSX.Element {
   const sourceFile = prepared?.source_summary ?? prepared?.source_file_name ?? source?.file ?? "—";
@@ -99,7 +94,9 @@ export function PrepCard({
         />
         <Row label="Runtime" value={runtimeLabel} />
         <Row label="Lines" value={lines} />
-        {chosenAlignment && <Row label="Coverage" value={coverageLabel(chosenAlignment)} />}
+        {(chosenAlignment || gapFill) && (
+          <Row label="Coverage" value={coverageLabel(chosenAlignment, gapFill)} />
+        )}
       </div>
       {better && (
         <div

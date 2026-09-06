@@ -43,6 +43,9 @@ CONTEXT_SEARCH_LIMIT = 12
 YIELD_POLL_S = 0.25
 
 Translate = Callable[[str, list[tuple[str, str]]], Awaitable[str]]
+# Where the video has reached in the file, as a position in `lines`. None
+# before anything has placed it, and before a session exists at all.
+FromIndex = Callable[[], int | None]
 
 
 def context_pairs(lines: list[SubtitleLine], index: int) -> list[tuple[str, str]]:
@@ -69,6 +72,31 @@ def context_pairs(lines: list[SubtitleLine], index: int) -> list[tuple[str, str]
     return earlier + later
 
 
+def unanswered(lines: list[SubtitleLine]) -> list[int]:
+    """Positions of the cues that carry text with nothing paired to them."""
+    return [index for index, line in enumerate(lines) if line.text and not line.translated]
+
+
+def next_gap(lines: list[SubtitleLine], attempted: set[int], reached: int | None) -> int | None:
+    """The cue to answer next: the first one still unpaired at or after `reached`.
+
+    Wraps to the start once nothing is left ahead, so the cues the viewer has
+    already watched past are answered last rather than not at all. Asked afresh
+    for every cue, which is what lets a seek move the fill: an order chosen once
+    would keep working through the file from wherever the video was when the
+    pass began.
+
+    A cue the model declined counts as attempted. Asking again inside one pass
+    would spend the engine on the answer it has already refused to give.
+    """
+    gaps = [index for index in unanswered(lines) if index not in attempted]
+    if not gaps:
+        return None
+    if reached is None:
+        return gaps[0]
+    return next((index for index in gaps if index >= reached), gaps[0])
+
+
 class FillOutcome(NamedTuple):
     """How a pass over one file's gaps ended.
 
@@ -87,7 +115,8 @@ async def fill_gaps(
     followed_lines: Callable[[], list[SubtitleLine]],
     translate: Translate,
     busy: Callable[[], bool],
-    on_filled: Callable[[], None],
+    on_filled: Callable[[], Awaitable[None]],
+    from_index: FromIndex | None = None,
 ) -> FillOutcome:
     """Answer the unpaired cues of the file being followed, and say how it ended.
 
@@ -99,32 +128,37 @@ async def fill_gaps(
     `followed_lines` is asked again at every cue rather than read once. A session
     with several candidates can stop following one and take another, and the
     gaps of a file that is no longer drawn are not worth an engine slot.
+
+    `from_index` says where the video has reached, and is asked again for every
+    cue rather than read once. The order a pass would freeze at its start is
+    wrong twice over: the session's filler runs before the first read, so it
+    begins with the video unplaced, and a viewer can seek at any point after
+    that. Choosing the next cue against the position as it is now covers both,
+    and covers a session that never places the video at all - there the file's
+    own order is the only order there is.
     """
     lines = followed_lines()
-    gaps = [index for index, line in enumerate(lines) if line.text and not line.translated]
-    if not gaps:
+    if not unanswered(lines):
         return FillOutcome(0, True)
-    if len(gaps) > MAX_FILLED_LINES:
-        logger.debug(
-            "Target file leaves %d cues unpaired; answering the first %d",
-            len(gaps),
-            MAX_FILLED_LINES,
-        )
-        gaps = gaps[:MAX_FILLED_LINES]
 
-    logger.debug("Filling %d cue(s) the target file left unpaired", len(gaps))
+    logger.debug("Filling the %d cue(s) the target file left unpaired", len(unanswered(lines)))
+    attempted: set[int] = set()
     filled = 0
-    completed = True
+    completed = False
     engine_failed = False
-    for index in gaps:
+    for _ in range(MAX_FILLED_LINES):
         # The viewer is waiting on live reads; filling ahead is not urgent and
         # the engine answers one at a time.
         while busy():
             await asyncio.sleep(YIELD_POLL_S)
         if followed_lines() is not lines:
             logger.debug("Stopped filling: the session is following a different subtitle file")
-            completed = False
             break
+        index = next_gap(lines, attempted, from_index() if from_index is not None else None)
+        if index is None:
+            completed = True
+            break
+        attempted.add(index)
         line = lines[index]
         try:
             answer = await translate(line.text, context_pairs(lines, index))
@@ -134,13 +168,12 @@ async def fill_gaps(
             # An engine that has stopped answering will not answer the next one
             # either, and retrying every remaining gap only fills the log.
             logger.exception("Filling the unpaired cue at index %d failed; stopping", index)
-            completed = False
             engine_failed = True
             break
         if not answer:
             continue
         line.translated = answer
         filled += 1
-        on_filled()
-    logger.debug("Filled %d of %d unpaired cue(s)", filled, len(gaps))
+        await on_filled()
+    logger.debug("Filled %d cue(s); %d attempted", filled, len(attempted))
     return FillOutcome(filled, completed, engine_failed)
