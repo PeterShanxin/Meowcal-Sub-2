@@ -271,7 +271,7 @@ describe("coverageLabel", () => {
 
   it("counts up while the model is writing them", () => {
     expect(coverageLabel(chosenTarget, { filled: 5, total: 12, active: true })).toBe(
-      "writing 5 of 12 lines on this device…",
+      "writing 5 of 12 lines the file leaves blank…",
     );
   });
 
@@ -283,7 +283,7 @@ describe("coverageLabel", () => {
 
   it("drops the seconds for a fill that stopped partway, which they no longer measure", () => {
     expect(coverageLabel(chosenTarget, { filled: 9, total: 12, active: false })).toBe(
-      "3 lines of 12 still to write on this device",
+      "3 of 12 blank lines still to write",
     );
   });
 

@@ -32,6 +32,11 @@ function plural(count: number): string {
  * model will have to write, what it is writing, and what it wrote. The seconds
  * are dropped once filling starts, because they measure the whole hole and only
  * part of it is left.
+ *
+ * Says whose blanks these are once the count is live. A bilingual source that
+ * answers 442 of its 450 cues still leaves eight, and a card that only says
+ * lines are being written here reads as the app second-guessing a file the
+ * viewer picked precisely because it was complete.
  */
 export function coverageLabel(
   chosen: BackendTargetAlignment | null,
@@ -42,10 +47,10 @@ export function coverageLabel(
     const seconds = Math.round(chosen.unpaired_ms / 1000);
     return `${plural(chosen.unpaired_cues)} written on this device · ${seconds}s`;
   }
-  if (fill.active) return `writing ${fill.filled} of ${fill.total} lines on this device…`;
+  if (fill.active) return `writing ${fill.filled} of ${fill.total} lines the file leaves blank…`;
   const left = fill.total - fill.filled;
   if (left <= 0) return "every line answered";
-  return `${plural(left)} of ${fill.total} still to write on this device`;
+  return `${left} of ${fill.total} blank lines still to write`;
 }
 
 const CHIP_TONES = new Set<InfoChip["tone"]>(["neutral", "accent", "verified"]);
