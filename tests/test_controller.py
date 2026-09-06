@@ -5,8 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from meocosub2.config import AppConfig
-from meocosub2.models import PreparedRuntime
-from meocosub2.models import SearchRequest
+from meocosub2.models import PreparedRuntime, SearchRequest
 from meocosub2.overlay.controller import GuiController
 from meocosub2.subtitle_sources.types import (
     AggregatedEpisode,
@@ -28,7 +27,9 @@ def make_controller(config_path: Path | None = None) -> GuiController:
 
 
 @pytest.mark.asyncio
-async def test_prepare_session_allows_ocr_fallback_without_source_subtitle(tmp_path: Path, mocker) -> None:
+async def test_prepare_session_allows_ocr_fallback_without_source_subtitle(
+    tmp_path: Path, mocker
+) -> None:
     controller = make_controller(tmp_path / "config.toml")
     mocker.patch(
         "meocosub2.overlay.controller.engine.ensure_ready",
@@ -56,10 +57,14 @@ async def test_prepare_session_allows_ocr_fallback_without_source_subtitle(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_install_ocr_language_reports_failure_when_language_stays_unavailable(tmp_path: Path, mocker) -> None:
+async def test_install_ocr_language_reports_failure_when_language_stays_unavailable(
+    tmp_path: Path, mocker
+) -> None:
     controller = make_controller(tmp_path / "config.toml")
     mocker.patch("meocosub2.overlay.controller.subprocess.run")
-    mocker.patch("meocosub2.overlay.controller.available_ocr_languages", side_effect=[["en-US"], ["en-US"]])
+    mocker.patch(
+        "meocosub2.overlay.controller.available_ocr_languages", side_effect=[["en-US"], ["en-US"]]
+    )
 
     payload = await controller.install_ocr_language("zh-TW")
 
@@ -139,10 +144,28 @@ async def test_prepare_session_downloads_non_opensubtitles_result(tmp_path: Path
     controller._state.title = "Fate/strange Fake"
     controller._state.source_language = "zht"
     controller._state.target_language = "en"
-    controller._state.search_matches = [{"id": "match-1", "title": "Fate/strange Fake", "mediaType": "tvshow"}]
+    controller._state.search_matches = [
+        {"id": "match-1", "title": "Fate/strange Fake", "mediaType": "tvshow"}
+    ]
     controller._state.search_results = [
-        {"id": "result-1", "resultId": "result-1", "matchId": "match-1", "provider": "subdl", "providerLabel": "SubDL", "language": "zht", "fileName": "source.srt"},
-        {"id": "result-2", "resultId": "result-2", "matchId": "match-1", "provider": "opensubtitles", "providerLabel": "OpenSubtitles", "language": "en", "fileName": "target.srt"},
+        {
+            "id": "result-1",
+            "resultId": "result-1",
+            "matchId": "match-1",
+            "provider": "subdl",
+            "providerLabel": "SubDL",
+            "language": "zht",
+            "fileName": "source.srt",
+        },
+        {
+            "id": "result-2",
+            "resultId": "result-2",
+            "matchId": "match-1",
+            "provider": "opensubtitles",
+            "providerLabel": "OpenSubtitles",
+            "language": "en",
+            "fileName": "target.srt",
+        },
     ]
     download = mocker.patch.object(
         controller._aggregator,
@@ -150,7 +173,12 @@ async def test_prepare_session_downloads_non_opensubtitles_result(tmp_path: Path
         side_effect=[source_path, target_path],
     )
 
-    payload = await controller.prepare_session(mode="subtitle_pair", feature_id="match-1", source_file_id="result-1", target_file_id="result-2")
+    payload = await controller.prepare_session(
+        mode="subtitle_pair",
+        feature_id="match-1",
+        source_file_id="result-1",
+        target_file_id="result-2",
+    )
 
     assert payload["session_mode"] == "subtitle_pair"
     assert payload["source_provider"] == "SubDL"
@@ -161,7 +189,9 @@ async def test_prepare_session_downloads_non_opensubtitles_result(tmp_path: Path
 
 
 @pytest.mark.asyncio
-async def test_prepare_auto_candidate_session_downloads_top_sources_and_best_target(tmp_path: Path, mocker) -> None:
+async def test_prepare_auto_candidate_session_downloads_top_sources_and_best_target(
+    tmp_path: Path, mocker
+) -> None:
     controller = make_controller(tmp_path / "config.toml")
     source_a = tmp_path / "source-a.srt"
     source_a.write_text("1\n00:00:01,000 --> 00:00:02,000\nhello there\n", encoding="utf-8")
@@ -252,8 +282,12 @@ async def test_prepare_auto_candidate_session_downloads_top_sources_and_best_tar
     controller._state.title = "Fate/strange Fake"
     controller._state.source_language = "zht"
     controller._state.target_language = "en"
-    controller._state.search_matches = [{"id": "match-1", "title": "Fate/strange Fake", "mediaType": "episode"}]
-    download = mocker.patch.object(controller._aggregator, "download", side_effect=[source_a, source_b, target])
+    controller._state.search_matches = [
+        {"id": "match-1", "title": "Fate/strange Fake", "mediaType": "episode"}
+    ]
+    download = mocker.patch.object(
+        controller._aggregator, "download", side_effect=[source_a, source_b, target]
+    )
 
     payload = await controller.prepare_session(mode="auto_candidates", feature_id="match-1")
 
@@ -271,7 +305,9 @@ async def test_prepare_auto_candidate_session_downloads_top_sources_and_best_tar
 
 
 @pytest.mark.asyncio
-async def test_prepare_auto_candidate_session_combines_source_and_target_warnings(tmp_path: Path, mocker) -> None:
+async def test_prepare_auto_candidate_session_combines_source_and_target_warnings(
+    tmp_path: Path, mocker
+) -> None:
     controller = make_controller(tmp_path / "config.toml")
     mocker.patch(
         "meocosub2.overlay.controller.engine.ensure_ready",
@@ -317,7 +353,9 @@ async def test_prepare_auto_candidate_session_combines_source_and_target_warning
     controller._state.title = "Fate/strange Fake"
     controller._state.source_language = "zht"
     controller._state.target_language = "en"
-    controller._state.search_matches = [{"id": "match-1", "title": "Fate/strange Fake", "mediaType": "episode"}]
+    controller._state.search_matches = [
+        {"id": "match-1", "title": "Fate/strange Fake", "mediaType": "episode"}
+    ]
     mocker.patch.object(controller._aggregator, "download", return_value=source_path)
 
     await controller.prepare_session(mode="auto_candidates", feature_id="match-1")
@@ -328,7 +366,9 @@ async def test_prepare_auto_candidate_session_combines_source_and_target_warning
 
 
 @pytest.mark.asyncio
-async def test_prepare_auto_candidate_session_ignores_stale_completion(tmp_path: Path, mocker) -> None:
+async def test_prepare_auto_candidate_session_ignores_stale_completion(
+    tmp_path: Path, mocker
+) -> None:
     controller = make_controller(tmp_path / "config.toml")
     mocker.patch(
         "meocosub2.overlay.controller.engine.ensure_ready",
@@ -408,7 +448,9 @@ async def test_prepare_auto_candidate_session_ignores_stale_completion(tmp_path:
     assert controller._prepared_runtime is None
 
 
-def test_auto_candidate_ranking_prefers_exact_language_before_family_fallback(tmp_path: Path) -> None:
+def test_auto_candidate_ranking_prefers_exact_language_before_family_fallback(
+    tmp_path: Path,
+) -> None:
     controller = make_controller(tmp_path / "config.toml")
     controller._search_catalog = AggregatedSearchCatalog(
         matches=[],
@@ -454,7 +496,9 @@ def test_auto_candidate_ranking_prefers_exact_language_before_family_fallback(tm
 
 
 @pytest.mark.asyncio
-async def test_search_warning_message_highlights_thin_chinese_coverage_when_assrt_disabled(tmp_path: Path, mocker) -> None:
+async def test_search_warning_message_highlights_thin_chinese_coverage_when_assrt_disabled(
+    tmp_path: Path, mocker
+) -> None:
     controller = make_controller(tmp_path / "config.toml")
     mocker.patch.object(
         controller._aggregator,
@@ -466,13 +510,20 @@ async def test_search_warning_message_highlights_thin_chinese_coverage_when_assr
         ),
     )
 
-    await controller.search(SearchRequest(title="Overlord", source_language="zh", target_language="en"))
+    await controller.search(
+        SearchRequest(title="Overlord", source_language="zh", target_language="en")
+    )
 
-    assert controller.state_snapshot()["warning_message"] == "ASSRT is disabled, so Chinese subtitle coverage may be thin."
+    assert (
+        controller.state_snapshot()["warning_message"]
+        == "ASSRT is disabled, so Chinese subtitle coverage may be thin."
+    )
 
 
 @pytest.mark.asyncio
-async def test_search_warning_message_keeps_generic_assrt_disabled_warning_for_non_chinese_search(tmp_path: Path, mocker) -> None:
+async def test_search_warning_message_keeps_generic_assrt_disabled_warning_for_non_chinese_search(
+    tmp_path: Path, mocker
+) -> None:
     controller = make_controller(tmp_path / "config.toml")
     mocker.patch.object(
         controller._aggregator,
@@ -484,13 +535,17 @@ async def test_search_warning_message_keeps_generic_assrt_disabled_warning_for_n
         ),
     )
 
-    await controller.search(SearchRequest(title="Overlord", source_language="en", target_language="fr"))
+    await controller.search(
+        SearchRequest(title="Overlord", source_language="en", target_language="fr")
+    )
 
     assert controller.state_snapshot()["warning_message"] == "ASSRT is disabled."
 
 
 @pytest.mark.asyncio
-async def test_hydrate_episode_replaces_skeleton_with_clickable_results(tmp_path: Path, mocker) -> None:
+async def test_hydrate_episode_replaces_skeleton_with_clickable_results(
+    tmp_path: Path, mocker
+) -> None:
     controller = make_controller(tmp_path / "config.toml")
     controller._state.title = "From"
     controller._state.source_language = "en"
@@ -544,7 +599,7 @@ async def test_hydrate_episode_replaces_skeleton_with_clickable_results(tmp_path
                                 title="Promised You a Miracle",
                                 match_id="skeleton:4:7",
                                 subtitles_count=0,
-                            )
+                            ),
                         ],
                     )
                 ],
@@ -639,7 +694,7 @@ async def test_hydrate_episode_replaces_skeleton_with_clickable_results(tmp_path
                     download_count=50,
                     file_name="Other.Show.S04E06.en.srt",
                 ),
-            )
+            ),
         ],
     )
     season_catalog = AggregatedSearchCatalog(
@@ -723,7 +778,9 @@ async def test_hydrate_episode_replaces_skeleton_with_clickable_results(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_hydrate_season_replaces_skeletons_without_selecting_episode(tmp_path: Path, mocker) -> None:
+async def test_hydrate_season_replaces_skeletons_without_selecting_episode(
+    tmp_path: Path, mocker
+) -> None:
     controller = make_controller(tmp_path / "config.toml")
     controller._state.title = "From"
     controller._state.source_language = "en"
@@ -748,8 +805,12 @@ async def test_hydrate_season_replaces_skeletons_without_selecting_episode(tmp_p
                         season_number=2,
                         subtitles_count=0,
                         episodes=[
-                            AggregatedEpisode(season=2, episode=1, title="One", match_id="skeleton:2:1"),
-                            AggregatedEpisode(season=2, episode=2, title="Two", match_id="skeleton:2:2"),
+                            AggregatedEpisode(
+                                season=2, episode=1, title="One", match_id="skeleton:2:1"
+                            ),
+                            AggregatedEpisode(
+                                season=2, episode=2, title="Two", match_id="skeleton:2:2"
+                            ),
                         ],
                     )
                 ],
@@ -843,7 +904,9 @@ async def test_hydrate_season_replaces_skeletons_without_selecting_episode(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_hydrate_season_accepts_matching_tmdb_when_imdb_formats_differ(tmp_path: Path, mocker) -> None:
+async def test_hydrate_season_accepts_matching_tmdb_when_imdb_formats_differ(
+    tmp_path: Path, mocker
+) -> None:
     controller = make_controller(tmp_path / "config.toml")
     controller._state.title = "From"
     controller._state.source_language = "zh"
@@ -866,7 +929,11 @@ async def test_hydrate_season_accepts_matching_tmdb_when_imdb_formats_differ(tmp
                     AggregatedSeason(
                         season_number=1,
                         subtitles_count=0,
-                        episodes=[AggregatedEpisode(season=1, episode=1, title="One", match_id="skeleton:1:1")],
+                        episodes=[
+                            AggregatedEpisode(
+                                season=1, episode=1, title="One", match_id="skeleton:1:1"
+                            )
+                        ],
                     )
                 ],
             )
@@ -913,7 +980,9 @@ async def test_hydrate_season_accepts_matching_tmdb_when_imdb_formats_differ(tmp
             )
         ],
     )
-    mocker.patch.object(controller._aggregator, "search_catalog", new=mocker.AsyncMock(return_value=season_catalog))
+    mocker.patch.object(
+        controller._aggregator, "search_catalog", new=mocker.AsyncMock(return_value=season_catalog)
+    )
 
     payload = await controller.hydrate_season(work_id="work-1", title="FROM", season=1)
 
@@ -923,21 +992,34 @@ async def test_hydrate_season_accepts_matching_tmdb_when_imdb_formats_differ(tmp
 
 
 @pytest.mark.asyncio
-async def test_save_config_payload_updates_state_languages_and_persists_file(tmp_path: Path) -> None:
+async def test_save_config_payload_updates_state_languages_and_persists_file(
+    tmp_path: Path,
+) -> None:
     config_path = tmp_path / "config.toml"
     controller = make_controller(config_path)
 
     payload = await controller.save_config_payload(
         {
             "subtitleSources": {
-                "opensubtitles": {"enabled": True, "apiKey": "", "username": "", "password": "", "enableOrgFallback": False},
+                "opensubtitles": {
+                    "enabled": True,
+                    "apiKey": "",
+                    "username": "",
+                    "password": "",
+                    "enableOrgFallback": False,
+                },
                 "subdl": {"enabled": True},
                 "assrt": {"enabled": False, "token": ""},
             },
             "languages": {"source": "ja", "target": "fr"},
             "capture": {"region": [], "intervalMs": 1500, "ocrLanguage": "ja-JP"},
             "matching": {"fuzzyThreshold": 65, "windowSize": 30},
-            "translation": {"endpoint": "http://127.0.0.1:5273/v1", "model": "manual-model", "timeoutS": 30, "batchSize": 5},
+            "translation": {
+                "endpoint": "http://127.0.0.1:5273/v1",
+                "model": "manual-model",
+                "timeoutS": 30,
+                "batchSize": 5,
+            },
             "overlay": {
                 "port": 8765,
                 "theme": "glass-cinematic",
@@ -998,13 +1080,237 @@ async def test_saving_an_overlay_change_keeps_the_current_search(tmp_path: Path)
     assert controller._state.selected_feature_id == "match-1"
 
 
-async def test_preparing_after_the_catalog_is_dropped_reports_a_stale_search(tmp_path: Path) -> None:
+async def test_preparing_after_the_catalog_is_dropped_reports_a_stale_search(
+    tmp_path: Path,
+) -> None:
     controller = make_controller(tmp_path / "config.toml")
     controller._state.search_matches = [{"matchId": "match-1", "title": "Inception"}]
     controller._search_catalog = None
 
     with pytest.raises(ValueError):
         await controller.prepare_session(mode="auto_candidates", feature_id="match-1")
+
+
+class _StubProvider:
+    def __init__(self, code: str, label: str) -> None:
+        self.provider_code = code
+        self.provider_label = label
+
+
+class _ProgressiveStubAggregator:
+    """Reports SubDL landing, then ASSRT, mirroring the real aggregator's callback contract."""
+
+    providers = (_StubProvider("subdl", "SubDL"), _StubProvider("assrt", "ASSRT"))
+
+    async def search_catalog(self, title, languages, correlation_id=None, on_provider_update=None):
+        interim = AggregatedSearchCatalog(
+            matches=[
+                AggregatedTitleMatch(
+                    id="match-1",
+                    title="Interim Result",
+                    year=None,
+                    imdb_id=None,
+                    tmdb_id=None,
+                    media_type="movie",
+                )
+            ],
+            results=[],
+        )
+        if on_provider_update is not None:
+            await on_provider_update(["subdl"], ["subdl"], interim)
+        return AggregatedSearchCatalog(
+            matches=[
+                AggregatedTitleMatch(
+                    id="match-1",
+                    title="Final Result",
+                    year=None,
+                    imdb_id=None,
+                    tmdb_id=None,
+                    media_type="movie",
+                )
+            ],
+            results=[],
+        )
+
+
+async def test_search_pushes_an_interim_state_before_the_final_provider_answers(
+    tmp_path: Path,
+) -> None:
+    emitted_states: list[dict] = []
+
+    async def capture(event_type, payload) -> None:
+        if event_type == "state":
+            emitted_states.append(payload["state"])
+
+    controller = GuiController(AppConfig(), capture, config_path=tmp_path / "config.toml")
+    controller._aggregator = _ProgressiveStubAggregator()
+
+    await controller.search(
+        SearchRequest(title="Rick and Morty", source_language="en", target_language="en")
+    )
+
+    titles = [s["search_matches"][0]["title"] for s in emitted_states if s["search_matches"]]
+    assert titles == ["Interim Result", "Final Result"]
+
+
+async def test_an_interim_result_can_be_resolved_the_moment_it_is_shown(
+    tmp_path: Path,
+) -> None:
+    """The catalog has to arrive with the results, not when the search finishes.
+
+    Interim results are selectable as soon as they are on screen, and every
+    lookup behind that click goes through the catalog. Published late, the first
+    click on a fast provider's result failed as unresolvable.
+    """
+    resolvable: list[bool] = []
+
+    class _Labelled:
+        def display_label(self) -> str:
+            return "SubDL - interim.srt"
+
+    class _AggregatorWithAnInterimResult(_ProgressiveStubAggregator):
+        async def search_catalog(
+            self, title, languages, correlation_id=None, on_provider_update=None
+        ):
+            interim = AggregatedSearchCatalog(
+                matches=[],
+                results=[
+                    AggregatedSubtitleResult(
+                        result_id="interim-1",
+                        match_id="match-1",
+                        provider="subdl",
+                        provider_label="SubDL",
+                        title="Interim Result",
+                        year=None,
+                        imdb_id=None,
+                        tmdb_id=None,
+                        media_type="movie",
+                        season=None,
+                        episode=None,
+                        parent_title=None,
+                        language="en",
+                        download_count=1,
+                        file_name="interim.srt",
+                        provider_result=_Labelled(),
+                    )
+                ],
+            )
+            if on_provider_update is not None:
+                await on_provider_update(["subdl"], ["subdl"], interim)
+                resolvable.append(self_controller._catalog_result("interim-1") is not None)
+            return AggregatedSearchCatalog(matches=[], results=[])
+
+    controller = make_controller(tmp_path / "config.toml")
+    self_controller = controller
+    controller._aggregator = _AggregatorWithAnInterimResult()
+
+    await controller.search(
+        SearchRequest(title="Rick and Morty", source_language="en", target_language="en")
+    )
+
+    assert resolvable == [True]
+
+
+async def test_the_last_provider_landing_does_not_undo_a_preparation(tmp_path: Path) -> None:
+    """Results are selectable before the search finishes, so preparing is too.
+
+    Clearing the selection when the final catalog lands is right for a *new*
+    search and wrong for the one it completes: the user is told the session is
+    ready and then Start fails with "Prepare a session before starting sync".
+    """
+    controller = make_controller(tmp_path / "config.toml")
+    controller._aggregator = _ProgressiveStubAggregator()
+
+    async def prepare_during_the_interim(succeeded, settled, interim) -> None:
+        controller._prepared_search_id = controller._active_search_id
+        controller._prepared_runtime = object()
+        controller._state.prepared_session = object()
+        controller._state.selected_source_file_id = "result-1"
+
+    original = _ProgressiveStubAggregator.search_catalog
+
+    async def hooked(self, title, languages, correlation_id=None, on_provider_update=None):
+        async def both(succeeded, settled, interim):
+            await on_provider_update(succeeded, settled, interim)
+            await prepare_during_the_interim(succeeded, settled, interim)
+
+        return await original(
+            self, title, languages, correlation_id=correlation_id, on_provider_update=both
+        )
+
+    controller._aggregator.search_catalog = hooked.__get__(controller._aggregator)
+
+    await controller.search(
+        SearchRequest(title="Rick and Morty", source_language="en", target_language="en")
+    )
+
+    assert controller._prepared_runtime is not None
+    assert controller._state.prepared_session is not None
+    assert controller._state.selected_source_file_id == "result-1"
+
+
+async def test_a_superseded_search_does_not_clobber_the_newer_ones_state(tmp_path: Path) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+    controller._aggregator = _ProgressiveStubAggregator()
+
+    real_search_catalog = _ProgressiveStubAggregator.search_catalog
+
+    async def search_catalog_with_hook(
+        self, title, languages, correlation_id=None, on_provider_update=None
+    ):
+        async def hooked(succeeded_codes, settled_codes, interim):
+            # Simulate the user retyping and a new search starting before this
+            # (now-stale) search's provider callback gets a chance to run.
+            controller._active_search_id = "a-newer-search"
+            await on_provider_update(succeeded_codes, settled_codes, interim)
+
+        return await real_search_catalog(
+            self, title, languages, correlation_id=correlation_id, on_provider_update=hooked
+        )
+
+    controller._aggregator.search_catalog = search_catalog_with_hook.__get__(controller._aggregator)
+
+    result = await controller.search(
+        SearchRequest(title="Rick and Morty", source_language="en", target_language="en")
+    )
+
+    assert result["matches"][0]["title"] == "Final Result"
+    # The superseded search's own results are handed back to its caller, but
+    # they must not have overwritten the (simulated) newer search's state.
+    assert controller._state.search_matches == []
+
+
+async def test_a_failed_provider_drops_off_the_waiting_on_message(tmp_path: Path) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+
+    class FailingAssrtAggregator:
+        providers = (_StubProvider("subdl", "SubDL"), _StubProvider("assrt", "ASSRT"))
+
+        async def search_catalog(
+            self, title, languages, correlation_id=None, on_provider_update=None
+        ):
+            empty = AggregatedSearchCatalog(matches=[], results=[])
+            if on_provider_update is not None:
+                # ASSRT settles (by failing) before SubDL succeeds.
+                await on_provider_update([], ["assrt"], empty)
+                await on_provider_update(["subdl"], ["assrt", "subdl"], empty)
+            return empty
+
+    controller._aggregator = FailingAssrtAggregator()
+    messages: list[str] = []
+
+    async def capture(event_type, payload) -> None:
+        if event_type == "progress":
+            messages.append(payload["progress"]["message"])
+
+    controller._emit_app_event = capture
+
+    await controller.search(
+        SearchRequest(title="Rick and Morty", source_language="en", target_language="en")
+    )
+
+    assert "ASSRT" not in messages[-2]  # Failed already: not "still waiting on".
+    assert "ASSRT" not in messages[-1]
 
 
 async def test_starting_without_a_capture_region_is_refused(tmp_path: Path) -> None:

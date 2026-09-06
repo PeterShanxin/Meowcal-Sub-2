@@ -25,7 +25,9 @@ def test_log_event_writes_jsonl_and_redacts_sensitive_fields(tmp_path: Path, mon
     assert record["nested"]["safe"] == "ok"
 
 
-def test_log_event_preserves_reserved_metadata_and_nests_conflicts(tmp_path: Path, monkeypatch) -> None:
+def test_log_event_preserves_reserved_metadata_and_nests_conflicts(
+    tmp_path: Path, monkeypatch
+) -> None:
     log_path = tmp_path / "events.jsonl"
     monkeypatch.setenv("MEOCOSUB2_EVENT_LOG_PATH", str(log_path))
 
@@ -43,7 +45,9 @@ def test_log_event_redacts_sensitive_url_query_values(tmp_path: Path, monkeypatc
     log_path = tmp_path / "events.jsonl"
     monkeypatch.setenv("MEOCOSUB2_EVENT_LOG_PATH", str(log_path))
 
-    log_event("error.event", error="GET https://api.assrt.net/v1/sub/search?token=secret&q=fate failed")
+    log_event(
+        "error.event", error="GET https://api.assrt.net/v1/sub/search?token=secret&q=fate failed"
+    )
 
     record = json.loads(log_path.read_text(encoding="utf-8"))
     assert "token=%5Bredacted%5D" in record["error"]

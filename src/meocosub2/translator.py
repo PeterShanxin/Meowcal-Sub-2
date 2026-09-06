@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+from itertools import pairwise
 
 import httpx
 from rapidfuzz import fuzz
@@ -37,6 +38,9 @@ MIN_CHARS_TO_JUDGE_SCRIPT = 6
 # How closely a leading sentence must restate a line already on screen before it
 # is treated as the model repeating its context rather than translating.
 RESTATED_CONTEXT_SIMILARITY = 80.0
+# How closely a whole answer must restate one context line before it is read as
+# the model handing back what it was given instead of translating.
+ECHOED_CONTEXT_SIMILARITY = 88.0
 
 MAX_SOURCE_CHARS = 300
 MAX_CONTEXT_CHARS = 400
@@ -120,7 +124,9 @@ def build_prompt(
             f"{context}\nBased on the information above, translate the text below into "
             f"{label}. Do not translate the context or add explanations:\n{source}"
         )
-    return f"Translate the following segment into {label}, without additional explanation.\n\n{source}"
+    return (
+        f"Translate the following segment into {label}, without additional explanation.\n\n{source}"
+    )
 
 
 def sanitize_output(text: str) -> str:
@@ -156,7 +162,7 @@ def looks_like_a_loop(text: str) -> bool:
     if len(tokens) < MIN_TOKENS_FOR_REPETITION:
         return False
     streak = longest = 1
-    for previous, token in zip(tokens, tokens[1:]):
+    for previous, token in pairwise(tokens):
         streak = streak + 1 if token == previous else 1
         longest = max(longest, streak)
     return longest >= MAX_REPEATED_TOKEN_STREAK or len(set(tokens)) * 3 <= len(tokens)
@@ -182,9 +188,7 @@ def _looks_like_a_proper_name(text: str) -> bool:
     if not token or " " in token:
         return False
     parts = re.split(r"[-']", token)
-    return all(
-        part and part.isalpha() and (part.istitle() or part.isupper()) for part in parts
-    )
+    return all(part and part.isalpha() and (part.istitle() or part.isupper()) for part in parts)
 
 
 def _wrong_script(translated: str, target_language: str) -> bool:
@@ -227,7 +231,9 @@ def is_usable_translation(source: str, translated: str, target_language: str) ->
     length = len(translated)
     if length > MAX_OUTPUT_CHARS:
         return False
-    cjk_to_english = any(is_cjk_char(ch) for ch in source) and target_language.lower().startswith("en")
+    cjk_to_english = any(is_cjk_char(ch) for ch in source) and target_language.lower().startswith(
+        "en"
+    )
     ratio, floor = (
         (CJK_TO_ENGLISH_RATIO, MIN_CJK_TO_ENGLISH_CHARS)
         if cjk_to_english
@@ -238,6 +244,27 @@ def is_usable_translation(source: str, translated: str, target_language: str) ->
     if _says_it_twice(translated) or looks_like_a_loop(translated):
         return False
     return not _wrong_script(translated, target_language)
+
+
+def echoes_context(translated: str, context_lines: list[str]) -> bool:
+    """Whether the answer is one of the lines the model was given as context.
+
+    Measured against a real HY-MT session: asked to translate a new subtitle
+    with the previous two as context, the model sometimes returns the previous
+    one word for word. Sentence-by-sentence trimming does not catch it, because
+    every sentence is genuine - they are just the wrong line. Showing the line
+    already on screen a second time reads as new dialogue, so nothing is shown
+    and the plate keeps the line it has.
+    """
+    if not translated:
+        return False
+    # Length-sensitive on purpose: a set comparison scores a short context line
+    # whose words all appear in a longer answer as a perfect echo, so "Wait." in
+    # the context would condemn any translation containing the word.
+    return any(
+        fuzz.ratio(translated.lower(), line.lower()) >= ECHOED_CONTEXT_SIMILARITY
+        for line in context_lines
+    )
 
 
 def _sentences(text: str) -> list[str]:
@@ -286,16 +313,7 @@ class TranslationClient:
         self._model = model
         self._client = httpx.AsyncClient(timeout=timeout_s)
 
-    async def translate(
-        self,
-        text: str,
-        source_language: str,
-        target_language: str,
-        context_lines: list[str] | None = None,
-    ) -> str:
-        if is_untranslatable(text):
-            return ""
-        prompt = build_prompt(text, source_language, target_language, context_lines)
+    async def _complete(self, prompt: str) -> str:
         try:
             response = await self._client.post(
                 f"{self._base_url}/v1/chat/completions",
@@ -311,11 +329,41 @@ class TranslationClient:
         except httpx.HTTPError as exc:
             raise TranslationError(f"The local translation engine did not respond: {exc}") from exc
         except ValueError as exc:
-            raise TranslationError("The local translation engine returned an unreadable reply.") from exc
+            raise TranslationError(
+                "The local translation engine returned an unreadable reply."
+            ) from exc
 
         choices = payload.get("choices") or []
-        content = choices[0].get("message", {}).get("content", "") if choices else ""
-        translated = drop_restated_context(sanitize_output(content), list(context_lines or []))
+        return choices[0].get("message", {}).get("content", "") if choices else ""
+
+    async def translate(
+        self,
+        text: str,
+        source_language: str,
+        target_language: str,
+        context_lines: list[str] | None = None,
+    ) -> str:
+        if is_untranslatable(text):
+            return ""
+        context = list(context_lines or [])
+        prompt = build_prompt(text, source_language, target_language, context)
+        translated = drop_restated_context(sanitize_output(await self._complete(prompt)), context)
+
+        if context and echoes_context(translated, context):
+            # Handing back the context is what this model does when the read is
+            # too damaged to translate, and the answer it hands back is the line
+            # already on screen. Asked again with nothing to copy, it either
+            # translates the read or fails in a way the checks below catch - and
+            # either beats a plate that stays blank for the rest of the session,
+            # because the context only advances when a line gets through.
+            logger.debug("Echoed context for %r, retrying without it", text[:40])
+            translated = sanitize_output(
+                await self._complete(build_prompt(text, source_language, target_language, None))
+            )
+            if echoes_context(translated, context):
+                logger.debug("Discarded echoed context for %r: %r", text[:40], translated[:80])
+                return ""
+
         if not is_usable_translation(text, translated, target_language):
             logger.debug("Discarded unusable translation for %r: %r", text[:40], translated[:80])
             return ""

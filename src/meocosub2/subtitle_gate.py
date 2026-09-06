@@ -73,9 +73,7 @@ def _is_garbled(token: str) -> bool:
         ):
             return True
     return (
-        len(token) > 1
-        and token[0] in _NEVER_OPENS_A_WORD
-        and any(ch.isalpha() for ch in token[1:])
+        len(token) > 1 and token[0] in _NEVER_OPENS_A_WORD and any(ch.isalpha() for ch in token[1:])
     )
 
 

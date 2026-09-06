@@ -1,10 +1,24 @@
-from meocosub2.matcher import SubtitleMatcher
+from meocosub2.matcher import (
+    BOTH,
+    FOLLOW_GRACE_MS,
+    PLATE_LINES,
+    SEMANTIC,
+    TEXT,
+    SubtitleMatcher,
+)
 from meocosub2.models import SubtitleLine
+from meocosub2.semantic import SemanticHit
 
 
 def make_lines(count: int = 100) -> list[SubtitleLine]:
     return [
-        SubtitleLine(index=i, start_ms=i * 1000, end_ms=(i + 1) * 1000, text=f"Line {i}", translated=f"译文 {i}")
+        SubtitleLine(
+            index=i,
+            start_ms=i * 1000,
+            end_ms=(i + 1) * 1000,
+            text=f"Line {i}",
+            translated=f"译文 {i}",
+        )
         for i in range(count)
     ]
 
@@ -27,7 +41,9 @@ def test_short_noise_returns_none() -> None:
 
 
 def test_match_returns_translated_text() -> None:
-    matcher = SubtitleMatcher([SubtitleLine(index=0, start_ms=0, end_ms=1000, text="Hello there", translated="你好")])
+    matcher = SubtitleMatcher(
+        [SubtitleLine(index=0, start_ms=0, end_ms=1000, text="Hello there", translated="你好")]
+    )
     result = matcher.match("Hello there")
     assert result is not None
     assert result.target_text == "你好"
@@ -90,6 +106,7 @@ def test_cjk_match_tolerates_ocr_char_drop() -> None:
 
 def _unique_lines(count: int = 100) -> list[SubtitleLine]:
     import hashlib
+
     out: list[SubtitleLine] = []
     for i in range(count):
         digest = hashlib.sha1(f"line-{i}".encode()).hexdigest()
@@ -145,7 +162,15 @@ def test_threshold_blocks_weak_matches() -> None:
 
 def test_match_handles_spaced_cjk_and_script_variants() -> None:
     matcher = SubtitleMatcher(
-        [SubtitleLine(index=0, start_ms=0, end_ms=1000, text="之前拿到的资料，我都看过了", translated="I already read it.")]
+        [
+            SubtitleLine(
+                index=0,
+                start_ms=0,
+                end_ms=1000,
+                text="之前拿到的资料，我都看过了",
+                translated="I already read it.",
+            )
+        ]
     )
     result = matcher.match("之 前 拿 到 的 資 料 ， 我 都 看 過 了")
     assert result is not None
@@ -180,3 +205,328 @@ def test_numbers_beside_latin_text_are_kept() -> None:
 
     assert clean_cjk_text("Chapter 7") == "Chapter 7"
     assert clean_cjk_text("- Can you do it?") == "- Can you do it?"
+
+
+def bilingual_lines() -> list[SubtitleLine]:
+    """A source file that carries the dialogue and its translation in one cue."""
+    rows = [
+        "我们就跳进那缸酸\nwe jump into the vat of acid,",
+        "你不是个发明家么\nAren't you an inventor?",
+        "你带的是假水晶 还带了枪\nYou brought fake crystals and a gun",
+        "慢慢来 老大\nTake your time, boss.",
+    ]
+    return [
+        SubtitleLine(index=i, start_ms=i * 2000, end_ms=i * 2000 + 1500, text=text)
+        for i, text in enumerate(rows)
+    ]
+
+
+def test_a_read_is_scored_against_its_own_half_of_a_bilingual_cue() -> None:
+    matcher = SubtitleMatcher(bilingual_lines(), target_language="en")
+    result = matcher.match("慢慢来老大")
+    assert result is not None
+    assert result.line_index == 3
+    # Against the whole cue, its English half included, the same read scored 90.
+    assert result.score == 100.0
+
+
+def test_a_read_of_something_that_is_not_a_subtitle_matches_nothing() -> None:
+    matcher = SubtitleMatcher(bilingual_lines(), target_language="en")
+    # A stray read of a terminal. Scored against whole bilingual cues it used to
+    # come back at 85.5, because a long line rewards a good match on a fragment.
+    assert matcher.match("o ps c formerd repos meowcal sub 2 src tauri") is None
+
+
+def test_a_read_far_shorter_than_the_line_is_not_that_line() -> None:
+    matcher = SubtitleMatcher(bilingual_lines(), target_language="en")
+    assert matcher.match("你不是说") is None
+
+
+def episode_lines() -> list[SubtitleLine]:
+    return [
+        SubtitleLine(index=0, start_ms=0, end_ms=2000, text="Hello there", translated="你好"),
+        SubtitleLine(
+            index=1, start_ms=10_000, end_ms=12_000, text="Goodbye now", translated="再见"
+        ),
+    ]
+
+
+def test_the_file_line_at_a_point_in_the_video() -> None:
+    matcher = SubtitleMatcher(episode_lines())
+    found = matcher.line_at(11_000)
+    assert found is not None and found.line_index == 1
+    assert found.target_text == "再见"
+
+
+def test_the_file_has_no_line_in_the_silence_between_its_cues() -> None:
+    matcher = SubtitleMatcher(episode_lines())
+    assert matcher.line_at(6_000) is None
+    assert matcher.line_at(-1) is None
+
+
+def test_a_line_still_counts_just_past_its_own_end() -> None:
+    # Two translations of one scene rarely break their cues in the same places,
+    # so the file's line often ends a beat before the burned-in one does.
+    matcher = SubtitleMatcher(episode_lines())
+    assert matcher.line_at(13_000) is not None
+    assert matcher.line_at(14_000) is None
+
+
+def spaced_lines() -> list[SubtitleLine]:
+    """Three cues with real gaps between them, so the grace period is reachable."""
+    return [
+        SubtitleLine(index=0, start_ms=0, end_ms=2000, text="Hello there", translated="你好"),
+        SubtitleLine(
+            index=1, start_ms=10_000, end_ms=12_000, text="Goodbye now", translated="再见"
+        ),
+        SubtitleLine(index=2, start_ms=20_000, end_ms=22_000, text="See you", translated="回见"),
+    ]
+
+
+def test_a_line_on_screen_changes_when_its_grace_runs_out() -> None:
+    matcher = SubtitleMatcher(spaced_lines())
+    # The next cue is ten seconds off, so this line expiring is what changes first.
+    assert matcher.next_change_ms(500) == 2000 + 1500 + 1
+
+
+def test_a_clock_in_a_gap_waits_for_the_next_cue() -> None:
+    matcher = SubtitleMatcher(spaced_lines())
+    assert matcher.line_at(5000) is None
+    assert matcher.next_change_ms(5000) == 10_000
+
+
+def test_a_cue_that_ends_after_the_next_one_starts_changes_at_the_next_one() -> None:
+    overlapping = [
+        SubtitleLine(index=0, start_ms=0, end_ms=1000, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=1200, end_ms=2000, text="Goodbye now", translated="再见"),
+    ]
+    matcher = SubtitleMatcher(overlapping)
+    # The first line's grace would carry it to 2501, past where the second begins.
+    assert matcher.next_change_ms(500) == 1200
+
+
+def test_nothing_changes_after_the_last_line_has_gone() -> None:
+    matcher = SubtitleMatcher(spaced_lines())
+    assert matcher.next_change_ms(25_000) is None
+
+
+def test_the_first_cue_is_scheduled_from_before_the_file_starts() -> None:
+    matcher = SubtitleMatcher(spaced_lines()[1:])
+    assert matcher.next_change_ms(0) == 10_000
+
+
+def two_speakers() -> list[SubtitleLine]:
+    """An exchange where the second speaker starts before the first has finished."""
+    return [
+        SubtitleLine(index=0, start_ms=0, end_ms=4_000, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=2_000, end_ms=6_000, text="Goodbye now", translated="再见"),
+    ]
+
+
+def test_two_cues_running_at_once_are_both_on_the_plate() -> None:
+    """The bug this covers reads as a line the app failed to translate."""
+    found = SubtitleMatcher(two_speakers()).line_at(3_000)
+    assert found is not None
+    assert found.target_text == "你好\n再见"
+    assert found.span == 2
+
+
+def test_cues_sharing_a_start_are_both_on_the_plate() -> None:
+    """A file can give two rows the same timestamp; only one of them was drawn."""
+    together = [
+        SubtitleLine(index=0, start_ms=1_000, end_ms=3_000, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=1_000, end_ms=3_000, text="Goodbye now", translated="再见"),
+    ]
+    found = SubtitleMatcher(together).line_at(2_000)
+    assert found is not None and found.target_text == "你好\n再见"
+
+
+def test_a_cue_that_has_ended_does_not_ride_along_with_the_one_that_follows() -> None:
+    found = SubtitleMatcher(two_speakers()).line_at(5_000)
+    assert found is not None and found.target_text == "再见"
+
+
+def test_no_more_than_the_plate_holds() -> None:
+    stacked = [
+        SubtitleLine(index=i, start_ms=i * 100, end_ms=9_000, text=f"row {i}", translated=f"行{i}")
+        for i in range(4)
+    ]
+    found = SubtitleMatcher(stacked).line_at(500)
+    assert found is not None and found.span == PLATE_LINES
+
+
+def test_the_plate_changes_when_the_first_of_two_cues_runs_out() -> None:
+    """Waking only at the next start would leave the finished line on screen."""
+    assert SubtitleMatcher(two_speakers()).next_change_ms(3_000) == 4_001
+
+
+def test_a_cue_ending_where_the_next_begins_is_not_two_speakers() -> None:
+    """Most files are cut this way, so pairing them doubles up the whole episode."""
+    consecutive = [
+        SubtitleLine(index=0, start_ms=0, end_ms=2_000, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=2_000, end_ms=4_000, text="Goodbye now", translated="再见"),
+    ]
+    found = SubtitleMatcher(consecutive).line_at(2_000)
+    assert found is not None and found.target_text == "再见"
+
+
+def test_a_cue_still_running_under_a_finished_one_keeps_the_plate() -> None:
+    """Cue ends are not ordered with their starts.
+
+    A sign, or one speaker holding a line, outlasts the shorter cues under it.
+    Reading only the newest cue drops the one actually still on screen.
+    """
+    nested = [
+        SubtitleLine(index=0, start_ms=0, end_ms=10_000, text="On air", translated="直播中"),
+        SubtitleLine(index=1, start_ms=1_000, end_ms=2_000, text="Hello there", translated="你好"),
+    ]
+    found = SubtitleMatcher(nested).line_at(3_000)
+    assert found is not None and found.target_text == "直播中"
+
+
+def test_the_schedule_follows_the_cue_that_is_actually_showing() -> None:
+    """Waking on the finished cue's grace would redraw at the wrong moment."""
+    nested = [
+        SubtitleLine(index=0, start_ms=0, end_ms=10_000, text="On air", translated="直播中"),
+        SubtitleLine(index=1, start_ms=1_000, end_ms=2_000, text="Hello there", translated="你好"),
+    ]
+    assert SubtitleMatcher(nested).next_change_ms(3_000) == 10_000 + FOLLOW_GRACE_MS + 1
+
+
+def test_a_long_sign_survives_a_run_of_short_cues_under_it() -> None:
+    """The scan is bounded by cue end times, not by a count of cues.
+
+    A fixed look-back drops a cue once enough later ones have started, which is
+    exactly the case a long sign is: it outlasts many short lines.
+    """
+    lines = [SubtitleLine(index=0, start_ms=0, end_ms=60_000, text="On air", translated="直播中")]
+    lines += [
+        SubtitleLine(
+            index=i,
+            start_ms=i * 1_000,
+            end_ms=i * 1_000 + 500,
+            text=f"Line {i}",
+            translated=f"第{i}句",
+        )
+        for i in range(1, 21)
+    ]
+    # Twenty cues have started and finished since the sign did.
+    found = SubtitleMatcher(lines).line_at(20_800)
+    assert found is not None and found.target_text == "直播中"
+
+
+def test_a_line_with_no_translation_does_not_take_its_partner_off_the_plate() -> None:
+    """The plate can answer for one of them, and going blank answers for neither."""
+    half_paired = [
+        SubtitleLine(index=0, start_ms=0, end_ms=4_000, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=2_000, end_ms=6_000, text="Goodbye now"),
+    ]
+    found = SubtitleMatcher(half_paired).line_at(3_000)
+    assert found is not None and found.translated
+    assert found.target_text == "你好"
+
+
+class FakeSemantic:
+    """The embedding engine, reduced to the one answer the matcher acts on.
+
+    What is under test is which signal the matcher believes, so the engine is
+    replaced by its verdict rather than by a fake HTTP server.
+    """
+
+    def __init__(self, hit: SemanticHit | None, ready: bool = True) -> None:
+        self._hit = hit
+        self.ready = ready
+        self.calls = 0
+
+    async def best(self, text: str, indices=None) -> SemanticHit | None:
+        self.calls += 1
+        return self._hit
+
+
+def dialogue() -> list[SubtitleLine]:
+    """Lines that share no wording, so text scores are unambiguous."""
+    return [
+        SubtitleLine(
+            index=0, start_ms=0, end_ms=2000, text="We should go", translated="我们该走了"
+        ),
+        SubtitleLine(
+            index=1, start_ms=3000, end_ms=5000, text="Before it gets dark", translated="趁天还没黑"
+        ),
+        SubtitleLine(
+            index=2, start_ms=6000, end_ms=8000, text="Nobody is coming", translated="没人会来"
+        ),
+    ]
+
+
+async def test_a_near_exact_read_never_troubles_the_embedding_engine() -> None:
+    """The reads that need meaning least are the ones text answers instantly."""
+    semantic = FakeSemantic(SemanticHit(index=2, score=0.99))
+    matcher = SubtitleMatcher(dialogue())
+
+    result = await matcher.match_best("Before it gets dark", semantic=semantic)
+
+    assert result is not None and result.target_text == "趁天还没黑"
+    assert result.confidence == TEXT
+    assert semantic.calls == 0
+
+
+async def test_a_read_text_cannot_place_is_placed_by_meaning() -> None:
+    """The ordinary case: a different translation of the same line."""
+    semantic = FakeSemantic(SemanticHit(index=1, score=0.81))
+    matcher = SubtitleMatcher(dialogue())
+
+    result = await matcher.match_best("while there is still light", semantic=semantic)
+
+    assert result is not None and result.target_text == "趁天还没黑"
+    assert result.confidence == SEMANTIC
+
+
+async def test_both_signals_landing_on_one_line_is_the_strongest_answer() -> None:
+    """A read text places without conviction - it scores 84.6 here - and meaning
+    agrees with. Together they are what the playback clock will anchor on."""
+    semantic = FakeSemantic(SemanticHit(index=1, score=0.88))
+    matcher = SubtitleMatcher(dialogue())
+
+    result = await matcher.match_best("Before dark now", semantic=semantic)
+
+    assert result is not None and result.target_text == "趁天还没黑"
+    assert result.confidence == BOTH
+    assert semantic.calls == 1
+
+
+async def test_a_confident_read_takes_precedence_over_a_different_meaning() -> None:
+    """A text answer at all means the read cleared the threshold - 75.0 here -
+    so it is real evidence rather than the 20-40 noise most reads score."""
+    semantic = FakeSemantic(SemanticHit(index=2, score=0.90))
+    matcher = SubtitleMatcher(dialogue())
+
+    result = await matcher.match_best("Ws shauld ga", semantic=semantic)
+
+    assert result is not None and result.target_text == "我们该走了"
+    assert result.confidence == TEXT
+    assert semantic.calls == 1
+
+
+async def test_a_meaning_below_the_bar_is_not_an_answer() -> None:
+    """Reads too damaged to be anything scored 0.47-0.55 on a real session."""
+    semantic = FakeSemantic(SemanticHit(index=1, score=0.52))
+    matcher = SubtitleMatcher(dialogue())
+
+    assert await matcher.match_best("一了岔子一虽然可能", semantic=semantic) is None
+
+
+async def test_without_the_matching_model_a_session_still_matches_on_text() -> None:
+    matcher = SubtitleMatcher(dialogue())
+
+    result = await matcher.match_best("Before it gets dark", semantic=None)
+
+    assert result is not None and result.confidence == TEXT
+    assert await matcher.match_best("while there is still light", semantic=None) is None
+
+
+async def test_an_index_that_never_built_is_not_consulted() -> None:
+    semantic = FakeSemantic(SemanticHit(index=1, score=0.99), ready=False)
+    matcher = SubtitleMatcher(dialogue())
+
+    assert await matcher.match_best("while there is still light", semantic=semantic) is None
+    assert semantic.calls == 0

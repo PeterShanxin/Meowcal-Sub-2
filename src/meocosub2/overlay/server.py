@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import base64
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -14,8 +16,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from meocosub2.auth import TOKEN_HEADER, TOKEN_QUERY, token_matches
+from meocosub2.capture import available_ocr_languages, capture_region_jpeg
 from meocosub2.config import AppConfig, overlay_style_payload
-from meocosub2.capture import available_ocr_languages
 from meocosub2.errors import SubtitleSourceError, TranslationError
 from meocosub2.event_log import log_event
 from meocosub2.languages import languages_payload
@@ -122,7 +124,15 @@ class OverlayServer:
         @self.app.get("/")
         async def index() -> HTMLResponse:
             return HTMLResponse(
-                self._studio_html(),
+                self._page_html("index.html"),
+                headers={"Cache-Control": "no-store, max-age=0"},
+            )
+
+        @self.app.get("/overlay")
+        async def overlay_page() -> HTMLResponse:
+            """The subtitle plate the shell floats beside the capture region."""
+            return HTMLResponse(
+                self._page_html("overlay.html"),
                 headers={"Cache-Control": "no-store, max-age=0"},
             )
 
@@ -160,6 +170,19 @@ class OverlayServer:
         @self.app.get("/api/state")
         async def api_get_state() -> dict[str, object]:
             return self.controller.state_snapshot()
+
+        @self.app.get("/api/capture/screen")
+        async def api_capture_screen(x: int, y: int, width: int, height: int) -> dict[str, object]:
+            """A still of the screen for the capture selector's backdrop.
+
+            The selector floats over whatever the user is watching, and a player
+            underneath a full-screen window is free to stop painting its video -
+            so the region gets drawn on a frame taken just before the selector
+            appears rather than on the live desktop.
+            """
+            jpeg = await asyncio.to_thread(capture_region_jpeg, (x, y, width, height))
+            encoded = base64.b64encode(jpeg).decode("ascii")
+            return {"dataUrl": f"data:image/jpeg;base64,{encoded}"}
 
         @self.app.post("/api/log/client")
         async def api_log_client(body: ClientLogBody) -> dict[str, str]:
@@ -229,8 +252,12 @@ class OverlayServer:
                 session = await self.controller.prepare_session(
                     mode=body.mode,
                     feature_id=body.matchId if body.matchId is not None else body.featureId,
-                    source_file_id=body.sourceResultId if body.sourceResultId is not None else body.sourceFileId,
-                    target_file_id=body.targetResultId if body.targetResultId is not None else body.targetFileId,
+                    source_file_id=body.sourceResultId
+                    if body.sourceResultId is not None
+                    else body.sourceFileId,
+                    target_file_id=body.targetResultId
+                    if body.targetResultId is not None
+                    else body.targetFileId,
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -281,13 +308,11 @@ class OverlayServer:
             self._access_token, query_token
         )
 
-    def _studio_html(self) -> str:
-        """The studio page with this run's token, handed only to callers that already have it."""
-        markup = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    def _page_html(self, file_name: str) -> str:
+        """A served page with this run's token, handed only to callers that already have it."""
+        markup = (STATIC_DIR / file_name).read_text(encoding="utf-8")
         bootstrap = (
-            "<script>window.__MEOWCAL__="
-            + json.dumps({"token": self._access_token})
-            + ";</script>"
+            "<script>window.__MEOWCAL__=" + json.dumps({"token": self._access_token}) + ";</script>"
         )
         return markup.replace("</head>", f"{bootstrap}</head>", 1)
 
@@ -295,8 +320,12 @@ class OverlayServer:
         await websocket.accept()
         logger.debug("App WebSocket connected (total: %d)", len(self.app_connections) + 1)
         self.app_connections.append(websocket)
-        await websocket.send_text(json.dumps({"type": "state", "state": self.controller.state_snapshot()}))
-        await websocket.send_text(json.dumps({"type": "style", "style": overlay_style_payload(self.config)}))
+        await websocket.send_text(
+            json.dumps({"type": "state", "state": self.controller.state_snapshot()})
+        )
+        await websocket.send_text(
+            json.dumps({"type": "style", "style": overlay_style_payload(self.config)})
+        )
         try:
             while True:
                 await websocket.receive_text()

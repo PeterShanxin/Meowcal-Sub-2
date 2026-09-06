@@ -29,6 +29,12 @@ export interface UIState {
   cursorIndex: number;
   /** Season/episode keys with a subtitle lookup in flight, for per-row progress. */
   hydrating: string[];
+  /**
+   * Episode keys whose own lookup already ran and found nothing. Repeating it
+   * sends the identical query for the identical answer, at the cost of a slot
+   * against the provider quota.
+   */
+  emptyLookups: string[];
   liveLines: LiveLine[];
   lastSubtitle: string;
   error: string | null;
@@ -53,6 +59,7 @@ const initial: UIState = {
   selectedTargetId: null,
   cursorIndex: -1,
   hydrating: [],
+  emptyLookups: [],
   liveLines: [],
   lastSubtitle: "",
   error: null,

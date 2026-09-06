@@ -53,6 +53,7 @@ export function App(): JSX.Element {
   const config = useStore((s) => s.config);
   const engineStatus = useStore((s) => s.engine);
   const manualView = useStore((s) => s.manualView);
+  const actionError = useStore((s) => s.error);
   const query = useStore((s) => s.query);
   const tab = useStore((s) => s.tab);
   const titleMediaFilter = useStore((s) => s.titleMediaFilter);
@@ -65,6 +66,7 @@ export function App(): JSX.Element {
   const selectedTargetId = useStore((s) => s.selectedTargetId);
   const cursorIndex = useStore((s) => s.cursorIndex);
   const hydrating = useStore((s) => s.hydrating);
+  const emptyLookups = useStore((s) => s.emptyLookups);
   const liveLines = useStore((s) => s.liveLines);
   const languages = useStore((s) => s.languages);
   const wsConnected = useStore((s) => s.wsConnected);
@@ -123,6 +125,8 @@ export function App(): JSX.Element {
   const sourceLang = (config?.languages.source ?? snapshot?.source_language ?? "en").toUpperCase();
   const targetLang = config?.languages.target ?? snapshot?.target_language ?? "zh-TW";
   const episodeMatchId = selectedEpisodeMatchId;
+  const searchStatusMessage =
+    snapshot?.progress.stage === "search" ? snapshot.progress.message : null;
   const works = useMemo<WorkItem[]>(
     () => mapWorksToItems(snapshot?.search_works ?? []),
     [snapshot?.search_works],
@@ -137,9 +141,7 @@ export function App(): JSX.Element {
   );
   const availableSeasonNumbers = useMemo(
     () =>
-      collectSeasonNumbers(
-        seasonFilterScopeWork ? [seasonFilterScopeWork] : mediaFilteredWorks,
-      ),
+      collectSeasonNumbers(seasonFilterScopeWork ? [seasonFilterScopeWork] : mediaFilteredWorks),
     [seasonFilterScopeWork, mediaFilteredWorks],
   );
   const filteredWorks = useMemo(
@@ -192,21 +194,14 @@ export function App(): JSX.Element {
     [filteredWorks, expandedWorkId, expandedSeasonNumber],
   );
   const titleWorkRowIndices = useMemo(
-    () =>
-      titleNavRows.flatMap((row, index) =>
-        row.kind === "work" ? [index] : [],
-      ),
+    () => titleNavRows.flatMap((row, index) => (row.kind === "work" ? [index] : [])),
     [titleNavRows],
   );
 
   const titleListLength = titleNavRows.length;
   const titleGridColumns = filteredWorks.length > 0 && viewportWidth >= 900 ? 2 : 1;
   const activeListLength =
-    tab === "titles"
-      ? titleListLength
-      : tab === "source"
-        ? sources.length
-        : targets.length;
+    tab === "titles" ? titleListLength : tab === "source" ? sources.length : targets.length;
 
   // Enter live/exit live Tauri side-effects.
   // Only call exitLiveMode when transitioning OUT of live. Calling it on
@@ -215,7 +210,9 @@ export function App(): JSX.Element {
   useEffect(() => {
     const previous = prevPhase.current;
     if (phase === "live") {
-      void tauri.enterLiveMode();
+      // Read at call time rather than from the closure: the region can be
+      // re-drawn between renders, and the plate is placed against it.
+      void tauri.enterLiveMode(store.get().config?.capture.region ?? []);
     } else if (previous === "live") {
       void tauri.exitLiveMode();
     }
@@ -232,10 +229,13 @@ export function App(): JSX.Element {
       return;
     }
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    settingsCloseTimerRef.current = window.setTimeout(() => {
-      setSettingsVisible(false);
-      settingsCloseTimerRef.current = null;
-    }, reducedMotion ? 0 : 160);
+    settingsCloseTimerRef.current = window.setTimeout(
+      () => {
+        setSettingsVisible(false);
+        settingsCloseTimerRef.current = null;
+      },
+      reducedMotion ? 0 : 160,
+    );
   }, [showSettings]);
 
   useEffect(() => {
@@ -252,66 +252,97 @@ export function App(): JSX.Element {
     inputRef.current?.focus();
   }, []);
 
-  const runSearch = useCallback(async (title: string) => {
-    if (!title.trim()) return;
-    const trimmedTitle = title.trim();
-    const correlationId = clientEventId("search");
-    lastSearchedQuery.current = trimmedTitle;
-    searchAbort.current?.abort();
-    const ctrl = new AbortController();
-    searchAbort.current = ctrl;
-    setSearching(true);
-    logClientEvent("ui.search.submitted", {
-      title: trimmedTitle,
-      sourceLanguage: config?.languages.source ?? snapshot?.source_language,
-      targetLanguage: config?.languages.target ?? snapshot?.target_language,
-    }, correlationId);
-    // Hydration keys name rows in the catalog this search replaces, and the
-    // aggregator reuses ordinal work ids, so stale keys could mark a row of the
-    // new catalog busy.
-    hydrateInFlight.current.clear();
-    store.set({
-      cursorIndex: -1,
-      selectedWorkId: null,
-      expandedWorkId: null,
-      expandedSeasonNumber: null,
-      selectedEpisodeMatchId: null,
-      selectedSourceId: null,
-      selectedTargetId: null,
-      hydrating: [],
-    });
-    try {
-      const res = await api.search(
-        trimmedTitle,
-        config?.languages.source,
-        config?.languages.target,
+  const runSearch = useCallback(
+    async (title: string) => {
+      if (!title.trim()) return;
+      const trimmedTitle = title.trim();
+      const correlationId = clientEventId("search");
+      lastSearchedQuery.current = trimmedTitle;
+      searchAbort.current?.abort();
+      const ctrl = new AbortController();
+      searchAbort.current = ctrl;
+      setSearching(true);
+      logClientEvent(
+        "ui.search.submitted",
+        {
+          title: trimmedTitle,
+          sourceLanguage: config?.languages.source ?? snapshot?.source_language,
+          targetLanguage: config?.languages.target ?? snapshot?.target_language,
+        },
         correlationId,
       );
-      const fresh = await api.getState();
-      store.set({ snapshot: fresh, config: fresh.config });
-      logClientEvent("ui.search.completed", {
-        results: res.results.length,
-        matches: res.matches.length,
-        works: res.works.length,
-        warnings: res.warnings.length,
-      }, correlationId);
-    } catch (err) {
-      store.set({ error: err instanceof Error ? err.message : String(err) });
-      logClientEvent("ui.search.failed", {
-        error: err instanceof Error ? err.message : String(err),
-      }, correlationId);
-    } finally {
-      if (searchAbort.current === ctrl) {
-        searchAbort.current = null;
-        if (backgroundSearchCount.current === 0) {
-          setSearching(false);
+      // These keys track lookups belonging to the search being replaced. Work ids
+      // are content-derived, so a re-search of the same title mints the same keys
+      // and a leftover one would leave a row of the new catalog marked busy.
+      hydrateInFlight.current.clear();
+      store.set({
+        error: null,
+        cursorIndex: -1,
+        selectedWorkId: null,
+        expandedWorkId: null,
+        expandedSeasonNumber: null,
+        selectedEpisodeMatchId: null,
+        selectedSourceId: null,
+        selectedTargetId: null,
+        hydrating: [],
+        emptyLookups: [],
+      });
+      try {
+        const res = await api.search(
+          trimmedTitle,
+          config?.languages.source,
+          config?.languages.target,
+          correlationId,
+        );
+        const fresh = await api.getState();
+        store.set({ snapshot: fresh, config: fresh.config });
+        logClientEvent(
+          "ui.search.completed",
+          {
+            results: res.results.length,
+            matches: res.matches.length,
+            works: res.works.length,
+            warnings: res.warnings.length,
+          },
+          correlationId,
+        );
+      } catch (err) {
+        store.set({ error: err instanceof Error ? err.message : String(err) });
+        logClientEvent(
+          "ui.search.failed",
+          {
+            error: err instanceof Error ? err.message : String(err),
+          },
+          correlationId,
+        );
+      } finally {
+        if (searchAbort.current === ctrl) {
+          searchAbort.current = null;
+          if (backgroundSearchCount.current === 0) {
+            setSearching(false);
+          }
         }
       }
-    }
-  }, [config?.languages.source, config?.languages.target, snapshot?.source_language, snapshot?.target_language]);
+    },
+    [
+      config?.languages.source,
+      config?.languages.target,
+      snapshot?.source_language,
+      snapshot?.target_language,
+    ],
+  );
 
   const onQueryChange = useCallback((v: string) => {
     store.set({ query: v, cursorIndex: -1 });
+  }, []);
+
+  const retrySearch = useCallback(() => {
+    const previous = lastSearchedQuery.current || store.get().query.trim();
+    if (previous) void runSearch(previous);
+  }, [runSearch]);
+
+  const dismissError = useCallback(() => {
+    store.set({ error: null });
   }, []);
 
   const cursorForTab = useCallback(
@@ -341,7 +372,15 @@ export function App(): JSX.Element {
       }
       return -1;
     },
-    [titleNavRows, sources, targets, episodeMatchId, selectedWorkId, selectedSourceId, selectedTargetId],
+    [
+      titleNavRows,
+      sources,
+      targets,
+      episodeMatchId,
+      selectedWorkId,
+      selectedSourceId,
+      selectedTargetId,
+    ],
   );
 
   const onTabChange = useCallback(
@@ -362,6 +401,9 @@ export function App(): JSX.Element {
       selectedSourceId: null,
       selectedTargetId: null,
       query: "",
+      // Settling one step opens the next one's list, so the step the footer
+      // names is the step the palette is showing.
+      tab: "source",
       cursorIndex: -1,
     });
   }, []);
@@ -420,44 +462,66 @@ export function App(): JSX.Element {
     [filteredWorks, selectTitle],
   );
 
-  const hydrateSeasonIfNeeded = useCallback(async (workId: string, seasonNumber: number) => {
-    const viewWork = works.find((item) => item.id === workId);
-    const season = viewWork?.seasons.find((item) => item.seasonNumber === seasonNumber);
-    if (!viewWork || !season) return;
-    const hasSkeleton = season.episodes.some((episode) =>
-      episode.matchId.startsWith("skeleton:") && episode.episode != null,
-    );
-    if (!hasSkeleton) return;
-    const key = seasonHydrateKey(workId, seasonNumber);
-    if (!beginHydrate(key)) return;
-    const correlationId = clientEventId("season-hydrate");
-    logClientEvent("ui.season.hydrate_requested", { workId, season: seasonNumber }, correlationId);
-    try {
-      const hydrated = await api.hydrateSeason(workId, viewWork.title, seasonNumber, correlationId);
-      const fresh = await api.getState();
-      store.set({ snapshot: fresh, config: fresh.config });
-      logClientEvent("ui.season.hydrate_completed", {
-        workId,
-        season: seasonNumber,
-        hydrated: hydrated.hydrated,
-        hydratedEpisodes: hydrated.hydratedEpisodes,
-      }, correlationId);
-    } catch (err) {
-      store.set({ error: err instanceof Error ? err.message : String(err) });
-      logClientEvent("ui.season.hydrate_failed", {
-        workId,
-        season: seasonNumber,
-        error: err instanceof Error ? err.message : String(err),
-      }, correlationId);
-    } finally {
-      endHydrate(key);
-    }
-  }, [beginHydrate, endHydrate, works]);
+  const hydrateSeasonIfNeeded = useCallback(
+    async (workId: string, seasonNumber: number) => {
+      const viewWork = works.find((item) => item.id === workId);
+      const season = viewWork?.seasons.find((item) => item.seasonNumber === seasonNumber);
+      if (!viewWork || !season) return;
+      const hasSkeleton = season.episodes.some(
+        (episode) => episode.matchId.startsWith("skeleton:") && episode.episode != null,
+      );
+      if (!hasSkeleton) return;
+      const key = seasonHydrateKey(workId, seasonNumber);
+      if (!beginHydrate(key)) return;
+      const correlationId = clientEventId("season-hydrate");
+      logClientEvent(
+        "ui.season.hydrate_requested",
+        { workId, season: seasonNumber },
+        correlationId,
+      );
+      try {
+        const hydrated = await api.hydrateSeason(
+          workId,
+          viewWork.title,
+          seasonNumber,
+          correlationId,
+        );
+        const fresh = await api.getState();
+        store.set({ snapshot: fresh, config: fresh.config });
+        logClientEvent(
+          "ui.season.hydrate_completed",
+          {
+            workId,
+            season: seasonNumber,
+            hydrated: hydrated.hydrated,
+            hydratedEpisodes: hydrated.hydratedEpisodes,
+          },
+          correlationId,
+        );
+      } catch (err) {
+        store.set({ error: err instanceof Error ? err.message : String(err) });
+        logClientEvent(
+          "ui.season.hydrate_failed",
+          {
+            workId,
+            season: seasonNumber,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          correlationId,
+        );
+      } finally {
+        endHydrate(key);
+      }
+    },
+    [beginHydrate, endHydrate, works],
+  );
 
   const onToggleExpandSeason = useCallback(
     (workId: string, seasonNumber: number) => {
       const state = store.get();
-      const opening = !(state.expandedWorkId === workId && state.expandedSeasonNumber === seasonNumber);
+      const opening = !(
+        state.expandedWorkId === workId && state.expandedSeasonNumber === seasonNumber
+      );
       store.set((s) => {
         const sameWork = s.expandedWorkId === workId;
         const toggle = sameWork && s.expandedSeasonNumber === seasonNumber;
@@ -519,40 +583,69 @@ export function App(): JSX.Element {
     [selectTitle],
   );
 
-  const onHydrateEpisode = useCallback(async (workId: string, season: number, episode: number) => {
-    const work = works.find((item) => item.id === workId);
-    if (!work) return;
-    const key = episodeHydrateKey(workId, season, episode);
-    if (!beginHydrate(key)) return;
-    const correlationId = clientEventId("hydrate");
-    logClientEvent("ui.episode.hydrate_requested", { workId, season, episode }, correlationId);
-    store.set({ selectedWorkId: workId, expandedWorkId: workId, expandedSeasonNumber: season, cursorIndex: -1 });
-    try {
-      const hydrated = await api.hydrateEpisode(workId, work.title, season, episode, correlationId);
-      const fresh = await api.getState();
-      store.set({ snapshot: fresh, config: fresh.config });
-      if (hydrated.matchId) {
-        selectTitle(workId, hydrated.matchId);
+  const onHydrateEpisode = useCallback(
+    async (workId: string, season: number, episode: number) => {
+      const work = works.find((item) => item.id === workId);
+      if (!work) return;
+      const key = episodeHydrateKey(workId, season, episode);
+      if (store.get().emptyLookups.includes(key)) return;
+      // The season sweep running above this row is already asking after it. A
+      // second request would spend another slot of the provider quota to fill in
+      // a row that is about to fill itself in.
+      if (hydrateInFlight.current.has(seasonHydrateKey(workId, season))) return;
+      if (!beginHydrate(key)) return;
+      const correlationId = clientEventId("hydrate");
+      logClientEvent("ui.episode.hydrate_requested", { workId, season, episode }, correlationId);
+      store.set({
+        selectedWorkId: workId,
+        expandedWorkId: workId,
+        expandedSeasonNumber: season,
+        cursorIndex: -1,
+      });
+      try {
+        const hydrated = await api.hydrateEpisode(
+          workId,
+          work.title,
+          season,
+          episode,
+          correlationId,
+        );
+        const fresh = await api.getState();
+        store.set({ snapshot: fresh, config: fresh.config });
+        if (hydrated.matchId) {
+          selectTitle(workId, hydrated.matchId);
+        } else {
+          store.set((s) => ({ emptyLookups: [...s.emptyLookups, key] }));
+        }
+        logClientEvent(
+          "ui.episode.hydrate_completed",
+          {
+            workId,
+            season,
+            episode,
+            hydrated: hydrated.hydrated,
+            matchId: hydrated.matchId,
+          },
+          correlationId,
+        );
+      } catch (err) {
+        store.set({ error: err instanceof Error ? err.message : String(err) });
+        logClientEvent(
+          "ui.episode.hydrate_failed",
+          {
+            workId,
+            season,
+            episode,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          correlationId,
+        );
+      } finally {
+        endHydrate(key);
       }
-      logClientEvent("ui.episode.hydrate_completed", {
-        workId,
-        season,
-        episode,
-        hydrated: hydrated.hydrated,
-        matchId: hydrated.matchId,
-      }, correlationId);
-    } catch (err) {
-      store.set({ error: err instanceof Error ? err.message : String(err) });
-      logClientEvent("ui.episode.hydrate_failed", {
-        workId,
-        season,
-        episode,
-        error: err instanceof Error ? err.message : String(err),
-      }, correlationId);
-    } finally {
-      endHydrate(key);
-    }
-  }, [beginHydrate, selectTitle, endHydrate, works]);
+    },
+    [beginHydrate, selectTitle, endHydrate, works],
+  );
 
   const onPickSource = useCallback((id: string) => {
     logClientEvent("ui.source.selected", { resultId: id });
@@ -561,7 +654,10 @@ export function App(): JSX.Element {
 
   const onPickTarget = useCallback(async (id: string) => {
     const correlationId = clientEventId("prepare");
-    store.set({ selectedTargetId: id, tab: "titles", cursorIndex: -1 });
+    // Staying on the pick that was just made keeps the last step settled.
+    // Dropping back to the title list read as "start over" and invited the
+    // reader to pick their way around a session that was already prepared.
+    store.set({ selectedTargetId: id, cursorIndex: -1 });
     const currentEpisode = store.get().selectedEpisodeMatchId;
     const currentSource = store.get().selectedSourceId;
     if (!currentEpisode || !currentSource) return;
@@ -571,14 +667,17 @@ export function App(): JSX.Element {
     // the controller falls back to Foundry via target_match_mode.
     const mode: "subtitle_pair" | "ocr_fallback" =
       id === "__ocr__" ? "ocr_fallback" : "subtitle_pair";
-    const targetResultId =
-      id === "__local__" || id === "__ocr__" ? null : id;
-    logClientEvent("ui.target.selected", {
-      matchId: currentEpisode,
-      sourceResultId: currentSource,
-      targetResultId,
-      mode,
-    }, correlationId);
+    const targetResultId = id === "__local__" || id === "__ocr__" ? null : id;
+    logClientEvent(
+      "ui.target.selected",
+      {
+        matchId: currentEpisode,
+        sourceResultId: currentSource,
+        targetResultId,
+        mode,
+      },
+      correlationId,
+    );
     try {
       await api.prepareSession({
         mode,
@@ -591,9 +690,13 @@ export function App(): JSX.Element {
       logClientEvent("ui.session.prepare_completed", { mode }, correlationId);
     } catch (err) {
       store.set({ error: err instanceof Error ? err.message : String(err) });
-      logClientEvent("ui.session.prepare_failed", {
-        error: err instanceof Error ? err.message : String(err),
-      }, correlationId);
+      logClientEvent(
+        "ui.session.prepare_failed",
+        {
+          error: err instanceof Error ? err.message : String(err),
+        },
+        correlationId,
+      );
     } finally {
       setPreparing(false);
     }
@@ -601,9 +704,13 @@ export function App(): JSX.Element {
 
   const startSync = useCallback(async () => {
     const correlationId = clientEventId("start");
-    logClientEvent("ui.session.start_clicked", {
-      sessionId: store.get().snapshot?.prepared_session?.session_id,
-    }, correlationId);
+    logClientEvent(
+      "ui.session.start_clicked",
+      {
+        sessionId: store.get().snapshot?.prepared_session?.session_id,
+      },
+      correlationId,
+    );
     try {
       await api.startSession();
       const fresh = await api.getState();
@@ -611,9 +718,13 @@ export function App(): JSX.Element {
       logClientEvent("ui.session.start_completed", {}, correlationId);
     } catch (err) {
       store.set({ error: err instanceof Error ? err.message : String(err) });
-      logClientEvent("ui.session.start_failed", {
-        error: err instanceof Error ? err.message : String(err),
-      }, correlationId);
+      logClientEvent(
+        "ui.session.start_failed",
+        {
+          error: err instanceof Error ? err.message : String(err),
+        },
+        correlationId,
+      );
     }
   }, []);
 
@@ -662,31 +773,34 @@ export function App(): JSX.Element {
     };
   }, [startSync]);
 
-  const onChangeLang = useCallback(async (type: "source" | "target", code: string) => {
-    const current = store.get().config;
-    if (!current) return;
-    const languages = applyLanguageChoice(current.languages, type, code);
-    const next: BackendConfig = { ...current, languages };
-    logClientEvent("ui.language.changed", {
-      type,
-      code,
-      source: languages.source,
-      target: languages.target,
-    });
-    try {
-      const saved = await api.putConfig(next);
-      store.set({ config: saved });
-      store.resetSelection();
-      // Languages are part of the query, so the previous results no longer
-      // describe what was asked for. Ask again rather than leaving stale titles.
-      const previousQuery = lastSearchedQuery.current;
-      if (previousQuery) {
-        await runSearch(previousQuery);
+  const onChangeLang = useCallback(
+    async (type: "source" | "target", code: string) => {
+      const current = store.get().config;
+      if (!current) return;
+      const languages = applyLanguageChoice(current.languages, type, code);
+      const next: BackendConfig = { ...current, languages };
+      logClientEvent("ui.language.changed", {
+        type,
+        code,
+        source: languages.source,
+        target: languages.target,
+      });
+      try {
+        const saved = await api.putConfig(next);
+        store.set({ config: saved });
+        store.resetSelection();
+        // Languages are part of the query, so the previous results no longer
+        // describe what was asked for. Ask again rather than leaving stale titles.
+        const previousQuery = lastSearchedQuery.current;
+        if (previousQuery) {
+          await runSearch(previousQuery);
+        }
+      } catch (err) {
+        store.set({ error: err instanceof Error ? err.message : String(err) });
       }
-    } catch (err) {
-      store.set({ error: err instanceof Error ? err.message : String(err) });
-    }
-  }, [runSearch]);
+    },
+    [runSearch],
+  );
 
   const clearSession = useCallback(async () => {
     const correlationId = clientEventId("stop");
@@ -702,7 +816,8 @@ export function App(): JSX.Element {
     } catch {
       // ignore
     }
-    store.resetSelection();
+    // The picks stay: the prepared subtitles are still good, and stopping is
+    // usually the first half of starting again over a better region.
     logClientEvent("ui.session.stop_completed", {}, correlationId);
   }, []);
 
@@ -738,11 +853,12 @@ export function App(): JSX.Element {
   }, []);
 
   const onSelect = useCallback(() => {
-    if (tab === "titles" && query.trim() && query.trim() !== lastSearchedQuery.current) {
+    const searchable = tab === "titles" || !episodeMatchId;
+    if (searchable && query.trim() && query.trim() !== lastSearchedQuery.current) {
       void runSearch(query.trim());
       return;
     }
-    if (tab === "titles" && activeListLength === 0 && query.trim()) {
+    if (searchable && activeListLength === 0 && query.trim()) {
       void runSearch(query.trim());
       return;
     }
@@ -756,7 +872,11 @@ export function App(): JSX.Element {
         onToggleExpandSeason(row.workId, row.seasonNumber);
       } else if (row.kind === "episode" && row.episodeMatchId) {
         onPickEpisode(row.workId, row.episodeMatchId);
-      } else if (row.kind === "skeleton_episode" && row.seasonNumber != null && row.episodeNumber != null) {
+      } else if (
+        row.kind === "skeleton_episode" &&
+        row.seasonNumber != null &&
+        row.episodeNumber != null
+      ) {
         void onHydrateEpisode(row.workId, row.seasonNumber, row.episodeNumber);
       }
       return;
@@ -788,19 +908,39 @@ export function App(): JSX.Element {
   ]);
 
   const onPrimaryConfirm = useCallback(() => {
-    if (phase === "home" && tab === "titles" && query.trim()) {
+    // Until an episode is picked the source and target lists have nothing to
+    // filter, so whatever is typed is a title to search for.
+    if (phase === "home" && (tab === "titles" || !episodeMatchId) && query.trim()) {
       void runSearch(query.trim());
       return;
     }
     if (preparing) return;
+    // A session that is ready to run starts from wherever the reader has
+    // browsed to. This outranks the picks, which live in the page and are gone
+    // after a reload even though the session behind them survives.
     if (phase === "prep" && !preparingReplacement) {
       void startWithRegion();
       return;
     }
     if (!episodeMatchId) return;
-    // Not ready to start yet, so send the user to whichever pick is still open.
-    store.set({ tab: selectedSourceId ? "target" : "source", cursorIndex: -1 });
-  }, [phase, tab, query, runSearch, startWithRegion, preparing, preparingReplacement, episodeMatchId, selectedSourceId]);
+    if (tab === "titles") {
+      store.set({ tab: "source", cursorIndex: -1 });
+      return;
+    }
+    if (tab === "source" && selectedSourceId) {
+      store.set({ tab: "target", cursorIndex: -1 });
+    }
+  }, [
+    phase,
+    tab,
+    query,
+    runSearch,
+    startWithRegion,
+    preparing,
+    preparingReplacement,
+    episodeMatchId,
+    selectedSourceId,
+  ]);
 
   const onMoveCursor = useCallback(
     (dir: "up" | "down" | "left" | "right") => {
@@ -821,16 +961,18 @@ export function App(): JSX.Element {
         if (s.cursorIndex === -1) {
           return { cursorIndex: dir === "up" || dir === "left" ? list - 1 : 0 };
         }
-        const titleRow = s.tab === "titles" && s.cursorIndex >= 0
-          ? titleNavRows[s.cursorIndex]
-          : null;
+        const titleRow =
+          s.tab === "titles" && s.cursorIndex >= 0 ? titleNavRows[s.cursorIndex] : null;
         if (s.tab === "titles" && titleGridColumns > 1 && titleRow?.kind === "work") {
           const workPosition = titleWorkRowIndices.indexOf(s.cursorIndex);
           if (workPosition === -1) return {};
           const delta =
-            dir === "down" ? titleGridColumns
-              : dir === "up" ? -titleGridColumns
-                : dir === "right" ? 1
+            dir === "down"
+              ? titleGridColumns
+              : dir === "up"
+                ? -titleGridColumns
+                : dir === "right"
+                  ? 1
                   : -1;
           const nextWorkPosition = Math.max(
             0,
@@ -843,17 +985,28 @@ export function App(): JSX.Element {
         return { cursorIndex: next };
       });
     },
-    [titleListLength, sources.length, targets.length, titleGridColumns, titleNavRows, titleWorkRowIndices, cursorForTab],
+    [
+      titleListLength,
+      sources.length,
+      targets.length,
+      titleGridColumns,
+      titleNavRows,
+      titleWorkRowIndices,
+      cursorForTab,
+    ],
   );
 
-  const onCycleTab = useCallback((dir: 1 | -1) => {
-    const order: PaletteTabId[] = ["titles", "source", "target"];
-    store.set((s) => {
-      const idx = order.indexOf(s.tab);
-      const next = order[(idx + dir + order.length) % order.length];
-      return { tab: next, cursorIndex: cursorForTab(next) };
-    });
-  }, [cursorForTab]);
+  const onCycleTab = useCallback(
+    (dir: 1 | -1) => {
+      const order: PaletteTabId[] = ["titles", "source", "target"];
+      store.set((s) => {
+        const idx = order.indexOf(s.tab);
+        const next = order[(idx + dir + order.length) % order.length];
+        return { tab: next, cursorIndex: cursorForTab(next) };
+      });
+    },
+    [cursorForTab],
+  );
 
   useKeybinds({
     onFocusPalette: () => {
@@ -881,16 +1034,17 @@ export function App(): JSX.Element {
 
   const noKey = shouldShowNoKey(config);
   const isEmpty = isFirstLaunch(config);
-  const sourceNotices = useMemo(() => buildSourceNotices(config, snapshot?.warning_message ?? ""), [
-    config,
-    snapshot?.warning_message,
-  ]);
+  const sourceNotices = useMemo(
+    () => buildSourceNotices(config, snapshot?.warning_message ?? ""),
+    [config, snapshot?.warning_message],
+  );
+
+  // One place for both: an action that failed in the studio and a failure the
+  // backend is reporting. Neither had anywhere to appear before.
+  const paletteError = actionError ?? (snapshot?.error_message || null);
 
   const isCompact = phase === "prep" || phase === "live";
-  const isIdle =
-    phase === "home" &&
-    filteredWorks.length === 0 &&
-    sources.length === 0;
+  const isIdle = phase === "home" && filteredWorks.length === 0 && sources.length === 0;
 
   const selectedWork = works.find((w) => w.id === selectedWorkId) ?? null;
   const prepTitleLabel = selectedWork?.title ?? null;
@@ -966,19 +1120,7 @@ export function App(): JSX.Element {
             onOpenSettings={openSettings}
           />
         )}
-        {/* Only while the palette is centred: the full-width palette covers this
-            corner, and the persistent strip already carries the same warning. */}
-        {!isCompact && (searching || snapshot?.warning_message) && sourceNotices.length > 0 && (
-          <SearchNoticePanel
-            searching={searching}
-            notices={sourceNotices}
-            onOpenSettings={openSettings}
-          />
-        )}
-
-        {noKey && phase === "home" && !query && (
-          <NoApiKey onOpenSettings={openSettings} />
-        )}
+        {noKey && phase === "home" && !query && <NoApiKey onOpenSettings={openSettings} />}
 
         {!noKey && isEmpty && phase === "home" && !query && (
           <EmptyState
@@ -989,99 +1131,104 @@ export function App(): JSX.Element {
         )}
 
         {phase !== "live" && (
-        <div
-          ref={paletteBoxRef}
-          style={{
-            position: "absolute",
-            top: isCompact ? COMPACT_PALETTE_TOP : isIdle ? 210 : 88,
-            // Centred in every phase so only the width animates. Swapping the
-            // horizontal anchor instead would snap `left` while `transform` was
-            // still easing, throwing the palette off the side of the screen.
-            left: "50%",
-            transform: "translateX(-50%)",
-            width: isCompact
-              ? "calc(100vw - 40px)"
-              : "min(920px, calc(100vw - 28px))",
-            // Above the search notice, which is advisory and would otherwise
-            // cover the language dropdown that opens under the chips.
-            zIndex: 8,
-            transition:
-              "top 520ms cubic-bezier(.22, 1.3, .36, 1), width 280ms cubic-bezier(.2,.7,.3,1)",
-          }}
-        >
-          {!isCompact && !noKey && !isEmpty && (
-            <div style={{ textAlign: "center", marginBottom: 26 }}>
-              <div
-                style={{
-                  fontSize: 13,
-                  fontWeight: 700,
-                  letterSpacing: 3.2,
-                  color: "var(--text-label)",
-                  textTransform: "uppercase",
-                }}
-              >
-                Meowcal Studio
+          <div
+            ref={paletteBoxRef}
+            style={{
+              position: "absolute",
+              top: isCompact ? COMPACT_PALETTE_TOP : isIdle ? 210 : 88,
+              // Centred in every phase so only the width animates. Swapping the
+              // horizontal anchor instead would snap `left` while `transform` was
+              // still easing, throwing the palette off the side of the screen.
+              left: "50%",
+              transform: "translateX(-50%)",
+              width: isCompact ? "calc(100vw - 40px)" : "min(920px, calc(100vw - 28px))",
+              // Above the search notice, which is advisory and would otherwise
+              // cover the language dropdown that opens under the chips.
+              zIndex: 8,
+              transition:
+                "top 520ms cubic-bezier(.22, 1.3, .36, 1), width 280ms cubic-bezier(.2,.7,.3,1)",
+            }}
+          >
+            {!isCompact && !noKey && !isEmpty && (
+              <div style={{ textAlign: "center", marginBottom: 26 }}>
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    letterSpacing: 3.2,
+                    color: "var(--text-label)",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Meowcal Studio
+                </div>
+                <h1
+                  className="display-serif"
+                  style={{
+                    margin: "10px 0 0",
+                    fontSize: 52,
+                    fontWeight: 500,
+                    letterSpacing: -1.2,
+                    lineHeight: 1.1,
+                    color: "var(--text-heading)",
+                  }}
+                >
+                  What are you watching?
+                </h1>
               </div>
-              <h1
-                className="display-serif"
-                style={{
-                  margin: "10px 0 0",
-                  fontSize: 52,
-                  fontWeight: 500,
-                  letterSpacing: -1.2,
-                  lineHeight: 1.1,
-                  color: "var(--text-heading)",
-                }}
-              >
-                What are you watching?
-              </h1>
-            </div>
-          )}
-          {!noKey && !isEmpty && (
-            <Palette
-              phase={palettePhase}
-              compact={isCompact}
-              query={query}
-              onQueryChange={onQueryChange}
-              tab={tab}
-              onTabChange={onTabChange}
-              works={filteredWorks}
-              totalWorksCount={works.length}
-              titleMediaFilter={titleMediaFilter}
-              selectedSeasonFilters={selectedSeasonFilters}
-              availableSeasonNumbers={availableSeasonNumbers}
-              onTitleMediaFilterChange={onTitleMediaFilterChange}
-              onToggleSeasonFilter={onToggleSeasonFilter}
-              onClearSeasonFilters={onClearSeasonFilters}
-              sources={sources}
-              targets={targets}
-              selectedWorkId={selectedWorkId}
-              expandedWorkId={expandedWorkId}
-              expandedSeasonNumber={expandedSeasonNumber}
-              selectedEpisodeMatchId={selectedEpisodeMatchId}
-              selectedSourceId={selectedSourceId}
-              selectedTargetId={selectedTargetId}
-              cursorIndex={cursorIndex}
-              onToggleExpandWork={onToggleExpandWork}
-              onToggleExpandSeason={onToggleExpandSeason}
-              onPickWork={onPickWork}
-              onPickEpisode={onPickEpisode}
-              onHydrateEpisode={(workId, season, episode) => void onHydrateEpisode(workId, season, episode)}
-              onPickSource={onPickSource}
-              onPickTarget={(id) => void onPickTarget(id)}
-              onPrimary={() => void onPrimaryConfirm()}
-              inputRef={inputRef}
-              sourceLang={sourceLang}
-              targetLang={targetLang}
-              searching={searching}
-              hydrating={hydrating}
-              preparing={preparing}
-              preparingReplacement={preparingReplacement}
-              langOptions={(languages?.sourceTarget ?? []) as LanguageOption[]}
-              onChangeLang={(type, code) => void onChangeLang(type, code)}
-            />
-          )}
-        </div>
+            )}
+            {!noKey && !isEmpty && (
+              <Palette
+                phase={palettePhase}
+                compact={isCompact}
+                query={query}
+                onQueryChange={onQueryChange}
+                tab={tab}
+                onTabChange={onTabChange}
+                works={filteredWorks}
+                totalWorksCount={works.length}
+                titleMediaFilter={titleMediaFilter}
+                selectedSeasonFilters={selectedSeasonFilters}
+                availableSeasonNumbers={availableSeasonNumbers}
+                onTitleMediaFilterChange={onTitleMediaFilterChange}
+                onToggleSeasonFilter={onToggleSeasonFilter}
+                onClearSeasonFilters={onClearSeasonFilters}
+                sources={sources}
+                targets={targets}
+                selectedWorkId={selectedWorkId}
+                expandedWorkId={expandedWorkId}
+                expandedSeasonNumber={expandedSeasonNumber}
+                selectedEpisodeMatchId={selectedEpisodeMatchId}
+                selectedSourceId={selectedSourceId}
+                selectedTargetId={selectedTargetId}
+                cursorIndex={cursorIndex}
+                onToggleExpandWork={onToggleExpandWork}
+                onToggleExpandSeason={onToggleExpandSeason}
+                onPickWork={onPickWork}
+                onPickEpisode={onPickEpisode}
+                onHydrateEpisode={(workId, season, episode) =>
+                  void onHydrateEpisode(workId, season, episode)
+                }
+                onPickSource={onPickSource}
+                onPickTarget={(id) => void onPickTarget(id)}
+                onPrimary={() => void onPrimaryConfirm()}
+                inputRef={inputRef}
+                sourceLang={sourceLang}
+                targetLang={targetLang}
+                searching={searching}
+                searchStatusMessage={searchStatusMessage}
+                hydrating={hydrating}
+                emptyLookups={emptyLookups}
+                errorMessage={paletteError}
+                onRetrySearch={lastSearchedQuery.current || query.trim() ? retrySearch : null}
+                onDismissError={dismissError}
+                preparing={preparing}
+                preparingReplacement={preparingReplacement}
+                langOptions={(languages?.sourceTarget ?? []) as LanguageOption[]}
+                onChangeLang={(type, code) => void onChangeLang(type, code)}
+              />
+            )}
+          </div>
         )}
 
         {phase === "prep" && (
@@ -1110,8 +1257,6 @@ export function App(): JSX.Element {
 
         {phase === "live" && (
           <LiveView
-            prev={liveLines[liveLines.length - 2] ?? null}
-            current={liveLines[liveLines.length - 1] ?? null}
             onStop={() => void clearSession()}
             onSelectRegion={() => void tauri.openAreaSelector()}
             onOpenSettings={openSettings}
@@ -1170,39 +1315,12 @@ function SourceHealthStrip({
   return (
     <div className="source-health-strip" data-compact={compact} aria-live="polite">
       <span className="source-health-dot" aria-hidden />
-      <span className="source-health-text">{notices[0].label}</span>
-      {notices.length > 1 && (
-        <span className="source-health-count">+{notices.length - 1}</span>
-      )}
+      <span className="source-health-text">{notices[0].detail || notices[0].label}</span>
+      {notices.length > 1 && <span className="source-health-count">+{notices.length - 1}</span>}
       <button className="source-health-button" type="button" onClick={onOpenSettings}>
         Settings
       </button>
     </div>
-  );
-}
-
-function SearchNoticePanel({
-  searching,
-  notices,
-  onOpenSettings,
-}: {
-  searching: boolean;
-  notices: SourceNotice[];
-  onOpenSettings: () => void;
-}): JSX.Element {
-  return (
-    <aside className="search-notice-panel" aria-live="polite" aria-label="Search notices">
-      <div className="search-notice-kicker">{searching ? "Searching" : "Search notice"}</div>
-      {notices.slice(0, 3).map((notice) => (
-        <div className="search-notice-item" data-tone={notice.tone} key={notice.id}>
-          <div className="search-notice-title">{notice.label}</div>
-          <div className="search-notice-detail">{notice.detail}</div>
-        </div>
-      ))}
-      <button className="search-notice-button" type="button" onClick={onOpenSettings}>
-        Open source settings
-      </button>
-    </aside>
   );
 }
 

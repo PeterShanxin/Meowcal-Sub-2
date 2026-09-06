@@ -1,9 +1,4 @@
-import type {
-  BackendPreparedSession,
-  LiveLine,
-  SourceItem,
-  TargetItem,
-} from "../lib/types";
+import type { BackendPreparedSession, LiveLine, SourceItem, TargetItem } from "../lib/types";
 import { Kbd } from "./primitives";
 
 interface PrepCardProps {
@@ -24,16 +19,14 @@ export function PrepCard({
   const sourceFile = prepared?.source_summary ?? prepared?.source_file_name ?? source?.file ?? "—";
   const isAutoTranslation = prepared?.target_match_mode === "auto_live_translation";
   const isLocalTranslation = prepared?.target_match_mode === "local_translation";
-  const targetLabel =
-    isAutoTranslation
-      ? "Live translation (Foundry)"
-      : isLocalTranslation
-        ? "Local translation (Foundry)"
+  const targetLabel = isAutoTranslation
+    ? "Live translation (Foundry)"
+    : isLocalTranslation
+      ? "Local translation (Foundry)"
       : (prepared?.target_file_name ?? target?.title ?? target?.file ?? "—");
-  const lines =
-    prepared?.source_line_count
-      ? `${prepared.source_line_count.toLocaleString()} prepared`
-      : "—";
+  const lines = prepared?.source_line_count
+    ? `${prepared.source_line_count.toLocaleString()} prepared`
+    : "—";
 
   return (
     <div
@@ -148,11 +141,7 @@ function Row({
   );
 }
 
-export function PreviewCard({
-  line,
-}: {
-  line: LiveLine | null;
-}): JSX.Element {
+export function PreviewCard({ line }: { line: LiveLine | null }): JSX.Element {
   return (
     <div
       className="fade-in"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 from dataclasses import dataclass
 from time import monotonic
@@ -11,10 +12,10 @@ import mss
 from PIL import Image, ImageOps
 from winocr import OcrEngine
 
-logger = logging.getLogger(__name__)
-
 from meocosub2.languages import normalize_ocr_language
 from meocosub2.textnorm import clean_cjk_text, is_cjk_char
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -49,11 +50,21 @@ def resolve_ocr_language(language: str) -> OcrResolution:
             return OcrResolution(requested, candidate)
 
     if requested == "zh-TW" and "zh-Hans-CN" in installed:
-        return OcrResolution(requested, "zh-Hans-CN", "Traditional Chinese OCR pack is missing. Falling back to Simplified Chinese OCR.")
+        return OcrResolution(
+            requested,
+            "zh-Hans-CN",
+            "Traditional Chinese OCR pack is missing. Falling back to Simplified Chinese OCR.",
+        )
     if requested == "zh-CN" and "zh-TW" in installed:
-        return OcrResolution(requested, "zh-TW", "Simplified Chinese OCR pack is missing. Falling back to Traditional Chinese OCR.")
+        return OcrResolution(
+            requested,
+            "zh-TW",
+            "Simplified Chinese OCR pack is missing. Falling back to Traditional Chinese OCR.",
+        )
     if requested == "en-US" and "en-GB" in installed:
-        return OcrResolution(requested, "en-GB", "English (US) OCR pack is missing. Falling back to English.")
+        return OcrResolution(
+            requested, "en-GB", "English (US) OCR pack is missing. Falling back to English."
+        )
 
     return OcrResolution(requested, requested, f"OCR language '{requested}' is not installed.")
 
@@ -63,6 +74,18 @@ def capture_region(region: tuple[int, int, int, int]) -> Image.Image:
     with mss.mss() as sct:
         screenshot = sct.grab({"left": left, "top": top, "width": width, "height": height})
         return Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
+
+
+def capture_region_jpeg(region: tuple[int, int, int, int], quality: int = 80) -> bytes:
+    """The screen as it looks right now, for the capture selector to draw on.
+
+    JPEG rather than PNG: nothing reads these pixels, they are only there for the
+    user to aim at, and a full screen encodes and travels an order of magnitude
+    cheaper this way.
+    """
+    buffer = io.BytesIO()
+    capture_region(region).save(buffer, format="JPEG", quality=quality)
+    return buffer.getvalue()
 
 
 def preprocess_for_ocr(image: Image.Image) -> Image.Image:
@@ -107,7 +130,7 @@ async def ocr_image(image: Image.Image, language: str) -> str:
     best_score = (0, 0)
     best_pass = "none"
     t0 = monotonic()
-    for pass_name, candidate in zip(pass_names, passes):
+    for pass_name, candidate in zip(pass_names, passes, strict=True):
         try:
             text = await _run_ocr(candidate, resolution.resolved_language)
         except Exception as exc:
@@ -122,6 +145,10 @@ async def ocr_image(image: Image.Image, language: str) -> str:
     elapsed_ms = int((monotonic() - t0) * 1000)
     logger.debug(
         "OCR pass=%s score=%s len=%d text=%r duration_ms=%d",
-        best_pass, best_score, len(best_text), best_text[:80], elapsed_ms,
+        best_pass,
+        best_score,
+        len(best_text),
+        best_text[:80],
+        elapsed_ms,
     )
     return best_text

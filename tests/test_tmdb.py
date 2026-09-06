@@ -115,9 +115,7 @@ async def test_tmdb_client_search_returns_best_match_and_caches(tmp_path: Path) 
             )
         )
         router.get("/tv/64196/external_ids").mock(
-            return_value=httpx.Response(
-                200, json={"imdb_id": "tt4869896"}
-            )
+            return_value=httpx.Response(200, json={"imdb_id": "tt4869896"})
         )
         hit = await client.search_tv("Overlord", year_hint=2015)
         cached = await client.search_tv("Overlord", year_hint=2015)
@@ -404,9 +402,13 @@ async def test_aggregator_limits_tmdb_eager_enrichment_for_generic_queries() -> 
         for index in range(30)
     }
     stub = _StubTMDb(search_hits=search_hits)
-    aggregator = SubtitleSearchAggregator(AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub)
+    aggregator = SubtitleSearchAggregator(
+        AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub
+    )
     aggregator.providers = (
-        _FakeProvider("opensubtitles", "OpenSubtitles", ProviderSearchCatalog(matches=matches, results=[])),
+        _FakeProvider(
+            "opensubtitles", "OpenSubtitles", ProviderSearchCatalog(matches=matches, results=[])
+        ),
     )
 
     catalog = await aggregator.search_catalog("from", "en")
@@ -444,9 +446,13 @@ async def test_aggregator_keeps_cjk_title_queries_out_of_generic_tmdb_limit() ->
         for index in range(30)
     }
     stub = _StubTMDb(search_hits=search_hits)
-    aggregator = SubtitleSearchAggregator(AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub)
+    aggregator = SubtitleSearchAggregator(
+        AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub
+    )
     aggregator.providers = (
-        _FakeProvider("opensubtitles", "OpenSubtitles", ProviderSearchCatalog(matches=matches, results=[])),
+        _FakeProvider(
+            "opensubtitles", "OpenSubtitles", ProviderSearchCatalog(matches=matches, results=[])
+        ),
     )
 
     catalog = await aggregator.search_catalog("你的名字", "zhs")
@@ -484,9 +490,13 @@ async def test_aggregator_keeps_non_segmented_script_queries_out_of_generic_tmdb
         for index in range(30)
     }
     stub = _StubTMDb(search_hits=search_hits)
-    aggregator = SubtitleSearchAggregator(AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub)
+    aggregator = SubtitleSearchAggregator(
+        AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub
+    )
     aggregator.providers = (
-        _FakeProvider("opensubtitles", "OpenSubtitles", ProviderSearchCatalog(matches=matches, results=[])),
+        _FakeProvider(
+            "opensubtitles", "OpenSubtitles", ProviderSearchCatalog(matches=matches, results=[])
+        ),
     )
 
     catalog = await aggregator.search_catalog("รัก", "th")
@@ -529,9 +539,13 @@ async def test_aggregator_ranks_works_before_tmdb_eager_enrichment_limit() -> No
         for index, title in enumerate(titles)
     }
     stub = _StubTMDb(search_hits=search_hits)
-    aggregator = SubtitleSearchAggregator(AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub)
+    aggregator = SubtitleSearchAggregator(
+        AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub
+    )
     aggregator.providers = (
-        _FakeProvider("opensubtitles", "OpenSubtitles", ProviderSearchCatalog(matches=matches, results=[])),
+        _FakeProvider(
+            "opensubtitles", "OpenSubtitles", ProviderSearchCatalog(matches=matches, results=[])
+        ),
     )
 
     catalog = await aggregator.search_catalog("from", "en")
@@ -573,9 +587,13 @@ async def test_aggregator_preserves_ranked_order_after_tmdb_eager_enrichment() -
         series_details={40_001: {"number_of_seasons": 1}},
         season_episodes={(40_001, 1): [{"episode_number": 1, "name": "Pilot"}]},
     )
-    aggregator = SubtitleSearchAggregator(AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub)
+    aggregator = SubtitleSearchAggregator(
+        AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub
+    )
     aggregator.providers = (
-        _FakeProvider("opensubtitles", "OpenSubtitles", ProviderSearchCatalog(matches=matches, results=[])),
+        _FakeProvider(
+            "opensubtitles", "OpenSubtitles", ProviderSearchCatalog(matches=matches, results=[])
+        ),
     )
 
     catalog = await aggregator.search_catalog("from", "en")
@@ -594,7 +612,9 @@ async def test_aggregator_retries_tmdb_series_lookup_without_episode_year_hint()
         first_air_year=2022,
     )
     stub = _StubTMDb(search_hits={"from|": from_series})
-    aggregator = SubtitleSearchAggregator(AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub)
+    aggregator = SubtitleSearchAggregator(
+        AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub
+    )
     aggregator.providers = (
         _FakeProvider(
             "assrt",
@@ -682,9 +702,13 @@ async def test_aggregator_deduplicates_tmdb_before_limiting_eager_enrichment() -
         first_air_year=2020,
     )
     stub = _StubTMDb(search_hits=search_hits)
-    aggregator = SubtitleSearchAggregator(AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub)
+    aggregator = SubtitleSearchAggregator(
+        AppConfig(tmdb_api_key="dummy", tmdb_merge_enabled=True), tmdb_client=stub
+    )
     aggregator.providers = (
-        _FakeProvider("opensubtitles", "OpenSubtitles", ProviderSearchCatalog(matches=matches, results=[])),
+        _FakeProvider(
+            "opensubtitles", "OpenSubtitles", ProviderSearchCatalog(matches=matches, results=[])
+        ),
     )
 
     catalog = await aggregator.search_catalog("from", "en")
@@ -717,9 +741,7 @@ async def test_fetch_season_returns_episode_list(tmp_path: Path) -> None:
         ]
     }
     with respx.mock(base_url="https://api.themoviedb.org/3") as router:
-        router.get("/tv/64196/season/1").mock(
-            return_value=httpx.Response(200, json=episode_data)
-        )
+        router.get("/tv/64196/season/1").mock(return_value=httpx.Response(200, json=episode_data))
         episodes = await client.fetch_season(64196, 1)
         cached = await client.fetch_season(64196, 1)
         assert router.calls.call_count == 1
@@ -749,7 +771,8 @@ async def test_fetch_series_details_returns_season_count(tmp_path: Path) -> None
     with respx.mock(base_url="https://api.themoviedb.org/3") as router:
         router.get("/tv/64196").mock(
             return_value=httpx.Response(
-                200, json={"number_of_seasons": 4, "name": "Overlord", "poster_path": "/overlord.jpg"}
+                200,
+                json={"number_of_seasons": 4, "name": "Overlord", "poster_path": "/overlord.jpg"},
             )
         )
         details = await client.fetch_series_details(64196)
@@ -787,15 +810,27 @@ async def test_fetch_poster_url_returns_tmdb_image_url(tmp_path: Path) -> None:
 
 def test_build_season_skeleton_fills_missing_seasons() -> None:
     tmdb_catalog = [
-        (1, [{"episode_number": 1, "name": "Ep 1", "air_date": "2015-07-07"},
-             {"episode_number": 2, "name": "Ep 2", "air_date": "2015-07-14"}]),
+        (
+            1,
+            [
+                {"episode_number": 1, "name": "Ep 1", "air_date": "2015-07-07"},
+                {"episode_number": 2, "name": "Ep 2", "air_date": "2015-07-14"},
+            ],
+        ),
         (2, [{"episode_number": 1, "name": "S2 Ep 1", "air_date": "2016-07-05"}]),
     ]
     existing_seasons = [
         AggregatedSeason(
             season_number=2,
             episodes=[
-                AggregatedEpisode(season=2, episode=1, title="S2 Ep 1", match_id="real-match", subtitles_count=10, providers=("subdl",))
+                AggregatedEpisode(
+                    season=2,
+                    episode=1,
+                    title="S2 Ep 1",
+                    match_id="real-match",
+                    subtitles_count=10,
+                    providers=("subdl",),
+                )
             ],
             subtitles_count=10,
         )
@@ -821,10 +856,15 @@ def test_build_season_skeleton_preserves_season_packs() -> None:
     tmdb_catalog = [
         (1, [{"episode_number": 1, "name": "Ep 1", "air_date": "2015-07-07"}]),
     ]
-    pack = AggregatedEpisode(season=1, episode=None, title="Season 1 Pack", match_id="pack-match", subtitles_count=5, providers=("subdl",))
-    existing_seasons = [
-        AggregatedSeason(season_number=1, episodes=[pack], subtitles_count=5)
-    ]
+    pack = AggregatedEpisode(
+        season=1,
+        episode=None,
+        title="Season 1 Pack",
+        match_id="pack-match",
+        subtitles_count=5,
+        providers=("subdl",),
+    )
+    existing_seasons = [AggregatedSeason(season_number=1, episodes=[pack], subtitles_count=5)]
     result = build_season_skeleton(tmdb_catalog, existing_seasons)
 
     assert len(result) == 1
@@ -838,7 +878,16 @@ def test_build_season_skeleton_preserves_extra_provider_seasons() -> None:
     tmdb_catalog = [(1, [{"episode_number": 1, "name": "Ep 1", "air_date": "2015-07-07"}])]
     extra = AggregatedSeason(
         season_number=0,
-        episodes=[AggregatedEpisode(season=0, episode=1, title="Special", match_id="spec", subtitles_count=3, providers=())],
+        episodes=[
+            AggregatedEpisode(
+                season=0,
+                episode=1,
+                title="Special",
+                match_id="spec",
+                subtitles_count=3,
+                providers=(),
+            )
+        ],
         subtitles_count=3,
     )
     existing_seasons = [extra]

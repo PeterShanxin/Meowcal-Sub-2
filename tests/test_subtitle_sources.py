@@ -4,14 +4,24 @@ import zipfile
 import httpx
 import pytest
 
+import meocosub2.subtitle_sources.aggregator as aggregator_module
 import meocosub2.subtitle_sources.subdl as subdl_module
 from meocosub2.config import AppConfig
 from meocosub2.errors import SubtitleSourceError
-from meocosub2.subtitle_sources.assrt import AssrtProvider
 from meocosub2.subtitle_sources.aggregator import SubtitleSearchAggregator
+from meocosub2.subtitle_sources.assrt import AssrtProvider
 from meocosub2.subtitle_sources.subdl import SubdlProvider
-from meocosub2.subtitle_sources.types import AggregatedWork, ProviderSearchCatalog, ProviderSubtitleMatch, ProviderSubtitleResult
-from meocosub2.subtitle_sources.utils import canonical_title, map_subdl_language
+from meocosub2.subtitle_sources.types import (
+    AggregatedWork,
+    ProviderSearchCatalog,
+    ProviderSubtitleMatch,
+    ProviderSubtitleResult,
+)
+from meocosub2.subtitle_sources.utils import (
+    canonical_title,
+    looks_like_release_name,
+    map_subdl_language,
+)
 
 
 class FakeProvider:
@@ -434,7 +444,9 @@ def test_subdl_limit_subtitles_keeps_best_ranked_episode_representatives() -> No
         _subdl_result(f"low-{episode}", season=1, episode=episode, score=1.0, downloads=episode)
         for episode in range(1, 41)
     ]
-    subtitles.append(_subdl_result("high-late-season", season=4, episode=10, score=99.0, downloads=100))
+    subtitles.append(
+        _subdl_result("high-late-season", season=4, episode=10, score=99.0, downloads=100)
+    )
 
     limited = provider._limit_subtitles(subtitles)
 
@@ -481,6 +493,7 @@ def _subdl_result(
         match_score=score,
         download_ref=f"{result_id}.zip",
     )
+
 
 @pytest.mark.asyncio
 async def test_subdl_search_uses_api_results_and_subtitles(monkeypatch) -> None:
@@ -550,7 +563,9 @@ async def test_subdl_search_uses_api_results_and_subtitles(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_subdl_search_keeps_matches_when_one_detail_fetch_is_forbidden(monkeypatch) -> None:
     provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
-    request = httpx.Request("GET", "https://api.subdl.com/api/v1/subtitles?api_key=subdl-key&sd_id=bad")
+    request = httpx.Request(
+        "GET", "https://api.subdl.com/api/v1/subtitles?api_key=subdl-key&sd_id=bad"
+    )
     forbidden = httpx.HTTPStatusError(
         "Client error '403 Forbidden'",
         request=request,
@@ -563,7 +578,13 @@ async def test_subdl_search_keeps_matches_when_one_detail_fetch_is_forbidden(mon
                 "status": True,
                 "results": [
                     {"sd_id": 1, "name": "From", "type": "tv", "year": 2022, "subtitles_count": 7},
-                    {"sd_id": "bad", "name": "From: Blocked", "type": "tv", "year": 2022, "subtitles_count": 3},
+                    {
+                        "sd_id": "bad",
+                        "name": "From: Blocked",
+                        "type": "tv",
+                        "year": 2022,
+                        "subtitles_count": 3,
+                    },
                 ],
             }
         if params["sd_id"] == "bad":
@@ -590,11 +611,15 @@ async def test_subdl_search_keeps_matches_when_one_detail_fetch_is_forbidden(mon
     assert [match.title for match in catalog.matches] == ["From", "From: Blocked"]
     assert len(catalog.results) == 1
     assert catalog.results[0].episode == 1
-    assert catalog.warnings == ["SubDL: authentication failed (HTTP 403). Check the saved API key or token."]
+    assert catalog.warnings == [
+        "SubDL: authentication failed (HTTP 403). Check the saved API key or token."
+    ]
 
 
 @pytest.mark.asyncio
-async def test_subdl_search_suppresses_non_auth_detail_misses_when_results_survive(monkeypatch) -> None:
+async def test_subdl_search_suppresses_non_auth_detail_misses_when_results_survive(
+    monkeypatch,
+) -> None:
     provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
 
     async def fake_fetch_api(client, params: dict[str, object]) -> dict[str, object]:
@@ -603,7 +628,13 @@ async def test_subdl_search_suppresses_non_auth_detail_misses_when_results_survi
                 "status": True,
                 "results": [
                     {"sd_id": 1, "name": "From", "type": "tv", "year": 2022, "subtitles_count": 7},
-                    {"sd_id": 2, "name": "From Out", "type": "movie", "year": 2016, "subtitles_count": 1},
+                    {
+                        "sd_id": 2,
+                        "name": "From Out",
+                        "type": "movie",
+                        "year": 2016,
+                        "subtitles_count": 1,
+                    },
                 ],
             }
         if str(params["sd_id"]) == "2":
@@ -634,7 +665,9 @@ async def test_subdl_search_suppresses_non_auth_detail_misses_when_results_survi
 @pytest.mark.asyncio
 async def test_subdl_search_returns_safe_warning_when_root_fetch_forbidden(monkeypatch) -> None:
     provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
-    request = httpx.Request("GET", "https://api.subdl.com/api/v1/subtitles?api_key=subdl-key&film_name=from")
+    request = httpx.Request(
+        "GET", "https://api.subdl.com/api/v1/subtitles?api_key=subdl-key&film_name=from"
+    )
     forbidden = httpx.HTTPStatusError(
         "Client error '403 Forbidden'",
         request=request,
@@ -650,7 +683,9 @@ async def test_subdl_search_returns_safe_warning_when_root_fetch_forbidden(monke
 
     assert catalog.matches == []
     assert catalog.results == []
-    assert catalog.warnings == ["SubDL: authentication failed (HTTP 403). Check the saved API key or token."]
+    assert catalog.warnings == [
+        "SubDL: authentication failed (HTTP 403). Check the saved API key or token."
+    ]
 
 
 @pytest.mark.asyncio
@@ -737,7 +772,13 @@ def test_subdl_api_parser_scopes_unpacked_ids_by_pack() -> None:
                 "name": "Pack A",
                 "url": "/subtitle/111.zip",
                 "unpack_files": [
-                    {"file_n_id": "s04e01", "name": "From.S04E01.A.srt", "season": 4, "episode": 1, "language": "EN"}
+                    {
+                        "file_n_id": "s04e01",
+                        "name": "From.S04E01.A.srt",
+                        "season": 4,
+                        "episode": 1,
+                        "language": "EN",
+                    }
                 ],
             },
             {
@@ -746,13 +787,22 @@ def test_subdl_api_parser_scopes_unpacked_ids_by_pack() -> None:
                 "name": "Pack B",
                 "url": "/subtitle/222.zip",
                 "unpack_files": [
-                    {"file_n_id": "s04e01", "name": "From.S04E01.B.srt", "season": 4, "episode": 1, "language": "EN"}
+                    {
+                        "file_n_id": "s04e01",
+                        "name": "From.S04E01.B.srt",
+                        "season": 4,
+                        "episode": 1,
+                        "language": "EN",
+                    }
                 ],
             },
         ],
     )
 
-    assert [result.id for result in results] == ["subdl-result-111-s04e01", "subdl-result-222-s04e01"]
+    assert [result.id for result in results] == [
+        "subdl-result-111-s04e01",
+        "subdl-result-222-s04e01",
+    ]
 
 
 def test_aggregator_work_sort_prefers_exact_series_and_franchise_movies() -> None:
@@ -918,7 +968,9 @@ async def test_assrt_search_strips_episode_marker_from_hydration_query_filelist(
                             "down_count": 4,
                             "filelist": [
                                 {"f": "README.nfo"},
-                                {"f": "From S03E01 Shatter 1080p AMZN WEB-DL DDP5 1 H 264-FLUX.ass"},
+                                {
+                                    "f": "From S03E01 Shatter 1080p AMZN WEB-DL DDP5 1 H 264-FLUX.ass"
+                                },
                             ],
                         }
                     ]
@@ -1417,7 +1469,7 @@ async def test_aggregator_returns_partial_results_when_one_provider_fails() -> N
     catalog = await aggregator.search_catalog("Movie", "en")
 
     assert len(catalog.results) == 1
-    assert any("ASSRT" in warning for warning in catalog.warnings)
+    assert "ASSRT: boom" in catalog.warnings
 
 
 @pytest.mark.asyncio
@@ -1449,7 +1501,9 @@ async def test_aggregator_redacts_provider_error_secrets() -> None:
         FakeProvider(
             "subdl",
             "SubDL",
-            error=RuntimeError("GET https://api.subdl.com/api/v1/subtitles?api_key=secret-value&q=from failed"),
+            error=RuntimeError(
+                "GET https://api.subdl.com/api/v1/subtitles?api_key=secret-value&q=from failed"
+            ),
         ),
     )
 
@@ -1461,7 +1515,9 @@ async def test_aggregator_redacts_provider_error_secrets() -> None:
 
 @pytest.mark.asyncio
 async def test_aggregator_turns_provider_auth_status_into_safe_warning() -> None:
-    request = httpx.Request("GET", "https://api.subdl.com/api/v1/subtitles?api_key=secret-value&q=from")
+    request = httpx.Request(
+        "GET", "https://api.subdl.com/api/v1/subtitles?api_key=secret-value&q=from"
+    )
     response = httpx.Response(403, request=request)
     error = httpx.HTTPStatusError(
         "Client error '403 Forbidden' for url 'https://api.subdl.com/api/v1/subtitles?api_key=secret-value&q=from'",
@@ -1497,7 +1553,10 @@ async def test_aggregator_turns_provider_auth_status_into_safe_warning() -> None
 
     catalog = await aggregator.search_catalog("Movie", "en")
 
-    assert "SubDL: authentication failed (HTTP 403). Check the saved API key or token." in catalog.warnings
+    assert (
+        "SubDL: authentication failed (HTTP 403). Check the saved API key or token."
+        in catalog.warnings
+    )
     assert all("secret-value" not in warning for warning in catalog.warnings)
 
 
@@ -1771,3 +1830,418 @@ async def test_aggregator_keeps_movie_sequels_separate_works() -> None:
     for work in movie_works:
         assert work.seasons == []
         assert work.primary_match_id is not None
+
+
+class HangingProvider(FakeProvider):
+    """Answers only after the deadline the aggregator gives it."""
+
+    def __init__(self, delay: float = 5.0):
+        super().__init__("hanging", "Hanging", ProviderSearchCatalog(matches=[], results=[]))
+        self._delay = delay
+
+    async def search_catalog(self, query: str, languages: str) -> ProviderSearchCatalog:
+        await asyncio.sleep(self._delay)
+        return await super().search_catalog(query, languages)
+
+
+def _catalog_with_one_result(code: str, label: str) -> ProviderSearchCatalog:
+    return ProviderSearchCatalog(
+        matches=[
+            ProviderSubtitleMatch(
+                id=f"{code}-match-1",
+                provider=code,
+                provider_label=label,
+                title="Rick and Morty",
+                year=2019,
+                imdb_id=None,
+                tmdb_id=None,
+                media_type="episode",
+                season=4,
+                episode=8,
+                parent_title="Rick and Morty",
+                subtitles_count=1,
+                match_score=90.0,
+            )
+        ],
+        results=[
+            ProviderSubtitleResult(
+                id=f"{code}-result-1",
+                match_id=f"{code}-match-1",
+                provider=code,
+                provider_label=label,
+                title="Rick and Morty",
+                year=2019,
+                imdb_id=None,
+                media_type="episode",
+                language="en",
+                download_count=10,
+                file_name="rick.srt",
+                season=4,
+                episode=8,
+                parent_title="Rick and Morty",
+                tmdb_id=None,
+                match_score=90.0,
+                download_ref=None,
+                raw={},
+            )
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_hanging_provider_does_not_hold_back_the_ones_that_answered(monkeypatch) -> None:
+    monkeypatch.setattr(aggregator_module, "PROVIDER_SEARCH_DEADLINE_S", 0.2)
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider("subdl", "SubDL", _catalog_with_one_result("subdl", "SubDL")),
+        HangingProvider(delay=5.0),
+    )
+
+    catalog = await asyncio.wait_for(aggregator.search_catalog("Rick and Morty", "en"), timeout=3.0)
+
+    assert [result.provider for result in catalog.results] == ["subdl"]
+    assert any("Hanging" in warning for warning in catalog.warnings)
+
+
+@pytest.mark.asyncio
+async def test_every_provider_failing_reports_which_ones_and_why() -> None:
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider("subdl", "SubDL", error=RuntimeError("429 Too Many Requests")),
+        FakeProvider("assrt", "ASSRT", error=RuntimeError("connection refused")),
+    )
+
+    with pytest.raises(SubtitleSourceError) as excinfo:
+        await aggregator.search_catalog("Rick and Morty", "en")
+
+    message = str(excinfo.value)
+    assert "SubDL" in message and "429" in message
+    assert "ASSRT" in message and "connection refused" in message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (httpx.ConnectTimeout(""), "could not be reached"),
+        (TimeoutError(), "took too long"),
+        (httpx.ReadTimeout(""), "took too long"),
+    ],
+)
+async def test_a_wordless_provider_failure_still_says_what_happened(error, expected) -> None:
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider("subdl", "SubDL", _catalog_with_one_result("subdl", "SubDL")),
+        FakeProvider("assrt", "ASSRT", error=error),
+    )
+
+    catalog = await aggregator.search_catalog("Rick and Morty", "en")
+
+    warning = next(w for w in catalog.warnings if w.startswith("ASSRT"))
+    assert expected in warning
+
+
+class ConnectFailingProvider(FakeProvider):
+    """Counts how many times the aggregator actually dialled it."""
+
+    def __init__(self):
+        super().__init__("assrt", "ASSRT", ProviderSearchCatalog(matches=[], results=[]))
+        self.calls = 0
+
+    async def search_catalog(self, query: str, languages: str) -> ProviderSearchCatalog:
+        self.calls += 1
+        raise httpx.ConnectTimeout("")
+
+
+@pytest.mark.asyncio
+async def test_an_unreachable_provider_is_not_dialled_on_every_later_search() -> None:
+    aggregator_module.provider_availability.reset()
+    unreachable = ConnectFailingProvider()
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider("subdl", "SubDL", _catalog_with_one_result("subdl", "SubDL")),
+        unreachable,
+    )
+
+    for _ in range(4):
+        await aggregator.search_catalog("Rick and Morty", "en")
+
+    assert unreachable.calls == aggregator_module.CONNECT_FAILURES_BEFORE_SKIP
+
+
+@pytest.mark.asyncio
+async def test_a_skipped_provider_still_tells_the_user_it_is_missing() -> None:
+    aggregator_module.provider_availability.reset()
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider("subdl", "SubDL", _catalog_with_one_result("subdl", "SubDL")),
+        ConnectFailingProvider(),
+    )
+
+    for _ in range(3):
+        catalog = await aggregator.search_catalog("Rick and Morty", "en")
+
+    assert "ASSRT: could not be reached." in catalog.warnings
+
+
+@pytest.mark.asyncio
+async def test_a_provider_that_answers_with_an_error_is_still_dialled_again() -> None:
+    # A 429 or a bad response proves the host is reachable; only a failure to
+    # connect at all means dialling again is wasted time.
+    aggregator_module.provider_availability.reset()
+    rate_limited = FakeProvider("assrt", "ASSRT", error=RuntimeError("429 Too Many Requests"))
+    calls = {"n": 0}
+    original = rate_limited.search_catalog
+
+    async def counting(query: str, languages: str):
+        calls["n"] += 1
+        return await original(query, languages)
+
+    rate_limited.search_catalog = counting
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider("subdl", "SubDL", _catalog_with_one_result("subdl", "SubDL")),
+        rate_limited,
+    )
+
+    for _ in range(4):
+        await aggregator.search_catalog("Rick and Morty", "en")
+
+    assert calls["n"] == 4
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Rick.and.Morty.S03E01.1080p.BluRay.x264-YELLOWBiRD.srt",
+        "Rick.and.Morty.S04E08.720p.WEB-DL.x265",
+        "rick and morty s02e01 hdtv x264-batv",
+    ],
+)
+def test_release_names_are_not_offered_as_episode_titles(title) -> None:
+    assert looks_like_release_name(title)
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "The Vat of Acid Episode",
+        "Edge of Tomorty: Rick Die Rickpeat",
+        "M. Night Shaym-Aliens!",
+        "Pickle Rick",
+    ],
+)
+def test_real_episode_titles_survive(title) -> None:
+    assert not looks_like_release_name(title)
+
+
+@pytest.mark.asyncio
+async def test_a_season_built_from_release_names_shows_plain_episode_numbers() -> None:
+    aggregator_module.provider_availability.reset()
+    catalog = _catalog_with_one_result("subdl", "SubDL")
+    catalog.matches[0].title = "Rick.and.Morty.S04E08.1080p.WEB-DL.x264-GROUP.srt"
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (FakeProvider("subdl", "SubDL", catalog),)
+
+    aggregated = await aggregator.search_catalog("Rick and Morty", "en")
+
+    episodes = [
+        ep for work in aggregated.works for season in work.seasons for ep in season.episodes
+    ]
+    assert episodes and all(ep.title == "" for ep in episodes)
+
+
+class GatedProvider(FakeProvider):
+    """Only answers once the test releases it, so completion order is deterministic."""
+
+    def __init__(self, code: str, label: str, catalog: ProviderSearchCatalog, gate: asyncio.Event):
+        super().__init__(code, label, catalog)
+        self._gate = gate
+
+    async def search_catalog(self, query: str, languages: str) -> ProviderSearchCatalog:
+        await self._gate.wait()
+        return await super().search_catalog(query, languages)
+
+
+@pytest.mark.asyncio
+async def test_progressive_updates_land_per_provider_with_ids_stable_into_the_final_merge() -> None:
+    aggregator_module.provider_availability.reset()
+    gate = asyncio.Event()
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider("subdl", "SubDL", _catalog_with_one_result("subdl", "SubDL")),
+        GatedProvider("assrt", "ASSRT", _catalog_with_one_result("assrt", "ASSRT"), gate),
+    )
+
+    updates: list[tuple[list[str], ProviderSearchCatalog]] = []
+
+    async def on_update(succeeded_codes: list[str], settled_codes: list[str], interim) -> None:
+        updates.append((list(succeeded_codes), interim))
+        assert succeeded_codes == settled_codes  # No provider fails in this test.
+        if len(updates) == 1:
+            gate.set()  # Let ASSRT answer only after SubDL's interim update landed.
+
+    final = await aggregator.search_catalog("Rick and Morty", "en", on_provider_update=on_update)
+
+    assert len(updates) == 2
+    first_done, first_interim = updates[0]
+    second_done, second_interim = updates[1]
+    assert first_done == ["subdl"]
+    assert sorted(second_done) == ["assrt", "subdl"]
+
+    # SubDL's interim result is shown before ASSRT answers.
+    assert len(first_interim.matches) == 1
+    assert first_interim.matches[0].providers == ("subdl",)
+
+    # The final merge folds ASSRT into the same episode, but keeps the id the
+    # interim update already showed the user — nothing the user clicked on
+    # while SubDL-only results were on screen becomes stale.
+    assert len(second_interim.matches) == 1
+    assert first_interim.matches[0].id == second_interim.matches[0].id == final.matches[0].id
+    assert sorted(final.matches[0].providers) == ["assrt", "subdl"]
+
+
+def _movie_catalog(code: str, label: str, title: str) -> ProviderSearchCatalog:
+    return ProviderSearchCatalog(
+        matches=[
+            ProviderSubtitleMatch(
+                id=f"{code}-match-1",
+                provider=code,
+                provider_label=label,
+                title=title,
+                year=2019,
+                imdb_id=None,
+                tmdb_id=None,
+                media_type="movie",
+                season=None,
+                episode=None,
+                parent_title=None,
+                subtitles_count=1,
+                match_score=90.0,
+            )
+        ],
+        results=[
+            ProviderSubtitleResult(
+                id=f"{code}-result-1",
+                match_id=f"{code}-match-1",
+                provider=code,
+                provider_label=label,
+                title=title,
+                year=2019,
+                imdb_id=None,
+                media_type="movie",
+                language="en",
+                download_count=10,
+                file_name=f"{code}.srt",
+                season=None,
+                episode=None,
+                parent_title=None,
+                tmdb_id=None,
+                match_score=90.0,
+                download_ref=None,
+                raw={},
+            )
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_late_provider_does_not_renumber_works_the_user_can_already_see() -> None:
+    """A provider that answers last must not change the identity of a visible card.
+
+    Interim merges keep providers in a fixed order, so a provider listed early
+    but answering late inserts its works ahead of a later provider's. With
+    positional ids that silently repointed a card the user was already looking
+    at at something else.
+    """
+    aggregator_module.provider_availability.reset()
+    gate = asyncio.Event()
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider("subdl", "SubDL", _movie_catalog("subdl", "SubDL", "Rick and Morty")),
+        GatedProvider("assrt", "ASSRT", _movie_catalog("assrt", "ASSRT", "Solar Opposites"), gate),
+        FakeProvider(
+            "opensubtitles",
+            "OpenSubtitles",
+            _movie_catalog("opensubtitles", "OpenSubtitles", "Bojack Horseman"),
+        ),
+    )
+
+    interim_ids: list[dict[str, str]] = []
+    interim_result_ids: list[dict[str, str]] = []
+
+    async def on_update(succeeded_codes, settled_codes, interim) -> None:
+        interim_ids.append({work.title: work.id for work in interim.works})
+        interim_result_ids.append({r.file_name: r.result_id for r in interim.results})
+        if "opensubtitles" in succeeded_codes and "assrt" not in succeeded_codes:
+            gate.set()  # ASSRT answers only after the user can see the other two.
+
+    final = await aggregator.search_catalog("movies", "en", on_provider_update=on_update)
+
+    final_ids = {work.title: work.id for work in final.works}
+    assert set(final_ids) == {"Rick and Morty", "Solar Opposites", "Bojack Horseman"}
+    # Every card the user could already see keeps the identity it was shown with,
+    # including the one ASSRT's late answer pushed down the merged list.
+    assert any("Bojack Horseman" in snapshot for snapshot in interim_ids)
+    for snapshot in interim_ids:
+        for title, work_id in snapshot.items():
+            assert final_ids[title] == work_id
+
+    # Same for the subtitle files themselves: the studio remembers the picked
+    # source by result id, so a shifted id downloads a different file.
+    final_result_ids = {r.file_name: r.result_id for r in final.results}
+    for snapshot in interim_result_ids:
+        for file_name, result_id in snapshot.items():
+            assert final_result_ids[file_name] == result_id
+
+
+@pytest.mark.asyncio
+async def test_a_failing_provider_is_settled_even_though_it_never_succeeds() -> None:
+    """A provider that errors out must still drop off "still waiting on...".
+
+    Only successes went into the done list at first, so a failed provider
+    stayed "pending" forever even after it had already given up.
+    """
+    aggregator_module.provider_availability.reset()
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (
+        FakeProvider("subdl", "SubDL", _catalog_with_one_result("subdl", "SubDL")),
+        FakeProvider("assrt", "ASSRT", error=RuntimeError("connection refused")),
+    )
+
+    updates: list[tuple[list[str], list[str]]] = []
+
+    async def on_update(succeeded_codes, settled_codes, interim) -> None:
+        updates.append((list(succeeded_codes), list(settled_codes)))
+
+    await aggregator.search_catalog("Rick and Morty", "en", on_provider_update=on_update)
+
+    assert len(updates) == 2
+    succeeded, settled = updates[-1]
+    assert succeeded == ["subdl"]
+    assert sorted(settled) == ["assrt", "subdl"]
+
+
+def test_a_source_switched_off_is_never_dialled() -> None:
+    """A disabled provider used to answer with an empty catalog.
+
+    That counted as an answer: the progress line credited it, and the search
+    spent one of the account's request slots to be told nothing.
+    """
+    aggregator = SubtitleSearchAggregator(
+        AppConfig(assrt_enabled=False, subdl_enabled=True, opensubtitles_enabled=True)
+    )
+    codes = [provider.provider_code for provider in aggregator.providers]
+    assert "assrt" not in codes
+    assert sorted(codes) == ["opensubtitles", "subdl"]
+
+
+@pytest.mark.asyncio
+async def test_switching_every_source_off_says_so_rather_than_reporting_failure() -> None:
+    aggregator = SubtitleSearchAggregator(
+        AppConfig(assrt_enabled=False, subdl_enabled=False, opensubtitles_enabled=False)
+    )
+    assert aggregator.providers == ()
+    with pytest.raises(SubtitleSourceError) as excinfo:
+        await aggregator.search_catalog("Rick and Morty", "en")
+    assert "switched off" in str(excinfo.value)

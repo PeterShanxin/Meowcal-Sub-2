@@ -1,5 +1,9 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
+mod overlay_window;
+mod process_lifetime;
+
+use overlay_window::OverlayAnchor;
 use reqwest::blocking::Client;
 use serde::Serialize;
 use std::fs;
@@ -11,8 +15,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Listener, Manager,
-    PhysicalPosition, PhysicalSize, State,
+    AppHandle, Emitter, Listener, Manager, PhysicalPosition, PhysicalSize, State,
 };
 use url::Url;
 
@@ -42,6 +45,14 @@ struct MainWindowBounds {
 
 struct ShellState {
     prev_main_bounds: Arc<Mutex<Option<MainWindowBounds>>>,
+    /// The still the capture selector draws on, held only while it is open.
+    selector_backdrop: Arc<Mutex<Option<String>>>,
+    /// Where the subtitle plate is anchored, so the page can ask to be a
+    /// different height without the shell measuring the region again.
+    overlay_anchor: Arc<Mutex<Option<(OverlayAnchor, f64)>>>,
+    /// Which live session the dock watcher belongs to. Stopping a session bumps
+    /// it, which is how the watcher started by the previous one knows to stop.
+    dock_generation: Arc<Mutex<u64>>,
 }
 
 fn repo_root() -> PathBuf {
@@ -63,7 +74,9 @@ fn python_executable() -> PathBuf {
 
 fn config_path() -> PathBuf {
     let appdata = std::env::var("APPDATA").unwrap_or_else(|_| String::from("."));
-    PathBuf::from(appdata).join("meowcal-sub-2").join("config.toml")
+    PathBuf::from(appdata)
+        .join("meowcal-sub-2")
+        .join("config.toml")
 }
 
 fn event_log_path() -> PathBuf {
@@ -153,7 +166,11 @@ fn backend_ready() -> bool {
         .timeout(Duration::from_secs(2))
         .build()
         .ok()
-        .and_then(|client| authorized(client.get(format!("{api_base}/api/state"))).send().ok())
+        .and_then(|client| {
+            authorized(client.get(format!("{api_base}/api/state")))
+                .send()
+                .ok()
+        })
         .map(|response| response.status().is_success())
         .unwrap_or(false)
 }
@@ -187,6 +204,10 @@ fn spawn_backend(process: &BackendProcess) {
     match command.spawn() {
         Ok(child) => {
             let pid = child.id();
+            // Before the handle is stored, and before the backend has had time
+            // to start the engine: job membership is inherited, so enrolling the
+            // backend now is what takes the engine down with the shell too.
+            process_lifetime::attach_to_app_lifetime(&child);
             log_shell_event("backend.spawn.started", serde_json::json!({ "pid": pid }));
             *process.0.lock().expect("backend process lock") = Some(child);
         }
@@ -237,21 +258,135 @@ fn hide_window_to_tray(window: &tauri::WebviewWindow) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn open_area_selector(app: AppHandle) -> Result<(), String> {
+async fn open_area_selector(app: AppHandle) -> Result<(), String> {
+    show_area_selector(app).await
+}
+
+/// Puts the selector up over a still of the screen, from wherever it was asked
+/// for - the studio's own button or the tray.
+async fn show_area_selector(app: AppHandle) -> Result<(), String> {
     log_shell_event("selector.open.requested", serde_json::json!({}));
     let window = app
         .get_webview_window("selector")
         .ok_or("Selector window not found")?;
+    // The region being drawn is the subtitle band of whatever the user is
+    // watching, which is behind this window. Both the confirm and the cancel
+    // path bring it back.
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.hide();
+    }
+    let monitor = window
+        .current_monitor()
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "no monitor".to_string())?;
+    let origin = *monitor.position();
+    let size = *monitor.size();
+    // The studio window was covering the video a moment ago. The still is taken
+    // after the compositor has had a beat to take it off screen, or the studio
+    // is what the user ends up drawing on.
+    tokio::time::sleep(Duration::from_millis(160)).await;
+    let backdrop = tauri::async_runtime::spawn_blocking(move || {
+        fetch_selector_backdrop(origin.x, origin.y, size.width, size.height)
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    match &backdrop {
+        Ok(_) => log_shell_event("selector.backdrop.captured", serde_json::json!({})),
+        Err(error) => log_shell_event(
+            "selector.backdrop.failed",
+            serde_json::json!({ "error": error }),
+        ),
+    }
+    if let Some(shell) = app.try_state::<ShellState>() {
+        *shell
+            .selector_backdrop
+            .lock()
+            .map_err(|_| "backdrop lock poisoned")? = backdrop.ok();
+    }
+    // The selector is placed over the monitor every time it opens. It used to be
+    // created fullscreen and never sized again; hidden and shown a second time -
+    // which is what asking for the region again does - it came back as an 18x18
+    // window at the origin, and being click-through as well, the drag went to
+    // the player behind it and nothing could be reselected.
+    //
+    // A window that is not resizable is pinned to the size it currently has, so
+    // it has to be let go of before it can be given the monitor's size and then
+    // held at that.
+    // It is shown before it is placed: a hidden window on this platform keeps
+    // the size it is given only once it has been mapped, and it is transparent,
+    // so nothing of the moment before is visible.
     window.show().map_err(|error| error.to_string())?;
+    let _ = window.set_resizable(true);
+    window
+        .set_position(origin)
+        .map_err(|error| error.to_string())?;
+    window.set_size(size).map_err(|error| error.to_string())?;
+    let _ = window.set_resizable(false);
+    window
+        .set_always_on_top(true)
+        .map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())?;
+    let placed = window.outer_size().map_err(|error| error.to_string())?;
+    log_shell_event(
+        "selector.shown",
+        serde_json::json!({
+            "x": origin.x,
+            "y": origin.y,
+            "width": placed.width,
+            "height": placed.height,
+        }),
+    );
     Ok(())
+}
+
+/// A still of the screen the selector is about to cover.
+///
+/// A player left underneath a full-screen window is free to stop painting its
+/// video, so the live desktop is not something the selector can rely on showing.
+fn fetch_selector_backdrop(x: i32, y: i32, width: u32, height: u32) -> Result<String, String> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let payload: serde_json::Value = authorized(client.get(format!(
+        "{}/api/capture/screen?x={x}&y={y}&width={width}&height={height}",
+        api_base()
+    )))
+    .send()
+    .and_then(|response| response.error_for_status())
+    .map_err(|error| error.to_string())?
+    .json()
+    .map_err(|error| error.to_string())?;
+    payload["dataUrl"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| "capture returned no image".to_string())
+}
+
+/// The still for the selector to paint, one per open.
+#[tauri::command]
+fn get_selector_backdrop(shell: State<'_, ShellState>) -> Result<Option<String>, String> {
+    Ok(shell
+        .selector_backdrop
+        .lock()
+        .map_err(|_| "backdrop lock poisoned")?
+        .clone())
+}
+
+/// Drops the held still. It is a picture of the user's screen, and the next open
+/// takes its own.
+fn release_selector_backdrop(shell: &ShellState) {
+    if let Ok(mut held) = shell.selector_backdrop.lock() {
+        *held = None;
+    }
 }
 
 /// Closes the selector after the user backed out, so a start that was waiting on
 /// a region can stop waiting instead of hanging on an event that never comes.
 #[tauri::command]
-fn cancel_area_selector(app: AppHandle) -> Result<(), String> {
+fn cancel_area_selector(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), String> {
     log_shell_event("selector.cancel.requested", serde_json::json!({}));
+    release_selector_backdrop(&shell);
     if let Some(selector) = app.get_webview_window("selector") {
         selector.hide().map_err(|error| error.to_string())?;
     }
@@ -335,16 +470,21 @@ fn show_main_window(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn enter_live_mode(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), String> {
-    log_shell_event("window.live.enter_requested", serde_json::json!({}));
+fn enter_live_mode(
+    app: AppHandle,
+    shell: State<'_, ShellState>,
+    region: Vec<i32>,
+) -> Result<(), String> {
+    log_shell_event(
+        "window.live.enter_requested",
+        serde_json::json!({ "region": region }),
+    );
     let window = main_window(&app)?;
     let maximized = window.is_maximized().map_err(|e| e.to_string())?;
     if maximized {
         window.unmaximize().map_err(|e| e.to_string())?;
     }
-    let current_pos = window
-        .outer_position()
-        .map_err(|e| e.to_string())?;
+    let current_pos = window.outer_position().map_err(|e| e.to_string())?;
     let current_size = window.outer_size().map_err(|e| e.to_string())?;
     *shell
         .prev_main_bounds
@@ -359,34 +499,187 @@ fn enter_live_mode(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), S
         .current_monitor()
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "no monitor".to_string())?;
-    let monitor_size = monitor.size();
-    let monitor_pos = monitor.position();
     let scale = monitor.scale_factor();
-    let strip_height = ((220.0_f64) * scale).round() as u32;
-    let strip_height = strip_height.min(monitor_size.height);
 
     window.set_decorations(false).map_err(|e| e.to_string())?;
     window.set_always_on_top(true).map_err(|e| e.to_string())?;
     window.set_resizable(false).map_err(|e| e.to_string())?;
+    // The dock starts as a bead. The page grows it when the pointer arrives, so
+    // the rest of the corner belongs to whatever is playing underneath. The
+    // studio's own minimum is far larger than a bead, so it is lifted first.
+    let bead = (overlay_window::DOCK_HEIGHT_CSS * scale).round() as u32;
     window
-        .set_size(PhysicalSize {
-            width: monitor_size.width,
-            height: strip_height,
-        })
+        .set_min_size(Some(PhysicalSize {
+            width: bead,
+            height: bead,
+        }))
         .map_err(|e| e.to_string())?;
-    window
-        .set_position(PhysicalPosition {
-            x: monitor_pos.x,
-            y: monitor_pos.y + (monitor_size.height as i32) - (strip_height as i32),
-        })
-        .map_err(|e| e.to_string())?;
+    let (at, size, dock_scale) = overlay_window::place_dock(&window)?;
+    watch_dock(&app, &shell, at, size, dock_scale)?;
+
+    show_subtitle_plate(&app, &shell, &region);
     Ok(())
+}
+
+/// How the dock opens and closes: long enough to read as a movement, short
+/// enough that the controls are usable the moment the pointer lands on them.
+const DOCK_STEPS: u32 = 20;
+const DOCK_FRAME_MS: u64 = 12;
+/// How often the pointer is checked against the dock while a session runs.
+const DOCK_POLL_MS: u64 = 90;
+
+/// Open or close the dock by clipping the window, a frame at a time.
+///
+/// The window itself never changes size. Resizing a webview window once per
+/// frame is what made the dock tear as it grew, and it is also what lost the
+/// pointer: the window moved out from under the cursor mid-gesture and the page
+/// never saw the pointer leave. The region is a clip, not a layout, so the
+/// content behind it stays exactly where it was drawn.
+async fn animate_dock(
+    window: &tauri::WebviewWindow,
+    from_px: f64,
+    to_px: f64,
+    generation: &Arc<Mutex<u64>>,
+    ticket: u64,
+) {
+    for step in 1..=DOCK_STEPS {
+        if generation
+            .lock()
+            .map(|latest| *latest != ticket)
+            .unwrap_or(true)
+        {
+            return;
+        }
+        let width = overlay_window::tween(from_px, to_px, step, DOCK_STEPS);
+        if let Err(error) = overlay_window::clip_pill(window, width.round() as i32) {
+            log_shell_event("dock.clip.failed", serde_json::json!({ "error": error }));
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(DOCK_FRAME_MS)).await;
+    }
+}
+
+/// Watch the pointer for as long as the session runs, and let it open the dock.
+///
+/// The desktop cursor position is the authority rather than the page's own
+/// enter and leave events. Those are what left the dock stuck open: they arrive
+/// only when the webview is told about them, and it is not always told.
+fn watch_dock(
+    app: &AppHandle,
+    shell: &ShellState,
+    at: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+    scale: f64,
+) -> Result<(), String> {
+    let ticket = {
+        let mut latest = shell
+            .dock_generation
+            .lock()
+            .map_err(|_| "dock generation lock poisoned")?;
+        *latest += 1;
+        *latest
+    };
+    let generation = Arc::clone(&shell.dock_generation);
+    let app = app.clone();
+    let collapsed = (overlay_window::DOCK_COLLAPSED_CSS * scale).round();
+    let expanded = f64::from(size.width);
+
+    tauri::async_runtime::spawn(async move {
+        let mut open = false;
+        loop {
+            tokio::time::sleep(Duration::from_millis(DOCK_POLL_MS)).await;
+            if generation
+                .lock()
+                .map(|latest| *latest != ticket)
+                .unwrap_or(true)
+            {
+                return;
+            }
+            let Some(window) = app.get_webview_window("main") else {
+                return;
+            };
+            let Some(point) = overlay_window::cursor_position() else {
+                continue;
+            };
+            let visible = if open { expanded } else { collapsed };
+            let inside = overlay_window::rect_holds(
+                overlay_window::pill_rect(at, size, visible as i32),
+                point,
+            );
+            if inside == open {
+                continue;
+            }
+            open = inside;
+            // The page is told first, so the controls are already fading in as
+            // the pill uncovers them rather than appearing after it stops.
+            let _ = app.emit("dock-open", open);
+            let (from, to) = if open {
+                (collapsed, expanded)
+            } else {
+                (expanded, collapsed)
+            };
+            animate_dock(&window, from, to, &generation, ticket).await;
+        }
+    });
+    Ok(())
+}
+
+/// Put the subtitle plate beside the capture region, and remember where.
+///
+/// A session without a usable region has nothing to anchor to; the studio blocks
+/// starting one, so this only guards against a config written by hand.
+fn show_subtitle_plate(app: &AppHandle, shell: &ShellState, region: &[i32]) {
+    let Ok(region) = <[i32; 4]>::try_from(region) else {
+        log_shell_event(
+            "overlay.place.skipped",
+            serde_json::json!({ "reason": "region is not four numbers" }),
+        );
+        return;
+    };
+    match overlay_window::show(app, region) {
+        Ok(placed) => {
+            if let Ok(mut anchor) = shell.overlay_anchor.lock() {
+                *anchor = Some(placed);
+            }
+            log_shell_event("overlay.shown", serde_json::json!({ "region": region }));
+        }
+        Err(error) => log_shell_event("overlay.show.failed", serde_json::json!({ "error": error })),
+    }
+}
+
+/// Resize the plate to the height its content actually needs.
+///
+/// The shell guesses two lines at the default font; the page is the only side
+/// that knows what the viewer's font size and this line's wrapping came to.
+#[tauri::command]
+fn set_overlay_height(
+    app: AppHandle,
+    shell: State<'_, ShellState>,
+    height_css: f64,
+) -> Result<(), String> {
+    let placed = *shell
+        .overlay_anchor
+        .lock()
+        .map_err(|_| "overlay anchor lock poisoned")?;
+    let Some((anchor, scale)) = placed else {
+        return Ok(());
+    };
+    overlay_window::place(&app, anchor, scale, height_css)
 }
 
 #[tauri::command]
 fn exit_live_mode(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), String> {
     log_shell_event("window.live.exit_requested", serde_json::json!({}));
+    if let Ok(mut generation) = shell.dock_generation.lock() {
+        *generation += 1;
+    }
+    let _ = overlay_window::hide(&app);
+    if let Ok(mut anchor) = shell.overlay_anchor.lock() {
+        *anchor = None;
+    }
     let window = main_window(&app)?;
+    let _ = overlay_window::unclip(&window);
+    let _ = window.set_min_size(None::<PhysicalSize<u32>>);
     window.set_always_on_top(false).map_err(|e| e.to_string())?;
     window.set_decorations(true).map_err(|e| e.to_string())?;
     window.set_resizable(true).map_err(|e| e.to_string())?;
@@ -397,9 +690,7 @@ fn exit_live_mode(app: AppHandle, shell: State<'_, ShellState>) -> Result<(), St
         .map_err(|_| "prev bounds lock poisoned")?
         .take();
     if let Some(bounds) = restore {
-        window
-            .set_size(bounds.size)
-            .map_err(|e| e.to_string())?;
+        window.set_size(bounds.size).map_err(|e| e.to_string())?;
         window
             .set_position(bounds.position)
             .map_err(|e| e.to_string())?;
@@ -424,7 +715,10 @@ fn get_api_token() -> String {
 
 #[tauri::command]
 fn stop_translation(app: AppHandle) -> Result<(), String> {
-    log_shell_event("session.stop.requested", serde_json::json!({ "source": "tauri" }));
+    log_shell_event(
+        "session.stop.requested",
+        serde_json::json!({ "source": "tauri" }),
+    );
     post_json("/api/session/stop", serde_json::json!({}))?;
     show_main(&app);
     Ok(())
@@ -433,6 +727,7 @@ fn stop_translation(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn set_capture_region(
     app: AppHandle,
+    shell: State<'_, ShellState>,
     x: i32,
     y: i32,
     width: i32,
@@ -499,6 +794,18 @@ fn set_capture_region(
     )
     .map_err(|error| error.to_string())?;
 
+    // A region re-drawn during a session moves the plate with it; outside one
+    // the plate is hidden and has nothing to follow.
+    if shell
+        .overlay_anchor
+        .lock()
+        .map(|anchor| anchor.is_some())
+        .unwrap_or(false)
+    {
+        show_subtitle_plate(&app, &shell, &region);
+    }
+
+    release_selector_backdrop(&shell);
     if let Some(selector) = app.get_webview_window("selector") {
         let _ = selector.hide();
     }
@@ -521,7 +828,10 @@ fn run_backend_boot(app: &AppHandle) {
     log_shell_event("backend.boot.start", serde_json::json!({}));
     emit_splash_status(app, "Checking backend...");
     if backend_ready() {
-        log_shell_event("backend.boot.ready_existing", serde_json::json!({ "duration_ms": started.elapsed().as_millis() }));
+        log_shell_event(
+            "backend.boot.ready_existing",
+            serde_json::json!({ "duration_ms": started.elapsed().as_millis() }),
+        );
         navigate_main_to_backend(app);
         return;
     }
@@ -529,10 +839,16 @@ fn run_backend_boot(app: &AppHandle) {
     spawn_backend(app.state::<BackendProcess>().inner());
     emit_splash_status(app, "Waiting for backend (up to 60s)...");
     if wait_for_backend(Duration::from_secs(60)) {
-        log_shell_event("backend.boot.ready", serde_json::json!({ "duration_ms": started.elapsed().as_millis() }));
+        log_shell_event(
+            "backend.boot.ready",
+            serde_json::json!({ "duration_ms": started.elapsed().as_millis() }),
+        );
         navigate_main_to_backend(app);
     } else {
-        log_shell_event("backend.boot.failed", serde_json::json!({ "duration_ms": started.elapsed().as_millis() }));
+        log_shell_event(
+            "backend.boot.failed",
+            serde_json::json!({ "duration_ms": started.elapsed().as_millis() }),
+        );
         let _ = app.emit_to("main", "splash-error", serde_json::json!({}));
     }
 }
@@ -550,11 +866,30 @@ fn navigate_main_to_backend(app: &AppHandle) {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis().to_string())
         .unwrap_or_else(|_| "0".to_string());
-    url.query_pairs_mut().append_pair("desktopLaunch", &launch_id);
+    url.query_pairs_mut()
+        .append_pair("desktopLaunch", &launch_id);
     url.query_pairs_mut().append_pair("token", &access_token());
-    log_shell_event("window.main.navigate", serde_json::json!({ "url": url.as_str() }));
+    log_shell_event(
+        "window.main.navigate",
+        serde_json::json!({ "url": url.as_str() }),
+    );
     let _ = window.navigate(url);
     let _ = window.set_focus();
+    navigate_overlay_to_backend(app);
+}
+
+/// Point the (hidden) subtitle plate at its page, so it is already listening for
+/// lines by the time a session starts.
+fn navigate_overlay_to_backend(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("overlay") else {
+        return;
+    };
+    let Ok(mut url) = Url::parse(&format!("{}/overlay", api_base())) else {
+        return;
+    };
+    url.query_pairs_mut().append_pair("token", &access_token());
+    log_shell_event("window.overlay.navigate", serde_json::json!({}));
+    let _ = window.navigate(url);
 }
 
 fn show_main(app: &AppHandle) {
@@ -569,6 +904,9 @@ fn main() {
     let backend_process = BackendProcess(Arc::new(Mutex::new(None)));
     let shell_state = ShellState {
         prev_main_bounds: Arc::new(Mutex::new(None)),
+        selector_backdrop: Arc::new(Mutex::new(None)),
+        overlay_anchor: Arc::new(Mutex::new(None)),
+        dock_generation: Arc::new(Mutex::new(0)),
     };
 
     tauri::Builder::default()
@@ -582,10 +920,12 @@ fn main() {
             open_area_selector,
             cancel_area_selector,
             get_capture_region,
+            get_selector_backdrop,
             hide_main_window,
             show_main_window,
             enter_live_mode,
             exit_live_mode,
+            set_overlay_height,
             get_api_base,
             stop_translation,
             set_capture_region,
@@ -612,11 +952,17 @@ fn main() {
             });
 
             let show_item = MenuItem::with_id(app, "show", "Open App", true, None::<&str>)?;
-            let selector_item =
-                MenuItem::with_id(app, "select-area", "Select Capture Area", true, None::<&str>)?;
+            let selector_item = MenuItem::with_id(
+                app,
+                "select-area",
+                "Select Capture Area",
+                true,
+                None::<&str>,
+            )?;
             let stop_item = MenuItem::with_id(app, "stop", "Stop Translation", true, None::<&str>)?;
             let exit_item = MenuItem::with_id(app, "exit", "Exit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &selector_item, &stop_item, &exit_item])?;
+            let menu =
+                Menu::with_items(app, &[&show_item, &selector_item, &stop_item, &exit_item])?;
 
             let icon = app
                 .default_window_icon()
@@ -634,10 +980,10 @@ fn main() {
                     }
                     "select-area" => {
                         log_shell_event("tray.select_area.selected", serde_json::json!({}));
-                        if let Some(window) = tray.app_handle().get_webview_window("selector") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                        let app_handle = tray.app_handle().clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ = show_area_selector(app_handle).await;
+                        });
                     }
                     "stop" => {
                         log_shell_event("tray.stop.selected", serde_json::json!({}));
@@ -658,7 +1004,10 @@ fn main() {
                         ..
                     } = event
                     {
-                        log_shell_event("tray.icon.clicked", serde_json::json!({ "button": "left" }));
+                        log_shell_event(
+                            "tray.icon.clicked",
+                            serde_json::json!({ "button": "left" }),
+                        );
                         show_main(tray.app_handle());
                     }
                 })

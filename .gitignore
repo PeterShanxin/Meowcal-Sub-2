@@ -12,3 +12,14 @@ docs/plans/
 src/meocosub2/overlay/ui/node_modules/
 src/meocosub2/overlay/ui/dist/
 src/meocosub2/overlay/ui/*.tsbuildinfo
+
+# Coverage output
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Verification scratch output
+.coverage.json
+.verify-report.json
+src/meocosub2/overlay/ui/coverage/

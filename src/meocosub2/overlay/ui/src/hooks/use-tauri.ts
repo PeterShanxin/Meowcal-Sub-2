@@ -39,7 +39,7 @@ export async function listenTauri(
 }
 
 export const tauri = {
-  enterLiveMode: () => invokeTauri<void>("enter_live_mode"),
+  enterLiveMode: (region: number[]) => invokeTauri<void>("enter_live_mode", { region }),
   exitLiveMode: () => invokeTauri<void>("exit_live_mode"),
   openAreaSelector: () => invokeTauri<void>("open_area_selector"),
   stopTranslation: () => invokeTauri<void>("stop_translation"),

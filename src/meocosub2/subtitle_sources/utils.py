@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import re
 import zipfile
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 from rapidfuzz import fuzz
 
@@ -17,12 +18,21 @@ SUBTITLE_EXTENSIONS = (".srt", ".ass", ".ssa", ".vtt")
 EPISODE_PATTERN = re.compile(r"\bS(?P<season>\d{1,2})E(?P<episode>\d{1,3})\b", re.IGNORECASE)
 YEAR_PATTERN = re.compile(r"\b(?P<year>19\d{2}|20\d{2}|21\d{2})\b")
 SEPARATOR_PATTERN = re.compile(r"[|]+")
-QUERY_PAREN_YEAR_PATTERN = re.compile(r"^(?P<title>.+?)\s*\((?P<year>19\d{2}|20\d{2}|21\d{2})\)\s*$")
+QUERY_PAREN_YEAR_PATTERN = re.compile(
+    r"^(?P<title>.+?)\s*\((?P<year>19\d{2}|20\d{2}|21\d{2})\)\s*$"
+)
 QUERY_TRAILING_YEAR_PATTERN = re.compile(r"^(?P<title>.+?)\s+(?P<year>19\d{2}|20\d{2}|21\d{2})\s*$")
 
 _ROMAN_SEASON_MAP = {
-    "II": 2, "III": 3, "IV": 4, "V": 5,
-    "VI": 6, "VII": 7, "VIII": 8, "IX": 9, "X": 10,
+    "II": 2,
+    "III": 3,
+    "IV": 4,
+    "V": 5,
+    "VI": 6,
+    "VII": 7,
+    "VIII": 8,
+    "IX": 9,
+    "X": 10,
 }
 # Ordered: most specific first to avoid "Overlord II" being caught by season-digit.
 _SEASON_SUFFIX_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -73,6 +83,7 @@ def split_query_year(query: str) -> tuple[str, int | None]:
             return title, year
     return text, None
 
+
 SUBDL_LANGUAGE_MAP = {
     "english": "en",
     "japanese": "ja",
@@ -116,8 +127,6 @@ ASSRT_LANG_MAP = {
 PROVIDER_RANK = {"subdl": 0, "assrt": 1, "opensubtitles": 2}
 
 
-
-
 def title_similarity(query: str, candidates: Iterable[str]) -> float:
     normalized_query = canonical_title(query)
     if not normalized_query:
@@ -156,12 +165,18 @@ def best_title_guess(query: str, *values: str | None) -> str:
     for value in values:
         if not value:
             continue
-        parts = [part.strip() for part in SEPARATOR_PATTERN.split(value.replace("\\/", "/")) if part.strip()]
+        parts = [
+            part.strip()
+            for part in SEPARATOR_PATTERN.split(value.replace("\\/", "/"))
+            if part.strip()
+        ]
         for part in parts:
             segments.extend(segment.strip() for segment in part.split("/") if segment.strip())
     if not segments:
         return query
-    ranked = sorted(segments, key=lambda item: (title_similarity(query, [item]), len(item)), reverse=True)
+    ranked = sorted(
+        segments, key=lambda item: (title_similarity(query, [item]), len(item)), reverse=True
+    )
     return ranked[0]
 
 
@@ -199,6 +214,42 @@ def work_key(
     return ("movie", f"title:{canonical_title(title)}|{year or 0}")
 
 
+def _stable_id(prefix: str, *parts: str) -> str:
+    digest = hashlib.blake2s("\x1f".join(parts).encode("utf-8"), digest_size=6).hexdigest()
+    return f"{prefix}-{digest}"
+
+
+def work_id_for_key(key: tuple[str, str]) -> str:
+    """A work's identity, independent of how many providers have answered.
+
+    Search results are merged again every time a provider lands, so an id taken
+    from a work's position in that merge names a different show each time the
+    list grows underneath the reader.
+    """
+    return _stable_id("work", *key)
+
+
+def match_id_for_key(key: tuple[str, str, int, int, int]) -> str:
+    """A title group's identity, on the same terms as :func:`work_id_for_key`.
+
+    Numbering groups by the order they were merged in is stable only while the
+    providers answer in a fixed order, which they do not: whichever lands first
+    takes the first number, and a provider that answers later can insert a title
+    ahead of it. The id then names different content than it did a moment ago,
+    while the studio is still holding it as the user's selection.
+    """
+    return _stable_id("match", *(str(part) for part in key))
+
+
+def result_id_for(provider: str, provider_result_id: str, language: str) -> str:
+    """A subtitle file's identity, on the same terms as :func:`work_id_for_key`.
+
+    The studio remembers the picked file by this id, so a positional one meant a
+    later merge could point an unchanged selection at a different download.
+    """
+    return _stable_id("result", provider, provider_result_id, language)
+
+
 def match_group_key(
     title: str,
     media_type: str,
@@ -215,7 +266,9 @@ def language_priority(language: str, requested_languages: set[str]) -> int:
     normalized = normalize_source_language(language)
     if normalized in requested_languages:
         return 0
-    if is_chinese_family(normalized) and any(is_chinese_family(code) for code in requested_languages):
+    if is_chinese_family(normalized) and any(
+        is_chinese_family(code) for code in requested_languages
+    ):
         return 1
     return 2
 
@@ -235,7 +288,9 @@ def map_subdl_language(value: str) -> str:
         return "zht"
     if compact in {"gb", "gbcode"}:
         return "zh"
-    if "chinese" in normalized and ("traditional" in normalized or compact.endswith("bgcode") or "big5" in compact):
+    if "chinese" in normalized and (
+        "traditional" in normalized or compact.endswith("bgcode") or "big5" in compact
+    ):
         return "zht"
     if "chinese" in normalized:
         return "zh"
@@ -271,7 +326,9 @@ def choose_subtitle_path(paths: Iterable[Path]) -> Path:
     candidates = [path for path in paths if path.suffix.casefold() in SUBTITLE_EXTENSIONS]
     if not candidates:
         raise ValueError("Downloaded archive does not contain a supported subtitle file.")
-    candidates.sort(key=lambda item: (SUBTITLE_EXTENSIONS.index(item.suffix.casefold()), len(item.name)))
+    candidates.sort(
+        key=lambda item: (SUBTITLE_EXTENSIONS.index(item.suffix.casefold()), len(item.name))
+    )
     return candidates[0]
 
 
@@ -289,3 +346,22 @@ def extract_zip_bytes(content: bytes, destination: Path) -> Path:
             target.write_bytes(archive.read(member))
             extracted.append(target)
     return choose_subtitle_path(extracted)
+
+
+#: Markers that only appear in a release name, never in an episode title.
+RELEASE_MARKER_PATTERN = re.compile(
+    r"(?:\b(?:480|540|720|1080|1440|2160)[pi]\b"
+    r"|\b(?:bluray|blu-ray|brrip|bdrip|web-?dl|web-?rip|hdtv|dvdrip|hdrip|remux)\b"
+    r"|\b(?:x26[45]|h\.?26[45]|hevc|xvid|divx|aac|ac3|dts|ddp?5\.1)\b"
+    r"|\.(?:srt|ass|ssa|vtt|sub|idx)$)",
+    re.IGNORECASE,
+)
+
+
+def looks_like_release_name(title: str) -> bool:
+    """Whether a provider handed back a file name where an episode title belongs.
+
+    Some providers use the release name as the match title. Rendered as an episode
+    title it is unreadable, and the episode code beside it already says more.
+    """
+    return bool(RELEASE_MARKER_PATTERN.search(title.strip()))

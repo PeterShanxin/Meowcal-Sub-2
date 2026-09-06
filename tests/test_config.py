@@ -1,7 +1,13 @@
 import tomllib
 from pathlib import Path
 
-from meocosub2.config import AppConfig, config_from_payload, config_to_payload, load_config, save_config
+from meocosub2.config import (
+    AppConfig,
+    config_from_payload,
+    config_to_payload,
+    load_config,
+    save_config,
+)
 
 
 def test_default_config() -> None:
@@ -57,7 +63,15 @@ def test_load_invalid_toml_returns_defaults(tmp_path: Path) -> None:
 
 def test_config_example_contains_all_sections() -> None:
     payload = tomllib.loads(Path("config.example.toml").read_text(encoding="utf-8"))
-    assert set(payload) == {"subtitle_sources", "languages", "capture", "matching", "translation", "overlay", "debug"}
+    assert set(payload) == {
+        "subtitle_sources",
+        "languages",
+        "capture",
+        "matching",
+        "translation",
+        "overlay",
+        "debug",
+    }
     assert set(payload["subtitle_sources"]) == {"opensubtitles", "subdl", "assrt"}
     assert "api_key" in payload["subtitle_sources"]["subdl"]
 
@@ -93,7 +107,9 @@ def test_config_from_payload_merges_with_fallback() -> None:
         "languages": {"source": "it"},
         "overlay": {"fontSize": 40, "maxWidthVw": 72},
     }
-    loaded = config_from_payload(payload, fallback=AppConfig(target_language="fr", overlay_blur_px=12))
+    loaded = config_from_payload(
+        payload, fallback=AppConfig(target_language="fr", overlay_blur_px=12)
+    )
     assert loaded.opensubtitles_enable_org_fallback is True
     assert loaded.subdl_enabled is False
     assert loaded.subdl_api_key == "subdl-key"

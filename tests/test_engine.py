@@ -1,13 +1,19 @@
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
+from meocosub2 import engine
 from meocosub2.engine import install as install_module
+from meocosub2.engine import paths as paths_module
+from meocosub2.engine import runtime as runtime_module
 from meocosub2.engine.install import EngineInstallError
 from meocosub2.engine.manifest import load_manifest
 from meocosub2.engine.paths import InstallPaths, resolve_paths
 from meocosub2.engine.runtime import (
+    LaunchPlan,
+    embedding_plan,
     gpu_launch_supported,
     launch_arguments,
     select_loopback_port,
@@ -26,24 +32,169 @@ def test_the_manifest_publishes_a_runtime_for_this_host(manifest) -> None:
     assert manifest.model.artifact.size_bytes > 0
 
 
-def test_the_launch_line_pins_the_model_port_and_context(manifest) -> None:
-    runtime = manifest.runtime_for_host()
-    paths = resolve_paths(manifest, runtime)
-    arguments = launch_arguments(paths, manifest, runtime, 12345, 99, ("--no-kv-offload",))
-    assert arguments[:2] == ["-m", str(paths.model)]
+def a_plan(**overrides) -> LaunchPlan:
+    """A launch plan spelled out, so the argument builder is tested on its own.
+
+    Which runtime `runtime_for_host` picks depends on the machine running the
+    tests, and its GPU policy with it.
+    """
+    fields = {
+        "role": "translation",
+        "executable": Path("llama-server.exe"),
+        "model": Path("model.gguf"),
+        "alias": "test-model",
+        "host": "127.0.0.1",
+        "preferred_port": 11436,
+        "context_size": 2048,
+        "extra_args": ("--jinja",),
+        "log_stem": "test-server",
+    }
+    return LaunchPlan(**{**fields, **overrides})
+
+
+def test_the_launch_line_pins_the_model_port_and_context() -> None:
+    plan = a_plan(gpu_layers=99, policy_args=("--no-kv-offload",))
+    arguments = launch_arguments(plan, 12345)
+    assert arguments[:2] == ["-m", str(plan.model)]
     assert arguments[arguments.index("--port") + 1] == "12345"
-    assert arguments[arguments.index("-c") + 1] == str(manifest.context_size)
+    assert arguments[arguments.index("-c") + 1] == "2048"
     assert arguments[arguments.index("-ngl") + 1] == "99"
     assert arguments[-1] == "--no-kv-offload"
     assert "--threads" in arguments
 
 
-def test_a_cpu_launch_asks_for_no_gpu_layers(manifest) -> None:
-    runtime = manifest.runtime_for_host()
-    paths = resolve_paths(manifest, runtime)
-    arguments = launch_arguments(paths, manifest, runtime, 1, 0, ())
+def test_a_cpu_launch_asks_for_no_gpu_layers() -> None:
+    arguments = launch_arguments(a_plan(), 1)
     assert arguments[arguments.index("-ngl") + 1] == "0"
     assert "--no-kv-offload" not in arguments
+
+
+def test_the_matching_model_launches_in_embedding_mode_with_its_trained_pooling(
+    manifest,
+) -> None:
+    """bge is trained with CLS pooling; mean-pooling it degrades every score."""
+    runtime = manifest.runtime_for_host()
+    plan = embedding_plan(resolve_paths(manifest, runtime), manifest)
+    arguments = launch_arguments(plan, 11437)
+    assert "--embedding" in arguments
+    assert arguments[arguments.index("--pooling") + 1] == "cls"
+    # Never offloaded, and pointed at its own model rather than the translator's.
+    assert arguments[arguments.index("-ngl") + 1] == "0"
+    assert arguments[1].endswith(manifest.embedding.artifact.file_name)
+
+
+def test_the_matching_model_is_not_required_for_a_v1_install_to_be_adopted(
+    manifest, monkeypatch
+) -> None:
+    """A v1 engine tree predates this model, so demanding it would reject them all.
+
+    `is_complete` is what decides whether to adopt a v1 install instead of
+    downloading 1.1 GB again.
+    """
+    runtime = manifest.runtime_for_host()
+    paths = resolve_paths(manifest, runtime)
+    # A tree carrying the runtime and the translation model, and nothing else.
+    monkeypatch.setattr(paths_module, "_has_size", lambda path, size: path != paths.embedding_model)
+
+    assert paths.is_complete(manifest, runtime)
+    assert not paths.embedding_is_complete(manifest)
+
+
+@pytest.mark.asyncio
+async def test_a_session_fetches_the_matching_model_an_adopted_install_never_had(
+    manifest, monkeypatch
+) -> None:
+    """The gap the adoption rule above leaves open.
+
+    An adopted v1 tree reports itself complete, so Settings has nothing left to
+    offer and no other path would ever download this. A session that needs it
+    and finds it missing measured as a session with matching switched off.
+    """
+    runtime = manifest.runtime_for_host()
+    paths = resolve_paths(manifest, runtime)
+    monkeypatch.setattr(paths_module, "_has_size", lambda path, size: path != paths.embedding_model)
+    fetched: list[Path] = []
+    monkeypatch.setattr(
+        engine.install_module,
+        "install_embedding",
+        lambda paths, manifest: fetched.append(paths.embedding_model),
+    )
+    monkeypatch.setattr(
+        engine.runtime_module,
+        "ensure_embedding_ready",
+        AsyncMock(return_value="http://127.0.0.1:11437"),
+    )
+
+    assert await engine.ensure_embedding_ready() == "http://127.0.0.1:11437"
+    assert fetched == [paths.embedding_model]
+
+
+def test_the_matching_model_lives_in_our_own_tree_even_when_v1_is_adopted(
+    manifest,
+) -> None:
+    """v2 never writes into a v1 install, so its model cannot be stored there."""
+    runtime = manifest.runtime_for_host()
+    v1_root = Path("C:/somewhere/com.meowcal.sub/meowcal-sub")
+    adopted = paths_module._from_root(v1_root, manifest, runtime, adopted=True)
+
+    assert adopted.model.is_relative_to(v1_root)
+    assert not adopted.embedding_model.is_relative_to(v1_root)
+
+
+class FakeProcess:
+    """A spawned engine, reduced to whether it is still running."""
+
+    def __init__(self, pid: int) -> None:
+        self.pid = pid
+        self.terminated = False
+
+    def poll(self):
+        return 1 if self.terminated else None
+
+    def terminate(self) -> None:
+        self.terminated = True
+
+    def wait(self, timeout=None) -> int:
+        return 0
+
+
+def test_starting_an_engine_stops_the_one_it_replaces(tmp_path: Path, monkeypatch) -> None:
+    """A dropped handle does not stop a process holding gigabytes of model.
+
+    Measured once: a race opening the translator started nine engines in twenty
+    seconds, each one abandoning the last, until they were competing for the GPU
+    and crashing each other.
+    """
+    executable = tmp_path / "llama-server.exe"
+    model = tmp_path / "model.gguf"
+    executable.write_bytes(b"x")
+    model.write_bytes(b"x")
+    plan = a_plan(executable=executable, model=model)
+    paths = InstallPaths(
+        root=tmp_path,
+        runtime_dir=tmp_path,
+        runtime_archive=tmp_path / "runtime.zip",
+        executable=executable,
+        model_dir=tmp_path,
+        model=model,
+        embedding_model_dir=tmp_path,
+        embedding_model=tmp_path / "embedding.gguf",
+    )
+    spawned: list[FakeProcess] = []
+    monkeypatch.setattr(
+        runtime_module.subprocess,
+        "Popen",
+        lambda *args, **kwargs: spawned.append(FakeProcess(len(spawned))) or spawned[-1],
+    )
+    monkeypatch.setattr(runtime_module, "_attach_to_process_lifetime", lambda process: None)
+
+    try:
+        runtime_module._start(plan, paths)
+        runtime_module._start(plan, paths)
+        assert spawned[0].terminated, "the engine being replaced must be stopped"
+        assert not spawned[1].terminated
+    finally:
+        runtime_module.shutdown(plan.role)
 
 
 def test_the_engine_leaves_cores_for_capture_and_ocr() -> None:
@@ -71,6 +222,8 @@ def test_an_incomplete_install_is_not_reported_as_complete(tmp_path: Path, manif
         executable=tmp_path / "runtime" / "llama-server.exe",
         model_dir=tmp_path / "models",
         model=tmp_path / "models" / "model.gguf",
+        embedding_model_dir=tmp_path / "models" / "embedding",
+        embedding_model=tmp_path / "models" / "embedding" / "embedding.gguf",
     )
     assert not paths.is_complete(manifest, runtime)
 
@@ -93,6 +246,8 @@ def test_a_full_disk_is_reported_before_any_download(tmp_path: Path, manifest, m
         executable=tmp_path / "runtime" / "llama-server.exe",
         model_dir=tmp_path / "models",
         model=tmp_path / "models" / "model.gguf",
+        embedding_model_dir=tmp_path / "models" / "embedding",
+        embedding_model=tmp_path / "models" / "embedding" / "embedding.gguf",
     )
     with pytest.raises(EngineInstallError, match="free"):
         install_module.install(paths, manifest, runtime)

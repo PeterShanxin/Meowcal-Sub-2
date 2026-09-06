@@ -10,29 +10,34 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from dataclasses import asdict, replace
 from pathlib import Path
 from uuid import uuid4
 
-logger = logging.getLogger(__name__)
-CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
-AUTO_SOURCE_CANDIDATE_LIMIT = 3
-AUTO_TARGET_CANDIDATE_LIMIT = 1
-
+from meocosub2 import engine
 from meocosub2.capture import available_ocr_languages, resolve_ocr_language
 from meocosub2.config import AppConfig, config_to_payload, overlay_style_payload, save_config
-from meocosub2.errors import SubtitleSourceError, TranslationError
+from meocosub2.errors import TranslationError
 from meocosub2.event_log import log_event
-from meocosub2 import engine
 from meocosub2.languages import (
     is_chinese_family,
     language_label,
-    normalize_source_language,
     normalize_ocr_language,
+    normalize_source_language,
     source_language_mode,
     source_result_matches_requested_language,
 )
-from meocosub2.models import AppProgress, AppStateSnapshot, PreparedRuntime, PreparedSession, SearchRequest, SourceSubtitleCandidate, SubtitlePair
+from meocosub2.models import (
+    AppProgress,
+    AppStateSnapshot,
+    PreparedRuntime,
+    PreparedSession,
+    SearchRequest,
+    SourceSubtitleCandidate,
+    SubtitlePair,
+)
+from meocosub2.semantic import SemanticIndex
 from meocosub2.subtitle_sources import (
     AggregatedEpisode,
     AggregatedSearchCatalog,
@@ -42,14 +47,21 @@ from meocosub2.subtitle_sources import (
     AggregatedWork,
     SubtitleSearchAggregator,
 )
+from meocosub2.subtitle_sources.utils import result_id_for
 from meocosub2.subtitles import align_subtitles, assign_target_translations, load_subtitle_file
 from meocosub2.sync import (
+    MATCHED,
     CandidateSession,
     DirectTranslationSession,
     LiveTranslator,
     open_live_translator,
     run_session_loop,
 )
+
+logger = logging.getLogger(__name__)
+CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+AUTO_SOURCE_CANDIDATE_LIMIT = 3
+AUTO_TARGET_CANDIDATE_LIMIT = 1
 
 
 def search_result_payload(result: AggregatedSubtitleResult) -> dict[str, object]:
@@ -115,8 +127,7 @@ def search_work_payload(work: AggregatedWork) -> dict[str, object]:
             for season in work.seasons
         ],
         "infoChips": [
-            {"kind": chip.kind, "label": chip.label, "tone": chip.tone}
-            for chip in work.info_chips
+            {"kind": chip.kind, "label": chip.label, "tone": chip.tone} for chip in work.info_chips
         ],
     }
 
@@ -170,6 +181,14 @@ class GuiController:
         self._runtime_port = config.overlay_port
         self._aggregator = SubtitleSearchAggregator(config)
         self._search_catalog: AggregatedSearchCatalog | None = None
+        # Which search a preparation was made from. Results are selectable
+        # before every provider has answered, so the last one landing must
+        # not throw away a session prepared from the same search's interim.
+        self._prepared_search_id: str | None = None
+        # Guards progressive search updates: a slow provider from an earlier
+        # search must not clobber the state of a search the user has since
+        # retyped past.
+        self._active_search_id: str | None = None
         self._state = AppStateSnapshot(
             source_language=config.source_language,
             target_language=config.target_language,
@@ -207,7 +226,7 @@ class GuiController:
             f"Write-Host 'Installing OCR language pack: {escaped_label}...' -ForegroundColor Cyan; "
             "$caps = @(); "
             "foreach ($pattern in $patterns) { "
-            "  $caps += Get-WindowsCapability -Online | Where-Object { $_.Name -Like \"Language.OCR*$pattern*\" }; "
+            '  $caps += Get-WindowsCapability -Online | Where-Object { $_.Name -Like "Language.OCR*$pattern*" }; '
             "} "
             "$caps = @($caps | Sort-Object Name -Unique); "
             "$supported = ($caps.Count -gt 0); "
@@ -216,7 +235,7 @@ class GuiController:
             "  if ($pending.Count -gt 0) { $pending | Add-WindowsCapability -Online | Out-Null }; "
             "  $caps = @(); "
             "  foreach ($pattern in $patterns) { "
-            "    $caps += Get-WindowsCapability -Online | Where-Object { $_.Name -Like \"Language.OCR*$pattern*\" }; "
+            '    $caps += Get-WindowsCapability -Online | Where-Object { $_.Name -Like "Language.OCR*$pattern*" }; '
             "  } "
             "  $caps = @($caps | Sort-Object Name -Unique); "
             "  $installed = (@($caps | Where-Object { $_.State -eq 'Installed' }).Count -gt 0); "
@@ -275,7 +294,7 @@ class GuiController:
         log_event(
             "config.save.requested",
             layer="backend",
-            sections=sorted(str(key) for key in payload.keys()),
+            sections=sorted(str(key) for key in payload),
         )
         from meocosub2.config import config_from_payload
 
@@ -329,6 +348,7 @@ class GuiController:
             source_language=request.source_language,
             target_language=request.target_language,
         )
+        self._active_search_id = correlation_id
         async with self._lock:
             self._state.status = "searching"
             self._state.title = request.title
@@ -336,13 +356,70 @@ class GuiController:
             self._state.target_language = request.target_language
             self._state.error_message = ""
             self._state.warning_message = ""
-            self._state.progress = AppProgress(stage="search", message="Searching subtitle sources...")
+            self._state.progress = AppProgress(
+                stage="search", message="Searching subtitle sources..."
+            )
         await self._emit_app_state()
         await self._emit_app_progress()
 
+        async def on_provider_update(
+            succeeded_codes: list[str], settled_codes: list[str], interim: AggregatedSearchCatalog
+        ) -> None:
+            if self._active_search_id != correlation_id:
+                return  # A newer search has already replaced this one.
+            done_labels = [
+                provider.provider_label
+                for provider in self._aggregator.providers
+                if provider.provider_code in succeeded_codes
+            ]
+            # A provider that failed is still settled — it must not linger in
+            # "waiting on..." after it has already given up.
+            pending_labels = [
+                provider.provider_label
+                for provider in self._aggregator.providers
+                if provider.provider_code not in settled_codes
+            ]
+            total = len(self._aggregator.providers)
+            if not pending_labels:
+                message = (
+                    f"{', '.join(done_labels)} answered — finishing up…"
+                    if done_labels
+                    else "Finishing up…"
+                )
+            elif done_labels:
+                message = (
+                    f"{', '.join(done_labels)} answered — waiting on {', '.join(pending_labels)}…"
+                )
+            else:
+                message = f"Waiting on {', '.join(pending_labels)}…"
+            async with self._lock:
+                if self._active_search_id != correlation_id:
+                    return
+                # Stored with the results it describes, not when the search
+                # finishes. These results are selectable the moment they are
+                # shown, and every lookup behind that click reads the catalog.
+                self._search_catalog = interim
+                self._state.search_results = [
+                    search_result_payload(result) for result in interim.results
+                ]
+                self._state.search_matches = [
+                    search_match_payload(match) for match in interim.matches
+                ]
+                self._state.search_works = [search_work_payload(work) for work in interim.works]
+                self._state.progress = AppProgress(
+                    stage="search", message=message, current=len(settled_codes), total=total
+                )
+            await self._emit_app_state()
+            await self._emit_app_progress()
+
         languages = _expand_search_languages(request.source_language, request.target_language)
         try:
-            catalog = await self._aggregator.search_catalog(request.title, languages, correlation_id=correlation_id)
+            catalog = await self._aggregator.search_catalog(
+                request.title,
+                languages,
+                correlation_id=correlation_id,
+                on_provider_update=on_provider_update,
+            )
         except Exception as exc:
             log_event(
                 "search.failed",
@@ -354,37 +431,43 @@ class GuiController:
                 error_type=type(exc).__name__,
                 error=str(exc),
             )
-            await self._set_error(str(exc))
+            if self._active_search_id == correlation_id:
+                await self._set_error(str(exc))
             raise
 
         payload = [search_result_payload(result) for result in catalog.results]
         matches = [search_match_payload(match) for match in catalog.matches]
         works = [search_work_payload(work) for work in catalog.works]
-        async with self._lock:
-            self._search_catalog = catalog
-            self._state.status = "idle"
-            self._state.search_results = payload
-            self._state.search_matches = matches
-            self._state.search_works = works
-            self._state.selected_feature_id = None
-            self._state.selected_source_file_id = None
-            self._state.selected_target_file_id = None
-            self._state.prepared_session = None
-            self._state.progress = AppProgress()
-            self._state.warning_message = _search_warning_message(request, catalog.warnings)
-            self._prepared_runtime = None
-        await self._emit_app_state()
-        log_event(
-            "search.completed",
-            layer="backend",
-            correlation_id=correlation_id,
-            title=request.title,
-            duration_ms=round((time.perf_counter() - started) * 1000),
-            results=len(payload),
-            matches=len(matches),
-            works=len(works),
-            warnings=len(catalog.warnings),
-        )
+        # A newer search may have already replaced this one's state; still hand
+        # the caller its own results, just don't clobber the newer state with them.
+        if self._active_search_id == correlation_id:
+            prepared_here = self._prepared_search_id == correlation_id
+            async with self._lock:
+                self._search_catalog = catalog
+                self._state.status = "idle"
+                self._state.search_results = payload
+                self._state.search_matches = matches
+                self._state.search_works = works
+                self._state.progress = AppProgress()
+                self._state.warning_message = _search_warning_message(request, catalog.warnings)
+                if not prepared_here:
+                    self._state.selected_feature_id = None
+                    self._state.selected_source_file_id = None
+                    self._state.selected_target_file_id = None
+                    self._state.prepared_session = None
+                    self._prepared_runtime = None
+            await self._emit_app_state()
+            log_event(
+                "search.completed",
+                layer="backend",
+                correlation_id=correlation_id,
+                title=request.title,
+                duration_ms=round((time.perf_counter() - started) * 1000),
+                results=len(payload),
+                matches=len(matches),
+                works=len(works),
+                warnings=len(catalog.warnings),
+            )
         return {
             "results": payload,
             "matches": matches,
@@ -412,7 +495,9 @@ class GuiController:
             raise ValueError("Episode hydration needs a title.")
 
         query = f"{query_title} S{season:02d}E{episode:02d}"
-        languages = _expand_search_languages(self._state.source_language, self._state.target_language)
+        languages = _expand_search_languages(
+            self._state.source_language, self._state.target_language
+        )
         log_event(
             "search.episode_hydrate.requested",
             layer="backend",
@@ -423,7 +508,9 @@ class GuiController:
             episode=episode,
         )
 
-        catalog = await self._aggregator.search_catalog(query, languages, correlation_id=correlation_id)
+        catalog = await self._aggregator.search_catalog(
+            query, languages, correlation_id=correlation_id
+        )
         catalogs = [catalog]
         if _should_hydrate_season_neighbors(work, season):
             season_query = f"{query_title} S{season:02d}"
@@ -434,7 +521,9 @@ class GuiController:
             )
             catalogs.append(season_catalog)
 
-        results_by_episode = _collect_hydratable_episode_results(catalogs, work, query_title, season)
+        results_by_episode = _collect_hydratable_episode_results(
+            catalogs, work, query_title, season
+        )
         if not results_by_episode:
             log_event(
                 "search.episode_hydrate.empty",
@@ -469,9 +558,15 @@ class GuiController:
                 match_id = hydrated_match_id
 
         async with self._lock:
-            self._state.search_results = [search_result_payload(result) for result in self._search_catalog.results]
-            self._state.search_matches = [search_match_payload(match) for match in self._search_catalog.matches]
-            self._state.search_works = [search_work_payload(work) for work in self._search_catalog.works]
+            self._state.search_results = [
+                search_result_payload(result) for result in self._search_catalog.results
+            ]
+            self._state.search_matches = [
+                search_match_payload(match) for match in self._search_catalog.matches
+            ]
+            self._state.search_works = [
+                search_work_payload(work) for work in self._search_catalog.works
+            ]
             if match_id is not None:
                 self._state.selected_feature_id = match_id
                 self._state.selected_source_file_id = None
@@ -517,7 +612,9 @@ class GuiController:
             raise ValueError("Season hydration needs a title.")
 
         query = f"{query_title} S{season:02d}"
-        languages = _expand_search_languages(self._state.source_language, self._state.target_language)
+        languages = _expand_search_languages(
+            self._state.source_language, self._state.target_language
+        )
         log_event(
             "search.season_hydrate.requested",
             layer="backend",
@@ -527,8 +624,12 @@ class GuiController:
             season=season,
         )
 
-        catalog = await self._aggregator.search_catalog(query, languages, correlation_id=correlation_id)
-        results_by_episode = _collect_hydratable_episode_results([catalog], work, query_title, season)
+        catalog = await self._aggregator.search_catalog(
+            query, languages, correlation_id=correlation_id
+        )
+        results_by_episode = _collect_hydratable_episode_results(
+            [catalog], work, query_title, season
+        )
         if not results_by_episode:
             log_event(
                 "search.season_hydrate.empty",
@@ -558,9 +659,15 @@ class GuiController:
             )
 
         async with self._lock:
-            self._state.search_results = [search_result_payload(result) for result in self._search_catalog.results]
-            self._state.search_matches = [search_match_payload(match) for match in self._search_catalog.matches]
-            self._state.search_works = [search_work_payload(work) for work in self._search_catalog.works]
+            self._state.search_results = [
+                search_result_payload(result) for result in self._search_catalog.results
+            ]
+            self._state.search_matches = [
+                search_match_payload(match) for match in self._search_catalog.matches
+            ]
+            self._state.search_works = [
+                search_work_payload(work) for work in self._search_catalog.works
+            ]
         await self._emit_app_state()
         log_event(
             "search.season_hydrate.completed",
@@ -592,7 +699,9 @@ class GuiController:
         if self._search_catalog is None:
             raise ValueError("Search before hydrating an episode.")
 
-        target_work = next((work for work in self._search_catalog.works if work.id == work_id), None)
+        target_work = next(
+            (work for work in self._search_catalog.works if work.id == work_id), None
+        )
         existing_match = next(
             (
                 match
@@ -606,36 +715,49 @@ class GuiController:
             ),
             None,
         )
-        match_id = existing_match.id if existing_match is not None else f"hydrated:{work_id}:{season}:{episode}"
+        match_id = (
+            existing_match.id
+            if existing_match is not None
+            else f"hydrated:{work_id}:{season}:{episode}"
+        )
         existing_keys = {
-            (result.provider, getattr(result.provider_result, "id", result.file_name), result.language)
+            (
+                result.provider,
+                getattr(result.provider_result, "id", result.file_name),
+                result.language,
+            )
             for result in self._search_catalog.results
             if result.match_id == match_id
         }
 
         appended: list[AggregatedSubtitleResult] = []
-        next_index = len(self._search_catalog.results) + 1
         for result in results:
-            key = (result.provider, getattr(result.provider_result, "id", result.file_name), result.language)
+            key = (
+                result.provider,
+                getattr(result.provider_result, "id", result.file_name),
+                result.language,
+            )
             if key in existing_keys:
                 continue
             existing_keys.add(key)
             appended.append(
                 replace(
                     result,
-                    result_id=f"result-{next_index}",
+                    result_id=result_id_for(*key),
                     match_id=match_id,
                 )
             )
-            next_index += 1
         match_results = [
             result for result in self._search_catalog.results if result.match_id == match_id
         ]
         if not appended:
             if match_results:
                 self._search_catalog.works = [
-                    self._replace_work_episode(work, match_id, title, season, episode, match_results)
-                    if work.id == work_id else work
+                    self._replace_work_episode(
+                        work, match_id, title, season, episode, match_results
+                    )
+                    if work.id == work_id
+                    else work
                     for work in self._search_catalog.works
                 ]
             return match_id
@@ -665,7 +787,8 @@ class GuiController:
                 media_type="episode",
                 season=season,
                 episode=episode,
-                parent_title=(best_match.parent_title if best_match else appended[0].parent_title) or title,
+                parent_title=(best_match.parent_title if best_match else appended[0].parent_title)
+                or title,
                 subtitles_count=len(appended),
                 match_score=max([result.match_score for result in appended], default=0.0),
                 provider_count=len(providers),
@@ -683,16 +806,22 @@ class GuiController:
                     provider_count=len(merged_providers),
                     providers=merged_providers,
                     provider_labels=merged_labels,
-                    match_score=max(match.match_score, max(result.match_score for result in appended)),
+                    match_score=max(
+                        match.match_score, max(result.match_score for result in appended)
+                    ),
                 )
-                if match.id == match_id else match
+                if match.id == match_id
+                else match
                 for match in self._search_catalog.matches
             ]
 
         self._search_catalog.results.extend(appended)
         self._search_catalog.works = [
-            self._replace_work_episode(work, match_id, title, season, episode, [*match_results, *appended])
-            if work.id == work_id else work
+            self._replace_work_episode(
+                work, match_id, title, season, episode, [*match_results, *appended]
+            )
+            if work.id == work_id
+            else work
             for work in self._search_catalog.works
         ]
         return match_id
@@ -722,10 +851,7 @@ class GuiController:
             if item.season_number != season:
                 seasons.append(item)
                 continue
-            episodes = [
-                hydrated if ep.episode == episode else ep
-                for ep in item.episodes
-            ]
+            episodes = [hydrated if ep.episode == episode else ep for ep in item.episodes]
             if not any(ep.episode == episode for ep in item.episodes):
                 episodes.append(hydrated)
                 episodes.sort(key=lambda ep: (ep.episode is None, ep.episode or 0, ep.match_id))
@@ -738,13 +864,19 @@ class GuiController:
                 )
             )
         if not replaced:
-            seasons.append(AggregatedSeason(season_number=season, episodes=[hydrated], subtitles_count=len(results)))
+            seasons.append(
+                AggregatedSeason(
+                    season_number=season, episodes=[hydrated], subtitles_count=len(results)
+                )
+            )
             seasons.sort(key=lambda item: item.season_number)
         episode_keys = {
             (ep.season, ep.episode)
             for season_item in seasons
             for ep in season_item.episodes
-            if ep.season is not None and ep.episode is not None and not ep.match_id.startswith("skeleton:")
+            if ep.season is not None
+            and ep.episode is not None
+            and not ep.match_id.startswith("skeleton:")
         }
         return replace(
             work,
@@ -782,9 +914,13 @@ class GuiController:
         if mode not in {"subtitle_pair", "ocr_fallback", "auto_candidates"}:
             raise ValueError(f"Unsupported session mode: {mode}")
         if mode == "auto_candidates":
-            return await self._prepare_auto_candidate_session(feature_id or self._state.selected_feature_id)
+            return await self._prepare_auto_candidate_session(
+                feature_id or self._state.selected_feature_id
+            )
         if mode == "ocr_fallback":
-            return await self._prepare_ocr_fallback_session(feature_id or self._state.selected_feature_id, target_file_id)
+            return await self._prepare_ocr_fallback_session(
+                feature_id or self._state.selected_feature_id, target_file_id
+            )
         if source_file_id is None:
             raise ValueError("Select a source subtitle before preparing a subtitle-pair session.")
         return await self._prepare_subtitle_pair_session(feature_id, source_file_id, target_file_id)
@@ -797,10 +933,14 @@ class GuiController:
     ) -> dict[str, object]:
         source_result = self._find_search_result(source_file_id)
         if source_result is None:
-            raise ValueError("Selected source subtitle was not found in the current search results.")
+            raise ValueError(
+                "Selected source subtitle was not found in the current search results."
+            )
         target_result = self._find_search_result(target_file_id) if target_file_id else None
         if target_file_id is not None and target_result is None:
-            raise ValueError("Selected target subtitle was not found in the current search results.")
+            raise ValueError(
+                "Selected target subtitle was not found in the current search results."
+            )
         effective_feature_id = feature_id or self._feature_id_for_result(source_result)
 
         async with self._lock:
@@ -810,7 +950,9 @@ class GuiController:
             self._state.selected_target_file_id = target_file_id
             self._state.error_message = ""
             self._state.warning_message = ""
-            self._state.progress = AppProgress(stage="download", message="Downloading subtitle files...", current=0, total=2)
+            self._state.progress = AppProgress(
+                stage="download", message="Downloading subtitle files...", current=0, total=2
+            )
         await self._emit_app_state()
         await self._emit_app_progress()
 
@@ -848,7 +990,9 @@ class GuiController:
             title=self._state.title,
             source_language=self._state.source_language,
             target_language=self._state.target_language,
-            resolved_source_language=str(source_result.get("language") or self._state.source_language),
+            resolved_source_language=str(
+                source_result.get("language") or self._state.source_language
+            ),
             source_language_mode=source_language_mode(
                 self._state.source_language,
                 str(source_result.get("language") or self._state.source_language),
@@ -858,12 +1002,22 @@ class GuiController:
             feature_id=effective_feature_id,
             source_file_id=source_file_id,
             source_file_name=str(source_result.get("fileName") or ""),
-            source_provider=str(source_result.get("providerLabel") or source_result.get("provider") or ""),
+            source_provider=str(
+                source_result.get("providerLabel") or source_result.get("provider") or ""
+            ),
             source_path=str(source_path),
             source_line_count=len(source_lines),
-            target_file_id=str(target_result.get("resultId") or target_file_id) if target_result is not None else None,
-            target_file_name=str(target_result.get("fileName") or "") if target_result is not None else None,
-            target_provider=str(target_result.get("providerLabel") or target_result.get("provider") or "") if target_result is not None else None,
+            target_file_id=str(target_result.get("resultId") or target_file_id)
+            if target_result is not None
+            else None,
+            target_file_name=str(target_result.get("fileName") or "")
+            if target_result is not None
+            else None,
+            target_provider=str(
+                target_result.get("providerLabel") or target_result.get("provider") or ""
+            )
+            if target_result is not None
+            else None,
             target_path=str(target_path) if target_path is not None else None,
             target_line_count=len(target_lines),
             translated_line_count=sum(1 for line in source_lines if line.translated),
@@ -871,6 +1025,7 @@ class GuiController:
         )
 
         async with self._lock:
+            self._prepared_search_id = self._active_search_id
             self._prepared_runtime = PreparedRuntime(
                 session_mode="subtitle_pair",
                 target_lines=target_lines,
@@ -879,7 +1034,11 @@ class GuiController:
                     SourceSubtitleCandidate(
                         result_id=source_file_id,
                         file_name=str(source_result.get("fileName") or ""),
-                        provider=str(source_result.get("providerLabel") or source_result.get("provider") or ""),
+                        provider=str(
+                            source_result.get("providerLabel")
+                            or source_result.get("provider")
+                            or ""
+                        ),
                         language=str(source_result.get("language") or ""),
                         path=str(source_path),
                         pair=pair,
@@ -888,7 +1047,9 @@ class GuiController:
             )
             self._state.prepared_session = session
             self._state.status = "idle"
-            self._state.progress = AppProgress(stage="ready", message="Session prepared.", current=1, total=1)
+            self._state.progress = AppProgress(
+                stage="ready", message="Session prepared.", current=1, total=1
+            )
             if session.source_language_mode != "exact":
                 self._state.warning_message = "Using a Chinese-family source subtitle fallback because no exact source language match was available."
         await self._emit_app_state()
@@ -916,7 +1077,9 @@ class GuiController:
         )
         target_entry = target_entries[0] if target_entries else None
         if not source_entries:
-            return await self._prepare_ocr_fallback_session(feature_id, target_entry.result_id if target_entry else None)
+            return await self._prepare_ocr_fallback_session(
+                feature_id, target_entry.result_id if target_entry else None
+            )
 
         total_downloads = len(source_entries) + (1 if target_entry is not None else 0)
         async with self._lock:
@@ -944,7 +1107,12 @@ class GuiController:
             for entry in source_entries:
                 source_path = await self._aggregator.download(entry)
                 downloaded += 1
-                await self._set_progress("download", "Downloaded source subtitle candidates.", downloaded, total_downloads)
+                await self._set_progress(
+                    "download",
+                    "Downloaded source subtitle candidates.",
+                    downloaded,
+                    total_downloads,
+                )
                 source_lines = load_subtitle_file(source_path)
                 source_candidates.append(
                     SourceSubtitleCandidate(
@@ -960,7 +1128,9 @@ class GuiController:
             if target_entry is not None:
                 target_path = await self._aggregator.download(target_entry)
                 downloaded += 1
-                await self._set_progress("download", "Downloaded target subtitles.", downloaded, total_downloads)
+                await self._set_progress(
+                    "download", "Downloaded target subtitles.", downloaded, total_downloads
+                )
                 target_lines = load_subtitle_file(target_path)
                 for candidate in source_candidates:
                     candidate.pair.target_lines = target_lines
@@ -979,19 +1149,27 @@ class GuiController:
             source_language=self._state.source_language,
             target_language=self._state.target_language,
             resolved_source_language=primary_source.language,
-            source_language_mode=source_language_mode(self._state.source_language, primary_source.language),
+            source_language_mode=source_language_mode(
+                self._state.source_language, primary_source.language
+            ),
             session_mode="auto_candidates",
             target_match_mode="auto_subtitle_file" if target_lines else "auto_live_translation",
             feature_id=feature_id,
             source_file_id=None,
             source_file_name=None,
             source_summary=f"{len(source_candidates)} source candidates",
-            source_provider=", ".join(dict.fromkeys(candidate.provider for candidate in source_candidates)),
+            source_provider=", ".join(
+                dict.fromkeys(candidate.provider for candidate in source_candidates)
+            ),
             source_path=None,
-            source_line_count=sum(len(candidate.pair.source_lines) for candidate in source_candidates),
+            source_line_count=sum(
+                len(candidate.pair.source_lines) for candidate in source_candidates
+            ),
             target_file_id=target_entry.result_id if target_entry else None,
             target_file_name=target_entry.file_name if target_entry else None,
-            target_provider=(target_entry.provider_label or target_entry.provider) if target_entry else None,
+            target_provider=(target_entry.provider_label or target_entry.provider)
+            if target_entry
+            else None,
             target_path=str(target_path) if target_path is not None else None,
             target_line_count=len(target_lines),
             translated_line_count=sum(
@@ -1012,7 +1190,10 @@ class GuiController:
                     feature_id,
                     self._state.selected_feature_id,
                 )
-                raise RuntimeError("Stale auto-prepare result ignored because another title is selected.")
+                raise RuntimeError(
+                    "Stale auto-prepare result ignored because another title is selected."
+                )
+            self._prepared_search_id = self._active_search_id
             self._prepared_runtime = PreparedRuntime(
                 session_mode="auto_candidates",
                 target_lines=target_lines,
@@ -1021,12 +1202,18 @@ class GuiController:
             )
             self._state.prepared_session = session
             self._state.status = "idle"
-            self._state.progress = AppProgress(stage="ready", message="Automatic subtitle session prepared.", current=1, total=1)
+            self._state.progress = AppProgress(
+                stage="ready", message="Automatic subtitle session prepared.", current=1, total=1
+            )
             warnings = []
             if session.source_language_mode != "exact":
-                warnings.append("Using Chinese-family source subtitle candidates because no exact source language match was available.")
+                warnings.append(
+                    "Using Chinese-family source subtitle candidates because no exact source language match was available."
+                )
             if target_entry is None:
-                warnings.append("No target subtitle matched the requested language. The session will translate matched source lines live.")
+                warnings.append(
+                    "No target subtitle matched the requested language. The session will translate matched source lines live."
+                )
             self._state.warning_message = " ".join(warnings)
         await self._emit_app_state()
         await self._emit_app_progress()
@@ -1045,8 +1232,12 @@ class GuiController:
 
         target_result = self._find_search_result(target_file_id) if target_file_id else None
         if target_file_id is not None and target_result is None:
-            raise ValueError("Selected target subtitle was not found in the current search results.")
-        if target_result is not None and not self._result_matches_feature(target_result, feature_id):
+            raise ValueError(
+                "Selected target subtitle was not found in the current search results."
+            )
+        if target_result is not None and not self._result_matches_feature(
+            target_result, feature_id
+        ):
             raise ValueError("Selected target subtitle does not belong to the chosen title.")
 
         async with self._lock:
@@ -1056,7 +1247,9 @@ class GuiController:
             self._state.selected_target_file_id = target_file_id
             self._state.error_message = ""
             self._state.warning_message = ""
-            self._state.progress = AppProgress(stage="prepare", message="Preparing OCR fallback session...", current=0, total=1)
+            self._state.progress = AppProgress(
+                stage="prepare", message="Preparing OCR fallback session...", current=0, total=1
+            )
         await self._emit_app_state()
         await self._emit_app_progress()
 
@@ -1084,15 +1277,24 @@ class GuiController:
             session_mode="ocr_fallback",
             target_match_mode="target_subtitle_match" if target_lines else "direct_translation",
             feature_id=feature_id,
-            target_file_id=str(target_result.get("resultId") or target_file_id) if target_result is not None else None,
-            target_file_name=str(target_result.get("fileName") or "") if target_result is not None else None,
-            target_provider=str(target_result.get("providerLabel") or target_result.get("provider") or "") if target_result is not None else None,
+            target_file_id=str(target_result.get("resultId") or target_file_id)
+            if target_result is not None
+            else None,
+            target_file_name=str(target_result.get("fileName") or "")
+            if target_result is not None
+            else None,
+            target_provider=str(
+                target_result.get("providerLabel") or target_result.get("provider") or ""
+            )
+            if target_result is not None
+            else None,
             target_path=str(target_path) if target_path is not None else None,
             target_line_count=len(target_lines),
             used_translation=True,
         )
 
         async with self._lock:
+            self._prepared_search_id = self._active_search_id
             self._prepared_runtime = PreparedRuntime(
                 session_mode="ocr_fallback",
                 target_lines=target_lines,
@@ -1100,10 +1302,10 @@ class GuiController:
             )
             self._state.prepared_session = session
             self._state.status = "idle"
-            self._state.progress = AppProgress(stage="ready", message="OCR fallback session prepared.", current=1, total=1)
-            self._state.warning_message = (
-                "No source subtitle matched the requested language. The session will use OCR plus live AI translation."
+            self._state.progress = AppProgress(
+                stage="ready", message="OCR fallback session prepared.", current=1, total=1
             )
+            self._state.warning_message = "No source subtitle matched the requested language. The session will use OCR plus live AI translation."
         await self._emit_app_state()
         await self._emit_app_progress()
         return asdict(session)
@@ -1122,7 +1324,11 @@ class GuiController:
             raise ValueError("Select the capture region before starting sync.")
 
         resolution = resolve_ocr_language(self.config.ocr_language)
-        if resolution.warning_message and resolution.resolved_language == resolution.requested_language and "not installed" in resolution.warning_message.lower():
+        if (
+            resolution.warning_message
+            and resolution.resolved_language == resolution.requested_language
+            and "not installed" in resolution.warning_message.lower()
+        ):
             raise RuntimeError(resolution.warning_message)
         async with self._lock:
             self._state.status = "running"
@@ -1133,7 +1339,9 @@ class GuiController:
         await self._emit_app_state()
         await self._emit_app_progress()
 
-        self._sync_task = asyncio.create_task(self._run_sync_loop(self._prepared_runtime, self.config))
+        self._sync_task = asyncio.create_task(
+            self._run_sync_loop(self._prepared_runtime, self.config)
+        )
         return {"status": self._state.status}
 
     async def stop_session(self) -> dict[str, object]:
@@ -1147,12 +1355,14 @@ class GuiController:
                 self._state.progress = AppProgress()
                 self._state.warning_message = ""
             await self._emit_app_state()
-            await self._emit_app_event("subtitle", {"text": ""})
+            await self._emit_app_event("subtitle", {"text": "", "source": MATCHED})
             return {"status": self._state.status}
 
         async with self._lock:
             self._state.status = "stopping"
-            self._state.progress = AppProgress(stage="stopping", message="Stopping session...", current=0, total=1)
+            self._state.progress = AppProgress(
+                stage="stopping", message="Stopping session...", current=0, total=1
+            )
         await self._emit_app_state()
         await self._emit_app_progress()
 
@@ -1170,27 +1380,27 @@ class GuiController:
             self._state.progress = AppProgress()
             self._state.warning_message = ""
         await self._emit_app_state()
-        await self._emit_app_event("subtitle", {"text": ""})
+        await self._emit_app_event("subtitle", {"text": "", "source": MATCHED})
         return {"status": self._state.status}
 
     def _make_debug_broadcast(self) -> Callable[[dict[str, object]], Awaitable[None]]:
         async def cb(data: dict[str, object]) -> None:
             await self._emit_app_event("debug", {"data": data})
+
         return cb
 
-    async def broadcast_overlay_subtitle(self, subtitle_text: str) -> None:
+    async def broadcast_overlay_subtitle(self, subtitle_text: str, source: str = MATCHED) -> None:
+        """Put a line on the plate, saying whether it came from a file or the model."""
         async with self._lock:
             self._state.last_subtitle = subtitle_text
-        await self._emit_app_event("subtitle", {"text": subtitle_text})
+        await self._emit_app_event("subtitle", {"text": subtitle_text, "source": source})
 
     async def shutdown(self) -> None:
         task = self._sync_task
         if task is not None and not task.done():
             task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
 
     async def _start_translation_engine(self) -> None:
         try:
@@ -1203,21 +1413,31 @@ class GuiController:
         # panel can inspect OCR timing without changing capture behavior.
         debug_cb = self._make_debug_broadcast() if config.debug_mode else None
         opened: list = []
+        opening = asyncio.Lock()
+
+        async def semantic_factory() -> SemanticIndex:
+            return SemanticIndex(await engine.ensure_embedding_ready())
 
         async def translator_factory() -> LiveTranslator:
-            # Opened on the first line that needs it, so a session whose subtitles
-            # are already paired never waits on the engine.
-            if not opened:
-                opened.append(await open_live_translator(config))
+            """Open the translator once, however many reads ask for it at once.
+
+            Every unmatched read starts its own task, and until the engine is up
+            they all arrive here together. Checking `opened` without the lock
+            let each of them past - measured as nine engines started in twenty
+            seconds, one per waiting read, competing for the GPU.
+            """
+            async with opening:
+                if not opened:
+                    opened.append(await open_live_translator(config))
             return opened[0][1]
 
         try:
             if runtime.source_candidates:
-                session = CandidateSession(runtime.source_candidates, config, translator_factory)
-            else:
-                session = DirectTranslationSession(
-                    runtime.target_lines, config, translator_factory
+                session = CandidateSession(
+                    runtime.source_candidates, config, translator_factory, semantic_factory
                 )
+            else:
+                session = DirectTranslationSession(runtime.target_lines, config, translator_factory)
             await run_session_loop(
                 session,
                 config,
@@ -1289,7 +1509,9 @@ class GuiController:
 
     async def _set_progress(self, stage: str, message: str, current: int, total: int) -> None:
         async with self._lock:
-            self._state.progress = AppProgress(stage=stage, message=message, current=current, total=total)
+            self._state.progress = AppProgress(
+                stage=stage, message=message, current=current, total=total
+            )
         await self._emit_app_progress()
 
     async def _set_error(self, message: str) -> None:
@@ -1347,7 +1569,11 @@ def _search_inputs_changed(previous: AppConfig, current: AppConfig) -> bool:
 def _expand_search_languages(source_language: str, target_language: str) -> str:
     requested = {source_language, target_language}
     normalized = {code.strip().lower() for code in requested if code}
-    if "zh" in normalized or "zht" in normalized or any(code.startswith("zh") for code in normalized):
+    if (
+        "zh" in normalized
+        or "zht" in normalized
+        or any(code.startswith("zh") for code in normalized)
+    ):
         normalized.update({"zh", "zht"})
     return ",".join(sorted(normalized))
 

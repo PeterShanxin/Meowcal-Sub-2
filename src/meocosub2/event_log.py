@@ -7,11 +7,12 @@ import logging
 import os
 import re
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,9 @@ SENSITIVE_KEY_PARTS = (
 )
 RESERVED_KEYS = frozenset({"correlation_id", "event", "layer", "level", "ts", "ts_ms"})
 URL_PATTERN = re.compile(r"https?://[^\s\"'<>]+")
-CURRENT_CORRELATION_ID: ContextVar[str | None] = ContextVar("meocosub2_correlation_id", default=None)
+CURRENT_CORRELATION_ID: ContextVar[str | None] = ContextVar(
+    "meocosub2_correlation_id", default=None
+)
 
 
 def event_log_path() -> Path:

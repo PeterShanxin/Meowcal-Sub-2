@@ -8,6 +8,7 @@ import os
 import re
 import tempfile
 import time
+from contextlib import suppress
 from ctypes import wintypes
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,10 +69,8 @@ def _become_dpi_aware() -> None:
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
     except (AttributeError, OSError):
-        try:
+        with suppress(AttributeError, OSError):
             ctypes.windll.user32.SetProcessDPIAware()
-        except (AttributeError, OSError):
-            pass
 
 
 def enumerate_windows() -> list[WindowInfo]:
@@ -115,7 +114,9 @@ def select_window(windows: list[WindowInfo], title_query: str) -> WindowInfo:
     matches = filter_windows(windows, title_query)
     if not matches:
         visible_titles = ", ".join(window.title for window in windows[:8]) or "none"
-        raise RuntimeError(f'No visible window matched "{title_query}". Visible windows: {visible_titles}')
+        raise RuntimeError(
+            f'No visible window matched "{title_query}". Visible windows: {visible_titles}'
+        )
     exact = [window for window in matches if window.title.lower() == title_query.strip().lower()]
     ranked = exact or matches
     return min(ranked, key=lambda window: (len(window.title), window.title.lower()))
@@ -150,7 +151,9 @@ def capture_window_image(window: WindowInfo, output_path: Path) -> Path:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Capture the Meowcal desktop window to a PNG.")
-    parser.add_argument("--title", default=DEFAULT_WINDOW_TITLE, help="Window title substring to match.")
+    parser.add_argument(
+        "--title", default=DEFAULT_WINDOW_TITLE, help="Window title substring to match."
+    )
     parser.add_argument("--path", type=Path, help="Explicit PNG output path.")
     parser.add_argument(
         "--mode",
@@ -158,8 +161,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="temp",
         help="Default output location when --path is not provided.",
     )
-    parser.add_argument("--list-windows", action="store_true", help="List visible windows matching --title.")
-    parser.add_argument("--active-window", action="store_true", help="Capture the current foreground window instead.")
+    parser.add_argument(
+        "--list-windows", action="store_true", help="List visible windows matching --title."
+    )
+    parser.add_argument(
+        "--active-window",
+        action="store_true",
+        help="Capture the current foreground window instead.",
+    )
     return parser.parse_args(argv)
 
 

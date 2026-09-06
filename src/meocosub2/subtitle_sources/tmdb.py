@@ -58,9 +58,7 @@ class TMDbCache:
             if self.path.exists():
                 raw = json.loads(self.path.read_text(encoding="utf-8"))
                 if isinstance(raw, dict):
-                    self._data = {
-                        str(k): v for k, v in raw.items() if isinstance(v, dict)
-                    }
+                    self._data = {str(k): v for k, v in raw.items() if isinstance(v, dict)}
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning("TMDb cache read failed: %s", exc)
             self._data = {}
@@ -122,10 +120,7 @@ def _title_score(query: str, candidate: dict[str, Any]) -> float:
     aliases = candidate.get("alternative_titles") or []
     if isinstance(aliases, list):
         for alias in aliases:
-            if isinstance(alias, dict):
-                title = alias.get("title")
-            else:
-                title = alias
+            title = alias.get("title") if isinstance(alias, dict) else alias
             if not title:
                 continue
             score = float(fuzz.token_sort_ratio(q, _normalize_for_key(str(title))))
@@ -348,7 +343,7 @@ class TMDbClient:
         try:
             client = await self._client_obj()
             response = await client.get(url, params=query_params, headers=headers)
-        except (httpx.HTTPError, asyncio.TimeoutError) as exc:
+        except (TimeoutError, httpx.HTTPError) as exc:
             logger.warning("TMDb request failed (%s): %s", path, exc)
             return None
         if response.status_code == 404:
@@ -386,6 +381,8 @@ def _deserialize_series(value: Any) -> TMDbSeries | None:
         imdb_id=value.get("imdb_id"),
         name=str(value.get("name") or ""),
         original_name=str(value.get("original_name") or ""),
-        first_air_year=value.get("first_air_year") if isinstance(value.get("first_air_year"), int) else None,
+        first_air_year=value.get("first_air_year")
+        if isinstance(value.get("first_air_year"), int)
+        else None,
         poster_path=value.get("poster_path") if isinstance(value.get("poster_path"), str) else None,
     )

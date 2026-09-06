@@ -27,6 +27,7 @@ __all__ = [
     "EngineInstallError",
     "EngineStartError",
     "EngineStatus",
+    "ensure_embedding_ready",
     "ensure_ready",
     "install_engine",
     "shutdown",
@@ -73,6 +74,7 @@ class _InstallJob:
 _install_job: _InstallJob | None = None
 _install_lock = threading.Lock()
 _start_lock = asyncio.Lock()
+_embedding_install_lock = asyncio.Lock()
 
 
 def _accelerator_label() -> str:
@@ -108,7 +110,12 @@ def status() -> EngineStatus:
 
     paths = resolve_paths(manifest, runtime)
     if paths.is_complete(manifest, runtime):
-        return EngineStatus("idle", "Local translation is installed and starts with a session.", model, install_percent=100)
+        return EngineStatus(
+            "idle",
+            "Local translation is installed and starts with a session.",
+            model,
+            install_percent=100,
+        )
     return EngineStatus(
         "needsSetup",
         "Local translation needs a one-time 1.1 GB download before it can run.",
@@ -170,4 +177,33 @@ async def ensure_ready(timeout_s: float = STARTUP_TIMEOUT_S) -> str:
     async with _start_lock:
         endpoint = await runtime_module.ensure_ready(paths, manifest, runtime, timeout_s)
     logger.info("Translation engine ready at %s (%s)", endpoint, _accelerator_label())
+    return endpoint
+
+
+async def ensure_embedding_ready(timeout_s: float = STARTUP_TIMEOUT_S) -> str:
+    """Return a healthy endpoint for the model that matches reads to subtitle lines.
+
+    Separate from `ensure_ready` because the two answer different questions. A
+    session without this model still translates; it just falls back on character
+    matching, which the burned-in subtitles usually defeat. An install predating
+    this model - including an adopted v1 engine - is exactly that case, and it
+    reports itself complete, so nothing else will ever fetch this. The 26 MB is
+    downloaded here rather than sent back to Settings as a chore.
+    """
+    manifest = load_manifest()
+    runtime = manifest.runtime_for_host()
+    paths = resolve_paths(manifest, runtime)
+    if not paths.embedding_is_complete(manifest):
+        # Serialised, and checked again inside: a session that switches subtitle
+        # candidates while this is still downloading asks a second time, and two
+        # installers writing the same part file is a corrupt download on Windows
+        # rather than two copies of a small one. Cancelling the caller's task
+        # does not stop a thread already inside the download.
+        async with _embedding_install_lock:
+            if not paths.embedding_is_complete(manifest):
+                logger.info("Downloading the subtitle matching model (%s)", manifest.embedding.id)
+                await asyncio.to_thread(install_module.install_embedding, paths, manifest)
+    async with _start_lock:
+        endpoint = await runtime_module.ensure_embedding_ready(paths, manifest, timeout_s)
+    logger.info("Subtitle matching model ready at %s", endpoint)
     return endpoint

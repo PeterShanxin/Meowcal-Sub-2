@@ -3,11 +3,7 @@ import { accessToken } from "../lib/session";
 
 const API_BASE = "";
 
-async function request<T>(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const init: RequestInit = {
     method,
     headers: {
@@ -16,16 +12,26 @@ async function request<T>(
     },
   };
   if (body !== undefined) init.body = JSON.stringify(body);
-  const res = await fetch(`${API_BASE}${path}`, init);
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, init);
+  } catch {
+    // The studio and its backend are the same install, so a request that never
+    // left means the backend is down - "Failed to fetch" says nothing the reader
+    // can act on.
+    throw new Error("Meowcal's backend is not responding. It may still be starting up.");
+  }
   if (!res.ok) {
     let detail: string;
     try {
       const j = (await res.json()) as { detail?: string };
-      detail = j?.detail ?? res.statusText;
+      detail = j?.detail ?? "";
     } catch {
-      detail = await res.text().catch(() => res.statusText);
+      detail = await res.text().catch(() => "");
     }
-    throw new Error(`${method} ${path} failed (${res.status}): ${detail}`);
+    // The backend's own wording names the provider and the reason; the method and
+    // path belong in the event log, not in front of the reader.
+    throw new Error(detail.trim() || `The backend returned ${res.status} ${res.statusText}.`);
   }
   return (await res.json()) as T;
 }
@@ -99,14 +105,9 @@ export const api = {
     correlationId?: string,
   ): Promise<HydrateSeasonResponse> =>
     request("POST", "/api/search/season", { workId, title, season, correlationId }),
-  logClient: (body: ClientLogBody) =>
-    request<{ status: string }>("POST", "/api/log/client", body),
+  logClient: (body: ClientLogBody) => request<{ status: string }>("POST", "/api/log/client", body),
   prepareSession: (body: PrepareBody) =>
-    request<{ session: BackendSnapshot["prepared_session"] }>(
-      "POST",
-      "/api/session/prepare",
-      body,
-    ),
+    request<{ session: BackendSnapshot["prepared_session"] }>("POST", "/api/session/prepare", body),
   startSession: (sessionId?: string | null) =>
     request<{ status: string }>("POST", "/api/session/start", { sessionId }),
   stopSession: () => request<{ status: string }>("POST", "/api/session/stop"),

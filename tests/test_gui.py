@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 
-
 from meocosub2.config import AppConfig
 from meocosub2.errors import OpenSubtitlesError, TranslationError
 from meocosub2.overlay.server import OverlayServer
@@ -81,7 +80,9 @@ def test_prepare_start_and_stop_routes_delegate_to_controller(tmp_path: Path, mo
     prepare = mocker.patch.object(
         server.controller,
         "prepare_session",
-        new=mocker.AsyncMock(return_value={"session_id": "abc123", "session_mode": "subtitle_pair"}),
+        new=mocker.AsyncMock(
+            return_value={"session_id": "abc123", "session_mode": "subtitle_pair"}
+        ),
     )
     start = mocker.patch.object(
         server.controller,
@@ -122,7 +123,9 @@ def test_prepare_route_supports_ocr_fallback_mode(tmp_path: Path, mocker) -> Non
     prepare = mocker.patch.object(
         server.controller,
         "prepare_session",
-        new=mocker.AsyncMock(return_value={"session_id": "fallback01", "session_mode": "ocr_fallback"}),
+        new=mocker.AsyncMock(
+            return_value={"session_id": "fallback01", "session_mode": "ocr_fallback"}
+        ),
     )
 
     with studio_client(server) as client:
@@ -146,7 +149,9 @@ def test_prepare_route_supports_auto_candidate_mode(tmp_path: Path, mocker) -> N
     prepare = mocker.patch.object(
         server.controller,
         "prepare_session",
-        new=mocker.AsyncMock(return_value={"session_id": "auto01", "session_mode": "auto_candidates"}),
+        new=mocker.AsyncMock(
+            return_value={"session_id": "auto01", "session_mode": "auto_candidates"}
+        ),
     )
 
     with studio_client(server) as client:
@@ -198,7 +203,9 @@ def test_search_route_returns_bad_gateway_on_opensubtitles_error(tmp_path: Path,
 
 def test_languages_route_returns_catalog(tmp_path: Path, mocker) -> None:
     server = make_server(tmp_path / "config.toml")
-    mocker.patch("meocosub2.overlay.server.available_ocr_languages", return_value=["en-US", "zh-Hans-CN"])
+    mocker.patch(
+        "meocosub2.overlay.server.available_ocr_languages", return_value=["en-US", "zh-Hans-CN"]
+    )
     with studio_client(server) as client:
         response = client.get("/api/languages")
 
@@ -236,10 +243,30 @@ def test_prepare_route_returns_bad_gateway_on_translation_error(tmp_path: Path, 
     mocker.patch.object(
         server.controller,
         "prepare_session",
-        new=mocker.AsyncMock(side_effect=TranslationError("Foundry Local translation request failed")),
+        new=mocker.AsyncMock(
+            side_effect=TranslationError("Foundry Local translation request failed")
+        ),
     )
     with studio_client(server) as client:
-        response = client.post("/api/session/prepare", json={"mode": "subtitle_pair", "sourceFileId": 1})
+        response = client.post(
+            "/api/session/prepare", json={"mode": "subtitle_pair", "sourceFileId": 1}
+        )
 
     assert response.status_code == 502
     assert "Foundry Local" in response.json()["detail"]
+
+
+def test_capture_screen_route_returns_the_region_it_was_asked_for(tmp_path: Path, mocker) -> None:
+    server = make_server(tmp_path / "config.toml")
+    grab = mocker.patch(
+        "meocosub2.overlay.server.capture_region_jpeg", return_value=b"\xff\xd8jpeg"
+    )
+    with studio_client(server) as client:
+        response = client.get(
+            "/api/capture/screen", params={"x": -1920, "y": 40, "width": 2560, "height": 1440}
+        )
+    assert response.status_code == 200
+    # A monitor left of the primary one has a negative origin, and the selector
+    # draws on the whole of it: anything lost here is a still of the wrong screen.
+    grab.assert_called_once_with((-1920, 40, 2560, 1440))
+    assert response.json()["dataUrl"].startswith("data:image/jpeg;base64,")

@@ -35,6 +35,16 @@ class MatchResult:
     score: float
     source_text: str
     target_text: str
+    start_ms: int = 0
+    # How many subtitle lines the read covered. A file that splits one on-screen
+    # cue across two cues is matched as the pair, and answers with both.
+    span: int = 1
+    # Whether every line the read covered already has a target-language line
+    # paired with it. When it does not, the session translates instead.
+    translated: bool = False
+    # Which signals agreed on this line: "text", "semantic", or "both". The
+    # clock treats a line both signals picked as evidence enough to anchor on.
+    confidence: str = ""
 
 
 @dataclass

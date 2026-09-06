@@ -1,217 +1,185 @@
-import type { LiveLine } from "../lib/types";
+import { useEffect, useState } from "react";
+import { tauri } from "../hooks/use-tauri";
 
+const EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+
+/** The studio window while a session runs.
+ *
+ * The subtitles are drawn in the plate window beside the capture region, where
+ * they do not cover the burned-in line they were read from. All that is left
+ * here is a bead in the corner of the screen, which becomes the controls when
+ * the pointer reaches it.
+ *
+ * The shell owns the shape and the state: it watches the desktop cursor and
+ * clips the window to a pill that grows out of the corner. This page is told
+ * how far open that pill is and fades its contents to match.
+ */
 export function LiveView({
-  prev,
-  current,
   onStop,
   onSelectRegion,
   onOpenSettings,
 }: {
-  prev: LiveLine | null;
-  current: LiveLine | null;
   onStop: () => void;
   onSelectRegion: () => void;
   onOpenSettings: () => void;
 }): JSX.Element {
-  return (
-    <>
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          zIndex: 1,
-          background:
-            "radial-gradient(ellipse at 20% 30%, rgba(231,111,81,0.18), transparent 40%), radial-gradient(ellipse at 80% 20%, rgba(244,162,97,0.12), transparent 45%), linear-gradient(180deg, transparent 30%, rgba(0,0,0,0.5) 100%)",
-          pointerEvents: "none",
-        }}
-      />
+  const [open, setOpen] = useState(false);
 
-      {prev?.text && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: 160,
-            left: 0,
-            right: 0,
-            textAlign: "center",
-            zIndex: 3,
-          }}
-        >
-          <div
-            className="display-serif"
-            style={{
-              fontSize: 13,
-              color: "rgba(255,255,255,0.35)",
-            }}
-          >
-            {prev.text}
-          </div>
-        </div>
-      )}
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    void tauri
+      .listen("dock-open", (event) => {
+        setOpen(Boolean((event as { payload?: boolean } | null)?.payload));
+      })
+      .then((stop) => {
+        if (!stop) return;
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
-      <div
-        style={{
-          position: "absolute",
-          bottom: 100,
-          left: 0,
-          right: 0,
-          textAlign: "center",
-          zIndex: 3,
-          padding: "0 80px",
-        }}
-      >
-        <div
-          style={{
-            fontSize: 38,
-            fontWeight: 500,
-            lineHeight: 1.3,
-            letterSpacing: -0.3,
-            color: "#fff",
-            textShadow: "0 2px 20px rgba(0,0,0,0.7)",
-            fontFamily: "var(--font-target)",
-            marginBottom: 8,
-          }}
-        >
-          {current?.text ?? "…"}
-        </div>
-      </div>
-
-      <LiveDock
-        tc={current?.tc ?? ""}
-        onStop={onStop}
-        onSelectRegion={onSelectRegion}
-        onOpenSettings={onOpenSettings}
-      />
-    </>
-  );
-}
-
-function LiveDock({
-  tc,
-  onStop,
-  onSelectRegion,
-  onOpenSettings,
-}: {
-  tc: string;
-  onStop: () => void;
-  onSelectRegion: () => void;
-  onOpenSettings: () => void;
-}): JSX.Element {
   return (
     <div
       style={{
         position: "absolute",
-        bottom: 20,
-        left: "50%",
-        transform: "translateX(-50%)",
+        inset: 0,
         display: "flex",
         alignItems: "center",
-        gap: 4,
-        padding: 6,
-        borderRadius: 100,
-        background: "rgba(0,0,0,0.6)",
-        backdropFilter: "blur(24px)",
-        WebkitBackdropFilter: "blur(24px)",
-        border: "1px solid rgba(255,255,255,0.08)",
-        boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
-        zIndex: 4,
+        justifyContent: "flex-end",
+        gap: 2,
+        paddingRight: 7,
+        background: "rgba(13,12,16,0.9)",
+        boxSizing: "border-box",
+        overflow: "hidden",
       }}
     >
-      <button
-        onClick={onStop}
-        title="Stop sync"
-        style={{
-          width: 40,
-          height: 40,
-          borderRadius: 100,
-          border: "none",
-          background: "rgba(255,90,90,0.15)",
-          color: "#ff8f8f",
-          cursor: "pointer",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <svg width="11" height="11" viewBox="0 0 11 11" fill="currentColor">
-          <rect x="1.5" y="1.5" width="8" height="8" rx="1" />
-        </svg>
-      </button>
-      <Divider />
-      <div
-        className="mono"
-        style={{
-          padding: "0 14px",
-          fontSize: 12,
-          color: "#a8a8b2",
-          fontVariantNumeric: "tabular-nums",
-          whiteSpace: "nowrap",
-        }}
-      >
-        <span style={{ color: "var(--accent-text)" }}>{tc || "—"}</span>
-      </div>
-      <Divider />
-      <DockButton label="Region" onClick={onSelectRegion} />
-      <DockButton label="Settings" onClick={onOpenSettings} />
-      <Divider />
-      <div
-        style={{
-          padding: "0 12px",
-          fontSize: 11,
-          color: "var(--text-label)",
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-        }}
-      >
-        <span
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: 3,
-            background: "var(--accent-hex)",
-            boxShadow: "0 0 6px var(--accent-hex)",
-            animation: "pulse 1.4s ease-in-out infinite",
-          }}
-        />
-        live
-      </div>
+      <Reveal open={open} delay={110}>
+        <IconButton label="Stop sync" onClick={onStop}>
+          <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor">
+            <rect x="0.5" y="0.5" width="9" height="9" rx="1.4" />
+          </svg>
+        </IconButton>
+      </Reveal>
+      <Reveal open={open} delay={55}>
+        <TextButton label="Region" onClick={onSelectRegion} />
+      </Reveal>
+      <Reveal open={open} delay={0}>
+        <TextButton label="Settings" onClick={onOpenSettings} />
+      </Reveal>
+      <Pulse />
     </div>
   );
 }
 
-function Divider(): JSX.Element {
+/** The one thing on screen while the dock rests: proof the session is running. */
+function Pulse(): JSX.Element {
   return (
     <div
       style={{
-        width: 1,
-        height: 22,
-        background: "rgba(255,255,255,0.08)",
-        margin: "0 4px",
+        flex: "0 0 auto",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 30,
+        height: 30,
       }}
-    />
+    >
+      <span
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: 4,
+          background: "var(--accent-hex)",
+          boxShadow: "0 0 10px var(--accent-hex)",
+          animation: "pulse 1.4s ease-in-out infinite",
+        }}
+      />
+    </div>
   );
 }
 
-function DockButton({
+/** Controls arrive from the corner the dock grows out of, nearest one first. */
+function Reveal({
+  open,
+  delay,
+  children,
+}: {
+  open: boolean;
+  delay: number;
+  children: JSX.Element;
+}): JSX.Element {
+  return (
+    <div
+      style={{
+        flex: "0 0 auto",
+        opacity: open ? 1 : 0,
+        transform: open ? "translateX(0)" : "translateX(14px)",
+        pointerEvents: open ? "auto" : "none",
+        transition: [
+          `opacity 180ms ease ${open ? delay : 0}ms`,
+          `transform 300ms ${EASE} ${open ? delay : 0}ms`,
+        ].join(", "),
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function IconButton({
   label,
   onClick,
+  children,
 }: {
   label: string;
   onClick: () => void;
+  children: JSX.Element;
 }): JSX.Element {
   return (
     <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      style={{
+        width: 30,
+        height: 30,
+        borderRadius: 100,
+        border: "none",
+        background: "rgba(255,90,90,0.16)",
+        color: "#ff8f8f",
+        cursor: "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function TextButton({ label, onClick }: { label: string; onClick: () => void }): JSX.Element {
+  return (
+    <button
+      type="button"
       onClick={onClick}
       style={{
-        padding: "0 14px",
-        height: 40,
+        padding: "0 11px",
+        height: 30,
         borderRadius: 100,
         border: "none",
         background: "transparent",
-        color: "#a8a8b2",
+        color: "#b6b5c0",
         cursor: "pointer",
         fontSize: 12,
+        whiteSpace: "nowrap",
       }}
     >
       {label}

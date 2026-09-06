@@ -135,7 +135,7 @@ def trim_edge_noise(text: str) -> str:
     end = len(tokens) - trailing
     if not is_cjk_compactable_char(tokens[end - 1][0]):
         end = len(tokens)
-    return " ".join(tokens[start:max(end, start)])
+    return " ".join(tokens[start : max(end, start)])
 
 
 def clean_cjk_text(text: str) -> str:

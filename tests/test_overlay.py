@@ -2,7 +2,6 @@ import asyncio
 import json
 from pathlib import Path
 
-
 from meocosub2.config import AppConfig
 from meocosub2.overlay.server import OverlayServer
 from tests.conftest import TEST_TOKEN, studio_client
@@ -43,7 +42,7 @@ def test_dashboard_root_is_served(tmp_path: Path) -> None:
     # Vite bundle mounts a root element; legacy DOM-ID assertions are gone with
     # the command-palette redesign. Keep this shallow so we don't couple to the
     # React bundle content.
-    assert "<div id=\"root\"" in dashboard.text or "<div id='root'" in dashboard.text
+    assert '<div id="root"' in dashboard.text or "<div id='root'" in dashboard.text
 
 
 def test_config_routes_return_compat_and_nested_payload(tmp_path: Path) -> None:
@@ -84,14 +83,23 @@ def test_put_config_updates_api_payload_and_persists_style(tmp_path: Path) -> No
                 "/api/config",
                 json={
                     "subtitleSources": {
-                        "opensubtitles": {"enabled": True, "apiKey": "key", "enableOrgFallback": False},
+                        "opensubtitles": {
+                            "enabled": True,
+                            "apiKey": "key",
+                            "enableOrgFallback": False,
+                        },
                         "subdl": {"enabled": False},
                         "assrt": {"enabled": True, "token": "fresh-assrt-token"},
                     },
                     "languages": {"source": "en", "target": "zht"},
                     "capture": {"region": [0, 1, 2, 3], "intervalMs": 500, "ocrLanguage": "en"},
                     "matching": {"fuzzyThreshold": 70, "windowSize": 20},
-                    "translation": {"endpoint": "http://127.0.0.1:5273/v1", "model": "m", "timeoutS": 30, "batchSize": 5},
+                    "translation": {
+                        "endpoint": "http://127.0.0.1:5273/v1",
+                        "model": "m",
+                        "timeoutS": 30,
+                        "batchSize": 5,
+                    },
                     "overlay": {
                         "port": 8765,
                         "theme": "glass-cinematic",
@@ -131,7 +139,9 @@ def test_put_config_updates_api_payload_and_persists_style(tmp_path: Path) -> No
     assert config_path.exists()
 
 
-def test_put_config_with_language_only_merge_persists_languages_without_resetting_other_settings(tmp_path: Path) -> None:
+def test_put_config_with_language_only_merge_persists_languages_without_resetting_other_settings(
+    tmp_path: Path,
+) -> None:
     config_path = tmp_path / "config.toml"
     server = make_server(config_path)
     with studio_client(server) as client:
@@ -162,16 +172,15 @@ def test_put_config_with_language_only_merge_persists_languages_without_resettin
 
 def test_app_websocket_receives_initial_state_and_subtitle_events(tmp_path: Path) -> None:
     server = make_server(tmp_path / "config.toml")
-    with studio_client(server) as client:
-        with client.websocket_connect("/ws/app") as websocket:
-            state_event = json.loads(websocket.receive_text())
-            style_event = json.loads(websocket.receive_text())
-            asyncio.run(server.controller.broadcast_overlay_subtitle("hello"))
-            subtitle_event = json.loads(websocket.receive_text())
+    with studio_client(server) as client, client.websocket_connect("/ws/app") as websocket:
+        state_event = json.loads(websocket.receive_text())
+        style_event = json.loads(websocket.receive_text())
+        asyncio.run(server.controller.broadcast_overlay_subtitle("hello"))
+        subtitle_event = json.loads(websocket.receive_text())
 
     assert state_event["type"] == "state"
     assert state_event["state"]["status"] == "idle"
     assert style_event["type"] == "style"
-    assert subtitle_event == {"type": "subtitle", "text": "hello"}
-
-
+    # The plate needs to know whether a line came from the subtitle file or
+    # from the local model, so it can show the second one as provisional.
+    assert subtitle_event == {"type": "subtitle", "text": "hello", "source": "matched"}

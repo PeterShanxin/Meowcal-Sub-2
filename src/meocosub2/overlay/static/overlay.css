@@ -1,0 +1,109 @@
+/* The subtitle plate, in a window sized to it by the shell.
+
+   Everything outside the plate is transparent, so the window can sit over the
+   player without hiding the burned-in subtitles it is read from. */
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+.overlay-root {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.plate {
+  position: relative;
+  max-width: 100%;
+  /* Deliberately not height-capped to the window. The page measures the plate
+     and asks the shell for a window that size, so a cap here would be measured
+     instead of the content: the plate could shrink but never grow again, and a
+     second line would be cut off for the rest of the session. Overflowing for
+     the one frame before the shell resizes is the cheaper side of that trade. */
+  box-sizing: border-box;
+  padding: calc(var(--plate-padding, 14px) + 6px) calc(var(--plate-padding, 14px) * 1.6)
+    var(--plate-padding, 14px);
+  border-radius: var(--plate-radius, 18px);
+  background: var(--plate-bg, rgba(0, 0, 0, 0.75));
+  overflow: hidden;
+  transition: opacity var(--plate-fade, 160ms) ease;
+}
+
+.plate.is-empty {
+  opacity: 0;
+}
+
+.line {
+  display: block;
+  font-family: var(--plate-font, "Aptos"), "Segoe UI", system-ui, sans-serif;
+  font-size: var(--plate-font-size, 28px);
+  font-weight: 500;
+  line-height: 1.28;
+  text-align: center;
+  color: var(--plate-color, #fff);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7);
+  overflow-wrap: anywhere;
+  /* Two speakers overlapping in time arrive as two rows, and so does a cue the
+     file itself wrote across two. The plate reports its own height, so the
+     window grows to fit them. */
+  white-space: pre-line;
+}
+
+/* A line the local model translated because no subtitle line matched yet. */
+.line.is-provisional {
+  color: var(--plate-color-provisional, rgba(255, 255, 255, 0.82));
+  font-style: italic;
+}
+
+/* Where the line came from. Two models answer this plate and they are not
+   equally trustworthy - one wrote the episode's subtitles, the other is
+   translating damaged OCR a second behind the picture - so the viewer is told
+   which one they are reading. */
+.mark {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.55);
+  transition: opacity var(--plate-fade, 160ms) ease;
+}
+
+.mark-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4ade80;
+}
+
+.mark.is-provisional .mark-dot {
+  background: #fbbf24;
+  animation: mark-pulse 1.6s ease-in-out infinite;
+}
+
+.plate.is-empty .mark {
+  opacity: 0;
+}
+
+@keyframes mark-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}

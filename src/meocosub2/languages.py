@@ -166,7 +166,9 @@ def ocr_label(code: str) -> str:
 def languages_payload(installed_ocr_languages: set[str]) -> dict[str, object]:
     normalized_installed = {normalize_ocr_language(code) for code in installed_ocr_languages}
     return {
-        "sourceTarget": [{"code": option.code, "label": option.label} for option in SOURCE_TARGET_OPTIONS],
+        "sourceTarget": [
+            {"code": option.code, "label": option.label} for option in SOURCE_TARGET_OPTIONS
+        ],
         "ocr": [
             {
                 "code": option.code,

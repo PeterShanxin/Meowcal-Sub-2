@@ -126,20 +126,51 @@ def install(
             "translation model",
             progress,
             12,
-            96,
+            94,
         )
-        _report(progress, "Verifying the translation model...", 97)
+        _report(progress, "Verifying the translation model...", 95)
         _verify(paths.model, manifest.model.artifact, "translation model")
         paths.runtime_archive.unlink(missing_ok=True)
+
+    # A fortieth of the translation model, so it gets a sliver of the bar.
+    install_embedding(paths, manifest, progress, 96, 99)
 
     _report(progress, "Translation engine installed.", 100)
     return paths
 
 
-def _executable_ready(paths: InstallPaths, runtime: Runtime) -> bool:
-    return file_matches(
-        paths.executable, runtime.executable.size_bytes, runtime.executable.sha256
+def install_embedding(
+    paths: InstallPaths,
+    manifest: Manifest,
+    progress: ProgressCallback | None = None,
+    percent_from: int = 0,
+    percent_to: int = 100,
+) -> None:
+    """Download the model that matches reads to subtitle lines, if it is missing.
+
+    Separate from `install` because a session can reach this on its own. The
+    engine install is refused mid-session because 1.1 GB is not something to
+    start behind the viewer's back; 26 MB is a different question, and an
+    adopted v1 engine tree - which is complete by every other measure - has no
+    other path that would ever fetch this.
+    """
+    if paths.embedding_is_complete(manifest):
+        return
+    artifact = manifest.embedding.artifact
+    _download(
+        artifact.url,
+        paths.embedding_model,
+        artifact.size_bytes,
+        "subtitle matching model",
+        progress,
+        percent_from,
+        percent_to,
     )
+    _verify(paths.embedding_model, artifact, "subtitle matching model")
+
+
+def _executable_ready(paths: InstallPaths, runtime: Runtime) -> bool:
+    return file_matches(paths.executable, runtime.executable.size_bytes, runtime.executable.sha256)
 
 
 def _model_ready(paths: InstallPaths, manifest: Manifest) -> bool:
@@ -159,9 +190,7 @@ def _extract(paths: InstallPaths, runtime: Runtime) -> None:
         raise EngineInstallError(f"The translation runtime archive is unusable: {error}") from error
 
     candidate = staging / runtime.executable.relative_path
-    if not file_matches(
-        candidate, runtime.executable.size_bytes, runtime.executable.sha256
-    ):
+    if not file_matches(candidate, runtime.executable.size_bytes, runtime.executable.sha256):
         shutil.rmtree(staging, ignore_errors=True)
         raise EngineInstallError("The extracted translation runtime failed its integrity check.")
 
