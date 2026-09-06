@@ -62,7 +62,7 @@ Raised so far, all of them by live testing against a real player:
 | `engine/runtime.py` | 489 | 521 | running one throwaway completion, so the viewer's first subtitle does not pay the model's cold start |
 | `overlay/controller.py` | 1684 | 1694 | starting the translation engine while preparing, and reading the viewer's timing offset while the session runs |
 | `config.py` | 502 | 535 | a timing offset the viewer sets, normalised on every way in |
-| `sync.py` | 634 | 645 | adding the viewer's offset to the measured one at the clock's single entry point |
+| `sync.py` | 634 | 698 | the viewer's offset at the clock's single entry point, and the task that answers the cues the target file left unpaired |
 | `overlay/ui/src/app.tsx` | 1494 | 1510 | handing the dock the offset and the way to change it |
 | `src-tauri/src/overlay_window.rs` | 467 | 469 | a dock wide enough for the timing control |
 

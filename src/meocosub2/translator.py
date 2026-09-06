@@ -18,7 +18,7 @@ from rapidfuzz import fuzz
 from meocosub2 import engine
 from meocosub2.config import AppConfig
 from meocosub2.errors import TranslationError
-from meocosub2.languages import language_label
+from meocosub2.prompts import build_paired_prompt, build_prompt
 from meocosub2.textnorm import collapse_whitespace, is_cjk_char, is_cjk_compactable_char
 
 logger = logging.getLogger(__name__)
@@ -43,8 +43,6 @@ RESTATED_CONTEXT_SIMILARITY = 80.0
 # the model handing back what it was given instead of translating.
 ECHOED_CONTEXT_SIMILARITY = 88.0
 
-MAX_SOURCE_CHARS = 300
-MAX_CONTEXT_CHARS = 400
 SAMPLING = {"temperature": 0.3, "top_k": 20, "top_p": 0.6, "repeat_penalty": 1.05}
 MAX_OUTPUT_TOKENS = 150
 
@@ -62,72 +60,6 @@ def is_untranslatable(text: str) -> bool:
         return False
     meaningful = sum(1 for ch in cleaned if ch.isalpha() or is_cjk_char(ch))
     return meaningful < 2
-
-
-def _truncate(text: str, limit: int) -> str:
-    return text if len(text) <= limit else text[:limit]
-
-
-def _clip_context(lines: list[str], limit: int) -> str:
-    kept: list[str] = []
-    used = 0
-    for line in reversed(lines):
-        if used + len(line) > limit:
-            break
-        kept.append(line)
-        used += len(line) + 1
-    return "\n".join(reversed(kept))
-
-
-# The instruction template is written in Chinese whenever either side of the pair
-# is Chinese: HY-MT follows a Chinese instruction far more reliably there, and a
-# zh->en session asked in English re-emitted the context as part of its answer.
-_CHINESE_TARGET_LABELS = {
-    "zh": "中文",
-    "zht": "繁体中文",
-    "en": "英语",
-    "ja": "日语",
-    "ko": "韩语",
-    "fr": "法语",
-    "de": "德语",
-    "es": "西班牙语",
-}
-
-
-def _is_chinese(code: str) -> bool:
-    return code.lower().split("-")[0] in {"zh", "zht"}
-
-
-def build_prompt(
-    text: str,
-    source_language: str,
-    target_language: str,
-    context_lines: list[str] | None = None,
-) -> str:
-    source = _truncate(collapse_whitespace(text), MAX_SOURCE_CHARS)
-    chinese_template = _is_chinese(target_language) or _is_chinese(source_language)
-    label = (
-        _CHINESE_TARGET_LABELS.get(target_language.lower(), language_label(target_language))
-        if chinese_template
-        else language_label(target_language)
-    )
-    context = _clip_context(list(context_lines or []), MAX_CONTEXT_CHARS)
-
-    if chinese_template:
-        if context:
-            return (
-                f"{context}\n参考上面的信息，把下面的文本翻译成{label}，"
-                f"注意不需要翻译上文，也不要额外解释：\n{source}"
-            )
-        return f"将以下文本翻译为{label}，注意只需要输出翻译后的结果，不要额外解释：\n\n{source}"
-    if context:
-        return (
-            f"{context}\nBased on the information above, translate the text below into "
-            f"{label}. Do not translate the context or add explanations:\n{source}"
-        )
-    return (
-        f"Translate the following segment into {label}, without additional explanation.\n\n{source}"
-    )
 
 
 def sanitize_output(text: str) -> str:
@@ -352,11 +284,23 @@ class TranslationClient:
         source_language: str,
         target_language: str,
         context_lines: list[str] | None = None,
+        pairs: list[tuple[str, str]] | None = None,
     ) -> str:
+        """Translate one line, optionally in the voice a paired file already uses.
+
+        `pairs` are lines this subtitle file has already answered, source beside
+        target. Only the target halves become `context`: the checks below ask
+        whether the model handed back something it was given, and the source
+        halves are in the wrong language to ever look like an answer.
+        """
         if is_untranslatable(text):
             return ""
         context = list(context_lines or [])
-        prompt = build_prompt(text, source_language, target_language, context)
+        prompt = (
+            build_paired_prompt(text, source_language, target_language, pairs)
+            if pairs
+            else build_prompt(text, source_language, target_language, context)
+        )
         translated = drop_restated_context(sanitize_output(await self._complete(prompt)), context)
 
         if context and echoes_context(translated, context):

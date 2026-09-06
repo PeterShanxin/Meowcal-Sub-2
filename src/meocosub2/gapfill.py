@@ -1,0 +1,111 @@
+"""Filling the lines the target subtitle file has no answer for.
+
+Two subtitle files for one episode rarely carry the same lines. Where the target
+file has nothing over a source cue, `assign_target_translations` leaves it
+unpaired, and the plate holds the previous line for as long as that cue runs.
+Measured across four English candidates for one episode, that was between 1 and
+20 cues, or 4 to 93 seconds of an episode showing the wrong line.
+
+The local model answers those, and it answers them better than it answers the
+screen: the input is the file's own clean text rather than a damaged read, the
+timing is known so nothing has to arrive within a cue, and the neighbouring cues
+*are* paired - so the model can be shown what this translation already calls
+things and asked to match it.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import Awaitable, Callable
+
+from meocosub2.models import SubtitleLine
+
+logger = logging.getLogger(__name__)
+
+# How many answered cues either side of a gap are shown to the model. Enough to
+# carry names and register, short of crowding out the line being asked about.
+CONTEXT_BEFORE = 2
+CONTEXT_AFTER = 1
+# How far to look for an answered neighbour. A run of unpaired cues is filled in
+# playback order, so by the time a later one is reached the earlier ones usually
+# count as answered; this only bounds the walk when a whole stretch fails.
+CONTEXT_SEARCH_LIMIT = 12
+# How long to wait before checking again whether the model is free. The engine
+# serves one request at a time, so filling ahead has to yield to the read that a
+# viewer is actually waiting on.
+YIELD_POLL_S = 0.25
+
+Translate = Callable[[str, list[tuple[str, str]]], Awaitable[str]]
+
+
+def context_pairs(
+    lines: list[SubtitleLine],
+    index: int,
+    before: int = CONTEXT_BEFORE,
+    after: int = CONTEXT_AFTER,
+) -> list[tuple[str, str]]:
+    """Answered cues around `index`, source beside target, in playback order."""
+    earlier: list[tuple[str, str]] = []
+    start = max(0, index - CONTEXT_SEARCH_LIMIT)
+    for position in range(index - 1, start - 1, -1):
+        line = lines[position]
+        if line.translated:
+            earlier.append((line.text, line.translated))
+            if len(earlier) == before:
+                break
+    earlier.reverse()
+
+    later: list[tuple[str, str]] = []
+    stop = min(len(lines), index + 1 + CONTEXT_SEARCH_LIMIT)
+    for position in range(index + 1, stop):
+        line = lines[position]
+        if line.translated:
+            later.append((line.text, line.translated))
+            if len(later) == after:
+                break
+
+    return earlier + later
+
+
+async def fill_gaps(
+    lines: list[SubtitleLine],
+    translate: Translate,
+    busy: Callable[[], bool],
+    on_filled: Callable[[], None],
+) -> int:
+    """Answer every unpaired cue, in playback order, and report how many landed.
+
+    Written back onto the lines themselves, the way `assign_target_translations`
+    already pairs them, so the clock draws a filled cue with no further wiring.
+    A line the model cannot answer usefully is left unpaired rather than filled
+    with something wrong: the plate then behaves exactly as it does today.
+    """
+    gaps = [index for index, line in enumerate(lines) if line.text and not line.translated]
+    if not gaps:
+        return 0
+
+    logger.debug("Filling %d cue(s) the target file left unpaired", len(gaps))
+    filled = 0
+    for index in gaps:
+        # The viewer is waiting on live reads; filling ahead is not urgent and
+        # the engine answers one at a time.
+        while busy():
+            await asyncio.sleep(YIELD_POLL_S)
+        line = lines[index]
+        try:
+            answer = await translate(line.text, context_pairs(lines, index))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # An engine that has stopped answering will not answer the next one
+            # either, and retrying every remaining gap only fills the log.
+            logger.exception("Filling the unpaired cue at index %d failed; stopping", index)
+            break
+        if not answer:
+            continue
+        line.translated = answer
+        filled += 1
+        on_filled()
+    logger.debug("Filled %d of %d unpaired cue(s)", filled, len(gaps))
+    return filled

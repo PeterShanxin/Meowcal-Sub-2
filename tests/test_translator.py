@@ -4,7 +4,6 @@ import pytest
 from meocosub2.errors import TranslationError
 from meocosub2.translator import (
     TranslationClient,
-    build_prompt,
     drop_restated_context,
     echoes_context,
     is_untranslatable,
@@ -22,36 +21,6 @@ def test_sanitize_output_removes_labels_and_quotes() -> None:
 
 def test_sanitize_output_joins_wrapped_lines_into_one_subtitle() -> None:
     assert sanitize_output("I don't know\nwhat to say.") == "I don't know what to say."
-
-
-def test_build_prompt_uses_the_chinese_template_for_chinese_targets() -> None:
-    prompt = build_prompt("Hello there", "en", "zh")
-    assert "将以下文本翻译为" in prompt
-    assert "Hello there" in prompt
-
-
-def test_build_prompt_uses_the_chinese_template_for_chinese_sources() -> None:
-    prompt = build_prompt("你好", "zh", "en")
-    assert "将以下文本翻译为英语" in prompt
-    assert "你好" in prompt
-
-
-def test_build_prompt_uses_the_english_template_when_neither_side_is_chinese() -> None:
-    prompt = build_prompt("Bonjour", "fr", "en")
-    assert "Translate the following segment into English" in prompt
-    assert "Bonjour" in prompt
-
-
-def test_build_prompt_carries_recent_lines_as_context() -> None:
-    prompt = build_prompt("Third", "en", "zh", ["First", "Second"])
-    assert prompt.startswith("First\nSecond")
-    assert "参考上面的信息" in prompt
-
-
-def test_build_prompt_clips_context_to_the_most_recent_lines() -> None:
-    prompt = build_prompt("now", "fr", "en", ["x" * 500, "recent"])
-    assert "recent" in prompt
-    assert "x" * 500 not in prompt
 
 
 @pytest.mark.parametrize("text", ["", "  ", "-", "1", "//"])

@@ -22,6 +22,7 @@ from time import monotonic
 from meocosub2.capture import capture_region, ocr_image
 from meocosub2.config import AppConfig
 from meocosub2.engine import EngineInstallError, EngineStartError
+from meocosub2.gapfill import fill_gaps
 from meocosub2.matcher import BOTH, SubtitleMatcher
 from meocosub2.models import MatchResult, SourceSubtitleCandidate, SubtitleLine
 from meocosub2.semantic import SemanticError, SemanticIndex
@@ -39,6 +40,9 @@ AUTO_UNLOCK_MISSES = 3
 # Consecutive empty reads before the overlay clears. One blank frame is a cue
 # transition; several in a row mean nothing is on screen.
 CLEAR_AFTER_EMPTY_READS = 3
+# How long to wait before checking again whether a candidate has been locked.
+# With one candidate it is locked before the loop starts and this never runs.
+FOLLOW_POLL_S = 1.0
 # How far ahead of the clock the plate is drawn, negative to hold it back.
 # The clock does not need help arriving early: it anchors at the moment a cue
 # was first seen rather than the moment it was recognised, which already takes
@@ -93,6 +97,22 @@ class LiveTranslator:
         self._target_language = target_language
         self._cache: OrderedDict[str, str] = OrderedDict()
         self._context: deque[str] = deque(maxlen=CONTEXT_LINES)
+
+    async def translate_from_file(self, text: str, pairs: list[tuple[str, str]]) -> str:
+        """Translate a line of the subtitle file, in the voice the file already uses.
+
+        Deliberately outside the cache and the rolling context: both describe
+        what has been on screen, and a cue being answered ahead of time has not.
+        Only the target halves of the pairs are offered as context, because that
+        is what the echo checks compare an answer against.
+        """
+        return await self._client.translate(
+            text,
+            self._source_language,
+            self._target_language,
+            [target for _, target in pairs],
+            pairs,
+        )
 
     async def translate(self, text: str) -> str:
         key = SubtitleMatcher.normalize_text(text)
@@ -151,6 +171,17 @@ class CandidateSession:
         self._misses = 0
         self._semantic: SemanticIndex | None = None
         self._semantic_build: asyncio.Task[None] | None = None
+
+    @property
+    def followed_lines(self) -> list[SubtitleLine]:
+        """The source lines of the candidate being followed, empty until one is."""
+        if self._locked is None:
+            return []
+        return self._matchers[self._locked].subtitles
+
+    async def translate_from_file(self, text: str, pairs: list[tuple[str, str]]) -> str:
+        translator = await self._open_translator()
+        return await translator.translate_from_file(text, pairs)
 
     def close(self) -> None:
         if self._semantic_build is not None:
@@ -566,8 +597,29 @@ async def run_session_loop(
         pending = start_translation(resolution, screen.seq)
         return resolution.detail
 
+    async def fill_what_the_file_left_unpaired() -> None:
+        """Answer the cues the target file has nothing over, ahead of the clock.
+
+        Live reads own the model: the viewer is waiting on those, and the engine
+        answers one request at a time. Yielding at every cue leaves this the
+        stretches where the clock is drawing and no read needs translating,
+        which are the same stretches the plate would otherwise spend holding a
+        line that has already ended.
+        """
+        if not isinstance(session, CandidateSession):
+            return
+        while not session.followed_lines:
+            await asyncio.sleep(FOLLOW_POLL_S)
+        await fill_gaps(
+            session.followed_lines,
+            session.translate_from_file,
+            lambda: pending is not None and not pending.done(),
+            nudge.set,
+        )
+
     nudge = asyncio.Event()
     renderer = asyncio.create_task(render_from_the_clock())
+    filler = asyncio.create_task(fill_what_the_file_left_unpaired())
     try:
         while True:
             iteration += 1
@@ -640,6 +692,7 @@ async def run_session_loop(
             await asyncio.sleep(max(0.0, interval_s - (monotonic() - started)))
     finally:
         renderer.cancel()
+        filler.cancel()
         session.close()
         if pending is not None:
             pending.cancel()
