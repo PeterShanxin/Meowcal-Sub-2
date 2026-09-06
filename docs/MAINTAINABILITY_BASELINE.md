@@ -60,9 +60,9 @@ Raised so far, all of them by live testing against a real player:
 | `subtitle_sources/aggregator.py` | 1445 | 1446 | one import, for title-group ids that survive a provider answering out of order |
 | `subtitle_sources/subdl.py` | 621 | 623 | asking SubDL for a whole season only when the title is a series, so movie lookups come back with subtitles |
 | `engine/runtime.py` | 489 | 521 | running one throwaway completion, so the viewer's first subtitle does not pay the model's cold start |
-| `overlay/controller.py` | 1684 | 1780 | starting the translation engine while preparing, reading the viewer's timing offset while the session runs, and weighing the target candidates against the source file |
+| `overlay/controller.py` | 1684 | 1785 | starting the translation engine while preparing, reading the viewer's timing offset while the session runs, and weighing the target candidates against the source file |
 | `config.py` | 502 | 535 | a timing offset the viewer sets, normalised on every way in |
-| `sync.py` | 634 | 698 | the viewer's offset at the clock's single entry point, and the task that answers the cues the target file left unpaired |
+| `sync.py` | 634 | 702 | the viewer's offset at the clock's single entry point, and the task that answers the cues the target file left unpaired |
 | `overlay/ui/src/app.tsx` | 1494 | 1511 | handing the dock the offset, and the prep card a way to take a better-aligned target |
 | `src-tauri/src/overlay_window.rs` | 467 | 469 | a dock wide enough for the timing control |
 
@@ -70,8 +70,8 @@ The four largest are the ones worth naming, because they are where the work is:
 
 | File | Lines | What it holds |
 | --- | ---: | --- |
-| `overlay/controller.py` | 1,684 | session lifecycle, search orchestration, config, engine startup |
-| `overlay/ui/src/app.tsx` | 1,494 | the studio's whole screen state |
+| `overlay/controller.py` | 1,785 | session lifecycle, search orchestration, config, engine startup |
+| `overlay/ui/src/app.tsx` | 1,511 | the studio's whole screen state |
 | `overlay/ui/src/components/palette.tsx` | 1,478 | the search palette |
 | `subtitle_sources/aggregator.py` | 1,446 | provider-neutral search aggregation |
 

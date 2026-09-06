@@ -1561,7 +1561,6 @@ class GuiController:
             TargetAlignment(
                 result_id=chosen_entry.result_id,
                 file_name=chosen_entry.file_name,
-                provider=chosen_entry.provider_label or chosen_entry.provider,
                 unpaired_cues=chosen.unpaired_cues,
                 unpaired_ms=chosen.unpaired_ms,
                 chosen=True,
@@ -1586,15 +1585,21 @@ class GuiController:
             try:
                 path = await asyncio.wait_for(self._aggregator.download(entry), remaining)
                 rival_lines = load_subtitle_file(path)
-            except Exception:
-                logger.debug("Could not weigh target candidate %s", entry.result_id, exc_info=True)
+            except Exception as error:
+                # Deliberately without a traceback: a subtitle that fails to parse
+                # can carry the offending line into one, and this log records
+                # whatever the viewer is watching.
+                logger.debug(
+                    "Could not weigh target candidate %s: %s",
+                    entry.result_id,
+                    type(error).__name__,
+                )
                 continue
             report = alignment_report(source_lines, rival_lines)
             weighed.append(
                 TargetAlignment(
                     result_id=entry.result_id,
                     file_name=entry.file_name,
-                    provider=entry.provider_label or entry.provider,
                     unpaired_cues=report.unpaired_cues,
                     unpaired_ms=report.unpaired_ms,
                 )

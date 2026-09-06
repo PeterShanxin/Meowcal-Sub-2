@@ -69,6 +69,20 @@ Three things answer a read of the capture region, in this order:
 Reads of a cue already on screen may only improve on it by matching outright —
 letting the clock answer again would swap the line mid-cue.
 
+A fourth source fills the plate without answering a read at all. Where the
+target file has no line over a source cue, that cue would otherwise leave the
+plate holding the line before it for as long as it runs — between 4 and 93
+seconds of an episode, measured across four English candidates for one episode.
+A background task asks the local model for those, in playback order, using the
+neighbouring answered cues as source/target examples so the wording matches the
+rest of the file ([gapfill.py](../src/meocosub2/gapfill.py)). It starts a fill
+only when no read is in flight, since the engine serves one request at a time.
+
+That is the one case where a cue already on screen may change without a match.
+The line being replaced is the previous cue's, held over because this one had no
+answer, so the swap puts a right line where a wrong one was rather than trading
+one good line for another.
+
 ## Log Inspection
 
 - Log file: `%APPDATA%\meowcal-sub-2\logs\meowcal-sub-2.log` (always DEBUG level).

@@ -280,13 +280,18 @@ class CandidateSession:
         if position is None:
             return None
         anchor = self._timeline.anchor_ms
-        shifted = position + DISPLAY_LEAD_MS + self._bias_ms()
         # The lag holds the plate back as playback advances; it must never read
         # behind the line the clock was just anchored to, which is on screen by
         # definition. Without the floor, a match would blank the plate it filled.
-        # An offset asking for a later plate is held to that same rule, so it
-        # takes effect between matches rather than undoing one.
-        return shifted if anchor is None else max(shifted, anchor)
+        lagged = position + DISPLAY_LEAD_MS
+        if anchor is not None:
+            lagged = max(lagged, anchor)
+        # The viewer's offset applies after the floor rather than inside it. The
+        # floor exists to protect a match from the measured lag; folding an
+        # offset into it would let the floor swallow one asking for a later
+        # plate, which is the direction a viewer reaches for when the plate runs
+        # ahead of their player.
+        return lagged + self._bias_ms()
 
     def seconds_to_next_line(self) -> float | None:
         """How long until the file's line changes; None when nothing is placed."""
@@ -600,18 +605,17 @@ async def run_session_loop(
     async def fill_what_the_file_left_unpaired() -> None:
         """Answer the cues the target file has nothing over, ahead of the clock.
 
-        Live reads own the model: the viewer is waiting on those, and the engine
-        answers one request at a time. Yielding at every cue leaves this the
-        stretches where the clock is drawing and no read needs translating,
-        which are the same stretches the plate would otherwise spend holding a
-        line that has already ended.
+        Live reads come first: the viewer is waiting on those and the engine
+        answers one request at a time, so a fill only starts when no read is in
+        flight. It cannot stand aside for a read that arrives while it is
+        already asking, which costs that read the one completion it waits behind.
         """
         if not isinstance(session, CandidateSession):
             return
         while not session.followed_lines:
             await asyncio.sleep(FOLLOW_POLL_S)
         await fill_gaps(
-            session.followed_lines,
+            lambda: session.followed_lines,
             session.translate_from_file,
             lambda: pending is not None and not pending.done(),
             nudge.set,

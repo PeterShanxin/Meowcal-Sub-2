@@ -27,6 +27,11 @@ logger = logging.getLogger(__name__)
 # carry names and register, short of crowding out the line being asked about.
 CONTEXT_BEFORE = 2
 CONTEXT_AFTER = 1
+# The most cues one session will answer. A well-aligned file leaves a handful and
+# a poor one leaves dozens, but a file that leaves hundreds is the wrong file -
+# the prep card says so before the session starts - and working through it would
+# hold the single-slot engine for the length of the episode.
+MAX_FILLED_LINES = 120
 # How far to look for an answered neighbour. A run of unpaired cues is filled in
 # playback order, so by the time a later one is reached the earlier ones usually
 # count as answered; this only bounds the walk when a whole stretch fails.
@@ -39,12 +44,7 @@ YIELD_POLL_S = 0.25
 Translate = Callable[[str, list[tuple[str, str]]], Awaitable[str]]
 
 
-def context_pairs(
-    lines: list[SubtitleLine],
-    index: int,
-    before: int = CONTEXT_BEFORE,
-    after: int = CONTEXT_AFTER,
-) -> list[tuple[str, str]]:
+def context_pairs(lines: list[SubtitleLine], index: int) -> list[tuple[str, str]]:
     """Answered cues around `index`, source beside target, in playback order."""
     earlier: list[tuple[str, str]] = []
     start = max(0, index - CONTEXT_SEARCH_LIMIT)
@@ -52,7 +52,7 @@ def context_pairs(
         line = lines[position]
         if line.translated:
             earlier.append((line.text, line.translated))
-            if len(earlier) == before:
+            if len(earlier) == CONTEXT_BEFORE:
                 break
     earlier.reverse()
 
@@ -62,28 +62,40 @@ def context_pairs(
         line = lines[position]
         if line.translated:
             later.append((line.text, line.translated))
-            if len(later) == after:
+            if len(later) == CONTEXT_AFTER:
                 break
 
     return earlier + later
 
 
 async def fill_gaps(
-    lines: list[SubtitleLine],
+    followed_lines: Callable[[], list[SubtitleLine]],
     translate: Translate,
     busy: Callable[[], bool],
     on_filled: Callable[[], None],
 ) -> int:
-    """Answer every unpaired cue, in playback order, and report how many landed.
+    """Answer the unpaired cues of the file being followed, and report how many landed.
 
     Written back onto the lines themselves, the way `assign_target_translations`
     already pairs them, so the clock draws a filled cue with no further wiring.
     A line the model cannot answer usefully is left unpaired rather than filled
     with something wrong: the plate then behaves exactly as it does today.
+
+    `followed_lines` is asked again at every cue rather than read once. A session
+    with several candidates can stop following one and take another, and the
+    gaps of a file that is no longer drawn are not worth an engine slot.
     """
+    lines = followed_lines()
     gaps = [index for index, line in enumerate(lines) if line.text and not line.translated]
     if not gaps:
         return 0
+    if len(gaps) > MAX_FILLED_LINES:
+        logger.debug(
+            "Target file leaves %d cues unpaired; answering the first %d",
+            len(gaps),
+            MAX_FILLED_LINES,
+        )
+        gaps = gaps[:MAX_FILLED_LINES]
 
     logger.debug("Filling %d cue(s) the target file left unpaired", len(gaps))
     filled = 0
@@ -92,6 +104,9 @@ async def fill_gaps(
         # the engine answers one at a time.
         while busy():
             await asyncio.sleep(YIELD_POLL_S)
+        if followed_lines() is not lines:
+            logger.debug("Stopped filling: the session is following a different subtitle file")
+            break
         line = lines[index]
         try:
             answer = await translate(line.text, context_pairs(lines, index))

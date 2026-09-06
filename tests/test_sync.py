@@ -579,3 +579,34 @@ async def test_the_viewer_can_shift_the_plate_off_the_measured_lag() -> None:
     shifted = session.clock_ms(now)
     assert shifted is not None
     assert shifted - unshifted == 900
+
+
+async def test_asking_for_a_later_plate_is_not_swallowed_by_the_anchor_floor() -> None:
+    """The floor guards a match against the measured lag, not against the viewer.
+
+    Just after a match the floor binds, and folding the offset inside it left the
+    minus button doing nothing for the 650ms-plus that follows every match -
+    which, against cues that run a couple of seconds, was most of the time.
+    """
+    lines = [
+        SubtitleLine(index=0, start_ms=0, end_ms=5_000, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=5_000, end_ms=9_000, text="Goodbye now", translated="再见"),
+    ]
+    bias_ms = 0
+    session = CandidateSession(
+        [make_candidate("a", lines)],
+        config(),
+        never_translates(),
+        bias_source=lambda: bias_ms,
+    )
+    assert await session.match("Hello there") is not None
+
+    # Half a second past the match, which is where the floor is holding.
+    now = monotonic() + 0.5
+    held = session.clock_ms(now)
+    assert held is not None
+
+    bias_ms = -900
+    later = session.clock_ms(now)
+    assert later is not None
+    assert later == held - 900

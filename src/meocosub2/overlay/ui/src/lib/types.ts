@@ -80,7 +80,6 @@ export interface BackendPreparedSession {
 export interface BackendTargetAlignment {
   result_id: string;
   file_name: string;
-  provider: string;
   unpaired_cues: number;
   unpaired_ms: number;
   chosen: boolean;

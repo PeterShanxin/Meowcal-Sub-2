@@ -174,6 +174,7 @@ def test_a_timing_offset_is_held_to_what_the_dock_can_ask_for() -> None:
     # cannot put the plate somewhere no button could reach.
     assert normalize_sync_bias_ms(9000) == MAX_SYNC_BIAS_MS
     assert normalize_sync_bias_ms(-9000) == -MAX_SYNC_BIAS_MS
+    assert normalize_sync_bias_ms(240) == 200
     assert normalize_sync_bias_ms(140) == 100
     assert normalize_sync_bias_ms(-160) == -200
     assert normalize_sync_bias_ms("not a number", fallback=300) == 300
@@ -181,6 +182,6 @@ def test_a_timing_offset_is_held_to_what_the_dock_can_ask_for() -> None:
 
 def test_a_config_save_that_touches_nothing_else_still_carries_the_offset() -> None:
     base = replace(AppConfig(), fuzzy_threshold=71)
-    updated = config_from_payload({"sync": {"biasMs": 250}}, fallback=base)
+    updated = config_from_payload({"sync": {"biasMs": 240}}, fallback=base)
     assert updated.sync_bias_ms == 200
     assert updated.fuzzy_threshold == 71

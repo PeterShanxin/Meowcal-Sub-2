@@ -69,7 +69,6 @@ class TargetAlignment:
 
     result_id: str
     file_name: str
-    provider: str
     unpaired_cues: int
     unpaired_ms: int
     chosen: bool = False
