@@ -383,6 +383,18 @@ class SubtitleSearchAggregator:
         provider = next(item for item in self.providers if item.provider_code == result.provider)
         return await provider.download(result.provider_result)
 
+    def downloads_remaining(self, provider_code: str) -> int | None:
+        """What a metered provider last said was left of its download allowance.
+
+        None where the provider does not meter downloads, or has not been asked
+        for one yet. Only OpenSubtitles reports this today, and only a download
+        that was not already cached asks.
+        """
+        provider = next(
+            (item for item in self.providers if item.provider_code == provider_code), None
+        )
+        return getattr(provider, "downloads_remaining", None)
+
     def _year_bonus(self, match_year: int | None, query_year: int | None) -> float:
         if query_year is None or match_year is None:
             return 0.0

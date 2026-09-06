@@ -1483,3 +1483,58 @@ async def test_a_candidate_that_will_not_download_is_left_out_rather_than_fatal(
 
     assert payload["session_mode"] == "subtitle_pair"
     assert [entry["result_id"] for entry in payload["target_alignment"]] == ["result-2"]
+
+
+def _weighable_pair(tmp_path: Path, mocker):
+    """A controller with a rival target file and the three downloads it needs."""
+    controller, _, download = _pair_controller(tmp_path, mocker)
+    _add_rival_target(controller, "result-3", "rival.srt")
+    source = tmp_path / "weigh-source.srt"
+    source.write_text("1\n00:00:00,000 --> 00:00:02,000\ns0\n", encoding="utf-8")
+    chosen = tmp_path / "weigh-chosen.srt"
+    chosen.write_text("1\n00:00:00,000 --> 00:00:02,000\nt0\n", encoding="utf-8")
+    rival = tmp_path / "weigh-rival.srt"
+    rival.write_text("1\n00:00:00,000 --> 00:00:02,000\nt0\n", encoding="utf-8")
+    download.side_effect = [source, chosen, rival]
+    return controller, download
+
+
+@pytest.mark.asyncio
+async def test_a_low_download_allowance_is_not_spent_weighing_rival_targets(
+    tmp_path: Path, mocker
+) -> None:
+    """Advice must not use up what the viewer needs in order to watch anything.
+
+    OpenSubtitles meters downloads by the day, and weighing a rival costs one.
+    A session the viewer can already run is worth more than knowing whether a
+    different file would have run it better.
+    """
+    controller, download = _weighable_pair(tmp_path, mocker)
+    mocker.patch.object(controller._aggregator, "downloads_remaining", return_value=1)
+
+    await controller.prepare_session(
+        mode="subtitle_pair",
+        feature_id="match-1",
+        source_file_id="result-1",
+        target_file_id="result-2",
+    )
+
+    # The source and the target the viewer chose, and nothing for the comparison.
+    assert download.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_a_provider_that_does_not_meter_downloads_still_gets_weighed(
+    tmp_path: Path, mocker
+) -> None:
+    controller, download = _weighable_pair(tmp_path, mocker)
+    mocker.patch.object(controller._aggregator, "downloads_remaining", return_value=None)
+
+    await controller.prepare_session(
+        mode="subtitle_pair",
+        feature_id="match-1",
+        source_file_id="result-1",
+        target_file_id="result-2",
+    )
+
+    assert download.await_count == 3

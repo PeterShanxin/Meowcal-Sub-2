@@ -77,6 +77,10 @@ TARGET_ALIGNMENT_SAMPLE = 3
 # budget rather than a provider's timeout. Whatever is weighed inside it is
 # reported; the rest is simply not mentioned.
 TARGET_ALIGNMENT_BUDGET_S = 15.0
+# Downloads left with a metered provider below which none are spent on advice.
+# A session costs a source file and a target file, so this keeps back enough for
+# the viewer to start one after the comparison decides against running.
+DOWNLOADS_KEPT_FOR_WATCHING = 2
 # Shown when the engine is missing but the target file can carry the session on
 # its own. It names what the viewer will see rather than what failed. The two
 # symptoms differ: nothing has been drawn yet before the first match, while a
@@ -1563,6 +1567,29 @@ class GuiController:
         )
         return matches[:limit]
 
+    def _can_spend_a_download_on_advice(self, entry: AggregatedSubtitleResult) -> bool:
+        """Whether weighing this rival is worth what the download may cost.
+
+        OpenSubtitles meters downloads by the day. Weighing a rival is advice
+        about a session the viewer can already run, so it must never be what
+        uses up an allowance they need in order to watch something. The
+        provider's own count of what is left decides; a provider that does not
+        meter downloads reports nothing and is always weighed.
+
+        A file already in the cache costs no allowance, but saying which ones
+        those are means knowing how each provider names them, so this does not
+        try - the reserve below is what a cache miss is measured against.
+        """
+        remaining = self._aggregator.downloads_remaining(entry.provider)
+        if remaining is not None and remaining <= DOWNLOADS_KEPT_FOR_WATCHING:
+            logger.debug(
+                "Not weighing rival target files: %s has %d download(s) left today",
+                entry.provider,
+                remaining,
+            )
+            return False
+        return True
+
     async def _weigh_target_candidates(
         self,
         feature_id: str | None,
@@ -1602,6 +1629,7 @@ class GuiController:
                 feature_id, self._state.target_language, TARGET_ALIGNMENT_SAMPLE + 1
             )
             if entry.result_id != chosen_entry.result_id
+            and self._can_spend_a_download_on_advice(entry)
         ][:TARGET_ALIGNMENT_SAMPLE]
 
         deadline = time.monotonic() + TARGET_ALIGNMENT_BUDGET_S

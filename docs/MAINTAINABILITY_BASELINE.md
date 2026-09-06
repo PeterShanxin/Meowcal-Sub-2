@@ -70,16 +70,19 @@ Raised so far, all of them by live testing against a real player:
 | `overlay/ui/src/app.tsx` | 1511 | 1519 | queueing the timing presses, so two that overlap do not both send the same offset |
 | `overlay/controller.py` | 1809 | 1812 | a warning that names the stale line the viewer will see rather than a blank plate |
 | `sync.py` | 720 | 737 | remembering which files were filled all the way through, and bounding how long the renderer sleeps past a retime |
+| `opensubtitles/client.py` | 877 | 885 | keeping the download allowance the provider reports on every download, instead of discarding it |
+| `subtitle_sources/aggregator.py` | 1446 | 1458 | asking a provider what is left of its download allowance |
+| `overlay/controller.py` | 1812 | 1840 | keeping back enough of a metered download allowance for the viewer to start a session with |
 | `src-tauri/src/overlay_window.rs` | 467 | 469 | a dock wide enough for the timing control |
 
 The four largest are the ones worth naming, because they are where the work is:
 
 | File | Lines | What it holds |
 | --- | ---: | --- |
-| `overlay/controller.py` | 1,812 | session lifecycle, search orchestration, config, engine startup |
+| `overlay/controller.py` | 1,840 | session lifecycle, search orchestration, config, engine startup |
 | `overlay/ui/src/app.tsx` | 1,519 | the studio's whole screen state |
 | `overlay/ui/src/components/palette.tsx` | 1,478 | the search palette |
-| `subtitle_sources/aggregator.py` | 1,446 | provider-neutral search aggregation |
+| `subtitle_sources/aggregator.py` | 1,458 | provider-neutral search aggregation |
 
 No module is to be split to satisfy a number. A cohesive exception is better
 than fake decomposition; these are recorded because they are real, not because
