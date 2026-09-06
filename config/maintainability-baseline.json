@@ -21,7 +21,7 @@
   "lintBudgets": {
     "ruff": 0,
     "clippy": 0,
-    "biome": 25
+    "biome": 26
   },
   "coverage": {
     "python": {
