@@ -620,3 +620,31 @@ def test_a_dash_opening_only_the_second_row_is_still_a_wrapped_sentence() -> Non
     found = matcher.line_at(1000)
     assert found is not None
     assert found.target_text == "I went to the shops - the ones on the corner."
+
+
+def korean_bilingual_lines() -> list[SubtitleLine]:
+    """The same shape as `bilingual_lines`, in the script that used to defeat it."""
+    rows = [
+        "우리는 그 산성 통에 뛰어들어\nwe jump into the vat of acid,",
+        "당신은 발명가 아니에요?\nAren't you an inventor?",
+        "가짜 수정과 총을 가져왔군요\nYou brought fake crystals and a gun",
+        "천천히 하세요 보스\nTake your time, boss.",
+    ]
+    return [
+        SubtitleLine(index=i, start_ms=i * 2000, end_ms=i * 2000 + 1500, text=text)
+        for i, text in enumerate(rows)
+    ]
+
+
+def test_a_korean_read_is_scored_against_its_own_half_of_a_bilingual_cue() -> None:
+    """Telling the rows apart is a question about script, not about spacing.
+
+    The predicate that split them also decides whether whitespace is compacted,
+    which Korean needs kept - so Hangul was excluded from it, both rows of a
+    Korean cue classified alike, and the read was scored against the pair.
+    """
+    matcher = SubtitleMatcher(korean_bilingual_lines(), target_language="en")
+    result = matcher.match("천천히 하세요 보스")
+    assert result is not None
+    assert result.line_index == 3
+    assert result.score == 100.0

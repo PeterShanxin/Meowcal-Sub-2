@@ -73,6 +73,7 @@ Raised so far, all of them by live testing against a real player:
 | `opensubtitles/client.py` | 877 | 885 | keeping the download allowance the provider reports on every download, instead of discarding it |
 | `subtitle_sources/aggregator.py` | 1446 | 1458 | asking a provider what is left of its download allowance |
 | `overlay/controller.py` | 1812 | 1840 | keeping back enough of a metered download allowance for the viewer to start a session with |
+| `matcher.py` | 533 | 544 | telling the two rows of a Korean bilingual cue apart, which asks about script rather than about spacing |
 | `src-tauri/src/overlay_window.rs` | 467 | 469 | a dock wide enough for the timing control |
 
 The four largest are the ones worth naming, because they are where the work is:
