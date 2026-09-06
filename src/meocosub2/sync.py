@@ -40,8 +40,9 @@ AUTO_UNLOCK_MISSES = 3
 # Consecutive empty reads before the overlay clears. One blank frame is a cue
 # transition; several in a row mean nothing is on screen.
 CLEAR_AFTER_EMPTY_READS = 3
-# How long to wait before checking again whether a candidate has been locked.
-# With one candidate it is locked before the loop starts and this never runs.
+# How long to wait before looking again at which candidate is being followed.
+# Locking onto one is what a whole run of reads decides, so this costs nothing
+# to check slowly.
 FOLLOW_POLL_S = 1.0
 # How far ahead of the clock the plate is drawn, negative to hold it back.
 # The clock does not need help arriving early: it anchors at the moment a cue
@@ -103,15 +104,13 @@ class LiveTranslator:
 
         Deliberately outside the cache and the rolling context: both describe
         what has been on screen, and a cue being answered ahead of time has not.
-        Only the target halves of the pairs are offered as context, because that
-        is what the echo checks compare an answer against.
+        The pairs carry their own echo context, so none is passed here.
         """
         return await self._client.translate(
             text,
             self._source_language,
             self._target_language,
-            [target for _, target in pairs],
-            pairs,
+            pairs=pairs,
         )
 
     async def translate(self, text: str) -> str:
@@ -159,6 +158,10 @@ class CandidateSession:
             )
             for candidate in candidates
         }
+        # Whether a target subtitle file was paired against these candidates at
+        # all. Without one every cue is unanswered by definition, which is the
+        # live-translation session rather than a file with gaps in it.
+        self.has_target_file = any(candidate.pair.target_lines for candidate in candidates)
         self._open_translator = translator
         self._open_index = semantic
         # Read rather than captured: the viewer retimes the plate from the dock
@@ -609,17 +612,32 @@ async def run_session_loop(
         answers one request at a time, so a fill only starts when no read is in
         flight. It cannot stand aside for a read that arrives while it is
         already asking, which costs that read the one completion it waits behind.
+
+        Only a session that has a target file has gaps to fill. Without one every
+        cue is unanswered, and filling them ahead would spend the single-slot
+        engine on the file's opening while the viewer waits on the read in front
+        of them - which is the whole of what a live-translation session does.
+
+        A session with several candidates can let one go and lock another, so the
+        file being followed is watched rather than taken once: each new one is
+        filled in its turn, and one already answered is not asked again.
         """
-        if not isinstance(session, CandidateSession):
+        if not isinstance(session, CandidateSession) or not session.has_target_file:
             return
-        while not session.followed_lines:
+        filled: list[SubtitleLine] | None = None
+        while True:
+            following = session.followed_lines
+            if following and following is not filled:
+                filled = following
+                await fill_gaps(
+                    lambda: session.followed_lines,
+                    session.translate_from_file,
+                    lambda: pending is not None and not pending.done(),
+                    nudge.set,
+                )
+                # The lock can have moved while that ran, which is what ended it.
+                continue
             await asyncio.sleep(FOLLOW_POLL_S)
-        await fill_gaps(
-            lambda: session.followed_lines,
-            session.translate_from_file,
-            lambda: pending is not None and not pending.done(),
-            nudge.set,
-        )
 
     nudge = asyncio.Event()
     renderer = asyncio.create_task(render_from_the_clock())

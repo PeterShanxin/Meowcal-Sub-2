@@ -617,3 +617,97 @@ async def test_asking_for_a_later_plate_is_not_swallowed_by_the_anchor_floor() -
     later = session.clock_ms(now)
     assert later is not None
     assert later == held - 900
+
+
+async def _ready(translator: "_FakeTranslator") -> "_FakeTranslator":
+    return translator
+
+
+class _FakeTranslator:
+    """Stands in for the engine, recording what the filler asked it."""
+
+    def __init__(self) -> None:
+        self.filled: list[str] = []
+
+    async def translate(self, text: str) -> str:
+        return f"live {text}"
+
+    async def translate_from_file(self, text: str, pairs: list[tuple[str, str]]) -> str:
+        self.filled.append(text)
+        return f"filled {text}"
+
+
+def _gapped_candidate(result_id: str, *, with_target: bool) -> SourceSubtitleCandidate:
+    """One answered cue and one the target file has nothing over."""
+    candidate = make_candidate(
+        result_id,
+        [
+            SubtitleLine(index=0, start_ms=0, end_ms=3000, text="Hello there", translated="你好"),
+            SubtitleLine(index=1, start_ms=3000, end_ms=6000, text="Goodbye now", translated=""),
+        ],
+    )
+    if with_target:
+        candidate.pair.target_lines = [
+            SubtitleLine(index=0, start_ms=0, end_ms=3000, text="你好", translated="")
+        ]
+    return candidate
+
+
+async def test_a_session_with_a_target_file_fills_what_it_left_unpaired() -> None:
+    translator = _FakeTranslator()
+    session = CandidateSession(
+        [_gapped_candidate("a", with_target=True)], config(), lambda: _ready(translator)
+    )
+
+    await drive(session, config(), ["Hello there"])
+
+    assert translator.filled == ["Goodbye now"]
+
+
+async def test_a_session_without_a_target_file_never_fills_ahead() -> None:
+    """Without a target file every cue is unanswered, so there is no gap to fill.
+
+    Treating them as gaps would spend the single-slot engine on the opening of
+    the file while the viewer waits on the read in front of them - which is the
+    whole of what a session with no target file is doing.
+    """
+    translator = _FakeTranslator()
+    session = CandidateSession(
+        [_gapped_candidate("a", with_target=False)], config(), lambda: _ready(translator)
+    )
+
+    await drive(session, config(), ["Hello there"])
+
+    assert translator.filled == []
+
+
+async def test_filling_moves_to_the_candidate_the_session_locks_onto_next() -> None:
+    """A session can let one candidate go and lock another mid-fill.
+
+    The fill stops there, because the file it was answering is no longer drawn.
+    Without picking the new one up, the file the viewer is actually reading keeps
+    its gaps for the rest of the episode.
+    """
+    translator = _FakeTranslator()
+    first = _gapped_candidate("a", with_target=True)
+    second = _gapped_candidate("b", with_target=True)
+    session = CandidateSession([first, second], config(), lambda: _ready(translator))
+    session._locked = "a"
+
+    relocked = False
+
+    async def translate_from_file(text: str, pairs: list[tuple[str, str]]) -> str:
+        nonlocal relocked
+        translator.filled.append(text)
+        if not relocked:
+            relocked = True
+            session._locked = "b"
+        return f"filled {text}"
+
+    session.translate_from_file = translate_from_file
+
+    await drive(session, config(), ["Hello there"] * 12)
+
+    # Once for the file it started on, once for the one it was moved to.
+    assert translator.filled == ["Goodbye now", "Goodbye now"]
+    assert second.pair.source_lines[1].translated == "filled Goodbye now"

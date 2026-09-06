@@ -5,6 +5,7 @@ from meocosub2.errors import TranslationError
 from meocosub2.translator import (
     TranslationClient,
     drop_restated_context,
+    echoable_targets,
     echoes_context,
     is_untranslatable,
     is_usable_translation,
@@ -242,4 +243,37 @@ async def test_an_answer_that_echoes_twice_is_still_refused() -> None:
 
     client = _client(handler)
     assert await client.translate("你看这个", "zh", "en", ["Wait a moment."]) == ""
+    await client.close()
+
+
+def test_a_pair_answering_this_very_line_is_not_held_against_the_answer() -> None:
+    """Dialogue repeats, and the repeat's honest answer is the neighbour's answer."""
+    pairs = [("好的", "Okay."), ("你看这个", "Look at this.")]
+    assert echoable_targets("好的", pairs) == ["Look at this."]
+
+
+def test_pairs_about_other_lines_all_stay_in_the_echo_check() -> None:
+    pairs = [("好的", "Okay."), ("你看这个", "Look at this.")]
+    assert echoable_targets("我们走吧", pairs) == ["Okay.", "Look at this."]
+
+
+@pytest.mark.asyncio
+async def test_a_gap_translated_the_same_as_its_neighbour_is_still_filled() -> None:
+    """The old check dropped it twice over and left the cue unanswered for good.
+
+    Asked for a line whose neighbour says the same thing, the model answers the
+    neighbour's answer because that is the right one. Read as an echo it was
+    retried without context, given the same answer again, and discarded.
+    """
+    asked: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append(request.read().decode())
+        return httpx.Response(200, json={"choices": [{"message": {"content": "Okay."}}]})
+
+    client = _client(handler)
+    filled = await client.translate("好的", "zh", "en", pairs=[("好的", "Okay.")])
+    assert filled == "Okay."
+    # Answered first time: no retry, because nothing looked like an echo.
+    assert len(asked) == 1
     await client.close()

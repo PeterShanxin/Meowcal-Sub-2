@@ -42,6 +42,9 @@ RESTATED_CONTEXT_SIMILARITY = 80.0
 # How closely a whole answer must restate one context line before it is read as
 # the model handing back what it was given instead of translating.
 ECHOED_CONTEXT_SIMILARITY = 88.0
+# How alike two source lines have to be before answering them alike is the
+# dialogue repeating itself rather than the model echoing an example.
+REPEATED_SOURCE_SIMILARITY = 88.0
 
 SAMPLING = {"temperature": 0.3, "top_k": 20, "top_p": 0.6, "repeat_penalty": 1.05}
 MAX_OUTPUT_TOKENS = 150
@@ -200,6 +203,23 @@ def echoes_context(translated: str, context_lines: list[str]) -> bool:
     )
 
 
+def echoable_targets(text: str, pairs: list[tuple[str, str]]) -> list[str]:
+    """The paired answers that would be an echo rather than the dialogue repeating.
+
+    Dialogue repeats itself - two acknowledgements a beat apart carry the same
+    translation - and a cue whose honest answer is a neighbour's answer would be
+    read as an echo, retried without context, given that same answer again, and
+    dropped for good. A pair whose source is this line over again is exactly that
+    case, so its answer is not held against the model. The rest still catch it
+    handing back an example instead of translating.
+    """
+    return [
+        target
+        for source, target in pairs
+        if fuzz.ratio(text.lower(), source.lower()) < REPEATED_SOURCE_SIMILARITY
+    ]
+
+
 def _sentences(text: str) -> list[str]:
     parts = re.split(r"(?<=[.!?。！？])\s+", text.strip())
     return [part for part in parts if part.strip()]
@@ -289,13 +309,13 @@ class TranslationClient:
         """Translate one line, optionally in the voice a paired file already uses.
 
         `pairs` are lines this subtitle file has already answered, source beside
-        target. Only the target halves become `context`: the checks below ask
-        whether the model handed back something it was given, and the source
-        halves are in the wrong language to ever look like an answer.
+        target. Only the target halves are held against the answer: the checks
+        below ask whether the model handed back something it was given, and the
+        source halves are in the wrong language to ever look like an answer.
         """
         if is_untranslatable(text):
             return ""
-        context = list(context_lines or [])
+        context = echoable_targets(text, pairs) if pairs else list(context_lines or [])
         prompt = (
             build_paired_prompt(text, source_language, target_language, pairs)
             if pairs

@@ -576,3 +576,47 @@ def test_two_cues_genuinely_running_at_once_still_get_a_row_each() -> None:
     found = matcher.line_at(1500)
     assert found is not None
     assert found.target_text == "你好\n再见"
+
+
+def test_one_cue_holding_two_speakers_keeps_a_row_each() -> None:
+    """A dash opening every row is the file marking a change of speaker.
+
+    Flattened it would read as one person, and across the subtitle files this
+    repo has cached these are up to 92% of a file's multi-row cues.
+    """
+    matcher = SubtitleMatcher(
+        [
+            SubtitleLine(
+                index=0,
+                start_ms=0,
+                end_ms=2000,
+                text="Hello there",
+                translated="- Where were you?\n- Out.",
+            )
+        ]
+    )
+    found = matcher.line_at(1000)
+    assert found is not None
+    assert found.target_text == "- Where were you?\n- Out."
+
+
+def test_a_dash_opening_only_the_second_row_is_still_a_wrapped_sentence() -> None:
+    """One speaker whose sentence happens to wrap onto a dashed aside.
+
+    The rows are a speaker split only when every one of them is marked, so a
+    single dash does not buy a cue a second row.
+    """
+    matcher = SubtitleMatcher(
+        [
+            SubtitleLine(
+                index=0,
+                start_ms=0,
+                end_ms=2000,
+                text="Hello there",
+                translated="I went to the shops\n- the ones on the corner.",
+            )
+        ]
+    )
+    found = matcher.line_at(1000)
+    assert found is not None
+    assert found.target_text == "I went to the shops - the ones on the corner."
