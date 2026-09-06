@@ -648,3 +648,23 @@ def test_a_korean_read_is_scored_against_its_own_half_of_a_bilingual_cue() -> No
     assert result is not None
     assert result.line_index == 3
     assert result.score == 100.0
+
+
+def test_the_position_reached_is_answered_between_cues_too() -> None:
+    """`line_at` returns nothing in a gap between cues; filling still needs a place."""
+    matcher = SubtitleMatcher(
+        [
+            SubtitleLine(index=0, start_ms=0, end_ms=1000, text="Hello there"),
+            SubtitleLine(index=1, start_ms=10_000, end_ms=11_000, text="Goodbye now"),
+        ]
+    )
+
+    assert matcher.line_at(5_000) is None
+    assert matcher.position_at(5_000) == 0
+    assert matcher.position_at(10_500) == 1
+
+
+def test_nothing_has_started_before_the_first_cue() -> None:
+    matcher = SubtitleMatcher(make_lines())
+
+    assert matcher.position_at(-5_000) == 0

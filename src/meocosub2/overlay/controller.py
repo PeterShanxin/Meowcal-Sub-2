@@ -21,6 +21,7 @@ from meocosub2.capture import available_ocr_languages, resolve_ocr_language
 from meocosub2.config import AppConfig, config_to_payload, overlay_style_payload, save_config
 from meocosub2.errors import TranslationError
 from meocosub2.event_log import log_event
+from meocosub2.gapfill import unanswered
 from meocosub2.languages import (
     is_chinese_family,
     language_label,
@@ -32,6 +33,7 @@ from meocosub2.languages import (
 from meocosub2.models import (
     AppProgress,
     AppStateSnapshot,
+    GapFillProgress,
     PreparedRuntime,
     PreparedSession,
     SearchRequest,
@@ -40,6 +42,7 @@ from meocosub2.models import (
     SubtitlePair,
     TargetAlignment,
 )
+from meocosub2.prefill import fill_before_the_session
 from meocosub2.semantic import SemanticIndex
 from meocosub2.subtitle_sources import (
     AggregatedEpisode,
@@ -217,6 +220,9 @@ class GuiController:
         self._config_path = config_path
         self._lock = asyncio.Lock()
         self._sync_task: asyncio.Task[None] | None = None
+        # Answers the target file's gaps while the app is idle, so the session
+        # starts with fewer of them left to answer against the viewer's reads.
+        self._prefill_task: asyncio.Task[None] | None = None
         self._prepared_runtime: PreparedRuntime | None = None
         # The source the target step read, kept so preparation does not fetch it
         # a second time. Only OpenSubtitles answers a repeat download from disk.
@@ -954,6 +960,10 @@ class GuiController:
         if self._sync_task and not self._sync_task.done():
             await self._set_error("Stop the active session before preparing another one.")
             raise RuntimeError("A session is already running.")
+        # Whatever it was filling belongs to the selection being replaced.
+        await self._stop_prefill()
+        async with self._lock:
+            self._state.gap_fill = None
         if mode not in {"subtitle_pair", "ocr_fallback", "auto_candidates"}:
             raise ValueError(f"Unsupported session mode: {mode}")
         if mode == "auto_candidates":
@@ -1184,6 +1194,8 @@ class GuiController:
             self._state.warning_message = " ".join(warnings)
         await self._emit_app_state()
         await self._emit_app_progress()
+        if not engine_warning:
+            await self._start_prefill(source_lines)
         return asdict(session)
 
     async def _prepare_auto_candidate_session(self, feature_id: str | None) -> dict[str, object]:
@@ -1476,6 +1488,10 @@ class GuiController:
             and "not installed" in resolution.warning_message.lower()
         ):
             raise RuntimeError(resolution.warning_message)
+        # Before the loop starts, not alongside it: the engine answers one
+        # request at a time, and an in-flight fill would hold the slot the
+        # session's first read waits on.
+        await self._stop_prefill()
         async with self._lock:
             self._state.status = "running"
             self._state.error_message = ""
@@ -1542,6 +1558,7 @@ class GuiController:
         await self._emit_app_event("subtitle", {"text": subtitle_text, "source": source})
 
     async def shutdown(self) -> None:
+        await self._stop_prefill()
         task = self._sync_task
         if task is not None and not task.done():
             task.cancel()
@@ -1569,6 +1586,65 @@ class GuiController:
             logger.warning("Preparing without local translation: %s", exc)
             return NO_ENGINE_WARNING
         return ""
+
+    async def _start_prefill(self, lines: list[SubtitleLine]) -> None:
+        """Answer the target file's gaps while the viewer is still setting up.
+
+        Only where something already answers some of these cues - a paired
+        target file, or a bilingual source answering itself. Where nothing does,
+        every cue is a gap and this is a live-translation session: filling ahead
+        would spend the whole engine on the file's opening while the viewer
+        waits on the line in front of them.
+        """
+        if not any(line.translated for line in lines):
+            return
+        gaps = len(unanswered(lines))
+        if not gaps:
+            return
+        async with self._lock:
+            self._state.gap_fill = GapFillProgress(filled=0, total=gaps, active=True)
+        await self._emit_app_state()
+        self._prefill_task = asyncio.create_task(self._run_prefill(lines))
+
+    async def _run_prefill(self, lines: list[SubtitleLine]) -> None:
+        try:
+            await fill_before_the_session(lines, self.config, self._report_prefill)
+        except asyncio.CancelledError:
+            # The state is settled by whoever cancelled, which can await this
+            # task where a callback running under cancellation could not.
+            raise
+        except Exception:
+            # Nothing is blocked by this: the session still plays off the target
+            # file, and its own filler meets the same engine and says so there.
+            logger.exception("Answering the target file's gaps before the session failed")
+        await self._prefill_idle()
+
+    async def _report_prefill(self, filled: int) -> None:
+        async with self._lock:
+            current = self._state.gap_fill
+            if current is None:
+                return
+            self._state.gap_fill = replace(current, filled=filled)
+        await self._emit_app_state()
+
+    async def _prefill_idle(self) -> None:
+        """Nothing is being answered any more, however the pass ended."""
+        async with self._lock:
+            if self._state.gap_fill is not None:
+                self._state.gap_fill = replace(self._state.gap_fill, active=False)
+            if self._prefill_task is asyncio.current_task():
+                self._prefill_task = None
+        await self._emit_app_state()
+
+    async def _stop_prefill(self) -> None:
+        task = self._prefill_task
+        self._prefill_task = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+        await self._prefill_idle()
 
     async def _run_sync_loop(self, runtime: PreparedRuntime, config: AppConfig) -> None:
         # Debug events ride alongside the normal broadcast path so the dashboard

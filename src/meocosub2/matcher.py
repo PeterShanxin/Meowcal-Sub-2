@@ -394,6 +394,15 @@ class SubtitleMatcher:
             translated=all(bool(line.translated) for line in showing),
         )
 
+    def position_at(self, position_ms: int) -> int:
+        """How far into the file the video has reached, as a position in `subtitles`.
+
+        Unlike `line_at` this answers between cues too, where no line is
+        running. Filling ahead needs somewhere to start from more than it needs
+        a line to draw, and the cue that most recently began is that place.
+        """
+        return max(0, bisect_right(self._starts, position_ms) - 1)
+
     def next_change_ms(self, position_ms: int) -> int | None:
         """When what `line_at` returns changes, or None if it never does again.
 

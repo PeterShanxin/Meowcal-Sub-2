@@ -75,6 +75,20 @@ class TargetAlignment:
 
 
 @dataclass
+class GapFillProgress:
+    """How far the model has got through the cues the target file left unpaired.
+
+    Counted while the session is still being set up, so the prep card can say
+    what it is costing rather than showing a number that quietly stops being
+    true.
+    """
+
+    filled: int = 0
+    total: int = 0
+    active: bool = False
+
+
+@dataclass
 class PreparedSession:
     session_id: str
     title: str
@@ -130,6 +144,7 @@ class AppStateSnapshot:
     last_subtitle: str = ""
     error_message: str = ""
     warning_message: str = ""
+    gap_fill: GapFillProgress | None = None
 
 
 @dataclass

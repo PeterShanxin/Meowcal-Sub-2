@@ -43,6 +43,9 @@ CONTEXT_SEARCH_LIMIT = 12
 YIELD_POLL_S = 0.25
 
 Translate = Callable[[str, list[tuple[str, str]]], Awaitable[str]]
+# Where the video has reached in the file, as a position in `lines`. None
+# before anything has placed it, and before a session exists at all.
+FromIndex = Callable[[], int | None]
 
 
 def context_pairs(lines: list[SubtitleLine], index: int) -> list[tuple[str, str]]:
@@ -69,6 +72,11 @@ def context_pairs(lines: list[SubtitleLine], index: int) -> list[tuple[str, str]
     return earlier + later
 
 
+def unanswered(lines: list[SubtitleLine]) -> list[int]:
+    """Positions of the cues that carry text with nothing paired to them."""
+    return [index for index, line in enumerate(lines) if line.text and not line.translated]
+
+
 class FillOutcome(NamedTuple):
     """How a pass over one file's gaps ended.
 
@@ -87,7 +95,8 @@ async def fill_gaps(
     followed_lines: Callable[[], list[SubtitleLine]],
     translate: Translate,
     busy: Callable[[], bool],
-    on_filled: Callable[[], None],
+    on_filled: Callable[[], Awaitable[None]],
+    from_index: FromIndex | None = None,
 ) -> FillOutcome:
     """Answer the unpaired cues of the file being followed, and say how it ended.
 
@@ -99,16 +108,29 @@ async def fill_gaps(
     `followed_lines` is asked again at every cue rather than read once. A session
     with several candidates can stop following one and take another, and the
     gaps of a file that is no longer drawn are not worth an engine slot.
+
+    `from_index` says where the video has reached, so the gaps ahead of the
+    viewer are answered before the ones they have already watched past. Without
+    it - before a session has started, or before a match has placed one - the
+    file's own order is the only order there is.
     """
     lines = followed_lines()
-    gaps = [index for index, line in enumerate(lines) if line.text and not line.translated]
+    gaps = unanswered(lines)
     if not gaps:
         return FillOutcome(0, True)
+    reached = from_index() if from_index is not None else None
+    if reached is not None:
+        # Rotated before the cap, not after: the budget belongs to the cues the
+        # viewer is about to reach, and the ones behind them get what is left.
+        gaps = [index for index in gaps if index >= reached] + [
+            index for index in gaps if index < reached
+        ]
     if len(gaps) > MAX_FILLED_LINES:
         logger.debug(
-            "Target file leaves %d cues unpaired; answering the first %d",
+            "Target file leaves %d cues unpaired; answering %d of them from position %s",
             len(gaps),
             MAX_FILLED_LINES,
+            "the start" if reached is None else reached,
         )
         gaps = gaps[:MAX_FILLED_LINES]
 
@@ -141,6 +163,6 @@ async def fill_gaps(
             continue
         line.translated = answer
         filled += 1
-        on_filled()
+        await on_filled()
     logger.debug("Filled %d of %d unpaired cue(s)", filled, len(gaps))
     return FillOutcome(filled, completed, engine_failed)

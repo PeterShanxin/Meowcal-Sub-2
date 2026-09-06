@@ -4,6 +4,10 @@ from meocosub2.gapfill import MAX_FILLED_LINES, context_pairs, fill_gaps
 from meocosub2.models import SubtitleLine
 
 
+async def unchanged() -> None:
+    """A fill that nothing is watching for; the session redraws instead."""
+
+
 def lines(*specs: tuple[str, str]) -> list[SubtitleLine]:
     return [
         SubtitleLine(
@@ -38,7 +42,7 @@ async def test_filling_writes_the_answers_onto_the_lines_themselves() -> None:
     async def translate(text: str, pairs: list[tuple[str, str]]) -> str:
         return f"answered {text}"
 
-    outcome = await fill_gaps(lambda: episode, translate, lambda: False, lambda: None)
+    outcome = await fill_gaps(lambda: episode, translate, lambda: False, unchanged)
 
     assert outcome.filled == 1
     assert episode[1].translated == "answered s1"
@@ -52,7 +56,7 @@ async def test_a_line_the_model_cannot_answer_is_left_unpaired() -> None:
     async def translate(text: str, pairs: list[tuple[str, str]]) -> str:
         return ""
 
-    outcome = await fill_gaps(lambda: episode, translate, lambda: False, lambda: None)
+    outcome = await fill_gaps(lambda: episode, translate, lambda: False, unchanged)
 
     assert outcome.filled == 0
     assert episode[1].translated == ""
@@ -66,7 +70,7 @@ async def test_a_line_just_filled_becomes_context_for_the_next_gap() -> None:
         seen.append(pairs)
         return f"answered {text}"
 
-    await fill_gaps(lambda: episode, translate, lambda: False, lambda: None)
+    await fill_gaps(lambda: episode, translate, lambda: False, unchanged)
 
     assert seen[0] == [("s0", "t0")]
     assert seen[1] == [("s0", "t0"), ("s1", "answered s1")]
@@ -84,7 +88,7 @@ async def test_filling_waits_while_a_read_is_using_the_model() -> None:
         calls += 1
         return "answered"
 
-    task = asyncio.create_task(fill_gaps(lambda: episode, translate, lambda: reading, lambda: None))
+    task = asyncio.create_task(fill_gaps(lambda: episode, translate, lambda: reading, unchanged))
     await asyncio.sleep(0.05)
     assert calls == 0, "filled a gap while a read still held the model"
 
@@ -102,7 +106,7 @@ async def test_filling_stops_when_the_engine_stops_answering() -> None:
         calls += 1
         raise RuntimeError("engine is gone")
 
-    outcome = await fill_gaps(lambda: episode, translate, lambda: False, lambda: None)
+    outcome = await fill_gaps(lambda: episode, translate, lambda: False, unchanged)
 
     assert outcome.filled == 0
     assert calls == 1, "kept asking an engine that had already failed"
@@ -114,7 +118,7 @@ async def test_a_fully_paired_file_asks_the_model_nothing() -> None:
     async def translate(text: str, pairs: list[tuple[str, str]]) -> str:
         raise AssertionError("nothing should have been filled")
 
-    assert (await fill_gaps(lambda: episode, translate, lambda: False, lambda: None)).filled == 0
+    assert (await fill_gaps(lambda: episode, translate, lambda: False, unchanged)).filled == 0
 
 
 async def test_filling_stops_when_the_session_follows_a_different_file() -> None:
@@ -131,7 +135,7 @@ async def test_filling_stops_when_the_session_follows_a_different_file() -> None
         following[0] = taken_up
         return f"answered {text}"
 
-    outcome = await fill_gaps(lambda: following[0], translate, lambda: False, lambda: None)
+    outcome = await fill_gaps(lambda: following[0], translate, lambda: False, unchanged)
 
     assert asked == ["s1"], "kept filling a file the session had stopped following"
     assert outcome.filled == 1
@@ -150,7 +154,7 @@ async def test_a_file_that_answers_almost_nothing_is_not_worked_through() -> Non
         calls += 1
         return "answered"
 
-    outcome = await fill_gaps(lambda: episode, translate, lambda: False, lambda: None)
+    outcome = await fill_gaps(lambda: episode, translate, lambda: False, unchanged)
 
     assert calls == MAX_FILLED_LINES
     assert outcome.filled == MAX_FILLED_LINES
@@ -165,7 +169,7 @@ async def test_a_pass_the_session_interrupted_is_not_counted_as_finished() -> No
         following[0] = lines(("other", ""))
         return f"answered {text}"
 
-    outcome = await fill_gaps(lambda: following[0], translate, lambda: False, lambda: None)
+    outcome = await fill_gaps(lambda: following[0], translate, lambda: False, unchanged)
 
     assert outcome.filled == 1
     assert not outcome.completed
@@ -179,8 +183,49 @@ async def test_an_engine_that_stopped_answering_is_reported_as_such() -> None:
     async def translate(text: str, pairs: list[tuple[str, str]]) -> str:
         raise RuntimeError("the engine went away")
 
-    outcome = await fill_gaps(lambda: episode, translate, lambda: False, lambda: None)
+    outcome = await fill_gaps(lambda: episode, translate, lambda: False, unchanged)
 
     assert outcome.filled == 0
     assert not outcome.completed
     assert outcome.engine_failed
+
+
+async def test_the_gaps_ahead_of_the_viewer_are_answered_before_the_ones_behind() -> None:
+    episode = lines(("s0", ""), ("s1", "t1"), ("s2", ""), ("s3", "t3"), ("s4", ""))
+    asked: list[str] = []
+
+    async def translate(text: str, pairs: list[tuple[str, str]]) -> str:
+        asked.append(text)
+        return f"answered {text}"
+
+    await fill_gaps(lambda: episode, translate, lambda: False, unchanged, lambda: 2)
+
+    assert asked == ["s2", "s4", "s0"]
+
+
+async def test_without_a_position_the_files_own_order_is_the_order() -> None:
+    """Before a match places the video there is nowhere else to start."""
+    episode = lines(("s0", ""), ("s1", "t1"), ("s2", ""))
+    asked: list[str] = []
+
+    async def translate(text: str, pairs: list[tuple[str, str]]) -> str:
+        asked.append(text)
+        return f"answered {text}"
+
+    await fill_gaps(lambda: episode, translate, lambda: False, unchanged, lambda: None)
+
+    assert asked == ["s0", "s2"]
+
+
+async def test_the_budget_goes_to_what_is_coming_rather_than_what_has_gone_by() -> None:
+    """The cap is what makes the order matter: it can be spent entirely behind."""
+    episode = lines(*[(f"s{index}", "") for index in range(MAX_FILLED_LINES + 10)])
+    asked: list[str] = []
+
+    async def translate(text: str, pairs: list[tuple[str, str]]) -> str:
+        asked.append(text)
+        return f"answered {text}"
+
+    await fill_gaps(lambda: episode, translate, lambda: False, unchanged, lambda: 10)
+
+    assert asked == [f"s{index}" for index in range(10, MAX_FILLED_LINES + 10)]

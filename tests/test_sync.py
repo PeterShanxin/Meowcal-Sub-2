@@ -834,3 +834,17 @@ async def test_a_source_that_answered_itself_still_gets_its_gaps_filled() -> Non
     await drive(session, config(), ["Hello there"])
 
     assert translator.filled == ["Goodbye now"]
+
+
+async def test_nothing_places_the_fill_until_a_match_places_the_video() -> None:
+    session = CandidateSession([make_candidate("a", episode_lines())], config(), never_translates())
+    assert session.followed_position is None
+
+
+async def test_the_fill_starts_from_the_cue_the_video_has_reached() -> None:
+    """A viewer who joins an episode partway is not waiting on its opening."""
+    session = CandidateSession([make_candidate("a", episode_lines())], config(), never_translates())
+
+    assert await session.match("Goodbye now") is not None
+
+    assert session.followed_position == 1
