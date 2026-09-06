@@ -212,12 +212,18 @@ def echoable_targets(text: str, pairs: list[tuple[str, str]]) -> list[str]:
     dropped for good. A pair whose source is this line over again is exactly that
     case, so its answer is not held against the model. The rest still catch it
     handing back an example instead of translating.
+
+    An answer is licensed by its wording, not by the pair it came from. Two
+    different lines translate alike often enough - `好的` and `行` both being
+    `Okay.` - that dropping only the matching pair leaves the same answer in the
+    check through the other one, and refuses it anyway.
     """
-    return [
+    licensed = {
         target
         for source, target in pairs
-        if fuzz.ratio(text.lower(), source.lower()) < REPEATED_SOURCE_SIMILARITY
-    ]
+        if fuzz.ratio(text.lower(), source.lower()) >= REPEATED_SOURCE_SIMILARITY
+    }
+    return [target for _, target in pairs if target not in licensed]
 
 
 def _sentences(text: str) -> list[str]:

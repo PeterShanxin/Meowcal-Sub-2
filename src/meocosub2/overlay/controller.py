@@ -78,11 +78,14 @@ TARGET_ALIGNMENT_SAMPLE = 3
 # reported; the rest is simply not mentioned.
 TARGET_ALIGNMENT_BUDGET_S = 15.0
 # Shown when the engine is missing but the target file can carry the session on
-# its own. It names what is lost rather than what failed: the viewer sees blank
-# stretches, and nothing else in the app explains them.
+# its own. It names what the viewer will see rather than what failed. The two
+# symptoms differ: nothing has been drawn yet before the first match, while a
+# cue the target file has no answer for leaves the previous line on the plate,
+# which is the stale line this session's filling exists to replace.
 NO_ENGINE_WARNING = (
-    "Local translation is not installed, so lines before the first match and cues the "
-    "target subtitles have no answer for will stay blank. Run setup from Settings to add it."
+    "Local translation is not installed, so the plate stays empty until the first match "
+    "and holds the previous line through cues the target subtitles do not answer. "
+    "Run setup from Settings to add it."
 )
 
 

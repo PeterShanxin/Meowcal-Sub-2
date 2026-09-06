@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from typing import NamedTuple
 
 from meocosub2.models import SubtitleLine
 
@@ -68,13 +69,27 @@ def context_pairs(lines: list[SubtitleLine], index: int) -> list[tuple[str, str]
     return earlier + later
 
 
+class FillOutcome(NamedTuple):
+    """How a pass over one file's gaps ended.
+
+    `completed` says every gap was reached, so there is nothing to come back
+    for. `engine_failed` separates the two ways a pass gives up partway: the
+    session taking a different file is worth retrying when it takes this one
+    again, and an engine that has stopped answering is not worth retrying at all.
+    """
+
+    filled: int
+    completed: bool
+    engine_failed: bool = False
+
+
 async def fill_gaps(
     followed_lines: Callable[[], list[SubtitleLine]],
     translate: Translate,
     busy: Callable[[], bool],
     on_filled: Callable[[], None],
-) -> int:
-    """Answer the unpaired cues of the file being followed, and report how many landed.
+) -> FillOutcome:
+    """Answer the unpaired cues of the file being followed, and say how it ended.
 
     Written back onto the lines themselves, the way `assign_target_translations`
     already pairs them, so the clock draws a filled cue with no further wiring.
@@ -88,7 +103,7 @@ async def fill_gaps(
     lines = followed_lines()
     gaps = [index for index, line in enumerate(lines) if line.text and not line.translated]
     if not gaps:
-        return 0
+        return FillOutcome(0, True)
     if len(gaps) > MAX_FILLED_LINES:
         logger.debug(
             "Target file leaves %d cues unpaired; answering the first %d",
@@ -99,6 +114,8 @@ async def fill_gaps(
 
     logger.debug("Filling %d cue(s) the target file left unpaired", len(gaps))
     filled = 0
+    completed = True
+    engine_failed = False
     for index in gaps:
         # The viewer is waiting on live reads; filling ahead is not urgent and
         # the engine answers one at a time.
@@ -106,6 +123,7 @@ async def fill_gaps(
             await asyncio.sleep(YIELD_POLL_S)
         if followed_lines() is not lines:
             logger.debug("Stopped filling: the session is following a different subtitle file")
+            completed = False
             break
         line = lines[index]
         try:
@@ -116,6 +134,8 @@ async def fill_gaps(
             # An engine that has stopped answering will not answer the next one
             # either, and retrying every remaining gap only fills the log.
             logger.exception("Filling the unpaired cue at index %d failed; stopping", index)
+            completed = False
+            engine_failed = True
             break
         if not answer:
             continue
@@ -123,4 +143,4 @@ async def fill_gaps(
         filled += 1
         on_filled()
     logger.debug("Filled %d of %d unpaired cue(s)", filled, len(gaps))
-    return filled
+    return FillOutcome(filled, completed, engine_failed)

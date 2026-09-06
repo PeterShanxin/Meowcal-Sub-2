@@ -711,3 +711,91 @@ async def test_filling_moves_to_the_candidate_the_session_locks_onto_next() -> N
     # Once for the file it started on, once for the one it was moved to.
     assert translator.filled == ["Goodbye now", "Goodbye now"]
     assert second.pair.source_lines[1].translated == "filled Goodbye now"
+
+
+async def test_a_candidate_that_wins_again_gets_the_gaps_its_first_pass_left(monkeypatch) -> None:
+    """Coming back to a file is not the same as having finished it.
+
+    A session lets a candidate go when reads stop agreeing with it and takes it
+    again when they do. Remembering only which file was filled last leaves the
+    rest of that file's gaps unfilled for the episode, because the list it hands
+    back on the way back is the same object it handed back before.
+    """
+    import meocosub2.sync as sync_module
+
+    # The watcher's pacing, not its behaviour: this test cannot spend a second
+    # of wall clock waiting for the look that finds the candidate locked again.
+    monkeypatch.setattr(sync_module, "FOLLOW_POLL_S", 0)
+
+    translator = _FakeTranslator()
+    candidate = make_candidate(
+        "a",
+        [
+            SubtitleLine(index=0, start_ms=0, end_ms=2000, text="Hello there", translated="你好"),
+            SubtitleLine(index=1, start_ms=2000, end_ms=4000, text="first gap", translated=""),
+            SubtitleLine(index=2, start_ms=4000, end_ms=6000, text="second gap", translated=""),
+        ],
+    )
+    candidate.pair.target_lines = [
+        SubtitleLine(index=0, start_ms=0, end_ms=2000, text="你好", translated="")
+    ]
+    session = CandidateSession([candidate], config(), lambda: _ready(translator))
+
+    async def translate_from_file(text: str, pairs: list[tuple[str, str]]) -> str:
+        translator.filled.append(text)
+        if len(translator.filled) == 1:
+            # Reads stop agreeing, so the session lets the candidate go. The
+            # pass ends there with the second gap unanswered.
+            session._locked = None
+        return f"filled {text}"
+
+    session.translate_from_file = translate_from_file
+
+    matched = 0
+    original_match = session.match
+
+    async def match(ocr_text: str, follow: bool = True):
+        nonlocal matched
+        matched += 1
+        if matched > 3:
+            # Reads agree with it again.
+            session._locked = "a"
+        return await original_match(ocr_text, follow=follow)
+
+    session.match = match
+
+    await drive(session, config(), ["Hello there"] * 20)
+
+    assert translator.filled == ["first gap", "second gap"]
+
+
+async def test_the_renderer_does_not_sleep_past_a_retime(monkeypatch) -> None:
+    """Changing the offset moves every boundary the renderer already worked out.
+
+    Nothing tells it so, and it can be asleep until a cue boundary seconds away,
+    so without a bound on that sleep the plate ignores the dock until the sleep
+    it was already in runs out.
+    """
+    import meocosub2.sync as sync_module
+
+    lines = [
+        SubtitleLine(index=0, start_ms=0, end_ms=60_000, text="Hello there", translated="你好"),
+        SubtitleLine(
+            index=1, start_ms=60_000, end_ms=120_000, text="Goodbye now", translated="再见"
+        ),
+    ]
+    bias_ms = 0
+    session = CandidateSession(
+        [make_candidate("a", lines)],
+        config(),
+        never_translates(),
+        bias_source=lambda: bias_ms,
+    )
+    assert await session.match("Hello there") is not None
+
+    # The next boundary is a minute out, which is what the renderer would sleep
+    # for. The offset reaches across it.
+    assert session.seconds_to_next_line() > sync_module.RETIME_CHECK_S
+    bias_ms = 61_000
+    line = session.line_now()
+    assert line is not None and line.text == "再见"

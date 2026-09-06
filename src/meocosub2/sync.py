@@ -50,6 +50,12 @@ FOLLOW_POLL_S = 1.0
 # the capture and OCR delay out of it. Measured against a real player twice,
 # each run about half a second ahead of the dialogue, so the plate waits.
 DISPLAY_LEAD_MS = -650
+# The longest the renderer sleeps in one go. Every cue boundary is still woken
+# for exactly, and a nudge still wakes it at once; this only bounds how stale
+# the viewer's own offset can be, because changing it moves every boundary the
+# renderer has already worked out and nothing tells it so. Redrawing the line
+# already on the plate broadcasts nothing, so the extra wakes cost a comparison.
+RETIME_CHECK_S = 0.2
 TRANSLATION_CACHE_SIZE = 64
 CONTEXT_LINES = 3
 
@@ -532,8 +538,12 @@ async def run_session_loop(
         anchor at any time, which moves every boundary after it.
         """
         while True:
+            waiting = session.seconds_to_next_line()
             with suppress(TimeoutError):
-                await asyncio.wait_for(nudge.wait(), timeout=session.seconds_to_next_line())
+                await asyncio.wait_for(
+                    nudge.wait(),
+                    timeout=RETIME_CHECK_S if waiting is None else min(waiting, RETIME_CHECK_S),
+                )
             nudge.clear()
             if not session.anchored:
                 continue
@@ -620,21 +630,28 @@ async def run_session_loop(
 
         A session with several candidates can let one go and lock another, so the
         file being followed is watched rather than taken once: each new one is
-        filled in its turn, and one already answered is not asked again.
+        filled in its turn. What is remembered is which files were answered all
+        the way through, not which was answered last - a file the session left
+        partway and later comes back to still has the rest of its gaps.
         """
         if not isinstance(session, CandidateSession) or not session.has_target_file:
             return
-        filled: list[SubtitleLine] | None = None
+        answered: set[int] = set()
         while True:
             following = session.followed_lines
-            if following and following is not filled:
-                filled = following
-                await fill_gaps(
+            if following and id(following) not in answered:
+                outcome = await fill_gaps(
                     lambda: session.followed_lines,
                     session.translate_from_file,
                     lambda: pending is not None and not pending.done(),
                     nudge.set,
                 )
+                if outcome.completed:
+                    answered.add(id(following))
+                if outcome.engine_failed:
+                    # It will not answer the next file's gaps either, and asking
+                    # is what the viewer's own reads are queueing behind.
+                    return
                 # The lock can have moved while that ran, which is what ended it.
                 continue
             await asyncio.sleep(FOLLOW_POLL_S)
