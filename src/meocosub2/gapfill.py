@@ -112,7 +112,9 @@ async def fill_gaps(
     `from_index` says where the video has reached, so the gaps ahead of the
     viewer are answered before the ones they have already watched past. Without
     it - before a session has started, or before a match has placed one - the
-    file's own order is the only order there is.
+    file's own order is the only order there is. A pass that began with nowhere
+    to start from stops as soon as a match provides one, so the caller can order
+    what is left around it.
     """
     lines = followed_lines()
     gaps = unanswered(lines)
@@ -145,6 +147,14 @@ async def fill_gaps(
             await asyncio.sleep(YIELD_POLL_S)
         if followed_lines() is not lines:
             logger.debug("Stopped filling: the session is following a different subtitle file")
+            completed = False
+            break
+        if reached is None and from_index is not None and from_index() is not None:
+            # The session's filler starts before the first read, so this pass
+            # began with the video unplaced and took the file's own order. A
+            # match has placed it since, and the gaps left are worth ordering
+            # around it rather than working through a list built blind.
+            logger.debug("A match placed the video; reordering the gaps left around it")
             completed = False
             break
         line = lines[index]

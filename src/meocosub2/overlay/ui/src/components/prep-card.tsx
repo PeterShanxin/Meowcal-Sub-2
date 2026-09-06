@@ -1,11 +1,11 @@
 import type {
   BackendGapFill,
   BackendPreparedSession,
-  BackendTargetAlignment,
   LiveLine,
   SourceItem,
   TargetItem,
 } from "../lib/types";
+import { coverageLabel } from "../state/mappers";
 import { Kbd } from "./primitives";
 
 interface PrepCardProps {
@@ -16,33 +16,6 @@ interface PrepCardProps {
   prepared: BackendPreparedSession | null;
   gapFill: BackendGapFill | null;
   onPickTarget: (resultId: string) => void;
-}
-
-function plural(count: number): string {
-  return count === 1 ? "1 line" : `${count} lines`;
-}
-
-/**
- * What the chosen target file leaves for the model, in the viewer's terms.
- *
- * The same number throughout, read at whatever stage it has reached: what the
- * model will have to write, what it is writing, and what it wrote. The seconds
- * are dropped once filling starts, because they measure the whole hole and only
- * part of it is left.
- */
-export function coverageLabel(
-  chosen: BackendTargetAlignment | null,
-  fill: BackendGapFill | null,
-): string {
-  if (fill === null) {
-    if (chosen === null || chosen.unpaired_cues === 0) return "every line answered";
-    const seconds = Math.round(chosen.unpaired_ms / 1000);
-    return `${plural(chosen.unpaired_cues)} written on this device · ${seconds}s`;
-  }
-  if (fill.active) return `writing ${fill.filled} of ${fill.total} lines on this device…`;
-  const left = fill.total - fill.filled;
-  if (left <= 0) return "every line answered";
-  return `${plural(left)} of ${fill.total} still to write on this device`;
 }
 
 export function PrepCard({

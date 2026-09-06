@@ -491,6 +491,10 @@ class GuiController:
         # the caller its own results, just don't clobber the newer state with them.
         if self._active_search_id == correlation_id:
             prepared_here = self._prepared_search_id == correlation_id
+            if not prepared_here:
+                # These answers were for a session this search has just thrown
+                # away, and the engine has better things to do with the slot.
+                await self._stop_prefill()
             async with self._lock:
                 self._search_catalog = catalog
                 self._state.status = "idle"
@@ -505,6 +509,7 @@ class GuiController:
                     self._state.selected_target_file_id = None
                     self._state.prepared_session = None
                     self._prepared_runtime = None
+                    self._state.gap_fill = None
             await self._emit_app_state()
             log_event(
                 "search.completed",
@@ -606,6 +611,8 @@ class GuiController:
             if episode_no == episode:
                 match_id = hydrated_match_id
 
+        if match_id is not None:
+            await self._stop_prefill()
         async with self._lock:
             self._state.search_results = [
                 search_result_payload(result) for result in self._search_catalog.results
@@ -622,6 +629,7 @@ class GuiController:
                 self._state.selected_target_file_id = None
                 self._state.prepared_session = None
                 self._prepared_runtime = None
+                self._state.gap_fill = None
         await self._emit_app_state()
         log_event(
             "search.episode_hydrate.completed",
@@ -1516,6 +1524,7 @@ class GuiController:
                 self._state.last_subtitle = ""
                 self._state.progress = AppProgress()
                 self._state.warning_message = ""
+                self._recount_gaps()
             await self._emit_app_state()
             await self._emit_app_event("subtitle", {"text": "", "source": MATCHED})
             return {"status": self._state.status}
@@ -1541,9 +1550,24 @@ class GuiController:
             self._state.last_subtitle = ""
             self._state.progress = AppProgress()
             self._state.warning_message = ""
+            self._recount_gaps()
         await self._emit_app_state()
         await self._emit_app_event("subtitle", {"text": "", "source": MATCHED})
         return {"status": self._state.status}
+
+    def _recount_gaps(self) -> None:
+        """Read the gaps still unanswered off the lines themselves.
+
+        The session's own filler writes onto the same lines and reports nothing,
+        so the count the prep card comes back to after a stop would otherwise
+        still be the one the fill-ahead pass left behind. Caller holds the lock.
+        """
+        runtime = self._prepared_runtime
+        current = self._state.gap_fill
+        if runtime is None or current is None or len(runtime.source_candidates) != 1:
+            return
+        remaining = len(unanswered(runtime.source_candidates[0].pair.source_lines))
+        self._state.gap_fill = replace(current, filled=current.total - remaining, active=False)
 
     def _make_debug_broadcast(self) -> Callable[[dict[str, object]], Awaitable[None]]:
         async def cb(data: dict[str, object]) -> None:
@@ -1603,8 +1627,12 @@ class GuiController:
             return
         async with self._lock:
             self._state.gap_fill = GapFillProgress(filled=0, total=gaps, active=True)
-        await self._emit_app_state()
+        # Registered before the state saying it is running is published. A
+        # target chosen, or Start pressed, during that broadcast would otherwise
+        # find no task to stop and leave this one filling a file nobody wants
+        # against the session that replaced it.
         self._prefill_task = asyncio.create_task(self._run_prefill(lines))
+        await self._emit_app_state()
 
     async def _run_prefill(self, lines: list[SubtitleLine]) -> None:
         try:

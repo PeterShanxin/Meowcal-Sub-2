@@ -1683,3 +1683,76 @@ async def test_preparing_again_stops_the_fill_the_last_selection_started(
 
     assert task.cancelled()
     assert controller.state_snapshot()["gap_fill"] is None
+
+
+async def test_the_fill_is_registered_before_the_state_saying_it_is_running(
+    tmp_path: Path, mocker
+) -> None:
+    """Otherwise a target chosen during that broadcast finds nothing to stop."""
+
+    async def fill(lines, config, on_progress) -> None:
+        await asyncio.Event().wait()
+
+    mocker.patch("meocosub2.overlay.controller.fill_before_the_session", new=fill)
+    controller, _, _ = _pair_controller(
+        tmp_path, mocker, source_srt=_srt("hello", "goodbye"), target_srt=_srt("world")
+    )
+    tracked: list[bool] = []
+
+    async def capture(event_type, payload) -> None:
+        if event_type == "state":
+            gap = payload["state"].get("gap_fill")
+            if gap and gap["active"]:
+                tracked.append(controller._prefill_task is not None)
+
+    controller._emit_app_event = capture
+
+    await controller.prepare_session(
+        mode="subtitle_pair",
+        feature_id="match-1",
+        source_file_id="result-1",
+        target_file_id="result-2",
+    )
+
+    assert tracked and all(tracked)
+    await controller._stop_prefill()
+
+
+async def test_a_search_that_throws_the_preparation_away_stops_its_fill(
+    tmp_path: Path, mocker
+) -> None:
+    async def fill(lines, config, on_progress) -> None:
+        await asyncio.Event().wait()
+
+    mocker.patch("meocosub2.overlay.controller.fill_before_the_session", new=fill)
+    controller = await _prepare_pair_with_a_gap(tmp_path, mocker)
+    task = controller._prefill_task
+    controller._aggregator = _ProgressiveStubAggregator()
+
+    await controller.search(
+        SearchRequest(title="Rick and Morty", source_language="en", target_language="en")
+    )
+
+    assert task.cancelled()
+    assert controller.state_snapshot()["gap_fill"] is None
+
+
+async def test_stopping_counts_the_gaps_the_session_answered_for_itself(
+    tmp_path: Path, mocker
+) -> None:
+    """The session's own filler writes onto the same lines and reports nothing.
+
+    Coming back to the prep card on the count the fill-ahead pass left behind
+    would name lines the viewer has already had answered.
+    """
+    mocker.patch("meocosub2.overlay.controller.fill_before_the_session", new=AsyncMock())
+    controller = await _prepare_pair_with_a_gap(tmp_path, mocker)
+    await controller._prefill_task
+    assert controller.state_snapshot()["gap_fill"] == {"filled": 0, "total": 1, "active": False}
+
+    lines = controller._prepared_runtime.source_candidates[0].pair.source_lines
+    next(line for line in lines if not line.translated).translated = "再见"
+
+    await controller.stop_session()
+
+    assert controller.state_snapshot()["gap_fill"] == {"filled": 1, "total": 1, "active": False}

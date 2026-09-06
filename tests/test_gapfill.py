@@ -229,3 +229,41 @@ async def test_the_budget_goes_to_what_is_coming_rather_than_what_has_gone_by() 
     await fill_gaps(lambda: episode, translate, lambda: False, unchanged, lambda: 10)
 
     assert asked == [f"s{index}" for index in range(10, MAX_FILLED_LINES + 10)]
+
+
+async def test_a_pass_that_began_blind_stops_once_a_match_places_the_video() -> None:
+    """The session's filler starts before the first read, so it starts blind.
+
+    Ending the pass is what lets the caller order the gaps left around the
+    viewer; working through a list built with nowhere to start from can spend
+    the whole budget behind them.
+    """
+    episode = lines(("s0", ""), ("s1", "t1"), ("s2", ""), ("s3", ""))
+    placed: list[int | None] = [None]
+    asked: list[str] = []
+
+    async def translate(text: str, pairs: list[tuple[str, str]]) -> str:
+        asked.append(text)
+        placed[0] = 2
+        return f"answered {text}"
+
+    outcome = await fill_gaps(
+        lambda: episode, translate, lambda: False, unchanged, lambda: placed[0]
+    )
+
+    assert asked == ["s0"]
+    assert outcome.completed is False
+
+
+async def test_a_pass_that_knows_where_the_video_is_runs_to_the_end() -> None:
+    episode = lines(("s0", ""), ("s1", "t1"), ("s2", ""), ("s3", ""))
+    asked: list[str] = []
+
+    async def translate(text: str, pairs: list[tuple[str, str]]) -> str:
+        asked.append(text)
+        return f"answered {text}"
+
+    outcome = await fill_gaps(lambda: episode, translate, lambda: False, unchanged, lambda: 2)
+
+    assert asked == ["s2", "s3", "s0"]
+    assert outcome.completed is True
