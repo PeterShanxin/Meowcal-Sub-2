@@ -17,6 +17,13 @@ from meocosub2.languages import (
 )
 
 DEFAULT_CAPTURE_INTERVAL_MS = 250
+# How far the viewer may drag the plate off the clock, in milliseconds either
+# way. Past a few seconds the plate is describing a different scene, so a wider
+# range would only let a mis-tap look like a broken session.
+MAX_SYNC_BIAS_MS = 3000
+# The size of one press of the dock's timing control. Small enough to correct a
+# plate that reads a beat early, large enough that correcting takes a few taps.
+SYNC_BIAS_STEP_MS = 100
 # The default before capture pacing was measured; an install still on it never chose it.
 LEGACY_CAPTURE_INTERVAL_MS = 1500
 
@@ -43,6 +50,7 @@ class AppConfig:
     match_window_size: int = 30
     match_window_backward: int = 5
     translation_timeout_s: int = 30
+    sync_bias_ms: int = 0
     overlay_port: int = 8765
     overlay_font_size: int = 28
     overlay_font_family: str = "Aptos"
@@ -58,6 +66,18 @@ class AppConfig:
     overlay_offset_pct: int = 10
     overlay_animation_ms: int = 220
     debug_mode: bool = False
+
+
+def normalize_sync_bias_ms(value: Any, fallback: int = 0) -> int:
+    """The viewer's timing offset, rounded to a press and held to the range.
+
+    Every way in goes through here - the stored file, a config save, and the
+    control in the dock - so a hand-edited config cannot put the plate somewhere
+    no button could.
+    """
+    bias = _coerce_int(value, fallback)
+    stepped = round(bias / SYNC_BIAS_STEP_MS) * SYNC_BIAS_STEP_MS
+    return max(-MAX_SYNC_BIAS_MS, min(MAX_SYNC_BIAS_MS, stepped))
 
 
 def _capture_interval_ms(stored: object) -> int:
@@ -151,6 +171,7 @@ def load_config(path: Path | None = None) -> AppConfig:
         match_window_size=data.get("matching", {}).get("window_size", 30),
         match_window_backward=data.get("matching", {}).get("window_backward", 5),
         translation_timeout_s=data.get("translation", {}).get("timeout_s", 30),
+        sync_bias_ms=normalize_sync_bias_ms(data.get("sync", {}).get("bias_ms", 0)),
         overlay_port=data.get("overlay", {}).get("port", 8765),
         overlay_font_size=data.get("overlay", {}).get("font_size", 28),
         overlay_font_family=data.get("overlay", {}).get("font_family", "Aptos"),
@@ -218,6 +239,9 @@ def save_config(config: AppConfig, path: Path | None = None) -> None:
         },
         "translation": {
             "timeout_s": config.translation_timeout_s,
+        },
+        "sync": {
+            "bias_ms": config.sync_bias_ms,
         },
         "overlay": {
             "port": config.overlay_port,
@@ -308,6 +332,9 @@ def config_to_payload(config: AppConfig) -> dict[str, object]:
         "translation": {
             "timeoutS": config.translation_timeout_s,
         },
+        "sync": {
+            "biasMs": config.sync_bias_ms,
+        },
         "overlay": {
             "port": config.overlay_port,
             **overlay_style_payload(config),
@@ -366,6 +393,7 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
     capture = payload.get("capture", {})
     matching = payload.get("matching", {})
     translation = payload.get("translation", {})
+    sync = payload.get("sync", {})
     overlay = payload.get("overlay", {})
 
     if not isinstance(subtitle_sources, dict):
@@ -380,6 +408,8 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
         matching = {}
     if not isinstance(translation, dict):
         translation = {}
+    if not isinstance(sync, dict):
+        sync = {}
     if not isinstance(overlay, dict):
         overlay = {}
 
@@ -461,6 +491,9 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
         ),
         match_window_backward=_coerce_int(
             matching.get("windowBackward", base.match_window_backward), base.match_window_backward
+        ),
+        sync_bias_ms=normalize_sync_bias_ms(
+            sync.get("biasMs", base.sync_bias_ms), base.sync_bias_ms
         ),
         translation_timeout_s=_coerce_int(
             translation.get("timeoutS", base.translation_timeout_s), base.translation_timeout_s

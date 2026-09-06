@@ -1,11 +1,14 @@
 import tomllib
+from dataclasses import replace
 from pathlib import Path
 
 from meocosub2.config import (
+    MAX_SYNC_BIAS_MS,
     AppConfig,
     config_from_payload,
     config_to_payload,
     load_config,
+    normalize_sync_bias_ms,
     save_config,
 )
 
@@ -158,3 +161,26 @@ def test_an_interval_the_user_chose_is_left_alone(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     path.write_text("[capture]\ninterval_ms = 800\n", encoding="utf-8")
     assert load_config(path).capture_interval_ms == 800
+
+
+def test_a_timing_offset_survives_a_save_and_a_load(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    save_config(replace(AppConfig(), sync_bias_ms=-400), path)
+    assert load_config(path).sync_bias_ms == -400
+
+
+def test_a_timing_offset_is_held_to_what_the_dock_can_ask_for() -> None:
+    # Every way in goes through the same normaliser, so a hand-edited config
+    # cannot put the plate somewhere no button could reach.
+    assert normalize_sync_bias_ms(9000) == MAX_SYNC_BIAS_MS
+    assert normalize_sync_bias_ms(-9000) == -MAX_SYNC_BIAS_MS
+    assert normalize_sync_bias_ms(140) == 100
+    assert normalize_sync_bias_ms(-160) == -200
+    assert normalize_sync_bias_ms("not a number", fallback=300) == 300
+
+
+def test_a_config_save_that_touches_nothing_else_still_carries_the_offset() -> None:
+    base = replace(AppConfig(), fuzzy_threshold=71)
+    updated = config_from_payload({"sync": {"biasMs": 250}}, fallback=base)
+    assert updated.sync_bias_ms == 200
+    assert updated.fuzzy_threshold == 71

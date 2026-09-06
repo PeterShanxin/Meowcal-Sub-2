@@ -60,7 +60,11 @@ Raised so far, all of them by live testing against a real player:
 | `subtitle_sources/aggregator.py` | 1445 | 1446 | one import, for title-group ids that survive a provider answering out of order |
 | `subtitle_sources/subdl.py` | 621 | 623 | asking SubDL for a whole season only when the title is a series, so movie lookups come back with subtitles |
 | `engine/runtime.py` | 489 | 521 | running one throwaway completion, so the viewer's first subtitle does not pay the model's cold start |
-| `overlay/controller.py` | 1684 | 1690 | starting the translation engine while preparing, whatever the target file turned out to be |
+| `overlay/controller.py` | 1684 | 1694 | starting the translation engine while preparing, and reading the viewer's timing offset while the session runs |
+| `config.py` | 502 | 535 | a timing offset the viewer sets, normalised on every way in |
+| `sync.py` | 634 | 645 | adding the viewer's offset to the measured one at the clock's single entry point |
+| `overlay/ui/src/app.tsx` | 1494 | 1510 | handing the dock the offset and the way to change it |
+| `src-tauri/src/overlay_window.rs` | 467 | 469 | a dock wide enough for the timing control |
 
 The four largest are the ones worth naming, because they are where the work is:
 
@@ -81,13 +85,13 @@ they are scheduled.
 | --- | ---: | --- |
 | Ruff | 0 | clean |
 | Clippy (`-D warnings`) | 0 | clean |
-| Biome | 26 | debt, described below |
+| Biome | 25 | debt, described below |
 
 Ruff and Clippy are at zero and enforced at zero, so neither needs a budget so
 much as a floor under it. Budgets ratchet the same way ceilings do: beating one
 means lowering it in the same change.
 
-Biome's 26 are pre-existing findings in the studio UI, deliberately not fixed
+Biome's 25 are pre-existing findings in the studio UI, deliberately not fixed
 inside a formatting change:
 
 | Rule | Count | Why it is held rather than fixed |
@@ -96,7 +100,7 @@ inside a formatting change:
 | `a11y/useKeyWithClickEvents` | 6 | the same surfaces need keyboard handling designed, not appended |
 | `correctness/useExhaustiveDependencies` | 4 | React hook dependency arrays; changing one blind risks a render loop |
 | `suspicious/useIterableCallbackReturn` | 3 | `forEach` callbacks returning values |
-| `complexity/noImportantStyles` | 3 | deliberate CSS overrides |
+| `complexity/noImportantStyles` | 2 | deliberate CSS overrides |
 | `suspicious/noArrayIndexKey` | 1 | needs a stable identity to key on |
 | `a11y/noSvgWithoutTitle` | 1 | a decorative icon |
 | `a11y/noAutofocus` | 1 | the palette focusing its own search field is the intent |

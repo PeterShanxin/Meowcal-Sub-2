@@ -106,6 +106,7 @@ export interface BackendConfig {
   translation: {
     timeoutS: number;
   };
+  sync: { biasMs: number };
   overlay: Record<string, unknown>;
   debug: { mode: boolean };
 }

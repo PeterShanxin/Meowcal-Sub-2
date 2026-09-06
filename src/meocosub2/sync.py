@@ -54,6 +54,7 @@ TRANSLATED = "translated"
 Broadcast = Callable[[str, str], Awaitable[None]]
 DebugBroadcast = Callable[[dict[str, object]], Awaitable[None]]
 RegionSource = Callable[[], tuple[int, ...]]
+BiasSource = Callable[[], int]
 TranslatorFactory = Callable[[], Awaitable["LiveTranslator"]]
 # Supplied by whoever starts the session rather than reached for here, so a
 # session can be run - and tested - without an embedding engine behind it.
@@ -126,6 +127,7 @@ class CandidateSession:
         config: AppConfig,
         translator: TranslatorFactory,
         semantic: SemanticFactory | None = None,
+        bias_source: BiasSource | None = None,
     ) -> None:
         self._matchers = {
             candidate.result_id: SubtitleMatcher(
@@ -139,6 +141,9 @@ class CandidateSession:
         }
         self._open_translator = translator
         self._open_index = semantic
+        # Read rather than captured: the viewer retimes the plate from the dock
+        # while the session runs, the same way they reselect the capture region.
+        self._bias_ms = bias_source or (lambda: config.sync_bias_ms)
         self._timeline = PlaybackTimeline()
         self._locked: str | None = next(iter(self._matchers)) if len(self._matchers) == 1 else None
         self._pending: str = ""
@@ -235,15 +240,21 @@ class CandidateSession:
 
         Every caller that draws or schedules goes through here, so the line that
         is shown and the moment it is scheduled to change cannot disagree.
+
+        The measured lag and the viewer's own offset add up: both answer the same
+        question, and the viewer is correcting what the measurement did not cover
+        for their player.
         """
         position = self._timeline.position_ms(now)
         if position is None:
             return None
         anchor = self._timeline.anchor_ms
-        shifted = position + DISPLAY_LEAD_MS
+        shifted = position + DISPLAY_LEAD_MS + self._bias_ms()
         # The lag holds the plate back as playback advances; it must never read
         # behind the line the clock was just anchored to, which is on screen by
         # definition. Without the floor, a match would blank the plate it filled.
+        # An offset asking for a later plate is held to that same rule, so it
+        # takes effect between matches rather than undoing one.
         return shifted if anchor is None else max(shifted, anchor)
 
     def seconds_to_next_line(self) -> float | None:

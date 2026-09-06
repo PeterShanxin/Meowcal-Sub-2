@@ -1440,7 +1440,11 @@ class GuiController:
         try:
             if runtime.source_candidates:
                 session = CandidateSession(
-                    runtime.source_candidates, config, translator_factory, semantic_factory
+                    runtime.source_candidates,
+                    config,
+                    translator_factory,
+                    semantic_factory,
+                    bias_source=lambda: self.config.sync_bias_ms,
                 )
             else:
                 session = DirectTranslationSession(runtime.target_lines, config, translator_factory)

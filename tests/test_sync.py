@@ -549,3 +549,33 @@ async def test_a_session_without_the_matching_model_still_matches_on_wording() -
 
     assert result is not None and result.text == "再见"
     assert result.detail["matchBy"] == "text"
+
+
+async def test_the_viewer_can_shift_the_plate_off_the_measured_lag() -> None:
+    """A player the measurement did not cover leaves the plate consistently off.
+
+    The offset the dock sets and the measured lag answer the same question, so
+    they add: raising it moves the clock forward and each line arrives sooner.
+    """
+    lines = [
+        SubtitleLine(index=0, start_ms=0, end_ms=5_000, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=5_000, end_ms=9_000, text="Goodbye now", translated="再见"),
+    ]
+    bias_ms = 0
+    session = CandidateSession(
+        [make_candidate("a", lines)],
+        config(),
+        never_translates(),
+        bias_source=lambda: bias_ms,
+    )
+    assert await session.match("Hello there") is not None
+
+    now = monotonic() + 5.0
+    unshifted = session.clock_ms(now)
+    assert unshifted is not None
+
+    # Read rather than captured, so the dock retimes a session already running.
+    bias_ms = 900
+    shifted = session.clock_ms(now)
+    assert shifted is not None
+    assert shifted - unshifted == 900

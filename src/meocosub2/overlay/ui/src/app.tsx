@@ -773,6 +773,20 @@ export function App(): JSX.Element {
     };
   }, [startSync]);
 
+  const onAdjustBias = useCallback(async (deltaMs: number) => {
+    const current = store.get().config;
+    if (!current) return;
+    // The backend is the authority on the range and the step: it answers with
+    // the offset it actually stored, which is what the dock then reads.
+    try {
+      const saved = await api.putConfig({ sync: { biasMs: current.sync.biasMs + deltaMs } });
+      store.set({ config: saved });
+      logClientEvent("ui.sync.bias_changed", { biasMs: saved.sync.biasMs });
+    } catch (err) {
+      store.set({ error: err instanceof Error ? err.message : String(err) });
+    }
+  }, []);
+
   const onChangeLang = useCallback(
     async (type: "source" | "target", code: string) => {
       const current = store.get().config;
@@ -1257,6 +1271,8 @@ export function App(): JSX.Element {
 
         {phase === "live" && (
           <LiveView
+            biasMs={config?.sync.biasMs ?? 0}
+            onAdjustBias={(deltaMs) => void onAdjustBias(deltaMs)}
             onStop={() => void clearSession()}
             onSelectRegion={() => void tauri.openAreaSelector()}
             onOpenSettings={openSettings}
