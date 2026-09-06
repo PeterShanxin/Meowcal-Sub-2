@@ -60,6 +60,11 @@ class ClientLogBody(BaseModel):
     data: dict[str, object] = Field(default_factory=dict)
 
 
+class InspectSourceBody(BaseModel):
+    sourceResultId: str | int
+    matchId: str | int | None = None
+
+
 class PrepareSessionBody(BaseModel):
     mode: str
     matchId: str | int | None = None
@@ -243,6 +248,18 @@ class OverlayServer:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             except RuntimeError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except SubtitleSourceError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        @self.app.post("/api/source/inspect")
+        async def api_inspect_source(body: InspectSourceBody) -> dict[str, object]:
+            try:
+                return await self.controller.inspect_source(
+                    source_file_id=str(body.sourceResultId),
+                    feature_id=str(body.matchId) if body.matchId is not None else None,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             except SubtitleSourceError as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
 

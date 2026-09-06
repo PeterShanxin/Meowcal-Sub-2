@@ -7,6 +7,7 @@ import type {
   LiveLine,
   PaletteTabId,
   Phase,
+  SourceInspection,
   TitleMediaFilter,
 } from "../lib/types";
 
@@ -26,6 +27,10 @@ export interface UIState {
   selectedEpisodeMatchId: string | null;
   selectedSourceId: string | null;
   selectedTargetId: string | null;
+  /** What the chosen source turned out to hold. Null until it has been read. */
+  sourceInspection: SourceInspection | null;
+  /** The target step waits on this: the list it shows depends on the answer. */
+  inspectingSource: boolean;
   cursorIndex: number;
   /** Season/episode keys with a subtitle lookup in flight, for per-row progress. */
   hydrating: string[];
@@ -57,6 +62,8 @@ const initial: UIState = {
   selectedEpisodeMatchId: null,
   selectedSourceId: null,
   selectedTargetId: null,
+  sourceInspection: null,
+  inspectingSource: false,
   cursorIndex: -1,
   hydrating: [],
   emptyLookups: [],
@@ -105,6 +112,8 @@ class Store {
       selectedEpisodeMatchId: null,
       selectedSourceId: null,
       selectedTargetId: null,
+      sourceInspection: null,
+      inspectingSource: false,
       cursorIndex: -1,
       manualView: null,
     });

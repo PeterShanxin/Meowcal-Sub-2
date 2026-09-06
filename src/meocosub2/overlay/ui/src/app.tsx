@@ -56,6 +56,8 @@ export function App(): JSX.Element {
   const actionError = useStore((s) => s.error);
   const query = useStore((s) => s.query);
   const tab = useStore((s) => s.tab);
+  const sourceInspection = useStore((s) => s.sourceInspection);
+  const inspectingSource = useStore((s) => s.inspectingSource);
   const titleMediaFilter = useStore((s) => s.titleMediaFilter);
   const selectedSeasonFilters = useStore((s) => s.selectedSeasonFilters);
   const selectedWorkId = useStore((s) => s.selectedWorkId);
@@ -169,8 +171,9 @@ export function App(): JSX.Element {
         snapshot?.search_results ?? [],
         episodeMatchId,
         snapshot?.target_language ?? "zh",
+        sourceInspection,
       ),
-    [snapshot?.search_results, episodeMatchId, snapshot?.target_language],
+    [snapshot?.search_results, episodeMatchId, snapshot?.target_language, sourceInspection],
   );
 
   // Selecting another episode leaves the old session prepared until the new one
@@ -383,12 +386,44 @@ export function App(): JSX.Element {
     ],
   );
 
+  // The target list depends on what the chosen source turned out to hold, and
+  // only the file itself says. Reading it is the target step's own loading: the
+  // download it costs is one the session was going to make anyway.
+  const readChosenSource = useCallback(async () => {
+    const { selectedSourceId, selectedEpisodeMatchId, sourceInspection } = store.get();
+    if (!selectedSourceId) return;
+    if (sourceInspection?.sourceFileId === selectedSourceId) return;
+    store.set({ inspectingSource: true });
+    try {
+      const found = await api.inspectSource({
+        sourceResultId: selectedSourceId,
+        matchId: selectedEpisodeMatchId,
+      });
+      // The viewer can have moved on while this was in flight.
+      if (store.get().selectedSourceId !== selectedSourceId) return;
+      store.set({ sourceInspection: found });
+      logClientEvent("ui.source.inspected", {
+        carriesTranslation: found.carriesTranslation,
+        translatedCues: found.translatedCues,
+        totalCues: found.totalCues,
+      });
+    } catch (err) {
+      // Advice, not a step: the target list still works without it.
+      logClientEvent("ui.source.inspect_failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      store.set({ inspectingSource: false });
+    }
+  }, []);
+
   const onTabChange = useCallback(
     (t: PaletteTabId) => {
       logClientEvent("ui.palette.tab_changed", { tab: t });
       store.set({ tab: t, cursorIndex: cursorForTab(t) });
+      if (t === "target") void readChosenSource();
     },
-    [cursorForTab],
+    [cursorForTab, readChosenSource],
   );
 
   // Selecting is not committing: preparing downloads subtitle files and rebuilds
@@ -647,10 +682,21 @@ export function App(): JSX.Element {
     [beginHydrate, selectTitle, endHydrate, works],
   );
 
-  const onPickSource = useCallback((id: string) => {
-    logClientEvent("ui.source.selected", { resultId: id });
-    store.set({ selectedSourceId: id, tab: "target", cursorIndex: -1 });
-  }, []);
+  const onPickSource = useCallback(
+    (id: string) => {
+      logClientEvent("ui.source.selected", { resultId: id });
+      // The reading below is about this file, so anything known about the last
+      // one goes with it rather than briefly describing the wrong source.
+      store.set({
+        selectedSourceId: id,
+        tab: "target",
+        cursorIndex: -1,
+        sourceInspection: null,
+      });
+      void readChosenSource();
+    },
+    [readChosenSource],
+  );
 
   const onPickTarget = useCallback(async (id: string) => {
     const correlationId = clientEventId("prepare");
@@ -1217,6 +1263,7 @@ export function App(): JSX.Element {
                 onClearSeasonFilters={onClearSeasonFilters}
                 sources={sources}
                 targets={targets}
+                inspectingSource={inspectingSource}
                 selectedWorkId={selectedWorkId}
                 expandedWorkId={expandedWorkId}
                 expandedSeasonNumber={expandedSeasonNumber}

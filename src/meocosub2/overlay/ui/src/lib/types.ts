@@ -235,7 +235,17 @@ export interface SourceItem {
   raw: BackendResult;
 }
 
-export type TargetKind = "local" | "ocr" | "file";
+export type TargetKind = "source" | "local" | "ocr" | "file";
+
+/** What inspecting the chosen source found inside it. */
+export interface SourceInspection {
+  sourceFileId: string;
+  fileName: string;
+  featureId: string | null;
+  carriesTranslation: boolean;
+  totalCues: number;
+  translatedCues: number;
+}
 
 export interface TargetItem {
   id: string;

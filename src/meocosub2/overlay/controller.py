@@ -16,6 +16,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from meocosub2 import engine
+from meocosub2.bilingual import BilingualReport, split_bilingual
 from meocosub2.capture import available_ocr_languages, resolve_ocr_language
 from meocosub2.config import AppConfig, config_to_payload, overlay_style_payload, save_config
 from meocosub2.errors import TranslationError
@@ -81,6 +82,9 @@ TARGET_ALIGNMENT_BUDGET_S = 15.0
 # A session costs a source file and a target file, so this keeps back enough for
 # the viewer to start one after the comparison decides against running.
 DOWNLOADS_KEPT_FOR_WATCHING = 2
+# Stands where a target file id would, for the translation a bilingual source
+# already carries. It names no downloadable file, so it never reaches a provider.
+SOURCE_OWN_TRANSLATION = "__source__"
 # Shown when the engine is missing but the target file can carry the session on
 # its own. It names what the viewer will see rather than what failed. The two
 # symptoms differ: nothing has been drawn yet before the first match, while a
@@ -91,6 +95,13 @@ NO_ENGINE_WARNING = (
     "and holds the previous line through cues the target subtitles do not answer. "
     "Run setup from Settings to add it."
 )
+
+
+def _pair_target_mode(own_translation: bool, target_lines: list[SubtitleLine]) -> str:
+    """Where a paired session's translations come from, for the studio to report."""
+    if own_translation:
+        return "source_own_translation"
+    return "subtitle_file" if target_lines else "local_translation"
 
 
 def search_result_payload(result: AggregatedSubtitleResult) -> dict[str, object]:
@@ -954,6 +965,36 @@ class GuiController:
             raise ValueError("Select a source subtitle before preparing a subtitle-pair session.")
         return await self._prepare_subtitle_pair_session(feature_id, source_file_id, target_file_id)
 
+    async def inspect_source(
+        self, source_file_id: str, feature_id: str | None = None
+    ) -> dict[str, object]:
+        """Whether the chosen source carries its own translation.
+
+        Asked when the viewer reaches the target step, because that is the first
+        moment the answer is knowable and the last moment it is useful. Provider
+        metadata names one language; only the file says whether its cues carry a
+        second script, so this downloads it - which the session was going to do
+        anyway, so the answer costs nothing extra and nothing from a metered
+        provider's daily allowance.
+        """
+        source_result = self._find_search_result(source_file_id)
+        entry = self._catalog_result(source_file_id)
+        if source_result is None or entry is None:
+            raise ValueError(
+                "Selected source subtitle was not found in the current search results."
+            )
+        path = await self._aggregator.download(entry)
+        lines = load_subtitle_file(path)
+        report = split_bilingual(lines, self._state.source_language, self._state.target_language)
+        return {
+            "sourceFileId": source_file_id,
+            "fileName": str(source_result.get("fileName") or ""),
+            "featureId": feature_id or self._feature_id_for_result(source_result),
+            "carriesTranslation": report.is_bilingual,
+            "totalCues": report.total_cues,
+            "translatedCues": report.split_cues,
+        }
+
     async def _prepare_subtitle_pair_session(
         self,
         feature_id: str | None,
@@ -965,8 +1006,13 @@ class GuiController:
             raise ValueError(
                 "Selected source subtitle was not found in the current search results."
             )
-        target_result = self._find_search_result(target_file_id) if target_file_id else None
-        if target_file_id is not None and target_result is None:
+        own_translation = target_file_id == SOURCE_OWN_TRANSLATION
+        target_result = (
+            self._find_search_result(target_file_id)
+            if target_file_id and not own_translation
+            else None
+        )
+        if target_file_id is not None and not own_translation and target_result is None:
             raise ValueError(
                 "Selected target subtitle was not found in the current search results."
             )
@@ -988,7 +1034,9 @@ class GuiController:
         source_entry = self._catalog_result(source_file_id)
         if source_entry is None:
             raise ValueError("Selected source subtitle could not be resolved.")
-        target_entry = self._catalog_result(target_file_id) if target_file_id else None
+        target_entry = (
+            self._catalog_result(target_file_id) if target_file_id and not own_translation else None
+        )
 
         try:
             source_path = await self._aggregator.download(source_entry)
@@ -1002,7 +1050,15 @@ class GuiController:
             target_lines = load_subtitle_file(target_path) if target_path else []
 
             used_translation = False
-            if target_lines:
+            bilingual = BilingualReport(len(source_lines), 0)
+            if own_translation:
+                # The rows of one cue: aligned by construction rather than by
+                # time overlap, so nothing is downloaded and nothing is weighed.
+                bilingual = split_bilingual(
+                    source_lines, self._state.source_language, self._state.target_language
+                )
+                used_translation = not bilingual.split_cues
+            elif target_lines:
                 assign_target_translations(source_lines, target_lines)
             else:
                 # Matched lines are translated as they appear rather than up front:
@@ -1013,8 +1069,14 @@ class GuiController:
             await self._set_error(str(exc))
             raise
 
-        alignment = await self._weigh_target_candidates(
-            effective_feature_id, target_entry, source_lines, target_lines
+        # A file that answers itself has nothing to be compared against, and
+        # weighing rivals would download them for advice that cannot apply.
+        alignment = (
+            []
+            if own_translation
+            else await self._weigh_target_candidates(
+                effective_feature_id, target_entry, source_lines, target_lines
+            )
         )
         pair = align_subtitles(source_lines, target_lines)
         session = PreparedSession(
@@ -1030,7 +1092,7 @@ class GuiController:
                 str(source_result.get("language") or self._state.source_language),
             ),
             session_mode="subtitle_pair",
-            target_match_mode="subtitle_file" if target_lines else "local_translation",
+            target_match_mode=_pair_target_mode(own_translation, target_lines),
             feature_id=effective_feature_id,
             source_file_id=source_file_id,
             source_file_name=str(source_result.get("fileName") or ""),
@@ -1039,19 +1101,23 @@ class GuiController:
             ),
             source_path=str(source_path),
             source_line_count=len(source_lines),
-            target_file_id=str(target_result.get("resultId") or target_file_id)
-            if target_result is not None
-            else None,
-            target_file_name=str(target_result.get("fileName") or "")
-            if target_result is not None
-            else None,
+            target_file_id=SOURCE_OWN_TRANSLATION
+            if own_translation
+            else (
+                str(target_result.get("resultId") or target_file_id)
+                if target_result is not None
+                else None
+            ),
+            target_file_name=str(source_result.get("fileName") or "")
+            if own_translation
+            else (str(target_result.get("fileName") or "") if target_result is not None else None),
             target_provider=str(
                 target_result.get("providerLabel") or target_result.get("provider") or ""
             )
             if target_result is not None
             else None,
             target_path=str(target_path) if target_path is not None else None,
-            target_line_count=len(target_lines),
+            target_line_count=bilingual.split_cues if own_translation else len(target_lines),
             translated_line_count=sum(1 for line in source_lines if line.translated),
             used_translation=used_translation,
             target_alignment=alignment,
