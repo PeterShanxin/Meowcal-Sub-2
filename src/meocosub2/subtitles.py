@@ -55,13 +55,24 @@ def load_subtitle_file(path: Path) -> list[SubtitleLine]:
     return lines
 
 
-def alignment_report(source: list[SubtitleLine], target: list[SubtitleLine]) -> AlignmentReport:
-    """What this target file would leave unanswered, without pairing anything.
+def alignment_report(
+    source: list[SubtitleLine],
+    target: list[SubtitleLine],
+    carried: list[str] | None = None,
+) -> AlignmentReport:
+    """What this target file would leave for the model, without pairing anything.
 
     Runs against a copy, so asking about a candidate the viewer did not choose
     cannot disturb the lines the session is actually going to play.
+
+    `carried` is what the source file answers on its own, which every candidate
+    falls back to alike. Counted as answered, because it is: leaving it out
+    reported cues as needing the model when the session would never ask.
     """
-    trial = [replace(line, translated="") for line in source]
+    trial = [
+        replace(line, translated=carried[index] if carried else "")
+        for index, line in enumerate(source)
+    ]
     assign_target_translations(trial, target)
     unpaired = [line for line in trial if line.text and not line.translated]
     return AlignmentReport(

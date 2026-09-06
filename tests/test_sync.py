@@ -638,11 +638,22 @@ class _FakeTranslator:
 
 
 def _gapped_candidate(result_id: str, *, with_target: bool) -> SourceSubtitleCandidate:
-    """One answered cue and one the target file has nothing over."""
+    """One answered cue and one nothing has an answer for.
+
+    Without a target file nothing has answered any of them, which is what a
+    live-translation session actually looks like - the cues are not gaps in a
+    file, they are the whole file waiting on the model.
+    """
     candidate = make_candidate(
         result_id,
         [
-            SubtitleLine(index=0, start_ms=0, end_ms=3000, text="Hello there", translated="你好"),
+            SubtitleLine(
+                index=0,
+                start_ms=0,
+                end_ms=3000,
+                text="Hello there",
+                translated="你好" if with_target else "",
+            ),
             SubtitleLine(index=1, start_ms=3000, end_ms=6000, text="Goodbye now", translated=""),
         ],
     )
@@ -799,3 +810,27 @@ async def test_the_renderer_does_not_sleep_past_a_retime(monkeypatch) -> None:
     bias_ms = 61_000
     line = session.line_now()
     assert line is not None and line.text == "再见"
+
+
+async def test_a_source_that_answered_itself_still_gets_its_gaps_filled() -> None:
+    """A bilingual source leaves gaps too, and no target file to notice them by.
+
+    Its answers live on the source lines, not in a target file, so a session
+    that judged by `target_lines` alone saw nothing to fill and left the cues
+    the file itself could not answer holding the previous line.
+    """
+    translator = _FakeTranslator()
+    candidate = make_candidate(
+        "a",
+        [
+            SubtitleLine(index=0, start_ms=0, end_ms=3000, text="Hello there", translated="你好"),
+            SubtitleLine(index=1, start_ms=3000, end_ms=6000, text="Goodbye now", translated=""),
+        ],
+    )
+    # Nothing was paired against it: the answer above came from its own cue.
+    assert candidate.pair.target_lines == []
+    session = CandidateSession([candidate], config(), lambda: _ready(translator))
+
+    await drive(session, config(), ["Hello there"])
+
+    assert translator.filled == ["Goodbye now"]

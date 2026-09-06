@@ -85,6 +85,7 @@ class PreparedSession:
     session_mode: Literal["subtitle_pair", "ocr_fallback", "auto_candidates"] = "subtitle_pair"
     target_match_mode: Literal[
         "subtitle_file",
+        "source_own_translation",
         "local_translation",
         "target_subtitle_match",
         "direct_translation",

@@ -100,3 +100,42 @@ def test_a_handful_of_stray_latin_rows_is_not_a_bilingual_file() -> None:
 
     assert report.split_cues == 1
     assert not report.is_bilingual
+
+
+def test_a_spanish_target_is_not_answered_by_an_english_row() -> None:
+    """Script cannot tell English from Spanish, so it must not claim to.
+
+    A Chinese/English file asked for Spanish would otherwise be reported as
+    carrying Spanish, and the session would quietly show English instead.
+    """
+    lines = cues("我们就跳进那缸酸\nwe jump into the vat of acid,")
+
+    report = split_bilingual(lines, "zh", "es")
+
+    assert report.split_cues == 0
+    assert lines[0].translated == ""
+    assert lines[0].text == "我们就跳进那缸酸\nwe jump into the vat of acid,"
+
+
+def test_an_english_source_against_a_chinese_target_still_splits() -> None:
+    lines = cues("we jump into the vat of acid,\n我们就跳进那缸酸")
+
+    split_bilingual(lines, "en", "zh")
+
+    assert lines[0].text == "we jump into the vat of acid,"
+    assert lines[0].translated == "我们就跳进那缸酸"
+
+
+def test_a_file_below_the_gate_is_left_completely_untouched() -> None:
+    """The gate has to be decided before anything is written, not after.
+
+    Rewriting first left a monolingual file holding a few answers, which
+    preparation reads as a translation the file provides.
+    """
+    lines = cues(*["我们就跳进那缸酸"] * 9, "片尾曲\nEnd credits")
+
+    report = split_bilingual(lines, "zh", "en")
+
+    assert not report.is_bilingual
+    assert lines[9].text == "片尾曲\nEnd credits"
+    assert all(line.translated == "" for line in lines)

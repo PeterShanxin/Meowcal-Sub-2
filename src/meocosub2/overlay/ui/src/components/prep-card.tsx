@@ -35,11 +35,16 @@ export function PrepCard({
   const sourceFile = prepared?.source_summary ?? prepared?.source_file_name ?? source?.file ?? "—";
   const isAutoTranslation = prepared?.target_match_mode === "auto_live_translation";
   const isLocalTranslation = prepared?.target_match_mode === "local_translation";
+  // The source file is the target here, so naming it would read as an ordinary
+  // pairing and hide where these translations actually come from.
+  const isOwnTranslation = prepared?.target_match_mode === "source_own_translation";
   const targetLabel = isAutoTranslation
     ? "Live translation (Foundry)"
     : isLocalTranslation
       ? "Local translation (Foundry)"
-      : (prepared?.target_file_name ?? target?.title ?? target?.file ?? "—");
+      : isOwnTranslation
+        ? "Translation inside the source file"
+        : (prepared?.target_file_name ?? target?.title ?? target?.file ?? "—");
   const lines = prepared?.source_line_count
     ? `${prepared.source_line_count.toLocaleString()} prepared`
     : "—";

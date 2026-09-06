@@ -218,6 +218,9 @@ class GuiController:
         self._lock = asyncio.Lock()
         self._sync_task: asyncio.Task[None] | None = None
         self._prepared_runtime: PreparedRuntime | None = None
+        # The source the target step read, kept so preparation does not fetch it
+        # a second time. Only OpenSubtitles answers a repeat download from disk.
+        self._inspected_source: tuple[str, Path] | None = None
         self._runtime_port = config.overlay_port
         self._aggregator = SubtitleSearchAggregator(config)
         self._search_catalog: AggregatedSearchCatalog | None = None
@@ -965,6 +968,15 @@ class GuiController:
             raise ValueError("Select a source subtitle before preparing a subtitle-pair session.")
         return await self._prepare_subtitle_pair_session(feature_id, source_file_id, target_file_id)
 
+    async def _downloaded_source(
+        self, source_file_id: str, entry: AggregatedSubtitleResult
+    ) -> Path:
+        """The chosen source, reusing the copy the target step already fetched."""
+        inspected = self._inspected_source
+        if inspected is not None and inspected[0] == source_file_id and inspected[1].exists():
+            return inspected[1]
+        return await self._aggregator.download(entry)
+
     async def inspect_source(
         self, source_file_id: str, feature_id: str | None = None
     ) -> dict[str, object]:
@@ -984,6 +996,11 @@ class GuiController:
                 "Selected source subtitle was not found in the current search results."
             )
         path = await self._aggregator.download(entry)
+        # Preparation asks for this same file moments later, and only
+        # OpenSubtitles answers a second time from disk - SubDL and ASSRT fetch
+        # it again. Keeping the path spares the viewer a download between
+        # choosing a target and the session starting.
+        self._inspected_source = (source_file_id, path)
         lines = load_subtitle_file(path)
         report = split_bilingual(lines, self._state.source_language, self._state.target_language)
         return {
@@ -1039,7 +1056,7 @@ class GuiController:
         )
 
         try:
-            source_path = await self._aggregator.download(source_entry)
+            source_path = await self._downloaded_source(source_file_id, source_entry)
             await self._set_progress("download", "Downloaded source subtitles.", 1, 2)
             target_path: Path | None = None
             if target_entry is not None:
@@ -1060,6 +1077,10 @@ class GuiController:
             bilingual = split_bilingual(
                 source_lines, self._state.source_language, self._state.target_language
             )
+            # Taken before anything is paired, so it holds only what the file
+            # answers by itself - the floor every candidate is measured over,
+            # since each of them falls back to it alike.
+            carried = [line.translated for line in source_lines]
 
             if target_lines and not own_translation:
                 assign_target_translations(source_lines, target_lines)
@@ -1079,7 +1100,7 @@ class GuiController:
             []
             if own_translation
             else await self._weigh_target_candidates(
-                effective_feature_id, target_entry, source_lines, target_lines
+                effective_feature_id, target_entry, source_lines, target_lines, carried
             )
         )
         pair = align_subtitles(source_lines, target_lines)
@@ -1223,6 +1244,12 @@ class GuiController:
                     total_downloads,
                 )
                 source_lines = load_subtitle_file(source_path)
+                # Every candidate gets the same reading a manually chosen source
+                # does: one language per cue before anything else looks at it,
+                # and its own translation kept where it carries one.
+                split_bilingual(
+                    source_lines, self._state.source_language, self._state.target_language
+                )
                 source_candidates.append(
                     SourceSubtitleCandidate(
                         result_id=entry.result_id,
@@ -1244,7 +1271,16 @@ class GuiController:
                 for candidate in source_candidates:
                     candidate.pair.target_lines = target_lines
                     assign_target_translations(candidate.pair.source_lines, target_lines)
-            engine_warning = await self._start_translation_engine(required=not target_lines)
+            # A candidate that answered itself needs the model no more than a
+            # paired target file does.
+            answered = any(
+                line.translated
+                for candidate in source_candidates
+                for line in candidate.pair.source_lines
+            )
+            engine_warning = await self._start_translation_engine(
+                required=not target_lines and not answered
+            )
         except Exception as exc:
             await self._set_error(str(exc))
             raise
@@ -1666,6 +1702,7 @@ class GuiController:
         chosen_entry: AggregatedSubtitleResult | None,
         source_lines: list[SubtitleLine],
         target_lines: list[SubtitleLine],
+        carried: list[str] | None = None,
     ) -> list[TargetAlignment]:
         """How the chosen target file compares with the others for this episode.
 
@@ -1680,7 +1717,7 @@ class GuiController:
         """
         if not target_lines or chosen_entry is None:
             return []
-        chosen = alignment_report(source_lines, target_lines)
+        chosen = alignment_report(source_lines, target_lines, carried)
         weighed = [
             TargetAlignment(
                 result_id=chosen_entry.result_id,
@@ -1720,7 +1757,7 @@ class GuiController:
                     type(error).__name__,
                 )
                 continue
-            report = alignment_report(source_lines, rival_lines)
+            report = alignment_report(source_lines, rival_lines, carried)
             weighed.append(
                 TargetAlignment(
                     result_id=entry.result_id,

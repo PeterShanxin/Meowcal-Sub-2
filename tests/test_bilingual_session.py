@@ -155,3 +155,40 @@ async def test_a_chosen_target_leaves_its_gaps_to_the_source_own_words(
     assert lines[0].translated == "Hi there"
     assert lines[1].translated == "Goodbye now"
     assert payload["used_translation"] is False
+
+
+@pytest.mark.asyncio
+async def test_preparation_reuses_the_copy_the_target_step_fetched(tmp_path: Path, mocker) -> None:
+    """Only OpenSubtitles answers a repeat download from disk.
+
+    SubDL and ASSRT fetch the file again, so reading a source at the target step
+    and then preparing it cost the viewer two downloads of the same file.
+    """
+    controller, download = _bilingual_pair(tmp_path, mocker)
+
+    await controller.inspect_source("result-1", "match-1")
+    assert download.await_count == 1
+
+    await controller.prepare_session(
+        mode="subtitle_pair",
+        feature_id="match-1",
+        source_file_id="result-1",
+        target_file_id="__source__",
+    )
+
+    assert download.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_a_source_read_for_a_different_file_is_not_reused(tmp_path: Path, mocker) -> None:
+    controller, download = _bilingual_pair(tmp_path, mocker)
+    controller._inspected_source = ("some-other-result", tmp_path / "bilingual-source.srt")
+
+    await controller.prepare_session(
+        mode="subtitle_pair",
+        feature_id="match-1",
+        source_file_id="result-1",
+        target_file_id="__source__",
+    )
+
+    assert download.await_count == 1

@@ -203,8 +203,13 @@ export function App(): JSX.Element {
 
   const titleListLength = titleNavRows.length;
   const titleGridColumns = filteredWorks.length > 0 && viewportWidth >= 900 ? 2 : 1;
+  // The target list is not navigable while the chosen source is being read: it
+  // is not on screen, and the row that read may add leads it. Left navigable,
+  // Enter pressed twice quickly picked the source and then committed whichever
+  // target happened to sit at index 0 behind the wait.
+  const targetListLength = inspectingSource ? 0 : targets.length;
   const activeListLength =
-    tab === "titles" ? titleListLength : tab === "source" ? sources.length : targets.length;
+    tab === "titles" ? titleListLength : tab === "source" ? sources.length : targetListLength;
 
   // Enter live/exit live Tauri side-effects.
   // Only call exitLiveMode when transitioning OUT of live. Calling it on
@@ -926,6 +931,9 @@ export function App(): JSX.Element {
   }, []);
 
   const onSelect = useCallback(() => {
+    // Nothing on the target step answers Enter while the source is being read.
+    // Falling through would search on a query that is only a list filter here.
+    if (tab === "target" && inspectingSource) return;
     const searchable = tab === "titles" || !episodeMatchId;
     if (searchable && query.trim() && query.trim() !== lastSearchedQuery.current) {
       void runSearch(query.trim());
@@ -966,6 +974,7 @@ export function App(): JSX.Element {
   }, [
     activeListLength,
     cursorIndex,
+    inspectingSource,
     onHydrateEpisode,
     onPickEpisode,
     onPickSource,

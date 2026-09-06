@@ -164,10 +164,15 @@ class CandidateSession:
             )
             for candidate in candidates
         }
-        # Whether a target subtitle file was paired against these candidates at
-        # all. Without one every cue is unanswered by definition, which is the
-        # live-translation session rather than a file with gaps in it.
-        self.has_target_file = any(candidate.pair.target_lines for candidate in candidates)
+        # Whether anything has already answered some of these cues, which is
+        # what makes the unanswered ones gaps worth filling rather than the whole
+        # file. A paired target file is one way; a bilingual source answering
+        # itself is the other, and it leaves no `target_lines` behind to see.
+        # Reading the cues covers both, and says no for a live-translation
+        # session, where every cue is unanswered by definition.
+        self.has_target_file = any(
+            line.translated for candidate in candidates for line in candidate.pair.source_lines
+        )
         self._open_translator = translator
         self._open_index = semantic
         # Read rather than captured: the viewer retimes the plate from the dock

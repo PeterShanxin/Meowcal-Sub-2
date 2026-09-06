@@ -70,24 +70,30 @@ def split_bilingual(
     share a script is left alone. Which row is the dialogue is decided by which
     script the source language is written in, not by which row comes first,
     because files disagree about the order.
+
+    Nothing is written until the whole file has been read. A monolingual file
+    carrying a translated credit or a sign would otherwise be left with a
+    handful of cues holding answers, which preparation reads as a translation
+    the file provides.
     """
-    source_is_cjk = _language_is_cjk(source_language)
-    if source_is_cjk == _language_is_cjk(target_language):
+    if not _scripts_identify_the_pair(source_language, target_language):
         return BilingualReport(len(lines), 0)
 
-    split = 0
+    source_is_cjk = _language_is_cjk(source_language)
+    divisions: list[tuple[SubtitleLine, str, str]] = []
     for line in lines:
         divided = _rows_by_script(line.text)
         if divided is None:
             continue
         cjk_rows, latin_rows = divided
         own, other = (cjk_rows, latin_rows) if source_is_cjk else (latin_rows, cjk_rows)
-        line.text = "\n".join(own)
-        line.translated = "\n".join(other)
-        split += 1
+        divisions.append((line, "\n".join(own), "\n".join(other)))
 
-    report = BilingualReport(len(lines), split)
+    report = BilingualReport(len(lines), len(divisions))
     if report.is_bilingual:
+        for line, own, other in divisions:
+            line.text = own
+            line.translated = other
         logger.debug(
             "Subtitle file carries its own translation on %d of %d cues",
             report.split_cues,
@@ -99,8 +105,30 @@ def split_bilingual(
 # Languages whose subtitles are written in the scripts `is_cjk_char` covers.
 # Compared as a prefix so that "zh-hans" and "zh" answer alike.
 CJK_LANGUAGES = ("zh", "ja", "ko", "yue", "cmn")
+# The one Latin-written language a row may be claimed to be. Script is all this
+# module can read, and script does not separate English from Spanish - so a
+# Chinese/English file asked for Spanish would otherwise be reported as carrying
+# the Spanish the viewer asked for, and the session would quietly show English.
+# Overwhelmingly these files pair a CJK language with English; where they do not,
+# the file is simply not offered rather than offered as the wrong thing.
+IDENTIFIABLE_LATIN_LANGUAGE = "en"
 
 
 def _language_is_cjk(language: str) -> bool:
     code = language.lower().replace("_", "-").split("-")[0]
     return code.startswith(CJK_LANGUAGES)
+
+
+def _scripts_identify_the_pair(source_language: str, target_language: str) -> bool:
+    """Whether telling the scripts apart is enough to name both languages.
+
+    One side has to be CJK-written and the other has to be the Latin-written
+    language this can actually vouch for. Anything else leaves a row whose
+    language is a guess, and a guess presented as the viewer's chosen language
+    is worse than not offering it.
+    """
+    source_cjk = _language_is_cjk(source_language)
+    if source_cjk == _language_is_cjk(target_language):
+        return False
+    latin_side = target_language if source_cjk else source_language
+    return latin_side.lower().replace("_", "-").split("-")[0] == IDENTIFIABLE_LATIN_LANGUAGE
