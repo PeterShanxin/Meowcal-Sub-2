@@ -57,6 +57,7 @@ Raised so far, all of them by live testing against a real player:
 | `engine/runtime.py` | 479 | 489 | stopping the engine a new one replaces, instead of dropping its handle |
 | `overlay/controller.py` | 1664 | 1684 | opening the translator once however many reads ask at the same moment, and publishing a search catalog with the results it describes |
 | `subtitle_sources/aggregator.py` | 1445 | 1446 | one import, for title-group ids that survive a provider answering out of order |
+| `subtitle_sources/subdl.py` | 621 | 623 | asking SubDL for a whole season only when the title is a series, so movie lookups come back with subtitles |
 
 The four largest are the ones worth naming, because they are where the work is:
 

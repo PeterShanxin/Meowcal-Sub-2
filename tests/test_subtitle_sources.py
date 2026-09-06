@@ -561,6 +561,49 @@ async def test_subdl_search_uses_api_results_and_subtitles(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_subdl_movie_search_omits_full_season(monkeypatch) -> None:
+    provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
+    calls: list[dict[str, object]] = []
+
+    async def fake_fetch_api(client, params: dict[str, object]) -> dict[str, object]:
+        calls.append(dict(params))
+        if "film_name" in params:
+            return {
+                "status": True,
+                "results": [
+                    {
+                        "sd_id": 4567,
+                        "name": "Inception",
+                        "type": "movie",
+                        "year": 2010,
+                        "imdb_id": "tt1375666",
+                        "subtitles_count": 4,
+                    }
+                ],
+            }
+        return {
+            "status": True,
+            "subtitles": [
+                {
+                    "id": 1234,
+                    "language": "English",
+                    "name": "Inception.2010.1080p.BluRay",
+                    "downloads": 9,
+                    "url": "/subtitle/1234-5678.zip",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(provider, "_fetch_api", fake_fetch_api)
+
+    catalog = await provider.search_catalog("inception", "en")
+
+    assert calls[1]["sd_id"] == "4567"
+    assert "full_season" not in calls[1]
+    assert len(catalog.results) == 1
+
+
+@pytest.mark.asyncio
 async def test_subdl_search_keeps_matches_when_one_detail_fetch_is_forbidden(monkeypatch) -> None:
     provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
     request = httpx.Request(
