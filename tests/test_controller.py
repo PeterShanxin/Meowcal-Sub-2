@@ -74,10 +74,14 @@ async def test_install_ocr_language_reports_failure_when_language_stays_unavaila
     assert "not available" in payload["message"].lower()
 
 
-@pytest.mark.asyncio
-async def test_prepare_session_downloads_non_opensubtitles_result(tmp_path: Path, mocker) -> None:
+def _pair_controller(tmp_path: Path, mocker) -> tuple[GuiController, AsyncMock, AsyncMock]:
+    """A controller ready to prepare a source/target subtitle pair.
+
+    Returns it with the patched engine start and the patched download, so a
+    test can assert on either without rebuilding the catalog.
+    """
     controller = make_controller(tmp_path / "config.toml")
-    mocker.patch(
+    warm = mocker.patch(
         "meocosub2.overlay.controller.engine.ensure_ready",
         new=AsyncMock(return_value="http://127.0.0.1:11436"),
     )
@@ -172,6 +176,12 @@ async def test_prepare_session_downloads_non_opensubtitles_result(tmp_path: Path
         "download",
         side_effect=[source_path, target_path],
     )
+    return controller, warm, download
+
+
+@pytest.mark.asyncio
+async def test_prepare_session_downloads_non_opensubtitles_result(tmp_path: Path, mocker) -> None:
+    controller, _, download = _pair_controller(tmp_path, mocker)
 
     payload = await controller.prepare_session(
         mode="subtitle_pair",
@@ -186,6 +196,23 @@ async def test_prepare_session_downloads_non_opensubtitles_result(tmp_path: Path
     assert payload["source_file_id"] == "result-1"
     assert payload["target_file_id"] == "result-2"
     assert download.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_preparing_a_pair_starts_the_engine_the_opening_lines_need(
+    tmp_path: Path, mocker
+) -> None:
+    """The model answers until a match anchors the clock, target file or not."""
+    controller, warm, _ = _pair_controller(tmp_path, mocker)
+
+    await controller.prepare_session(
+        mode="subtitle_pair",
+        feature_id="match-1",
+        source_file_id="result-1",
+        target_file_id="result-2",
+    )
+
+    assert warm.await_count == 1
 
 
 @pytest.mark.asyncio

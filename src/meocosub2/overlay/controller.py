@@ -979,7 +979,7 @@ class GuiController:
                 # Matched lines are translated as they appear rather than up front:
                 # a local 1.8B model needs hours for a whole subtitle file.
                 used_translation = True
-                await self._start_translation_engine()
+            await self._start_translation_engine()
         except Exception as exc:
             await self._set_error(str(exc))
             raise
@@ -1135,8 +1135,7 @@ class GuiController:
                 for candidate in source_candidates:
                     candidate.pair.target_lines = target_lines
                     assign_target_translations(candidate.pair.source_lines, target_lines)
-            else:
-                await self._start_translation_engine()
+            await self._start_translation_engine()
         except Exception as exc:
             await self._set_error(str(exc))
             raise
@@ -1403,6 +1402,13 @@ class GuiController:
                 await task
 
     async def _start_translation_engine(self) -> None:
+        """Have the engine running before the session that needs it starts.
+
+        Called while preparing whatever the target file turned out to be. Until a
+        match anchors the clock the model is the only thing that can fill the
+        plate, and starting it on the first read spends that whole window
+        loading; it also answers the lines the target file has none for.
+        """
         try:
             await engine.ensure_ready()
         except (engine.EngineStartError, engine.EngineInstallError) as exc:

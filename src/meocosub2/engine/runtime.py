@@ -21,6 +21,7 @@ import subprocess
 import threading
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic
 
 import httpx
 
@@ -32,6 +33,11 @@ logger = logging.getLogger(__name__)
 
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 HEALTH_TIMEOUT_S = 2.0
+# A cold engine answers /health as soon as the weights are loaded, but the first
+# completion still pays kernel warm-up and cache allocation. Left unpaid, that
+# cost lands on the viewer's first subtitle, which is the one the session has
+# nothing else to show.
+WARMUP_TIMEOUT_S = 10.0
 # Measured v1 GPU readiness is 3-6s, ~11s under load. A GPU start that misses this
 # window is retried on CPU inside the caller's overall deadline.
 GPU_STARTUP_MAX_S = 30.0
@@ -297,6 +303,31 @@ def _attach_to_process_lifetime(process: subprocess.Popen) -> None:
     process._meowcal_job_handle = job  # noqa: SLF001 - keeps the handle alive with the child
 
 
+async def _warm_up(base_url: str, model: str) -> None:
+    """Run one throwaway completion so the first real subtitle does not.
+
+    Only ever called on an engine this process just started; one already serving
+    has answered something already. A warm-up that fails costs the first line its
+    head start and nothing else, so it is logged rather than raised.
+    """
+    started = monotonic()
+    try:
+        async with httpx.AsyncClient(timeout=WARMUP_TIMEOUT_S) as client:
+            response = await client.post(
+                f"{base_url}/v1/chat/completions",
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": "."}],
+                    "max_tokens": 1,
+                },
+            )
+            response.raise_for_status()
+    except httpx.HTTPError as error:
+        logger.debug("Translation engine warm-up failed: %s", error)
+        return
+    logger.debug("Translation engine warmed up in %dms", int((monotonic() - started) * 1000))
+
+
 async def is_endpoint_healthy(base_url: str) -> bool:
     try:
         async with httpx.AsyncClient(timeout=HEALTH_TIMEOUT_S) as client:
@@ -438,6 +469,7 @@ async def ensure_ready(
         engine = await asyncio.to_thread(_start, plan, paths)
         window = min(GPU_STARTUP_MAX_S, remaining / 2) if engine.gpu_active else remaining
         if await _wait_healthy(engine, window):
+            await _warm_up(engine.base_url, manifest.model.id)
             return engine.base_url
         if not engine.gpu_active:
             break

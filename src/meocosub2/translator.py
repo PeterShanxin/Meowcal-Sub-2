@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 from itertools import pairwise
+from time import monotonic
 
 import httpx
 from rapidfuzz import fuzz
@@ -314,6 +315,7 @@ class TranslationClient:
         self._client = httpx.AsyncClient(timeout=timeout_s)
 
     async def _complete(self, prompt: str) -> str:
+        started = monotonic()
         try:
             response = await self._client.post(
                 f"{self._base_url}/v1/chat/completions",
@@ -333,6 +335,14 @@ class TranslationClient:
                 "The local translation engine returned an unreadable reply."
             ) from exc
 
+        # Prompt and answer are the viewer's dialogue, so only their shape is
+        # recorded. Without this the log says nothing about how long the model
+        # takes, which is the whole question when a line arrives too late.
+        logger.debug(
+            "Model completion took %dms (prompt=%d chars)",
+            int((monotonic() - started) * 1000),
+            len(prompt),
+        )
         choices = payload.get("choices") or []
         return choices[0].get("message", {}).get("content", "") if choices else ""
 
