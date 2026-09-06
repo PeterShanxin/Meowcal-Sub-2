@@ -95,6 +95,9 @@ class OpenSubtitlesClient:
         self.user_agent = user_agent
         self.cache_dir = cache_dir or (Path.home() / ".cache" / "meowcal-sub-2")
         self.enable_org_fallback = enable_org_fallback
+        # What the provider last said was left of the day's download allowance,
+        # None until a download has asked. A cached file never asks.
+        self.downloads_remaining: int | None = None
         self._client = httpx.AsyncClient(
             base_url=BASE_URL,
             headers={
@@ -240,7 +243,12 @@ class OpenSubtitlesClient:
         if destination.exists():
             return destination
 
-        link, _ = await self.get_download_link(file_id)
+        link, remaining = await self.get_download_link(file_id)
+        # OpenSubtitles counts downloads against a daily allowance and says what
+        # is left of it on every one. Dropping that left the app spending a
+        # limited resource with nothing able to see the cost.
+        self.downloads_remaining = remaining
+        logger.debug("OpenSubtitles download allowance remaining: %d", remaining)
         async with httpx.AsyncClient(
             timeout=provider_timeout(30.0), follow_redirects=True
         ) as client:

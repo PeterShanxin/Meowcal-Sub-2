@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 import { tauri } from "../hooks/use-tauri";
 
 const EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
+// One press of the timing control. The backend rounds to its own step and
+// holds the range, and answers with what it stored, so this is the size of a
+// press rather than a rule about what an offset may be.
+const BIAS_STEP_MS = 100;
 
 /** The studio window while a session runs.
  *
@@ -15,10 +19,14 @@ const EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
  * how far open that pill is and fades its contents to match.
  */
 export function LiveView({
+  biasMs,
+  onAdjustBias,
   onStop,
   onSelectRegion,
   onOpenSettings,
 }: {
+  biasMs: number;
+  onAdjustBias: (deltaMs: number) => void;
   onStop: () => void;
   onSelectRegion: () => void;
   onOpenSettings: () => void;
@@ -59,6 +67,9 @@ export function LiveView({
         overflow: "hidden",
       }}
     >
+      <Reveal open={open} delay={165}>
+        <BiasControl biasMs={biasMs} onAdjust={onAdjustBias} />
+      </Reveal>
       <Reveal open={open} delay={110}>
         <IconButton label="Stop sync" onClick={onStop}>
           <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor">
@@ -74,6 +85,80 @@ export function LiveView({
       </Reveal>
       <Pulse />
     </div>
+  );
+}
+
+/** How far the plate is shifted, written the way the viewer set it. */
+function formatBias(ms: number): string {
+  const seconds = ms / 1000;
+  return `${seconds > 0 ? "+" : ""}${seconds.toFixed(1)}s`;
+}
+
+/** Retiming, for a player whose subtitles do not sit where the clock expects.
+ *
+ * The plate is drawn from a clock anchored by matches, and a player that buffers
+ * or a stream that is cut a beat differently leaves it consistently early or
+ * late. Raising the offset shows each line sooner.
+ */
+function BiasControl({
+  biasMs,
+  onAdjust,
+}: {
+  biasMs: number;
+  onAdjust: (deltaMs: number) => void;
+}): JSX.Element {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+      <StepButton label="Show subtitles later" glyph="−" onClick={() => onAdjust(-BIAS_STEP_MS)} />
+      <span
+        aria-live="polite"
+        style={{
+          minWidth: 38,
+          textAlign: "center",
+          fontSize: 11,
+          fontVariantNumeric: "tabular-nums",
+          color: biasMs === 0 ? "#77767f" : "#b6b5c0",
+        }}
+      >
+        {formatBias(biasMs)}
+      </span>
+      <StepButton label="Show subtitles earlier" glyph="+" onClick={() => onAdjust(BIAS_STEP_MS)} />
+    </div>
+  );
+}
+
+function StepButton({
+  label,
+  glyph,
+  onClick,
+}: {
+  label: string;
+  glyph: string;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      style={{
+        width: 22,
+        height: 22,
+        borderRadius: 100,
+        border: "none",
+        background: "rgba(255,255,255,0.07)",
+        color: "#b6b5c0",
+        cursor: "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: 13,
+        lineHeight: 1,
+      }}
+    >
+      {glyph}
+    </button>
   );
 }
 

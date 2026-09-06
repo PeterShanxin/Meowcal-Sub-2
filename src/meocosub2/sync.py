@@ -22,6 +22,7 @@ from time import monotonic
 from meocosub2.capture import capture_region, ocr_image
 from meocosub2.config import AppConfig
 from meocosub2.engine import EngineInstallError, EngineStartError
+from meocosub2.gapfill import fill_gaps
 from meocosub2.matcher import BOTH, SubtitleMatcher
 from meocosub2.models import MatchResult, SourceSubtitleCandidate, SubtitleLine
 from meocosub2.semantic import SemanticError, SemanticIndex
@@ -39,12 +40,22 @@ AUTO_UNLOCK_MISSES = 3
 # Consecutive empty reads before the overlay clears. One blank frame is a cue
 # transition; several in a row mean nothing is on screen.
 CLEAR_AFTER_EMPTY_READS = 3
+# How long to wait before looking again at which candidate is being followed.
+# Locking onto one is what a whole run of reads decides, so this costs nothing
+# to check slowly.
+FOLLOW_POLL_S = 1.0
 # How far ahead of the clock the plate is drawn, negative to hold it back.
 # The clock does not need help arriving early: it anchors at the moment a cue
 # was first seen rather than the moment it was recognised, which already takes
 # the capture and OCR delay out of it. Measured against a real player twice,
 # each run about half a second ahead of the dialogue, so the plate waits.
 DISPLAY_LEAD_MS = -650
+# The longest the renderer sleeps in one go. Every cue boundary is still woken
+# for exactly, and a nudge still wakes it at once; this only bounds how stale
+# the viewer's own offset can be, because changing it moves every boundary the
+# renderer has already worked out and nothing tells it so. Redrawing the line
+# already on the plate broadcasts nothing, so the extra wakes cost a comparison.
+RETIME_CHECK_S = 0.2
 TRANSLATION_CACHE_SIZE = 64
 CONTEXT_LINES = 3
 
@@ -54,6 +65,7 @@ TRANSLATED = "translated"
 Broadcast = Callable[[str, str], Awaitable[None]]
 DebugBroadcast = Callable[[dict[str, object]], Awaitable[None]]
 RegionSource = Callable[[], tuple[int, ...]]
+BiasSource = Callable[[], int]
 TranslatorFactory = Callable[[], Awaitable["LiveTranslator"]]
 # Supplied by whoever starts the session rather than reached for here, so a
 # session can be run - and tested - without an embedding engine behind it.
@@ -93,6 +105,20 @@ class LiveTranslator:
         self._cache: OrderedDict[str, str] = OrderedDict()
         self._context: deque[str] = deque(maxlen=CONTEXT_LINES)
 
+    async def translate_from_file(self, text: str, pairs: list[tuple[str, str]]) -> str:
+        """Translate a line of the subtitle file, in the voice the file already uses.
+
+        Deliberately outside the cache and the rolling context: both describe
+        what has been on screen, and a cue being answered ahead of time has not.
+        The pairs carry their own echo context, so none is passed here.
+        """
+        return await self._client.translate(
+            text,
+            self._source_language,
+            self._target_language,
+            pairs=pairs,
+        )
+
     async def translate(self, text: str) -> str:
         key = SubtitleMatcher.normalize_text(text)
         cached = self._cache.get(key)
@@ -126,6 +152,7 @@ class CandidateSession:
         config: AppConfig,
         translator: TranslatorFactory,
         semantic: SemanticFactory | None = None,
+        bias_source: BiasSource | None = None,
     ) -> None:
         self._matchers = {
             candidate.result_id: SubtitleMatcher(
@@ -137,8 +164,15 @@ class CandidateSession:
             )
             for candidate in candidates
         }
+        # Whether a target subtitle file was paired against these candidates at
+        # all. Without one every cue is unanswered by definition, which is the
+        # live-translation session rather than a file with gaps in it.
+        self.has_target_file = any(candidate.pair.target_lines for candidate in candidates)
         self._open_translator = translator
         self._open_index = semantic
+        # Read rather than captured: the viewer retimes the plate from the dock
+        # while the session runs, the same way they reselect the capture region.
+        self._bias_ms = bias_source or (lambda: config.sync_bias_ms)
         self._timeline = PlaybackTimeline()
         self._locked: str | None = next(iter(self._matchers)) if len(self._matchers) == 1 else None
         self._pending: str = ""
@@ -146,6 +180,17 @@ class CandidateSession:
         self._misses = 0
         self._semantic: SemanticIndex | None = None
         self._semantic_build: asyncio.Task[None] | None = None
+
+    @property
+    def followed_lines(self) -> list[SubtitleLine]:
+        """The source lines of the candidate being followed, empty until one is."""
+        if self._locked is None:
+            return []
+        return self._matchers[self._locked].subtitles
+
+    async def translate_from_file(self, text: str, pairs: list[tuple[str, str]]) -> str:
+        translator = await self._open_translator()
+        return await translator.translate_from_file(text, pairs)
 
     def close(self) -> None:
         if self._semantic_build is not None:
@@ -235,16 +280,27 @@ class CandidateSession:
 
         Every caller that draws or schedules goes through here, so the line that
         is shown and the moment it is scheduled to change cannot disagree.
+
+        The measured lag and the viewer's own offset add up: both answer the same
+        question, and the viewer is correcting what the measurement did not cover
+        for their player.
         """
         position = self._timeline.position_ms(now)
         if position is None:
             return None
         anchor = self._timeline.anchor_ms
-        shifted = position + DISPLAY_LEAD_MS
         # The lag holds the plate back as playback advances; it must never read
         # behind the line the clock was just anchored to, which is on screen by
         # definition. Without the floor, a match would blank the plate it filled.
-        return shifted if anchor is None else max(shifted, anchor)
+        lagged = position + DISPLAY_LEAD_MS
+        if anchor is not None:
+            lagged = max(lagged, anchor)
+        # The viewer's offset applies after the floor rather than inside it. The
+        # floor exists to protect a match from the measured lag; folding an
+        # offset into it would let the floor swallow one asking for a later
+        # plate, which is the direction a viewer reaches for when the plate runs
+        # ahead of their player.
+        return lagged + self._bias_ms()
 
     def seconds_to_next_line(self) -> float | None:
         """How long until the file's line changes; None when nothing is placed."""
@@ -482,8 +538,12 @@ async def run_session_loop(
         anchor at any time, which moves every boundary after it.
         """
         while True:
+            waiting = session.seconds_to_next_line()
             with suppress(TimeoutError):
-                await asyncio.wait_for(nudge.wait(), timeout=session.seconds_to_next_line())
+                await asyncio.wait_for(
+                    nudge.wait(),
+                    timeout=RETIME_CHECK_S if waiting is None else min(waiting, RETIME_CHECK_S),
+                )
             nudge.clear()
             if not session.anchored:
                 continue
@@ -555,8 +615,50 @@ async def run_session_loop(
         pending = start_translation(resolution, screen.seq)
         return resolution.detail
 
+    async def fill_what_the_file_left_unpaired() -> None:
+        """Answer the cues the target file has nothing over, ahead of the clock.
+
+        Live reads come first: the viewer is waiting on those and the engine
+        answers one request at a time, so a fill only starts when no read is in
+        flight. It cannot stand aside for a read that arrives while it is
+        already asking, which costs that read the one completion it waits behind.
+
+        Only a session that has a target file has gaps to fill. Without one every
+        cue is unanswered, and filling them ahead would spend the single-slot
+        engine on the file's opening while the viewer waits on the read in front
+        of them - which is the whole of what a live-translation session does.
+
+        A session with several candidates can let one go and lock another, so the
+        file being followed is watched rather than taken once: each new one is
+        filled in its turn. What is remembered is which files were answered all
+        the way through, not which was answered last - a file the session left
+        partway and later comes back to still has the rest of its gaps.
+        """
+        if not isinstance(session, CandidateSession) or not session.has_target_file:
+            return
+        answered: set[int] = set()
+        while True:
+            following = session.followed_lines
+            if following and id(following) not in answered:
+                outcome = await fill_gaps(
+                    lambda: session.followed_lines,
+                    session.translate_from_file,
+                    lambda: pending is not None and not pending.done(),
+                    nudge.set,
+                )
+                if outcome.completed:
+                    answered.add(id(following))
+                if outcome.engine_failed:
+                    # It will not answer the next file's gaps either, and asking
+                    # is what the viewer's own reads are queueing behind.
+                    return
+                # The lock can have moved while that ran, which is what ended it.
+                continue
+            await asyncio.sleep(FOLLOW_POLL_S)
+
     nudge = asyncio.Event()
     renderer = asyncio.create_task(render_from_the_clock())
+    filler = asyncio.create_task(fill_what_the_file_left_unpaired())
     try:
         while True:
             iteration += 1
@@ -629,6 +731,7 @@ async def run_session_loop(
             await asyncio.sleep(max(0.0, interval_s - (monotonic() - started)))
     finally:
         renderer.cancel()
+        filler.cancel()
         session.close()
         if pending is not None:
             pending.cancel()

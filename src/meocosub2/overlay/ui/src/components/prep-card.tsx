@@ -1,4 +1,10 @@
-import type { BackendPreparedSession, LiveLine, SourceItem, TargetItem } from "../lib/types";
+import type {
+  BackendPreparedSession,
+  BackendTargetAlignment,
+  LiveLine,
+  SourceItem,
+  TargetItem,
+} from "../lib/types";
 import { Kbd } from "./primitives";
 
 interface PrepCardProps {
@@ -7,6 +13,15 @@ interface PrepCardProps {
   source: SourceItem | null;
   target: TargetItem | null;
   prepared: BackendPreparedSession | null;
+  onPickTarget: (resultId: string) => void;
+}
+
+/** What the chosen target file leaves for the model, in the viewer's terms. */
+function coverageLabel(chosen: BackendTargetAlignment): string {
+  if (chosen.unpaired_cues === 0) return "every line answered";
+  const seconds = Math.round(chosen.unpaired_ms / 1000);
+  const lines = chosen.unpaired_cues === 1 ? "1 line" : `${chosen.unpaired_cues} lines`;
+  return `${lines} written on this device · ${seconds}s`;
 }
 
 export function PrepCard({
@@ -15,6 +30,7 @@ export function PrepCard({
   source,
   target,
   prepared,
+  onPickTarget,
 }: PrepCardProps): JSX.Element {
   const sourceFile = prepared?.source_summary ?? prepared?.source_file_name ?? source?.file ?? "—";
   const isAutoTranslation = prepared?.target_match_mode === "auto_live_translation";
@@ -27,6 +43,16 @@ export function PrepCard({
   const lines = prepared?.source_line_count
     ? `${prepared.source_line_count.toLocaleString()} prepared`
     : "—";
+  const alignment = prepared?.target_alignment ?? [];
+  const chosenAlignment = alignment.find((entry) => entry.chosen) ?? null;
+  // Ranked best first by the backend, so a better one is simply the first entry
+  // that is not the viewer's own pick.
+  const better =
+    chosenAlignment && chosenAlignment.unpaired_cues > 0
+      ? (alignment.find(
+          (entry) => !entry.chosen && entry.unpaired_ms < chosenAlignment.unpaired_ms,
+        ) ?? null)
+      : null;
 
   return (
     <div
@@ -68,7 +94,40 @@ export function PrepCard({
         />
         <Row label="Runtime" value={runtimeLabel} />
         <Row label="Lines" value={lines} />
+        {chosenAlignment && <Row label="Coverage" value={coverageLabel(chosenAlignment)} />}
       </div>
+      {better && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            fontSize: 12,
+            color: "var(--text-label)",
+          }}
+        >
+          <span style={{ flex: 1 }}>
+            {better.file_name} answers {better.unpaired_cues === 0 ? "all of them" : "more of them"}
+            .
+          </span>
+          <button
+            type="button"
+            onClick={() => onPickTarget(better.result_id)}
+            style={{
+              padding: "4px 10px",
+              borderRadius: 100,
+              border: "1px solid var(--text-label)",
+              background: "transparent",
+              color: "var(--text-body)",
+              cursor: "pointer",
+              fontSize: 11,
+              whiteSpace: "nowrap",
+            }}
+          >
+            Use it
+          </button>
+        </div>
+      )}
       <div style={{ flex: 1 }} />
       <div
         style={{

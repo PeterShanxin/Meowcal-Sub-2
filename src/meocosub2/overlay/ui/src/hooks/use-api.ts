@@ -76,7 +76,9 @@ export interface ClientLogBody {
 export const api = {
   getState: () => request<BackendSnapshot>("GET", "/api/state"),
   getConfig: () => request<BackendSnapshot["config"]>("GET", "/api/config"),
-  putConfig: (payload: BackendSnapshot["config"]) =>
+  // The backend merges what it is given against the config it holds, so a
+  // caller changing one setting sends that setting rather than the whole file.
+  putConfig: (payload: Partial<BackendSnapshot["config"]>) =>
     request<BackendSnapshot["config"]>("PUT", "/api/config", payload),
   getLanguages: () => request<LanguagesPayload>("GET", "/api/languages"),
   getEngineStatus: () => request<EngineStatus>("GET", "/api/engine/status"),

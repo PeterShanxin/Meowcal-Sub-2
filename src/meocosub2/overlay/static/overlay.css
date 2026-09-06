@@ -50,9 +50,10 @@ body {
   color: var(--plate-color, #fff);
   text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7);
   overflow-wrap: anywhere;
-  /* Two speakers overlapping in time arrive as two rows, and so does a cue the
-     file itself wrote across two. The plate reports its own height, so the
-     window grows to fit them. */
+  /* Two speakers overlapping in time arrive as two rows. A cue is flattened to
+     one before it gets here, so a row on this plate means a second voice rather
+     than the file's own wrapping. The plate reports its own height, so the
+     window grows when there are two. */
   white-space: pre-line;
 }
 

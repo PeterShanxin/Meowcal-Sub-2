@@ -21,6 +21,10 @@ class OpenSubtitlesProvider:
 
     def __init__(self, config: AppConfig) -> None:
         self.config = config
+        # This provider meters downloads by the day and reports what is left on
+        # each one. Kept here rather than on the client, which lives only for
+        # the length of a single download.
+        self.downloads_remaining: int | None = None
 
     @property
     def enabled(self) -> bool:
@@ -94,4 +98,7 @@ class OpenSubtitlesProvider:
     async def download(self, result: ProviderSubtitleResult) -> Path:
         file_id = int(result.raw.get("file_id") or result.download_ref or "0")
         async with OpenSubtitlesClient(api_key=self.config.opensubtitles_api_key) as client:
-            return await client.download(file_id, result.file_name)
+            path = await client.download(file_id, result.file_name)
+            if client.downloads_remaining is not None:
+                self.downloads_remaining = client.downloads_remaining
+            return path

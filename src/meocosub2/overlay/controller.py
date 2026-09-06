@@ -35,7 +35,9 @@ from meocosub2.models import (
     PreparedSession,
     SearchRequest,
     SourceSubtitleCandidate,
+    SubtitleLine,
     SubtitlePair,
+    TargetAlignment,
 )
 from meocosub2.semantic import SemanticIndex
 from meocosub2.subtitle_sources import (
@@ -48,7 +50,12 @@ from meocosub2.subtitle_sources import (
     SubtitleSearchAggregator,
 )
 from meocosub2.subtitle_sources.utils import result_id_for
-from meocosub2.subtitles import align_subtitles, assign_target_translations, load_subtitle_file
+from meocosub2.subtitles import (
+    align_subtitles,
+    alignment_report,
+    assign_target_translations,
+    load_subtitle_file,
+)
 from meocosub2.sync import (
     MATCHED,
     CandidateSession,
@@ -62,6 +69,28 @@ logger = logging.getLogger(__name__)
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 AUTO_SOURCE_CANDIDATE_LIMIT = 3
 AUTO_TARGET_CANDIDATE_LIMIT = 1
+# How many target files the viewer did not choose are weighed against the source,
+# so they can see whether a better-aligned one was on offer. Each is tens of
+# kilobytes; the point is a comparison, not a survey.
+TARGET_ALIGNMENT_SAMPLE = 3
+# The whole comparison is advice arriving during preparation, so it is given a
+# budget rather than a provider's timeout. Whatever is weighed inside it is
+# reported; the rest is simply not mentioned.
+TARGET_ALIGNMENT_BUDGET_S = 15.0
+# Downloads left with a metered provider below which none are spent on advice.
+# A session costs a source file and a target file, so this keeps back enough for
+# the viewer to start one after the comparison decides against running.
+DOWNLOADS_KEPT_FOR_WATCHING = 2
+# Shown when the engine is missing but the target file can carry the session on
+# its own. It names what the viewer will see rather than what failed. The two
+# symptoms differ: nothing has been drawn yet before the first match, while a
+# cue the target file has no answer for leaves the previous line on the plate,
+# which is the stale line this session's filling exists to replace.
+NO_ENGINE_WARNING = (
+    "Local translation is not installed, so the plate stays empty until the first match "
+    "and holds the previous line through cues the target subtitles do not answer. "
+    "Run setup from Settings to add it."
+)
 
 
 def search_result_payload(result: AggregatedSubtitleResult) -> dict[str, object]:
@@ -979,11 +1008,14 @@ class GuiController:
                 # Matched lines are translated as they appear rather than up front:
                 # a local 1.8B model needs hours for a whole subtitle file.
                 used_translation = True
-                await self._start_translation_engine()
+            engine_warning = await self._start_translation_engine(required=used_translation)
         except Exception as exc:
             await self._set_error(str(exc))
             raise
 
+        alignment = await self._weigh_target_candidates(
+            effective_feature_id, target_entry, source_lines, target_lines
+        )
         pair = align_subtitles(source_lines, target_lines)
         session = PreparedSession(
             session_id=uuid4().hex[:8],
@@ -1022,6 +1054,7 @@ class GuiController:
             target_line_count=len(target_lines),
             translated_line_count=sum(1 for line in source_lines if line.translated),
             used_translation=used_translation,
+            target_alignment=alignment,
         )
 
         async with self._lock:
@@ -1050,8 +1083,14 @@ class GuiController:
             self._state.progress = AppProgress(
                 stage="ready", message="Session prepared.", current=1, total=1
             )
+            warnings = []
             if session.source_language_mode != "exact":
-                self._state.warning_message = "Using a Chinese-family source subtitle fallback because no exact source language match was available."
+                warnings.append(
+                    "Using a Chinese-family source subtitle fallback because no exact source language match was available."
+                )
+            if engine_warning:
+                warnings.append(engine_warning)
+            self._state.warning_message = " ".join(warnings)
         await self._emit_app_state()
         await self._emit_app_progress()
         return asdict(session)
@@ -1135,8 +1174,7 @@ class GuiController:
                 for candidate in source_candidates:
                     candidate.pair.target_lines = target_lines
                     assign_target_translations(candidate.pair.source_lines, target_lines)
-            else:
-                await self._start_translation_engine()
+            engine_warning = await self._start_translation_engine(required=not target_lines)
         except Exception as exc:
             await self._set_error(str(exc))
             raise
@@ -1214,6 +1252,8 @@ class GuiController:
                 warnings.append(
                     "No target subtitle matched the requested language. The session will translate matched source lines live."
                 )
+            if engine_warning:
+                warnings.append(engine_warning)
             self._state.warning_message = " ".join(warnings)
         await self._emit_app_state()
         await self._emit_app_progress()
@@ -1254,7 +1294,7 @@ class GuiController:
         await self._emit_app_progress()
 
         try:
-            await self._start_translation_engine()
+            await self._start_translation_engine(required=True)
 
             target_path: Path | None = None
             target_lines = []
@@ -1402,11 +1442,27 @@ class GuiController:
             with suppress(asyncio.CancelledError):
                 await task
 
-    async def _start_translation_engine(self) -> None:
+    async def _start_translation_engine(self, *, required: bool) -> str:
+        """Have the engine running before the session that needs it starts.
+
+        Called while preparing whatever the target file turned out to be. Until a
+        match anchors the clock the model is the only thing that can fill the
+        plate, and starting it on the first read spends that whole window
+        loading; it also answers the lines the target file has none for.
+
+        A session with a target file still plays without it, so a missing engine
+        is reported and stepped over. Returns the warning to show, empty when the
+        engine is up. Where nothing but the model can fill the plate the same
+        failure ends preparation, because the session would show nothing at all.
+        """
         try:
             await engine.ensure_ready()
         except (engine.EngineStartError, engine.EngineInstallError) as exc:
-            raise TranslationError(str(exc)) from exc
+            if required:
+                raise TranslationError(str(exc)) from exc
+            logger.warning("Preparing without local translation: %s", exc)
+            return NO_ENGINE_WARNING
+        return ""
 
     async def _run_sync_loop(self, runtime: PreparedRuntime, config: AppConfig) -> None:
         # Debug events ride alongside the normal broadcast path so the dashboard
@@ -1434,7 +1490,11 @@ class GuiController:
         try:
             if runtime.source_candidates:
                 session = CandidateSession(
-                    runtime.source_candidates, config, translator_factory, semantic_factory
+                    runtime.source_candidates,
+                    config,
+                    translator_factory,
+                    semantic_factory,
+                    bias_source=lambda: self.config.sync_bias_ms,
                 )
             else:
                 session = DirectTranslationSession(runtime.target_lines, config, translator_factory)
@@ -1506,6 +1566,102 @@ class GuiController:
             )
         )
         return matches[:limit]
+
+    def _can_spend_a_download_on_advice(self, entry: AggregatedSubtitleResult) -> bool:
+        """Whether weighing this rival is worth what the download may cost.
+
+        OpenSubtitles meters downloads by the day. Weighing a rival is advice
+        about a session the viewer can already run, so it must never be what
+        uses up an allowance they need in order to watch something. The
+        provider's own count of what is left decides; a provider that does not
+        meter downloads reports nothing and is always weighed.
+
+        A file already in the cache costs no allowance, but saying which ones
+        those are means knowing how each provider names them, so this does not
+        try - the reserve below is what a cache miss is measured against.
+        """
+        remaining = self._aggregator.downloads_remaining(entry.provider)
+        if remaining is not None and remaining <= DOWNLOADS_KEPT_FOR_WATCHING:
+            logger.debug(
+                "Not weighing rival target files: %s has %d download(s) left today",
+                entry.provider,
+                remaining,
+            )
+            return False
+        return True
+
+    async def _weigh_target_candidates(
+        self,
+        feature_id: str | None,
+        chosen_entry: AggregatedSubtitleResult | None,
+        source_lines: list[SubtitleLine],
+        target_lines: list[SubtitleLine],
+    ) -> list[TargetAlignment]:
+        """How the chosen target file compares with the others for this episode.
+
+        Target files differ by more than an order of magnitude in how much of the
+        source they answer, and every cue they do not answer is one the local
+        model writes instead of a translator. The viewer's choice is never
+        overridden: the comparison is reported and they decide what to do.
+
+        Weighing a rival costs a download, so the whole comparison runs on a
+        budget. A rival that will not arrive in time is simply not mentioned -
+        preparation must not fail, or slow down noticeably, for advice.
+        """
+        if not target_lines or chosen_entry is None:
+            return []
+        chosen = alignment_report(source_lines, target_lines)
+        weighed = [
+            TargetAlignment(
+                result_id=chosen_entry.result_id,
+                file_name=chosen_entry.file_name,
+                unpaired_cues=chosen.unpaired_cues,
+                unpaired_ms=chosen.unpaired_ms,
+                chosen=True,
+            )
+        ]
+        if feature_id is None:
+            return weighed
+
+        rivals = [
+            entry
+            for entry in self._candidate_results_for_feature(
+                feature_id, self._state.target_language, TARGET_ALIGNMENT_SAMPLE + 1
+            )
+            if entry.result_id != chosen_entry.result_id
+            and self._can_spend_a_download_on_advice(entry)
+        ][:TARGET_ALIGNMENT_SAMPLE]
+
+        deadline = time.monotonic() + TARGET_ALIGNMENT_BUDGET_S
+        for entry in rivals:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                path = await asyncio.wait_for(self._aggregator.download(entry), remaining)
+                rival_lines = load_subtitle_file(path)
+            except Exception as error:
+                # Deliberately without a traceback: a subtitle that fails to parse
+                # can carry the offending line into one, and this log records
+                # whatever the viewer is watching.
+                logger.debug(
+                    "Could not weigh target candidate %s: %s",
+                    entry.result_id,
+                    type(error).__name__,
+                )
+                continue
+            report = alignment_report(source_lines, rival_lines)
+            weighed.append(
+                TargetAlignment(
+                    result_id=entry.result_id,
+                    file_name=entry.file_name,
+                    unpaired_cues=report.unpaired_cues,
+                    unpaired_ms=report.unpaired_ms,
+                )
+            )
+
+        weighed.sort(key=lambda item: (item.unpaired_ms, item.unpaired_cues))
+        return weighed
 
     async def _set_progress(self, stage: str, message: str, current: int, total: int) -> None:
         async with self._lock:

@@ -64,6 +64,17 @@ class AppProgress:
 
 
 @dataclass
+class TargetAlignment:
+    """How much of the source file one target candidate answers."""
+
+    result_id: str
+    file_name: str
+    unpaired_cues: int
+    unpaired_ms: int
+    chosen: bool = False
+
+
+@dataclass
 class PreparedSession:
     session_id: str
     title: str
@@ -96,6 +107,9 @@ class PreparedSession:
     used_translation: bool = False
     source_candidate_count: int = 0
     target_candidate_count: int = 0
+    # What the chosen target file leaves for the model, and how the other
+    # candidates for this episode would have compared. Best first.
+    target_alignment: list[TargetAlignment] = field(default_factory=list)
 
 
 @dataclass

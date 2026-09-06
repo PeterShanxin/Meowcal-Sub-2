@@ -2,11 +2,29 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pysubs2
 
 from meocosub2.models import SubtitleLine, SubtitlePair
+
+
+@dataclass(frozen=True)
+class AlignmentReport:
+    """How much of the source file a target file actually answers.
+
+    Two subtitle files for one episode rarely carry the same lines, and the
+    difference is not small: measured across four English candidates for one
+    episode, the worst left 20 of 450 cues unanswered against the best one's
+    single cue. Every unanswered cue is time the plate spends holding the
+    previous line, or a line the local model has to write instead of a
+    translator, so the difference is worth putting in front of the viewer.
+    """
+
+    total_cues: int
+    unpaired_cues: int
+    unpaired_ms: int
 
 
 def load_subtitle_file(path: Path) -> list[SubtitleLine]:
@@ -35,6 +53,22 @@ def load_subtitle_file(path: Path) -> list[SubtitleLine]:
             )
         )
     return lines
+
+
+def alignment_report(source: list[SubtitleLine], target: list[SubtitleLine]) -> AlignmentReport:
+    """What this target file would leave unanswered, without pairing anything.
+
+    Runs against a copy, so asking about a candidate the viewer did not choose
+    cannot disturb the lines the session is actually going to play.
+    """
+    trial = [replace(line, translated="") for line in source]
+    assign_target_translations(trial, target)
+    unpaired = [line for line in trial if line.text and not line.translated]
+    return AlignmentReport(
+        total_cues=len(trial),
+        unpaired_cues=len(unpaired),
+        unpaired_ms=sum(line.end_ms - line.start_ms for line in unpaired),
+    )
 
 
 def align_subtitles(source: list[SubtitleLine], target: list[SubtitleLine]) -> SubtitlePair:

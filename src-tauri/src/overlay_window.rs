@@ -82,8 +82,8 @@ pub fn plate_bounds(
 const DOCK_MARGIN_CSS: f64 = 16.0;
 /// The dock at rest: a bead the viewer can find but not trip over.
 pub const DOCK_COLLAPSED_CSS: f64 = 44.0;
-/// The dock with the pointer on it, wide enough for the three controls.
-pub const DOCK_EXPANDED_CSS: f64 = 284.0;
+/// The dock with the pointer on it, wide enough for every control.
+pub const DOCK_EXPANDED_CSS: f64 = 380.0;
 /// The dock's height, which does not change.
 pub const DOCK_HEIGHT_CSS: f64 = 44.0;
 
@@ -403,7 +403,7 @@ mod tests {
     #[test]
     fn the_dock_sits_in_the_top_right_corner() {
         let (position, size) = dock_bounds((0, 0), (1920, 1080), 1.0);
-        assert_eq!(size.width, 284);
+        assert_eq!(size.width, 380);
         assert_eq!(position.y, 16);
         assert_eq!(position.x + size.width as i32, 1920 - 16);
     }
@@ -440,13 +440,15 @@ mod tests {
 
     #[test]
     fn an_animation_starts_where_it_was_and_ends_where_it_was_asked_to() {
-        assert_eq!(tween(44.0, 284.0, 0, 20), 44.0);
-        assert_eq!(tween(44.0, 284.0, 20, 20), 284.0);
+        let (bead, open) = (DOCK_COLLAPSED_CSS, DOCK_EXPANDED_CSS);
+        assert_eq!(tween(bead, open, 0, 20), bead);
+        assert_eq!(tween(bead, open, 20, 20), open);
     }
 
     #[test]
     fn an_animation_covers_most_of_its_travel_early() {
-        assert!(tween(44.0, 284.0, 10, 20) > (44.0 + 284.0) / 2.0);
+        let (bead, open) = (DOCK_COLLAPSED_CSS, DOCK_EXPANDED_CSS);
+        assert!(tween(bead, open, 10, 20) > (bead + open) / 2.0);
     }
 
     #[test]

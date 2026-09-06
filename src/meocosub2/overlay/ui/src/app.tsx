@@ -773,6 +773,28 @@ export function App(): JSX.Element {
     };
   }, [startSync]);
 
+  // Presses queue behind each other rather than racing. Finding the right
+  // offset is done by pressing repeatedly, and each press sends an absolute
+  // value read from the stored config - so two presses that overlap both read
+  // the offset before either of them, and the second one lands on the value the
+  // first was already asking for.
+  const biasWrites = useRef<Promise<void>>(Promise.resolve());
+  const onAdjustBias = useCallback((deltaMs: number) => {
+    biasWrites.current = biasWrites.current.then(async () => {
+      const current = store.get().config;
+      if (!current) return;
+      // The backend is the authority on the range and the step: it answers with
+      // the offset it actually stored, which is what the dock then reads.
+      try {
+        const saved = await api.putConfig({ sync: { biasMs: current.sync.biasMs + deltaMs } });
+        store.set({ config: saved });
+        logClientEvent("ui.sync.bias_changed", { biasMs: saved.sync.biasMs });
+      } catch (err) {
+        store.set({ error: err instanceof Error ? err.message : String(err) });
+      }
+    });
+  }, []);
+
   const onChangeLang = useCallback(
     async (type: "source" | "target", code: string) => {
       const current = store.get().config;
@@ -1250,6 +1272,7 @@ export function App(): JSX.Element {
               source={sources.find((s) => s.id === selectedSourceId) ?? null}
               target={targets.find((t) => t.id === selectedTargetId) ?? null}
               prepared={snapshot?.prepared_session ?? null}
+              onPickTarget={(resultId) => void onPickTarget(resultId)}
             />
             <PreviewCard line={liveLines[liveLines.length - 1] ?? null} />
           </div>
@@ -1257,6 +1280,8 @@ export function App(): JSX.Element {
 
         {phase === "live" && (
           <LiveView
+            biasMs={config?.sync.biasMs ?? 0}
+            onAdjustBias={onAdjustBias}
             onStop={() => void clearSession()}
             onSelectRegion={() => void tauri.openAreaSelector()}
             onOpenSettings={openSettings}

@@ -446,7 +446,14 @@ async def test_cues_changing_faster_than_a_poll_are_all_drawn(monkeypatch) -> No
     sync_module.capture_region = lambda region: MagicMock()
     try:
         loop = asyncio.create_task(run_session_loop(session, config(), broadcast))
-        await asyncio.sleep(0.45)
+        # Waited for rather than timed. A fixed window measures how quickly the
+        # runner gets the first match anchored as much as it measures the
+        # scheduling, and the last cue is drawn 60ms after the one before it.
+        # An implementation that polls still never produces the middle cue,
+        # however long this waits.
+        deadline = monotonic() + 5.0
+        while len([text for text in broadcasts if text]) < 3 and monotonic() < deadline:
+            await asyncio.sleep(0.01)
         loop.cancel()
         with pytest.raises(asyncio.CancelledError):
             await loop
@@ -549,3 +556,246 @@ async def test_a_session_without_the_matching_model_still_matches_on_wording() -
 
     assert result is not None and result.text == "再见"
     assert result.detail["matchBy"] == "text"
+
+
+async def test_the_viewer_can_shift_the_plate_off_the_measured_lag() -> None:
+    """A player the measurement did not cover leaves the plate consistently off.
+
+    The offset the dock sets and the measured lag answer the same question, so
+    they add: raising it moves the clock forward and each line arrives sooner.
+    """
+    lines = [
+        SubtitleLine(index=0, start_ms=0, end_ms=5_000, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=5_000, end_ms=9_000, text="Goodbye now", translated="再见"),
+    ]
+    bias_ms = 0
+    session = CandidateSession(
+        [make_candidate("a", lines)],
+        config(),
+        never_translates(),
+        bias_source=lambda: bias_ms,
+    )
+    assert await session.match("Hello there") is not None
+
+    now = monotonic() + 5.0
+    unshifted = session.clock_ms(now)
+    assert unshifted is not None
+
+    # Read rather than captured, so the dock retimes a session already running.
+    bias_ms = 900
+    shifted = session.clock_ms(now)
+    assert shifted is not None
+    assert shifted - unshifted == 900
+
+
+async def test_asking_for_a_later_plate_is_not_swallowed_by_the_anchor_floor() -> None:
+    """The floor guards a match against the measured lag, not against the viewer.
+
+    Just after a match the floor binds, and folding the offset inside it left the
+    minus button doing nothing for the 650ms-plus that follows every match -
+    which, against cues that run a couple of seconds, was most of the time.
+    """
+    lines = [
+        SubtitleLine(index=0, start_ms=0, end_ms=5_000, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=5_000, end_ms=9_000, text="Goodbye now", translated="再见"),
+    ]
+    bias_ms = 0
+    session = CandidateSession(
+        [make_candidate("a", lines)],
+        config(),
+        never_translates(),
+        bias_source=lambda: bias_ms,
+    )
+    assert await session.match("Hello there") is not None
+
+    # Half a second past the match, which is where the floor is holding.
+    now = monotonic() + 0.5
+    held = session.clock_ms(now)
+    assert held is not None
+
+    bias_ms = -900
+    later = session.clock_ms(now)
+    assert later is not None
+    assert later == held - 900
+
+
+async def _ready(translator: "_FakeTranslator") -> "_FakeTranslator":
+    return translator
+
+
+class _FakeTranslator:
+    """Stands in for the engine, recording what the filler asked it."""
+
+    def __init__(self) -> None:
+        self.filled: list[str] = []
+
+    async def translate(self, text: str) -> str:
+        return f"live {text}"
+
+    async def translate_from_file(self, text: str, pairs: list[tuple[str, str]]) -> str:
+        self.filled.append(text)
+        return f"filled {text}"
+
+
+def _gapped_candidate(result_id: str, *, with_target: bool) -> SourceSubtitleCandidate:
+    """One answered cue and one the target file has nothing over."""
+    candidate = make_candidate(
+        result_id,
+        [
+            SubtitleLine(index=0, start_ms=0, end_ms=3000, text="Hello there", translated="你好"),
+            SubtitleLine(index=1, start_ms=3000, end_ms=6000, text="Goodbye now", translated=""),
+        ],
+    )
+    if with_target:
+        candidate.pair.target_lines = [
+            SubtitleLine(index=0, start_ms=0, end_ms=3000, text="你好", translated="")
+        ]
+    return candidate
+
+
+async def test_a_session_with_a_target_file_fills_what_it_left_unpaired() -> None:
+    translator = _FakeTranslator()
+    session = CandidateSession(
+        [_gapped_candidate("a", with_target=True)], config(), lambda: _ready(translator)
+    )
+
+    await drive(session, config(), ["Hello there"])
+
+    assert translator.filled == ["Goodbye now"]
+
+
+async def test_a_session_without_a_target_file_never_fills_ahead() -> None:
+    """Without a target file every cue is unanswered, so there is no gap to fill.
+
+    Treating them as gaps would spend the single-slot engine on the opening of
+    the file while the viewer waits on the read in front of them - which is the
+    whole of what a session with no target file is doing.
+    """
+    translator = _FakeTranslator()
+    session = CandidateSession(
+        [_gapped_candidate("a", with_target=False)], config(), lambda: _ready(translator)
+    )
+
+    await drive(session, config(), ["Hello there"])
+
+    assert translator.filled == []
+
+
+async def test_filling_moves_to_the_candidate_the_session_locks_onto_next() -> None:
+    """A session can let one candidate go and lock another mid-fill.
+
+    The fill stops there, because the file it was answering is no longer drawn.
+    Without picking the new one up, the file the viewer is actually reading keeps
+    its gaps for the rest of the episode.
+    """
+    translator = _FakeTranslator()
+    first = _gapped_candidate("a", with_target=True)
+    second = _gapped_candidate("b", with_target=True)
+    session = CandidateSession([first, second], config(), lambda: _ready(translator))
+    session._locked = "a"
+
+    relocked = False
+
+    async def translate_from_file(text: str, pairs: list[tuple[str, str]]) -> str:
+        nonlocal relocked
+        translator.filled.append(text)
+        if not relocked:
+            relocked = True
+            session._locked = "b"
+        return f"filled {text}"
+
+    session.translate_from_file = translate_from_file
+
+    await drive(session, config(), ["Hello there"] * 12)
+
+    # Once for the file it started on, once for the one it was moved to.
+    assert translator.filled == ["Goodbye now", "Goodbye now"]
+    assert second.pair.source_lines[1].translated == "filled Goodbye now"
+
+
+async def test_a_candidate_that_wins_again_gets_the_gaps_its_first_pass_left(monkeypatch) -> None:
+    """Coming back to a file is not the same as having finished it.
+
+    A session lets a candidate go when reads stop agreeing with it and takes it
+    again when they do. Remembering only which file was filled last leaves the
+    rest of that file's gaps unfilled for the episode, because the list it hands
+    back on the way back is the same object it handed back before.
+    """
+    import meocosub2.sync as sync_module
+
+    # The watcher's pacing, not its behaviour: this test cannot spend a second
+    # of wall clock waiting for the look that finds the candidate locked again.
+    monkeypatch.setattr(sync_module, "FOLLOW_POLL_S", 0)
+
+    translator = _FakeTranslator()
+    candidate = make_candidate(
+        "a",
+        [
+            SubtitleLine(index=0, start_ms=0, end_ms=2000, text="Hello there", translated="你好"),
+            SubtitleLine(index=1, start_ms=2000, end_ms=4000, text="first gap", translated=""),
+            SubtitleLine(index=2, start_ms=4000, end_ms=6000, text="second gap", translated=""),
+        ],
+    )
+    candidate.pair.target_lines = [
+        SubtitleLine(index=0, start_ms=0, end_ms=2000, text="你好", translated="")
+    ]
+    session = CandidateSession([candidate], config(), lambda: _ready(translator))
+
+    async def translate_from_file(text: str, pairs: list[tuple[str, str]]) -> str:
+        translator.filled.append(text)
+        if len(translator.filled) == 1:
+            # Reads stop agreeing, so the session lets the candidate go. The
+            # pass ends there with the second gap unanswered.
+            session._locked = None
+        return f"filled {text}"
+
+    session.translate_from_file = translate_from_file
+
+    matched = 0
+    original_match = session.match
+
+    async def match(ocr_text: str, follow: bool = True):
+        nonlocal matched
+        matched += 1
+        if matched > 3:
+            # Reads agree with it again.
+            session._locked = "a"
+        return await original_match(ocr_text, follow=follow)
+
+    session.match = match
+
+    await drive(session, config(), ["Hello there"] * 20)
+
+    assert translator.filled == ["first gap", "second gap"]
+
+
+async def test_the_renderer_does_not_sleep_past_a_retime(monkeypatch) -> None:
+    """Changing the offset moves every boundary the renderer already worked out.
+
+    Nothing tells it so, and it can be asleep until a cue boundary seconds away,
+    so without a bound on that sleep the plate ignores the dock until the sleep
+    it was already in runs out.
+    """
+    import meocosub2.sync as sync_module
+
+    lines = [
+        SubtitleLine(index=0, start_ms=0, end_ms=60_000, text="Hello there", translated="你好"),
+        SubtitleLine(
+            index=1, start_ms=60_000, end_ms=120_000, text="Goodbye now", translated="再见"
+        ),
+    ]
+    bias_ms = 0
+    session = CandidateSession(
+        [make_candidate("a", lines)],
+        config(),
+        never_translates(),
+        bias_source=lambda: bias_ms,
+    )
+    assert await session.match("Hello there") is not None
+
+    # The next boundary is a minute out, which is what the renderer would sleep
+    # for. The offset reaches across it.
+    assert session.seconds_to_next_line() > sync_module.RETIME_CHECK_S
+    bias_ms = 61_000
+    line = session.line_now()
+    assert line is not None and line.text == "再见"

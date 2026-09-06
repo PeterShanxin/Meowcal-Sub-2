@@ -74,6 +74,15 @@ export interface BackendPreparedSession {
   used_translation: boolean;
   source_candidate_count: number;
   target_candidate_count: number;
+  target_alignment: BackendTargetAlignment[];
+}
+
+export interface BackendTargetAlignment {
+  result_id: string;
+  file_name: string;
+  unpaired_cues: number;
+  unpaired_ms: number;
+  chosen: boolean;
 }
 
 export interface BackendProgress {
@@ -106,6 +115,7 @@ export interface BackendConfig {
   translation: {
     timeoutS: number;
   };
+  sync: { biasMs: number };
   overlay: Record<string, unknown>;
   debug: { mode: boolean };
 }

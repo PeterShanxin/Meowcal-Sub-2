@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from meocosub2.config import AppConfig
+from meocosub2.engine import EngineInstallError
+from meocosub2.errors import TranslationError
 from meocosub2.models import PreparedRuntime, SearchRequest
 from meocosub2.overlay.controller import GuiController
 from meocosub2.subtitle_sources.types import (
@@ -74,10 +76,14 @@ async def test_install_ocr_language_reports_failure_when_language_stays_unavaila
     assert "not available" in payload["message"].lower()
 
 
-@pytest.mark.asyncio
-async def test_prepare_session_downloads_non_opensubtitles_result(tmp_path: Path, mocker) -> None:
+def _pair_controller(tmp_path: Path, mocker) -> tuple[GuiController, AsyncMock, AsyncMock]:
+    """A controller ready to prepare a source/target subtitle pair.
+
+    Returns it with the patched engine start and the patched download, so a
+    test can assert on either without rebuilding the catalog.
+    """
     controller = make_controller(tmp_path / "config.toml")
-    mocker.patch(
+    warm = mocker.patch(
         "meocosub2.overlay.controller.engine.ensure_ready",
         new=AsyncMock(return_value="http://127.0.0.1:11436"),
     )
@@ -172,6 +178,12 @@ async def test_prepare_session_downloads_non_opensubtitles_result(tmp_path: Path
         "download",
         side_effect=[source_path, target_path],
     )
+    return controller, warm, download
+
+
+@pytest.mark.asyncio
+async def test_prepare_session_downloads_non_opensubtitles_result(tmp_path: Path, mocker) -> None:
+    controller, _, download = _pair_controller(tmp_path, mocker)
 
     payload = await controller.prepare_session(
         mode="subtitle_pair",
@@ -189,10 +201,72 @@ async def test_prepare_session_downloads_non_opensubtitles_result(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_preparing_a_pair_starts_the_engine_the_opening_lines_need(
+    tmp_path: Path, mocker
+) -> None:
+    """The model answers until a match anchors the clock, target file or not."""
+    controller, warm, _ = _pair_controller(tmp_path, mocker)
+
+    await controller.prepare_session(
+        mode="subtitle_pair",
+        feature_id="match-1",
+        source_file_id="result-1",
+        target_file_id="result-2",
+    )
+
+    assert warm.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_a_pair_with_a_target_file_prepares_without_the_translation_engine(
+    tmp_path: Path, mocker
+) -> None:
+    """The file carries the session, so a missing engine costs lines, not the session.
+
+    Only the opening lines and the cues the target file has no answer for want
+    the model. Refusing to prepare over those would take a session that plays
+    away from every viewer who has not downloaded the engine.
+    """
+    controller, warm, _ = _pair_controller(tmp_path, mocker)
+    warm.side_effect = EngineInstallError("Local translation is not installed yet.")
+
+    payload = await controller.prepare_session(
+        mode="subtitle_pair",
+        feature_id="match-1",
+        source_file_id="result-1",
+        target_file_id="result-2",
+    )
+
+    assert payload["session_mode"] == "subtitle_pair"
+    assert "not installed" in controller.state_snapshot()["warning_message"]
+
+
+@pytest.mark.asyncio
+async def test_a_pair_without_a_target_file_will_not_prepare_without_the_engine(
+    tmp_path: Path, mocker
+) -> None:
+    """With no target file the model is the only answer, so the failure stands."""
+    controller, warm, _ = _pair_controller(tmp_path, mocker)
+    warm.side_effect = EngineInstallError("Local translation is not installed yet.")
+
+    with pytest.raises(TranslationError):
+        await controller.prepare_session(
+            mode="subtitle_pair",
+            feature_id="match-1",
+            source_file_id="result-1",
+            target_file_id=None,
+        )
+
+
+@pytest.mark.asyncio
 async def test_prepare_auto_candidate_session_downloads_top_sources_and_best_target(
     tmp_path: Path, mocker
 ) -> None:
     controller = make_controller(tmp_path / "config.toml")
+    mocker.patch(
+        "meocosub2.overlay.controller.engine.ensure_ready",
+        new=AsyncMock(return_value="http://127.0.0.1:11436"),
+    )
     source_a = tmp_path / "source-a.srt"
     source_a.write_text("1\n00:00:01,000 --> 00:00:02,000\nhello there\n", encoding="utf-8")
     source_b = tmp_path / "source-b.srt"
@@ -1321,3 +1395,146 @@ async def test_starting_without_a_capture_region_is_refused(tmp_path: Path) -> N
 
     with pytest.raises(ValueError, match="capture region"):
         await controller.start_session()
+
+
+def _add_rival_target(controller: GuiController, result_id: str, file_name: str) -> None:
+    """A second English subtitle for the same episode, for the alignment weigh-in."""
+    rival = replace(
+        controller._search_catalog.results[1],
+        result_id=result_id,
+        file_name=file_name,
+        download_count=5,
+    )
+    controller._search_catalog = replace(
+        controller._search_catalog,
+        results=[*controller._search_catalog.results, rival],
+    )
+    controller._state.search_results = [
+        *controller._state.search_results,
+        {
+            "id": result_id,
+            "resultId": result_id,
+            "matchId": "match-1",
+            "provider": "opensubtitles",
+            "providerLabel": "OpenSubtitles",
+            "language": "en",
+            "fileName": file_name,
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_better_aligned_target_is_reported_ahead_of_the_chosen_one(
+    tmp_path: Path, mocker
+) -> None:
+    """The viewer's pick stands; they are shown what it costs them."""
+    controller, _, download = _pair_controller(tmp_path, mocker)
+    _add_rival_target(controller, "result-3", "rival.srt")
+
+    source = tmp_path / "two-line-source.srt"
+    source.write_text(
+        "1\n00:00:00,000 --> 00:00:02,000\ns0\n\n2\n00:00:03,000 --> 00:00:05,000\ns1\n",
+        encoding="utf-8",
+    )
+    chosen = tmp_path / "half.srt"
+    chosen.write_text("1\n00:00:00,000 --> 00:00:02,000\nt0\n", encoding="utf-8")
+    rival = tmp_path / "whole.srt"
+    rival.write_text(
+        "1\n00:00:00,000 --> 00:00:02,000\nt0\n\n2\n00:00:03,000 --> 00:00:05,000\nt1\n",
+        encoding="utf-8",
+    )
+    download.side_effect = [source, chosen, rival]
+
+    payload = await controller.prepare_session(
+        mode="subtitle_pair",
+        feature_id="match-1",
+        source_file_id="result-1",
+        target_file_id="result-2",
+    )
+
+    alignment = payload["target_alignment"]
+    assert [entry["result_id"] for entry in alignment] == ["result-3", "result-2"]
+    assert alignment[0]["unpaired_cues"] == 0
+    assert alignment[1]["unpaired_cues"] == 1
+    assert alignment[1]["unpaired_ms"] == 2000
+    assert alignment[1]["chosen"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_candidate_that_will_not_download_is_left_out_rather_than_fatal(
+    tmp_path: Path, mocker
+) -> None:
+    """The weigh-in is advice arriving during preparation, not a step of it."""
+    controller, _, download = _pair_controller(tmp_path, mocker)
+    _add_rival_target(controller, "result-3", "rival.srt")
+
+    source = tmp_path / "source-again.srt"
+    source.write_text("1\n00:00:00,000 --> 00:00:02,000\ns0\n", encoding="utf-8")
+    chosen = tmp_path / "chosen-again.srt"
+    chosen.write_text("1\n00:00:00,000 --> 00:00:02,000\nt0\n", encoding="utf-8")
+    download.side_effect = [source, chosen, RuntimeError("provider is down")]
+
+    payload = await controller.prepare_session(
+        mode="subtitle_pair",
+        feature_id="match-1",
+        source_file_id="result-1",
+        target_file_id="result-2",
+    )
+
+    assert payload["session_mode"] == "subtitle_pair"
+    assert [entry["result_id"] for entry in payload["target_alignment"]] == ["result-2"]
+
+
+def _weighable_pair(tmp_path: Path, mocker):
+    """A controller with a rival target file and the three downloads it needs."""
+    controller, _, download = _pair_controller(tmp_path, mocker)
+    _add_rival_target(controller, "result-3", "rival.srt")
+    source = tmp_path / "weigh-source.srt"
+    source.write_text("1\n00:00:00,000 --> 00:00:02,000\ns0\n", encoding="utf-8")
+    chosen = tmp_path / "weigh-chosen.srt"
+    chosen.write_text("1\n00:00:00,000 --> 00:00:02,000\nt0\n", encoding="utf-8")
+    rival = tmp_path / "weigh-rival.srt"
+    rival.write_text("1\n00:00:00,000 --> 00:00:02,000\nt0\n", encoding="utf-8")
+    download.side_effect = [source, chosen, rival]
+    return controller, download
+
+
+@pytest.mark.asyncio
+async def test_a_low_download_allowance_is_not_spent_weighing_rival_targets(
+    tmp_path: Path, mocker
+) -> None:
+    """Advice must not use up what the viewer needs in order to watch anything.
+
+    OpenSubtitles meters downloads by the day, and weighing a rival costs one.
+    A session the viewer can already run is worth more than knowing whether a
+    different file would have run it better.
+    """
+    controller, download = _weighable_pair(tmp_path, mocker)
+    mocker.patch.object(controller._aggregator, "downloads_remaining", return_value=1)
+
+    await controller.prepare_session(
+        mode="subtitle_pair",
+        feature_id="match-1",
+        source_file_id="result-1",
+        target_file_id="result-2",
+    )
+
+    # The source and the target the viewer chose, and nothing for the comparison.
+    assert download.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_a_provider_that_does_not_meter_downloads_still_gets_weighed(
+    tmp_path: Path, mocker
+) -> None:
+    controller, download = _weighable_pair(tmp_path, mocker)
+    mocker.patch.object(controller._aggregator, "downloads_remaining", return_value=None)
+
+    await controller.prepare_session(
+        mode="subtitle_pair",
+        feature_id="match-1",
+        source_file_id="result-1",
+        target_file_id="result-2",
+    )
+
+    assert download.await_count == 3
