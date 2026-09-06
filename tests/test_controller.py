@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from meocosub2.config import AppConfig
+from meocosub2.engine import EngineInstallError
+from meocosub2.errors import TranslationError
 from meocosub2.models import PreparedRuntime, SearchRequest
 from meocosub2.overlay.controller import GuiController
 from meocosub2.subtitle_sources.types import (
@@ -216,10 +218,55 @@ async def test_preparing_a_pair_starts_the_engine_the_opening_lines_need(
 
 
 @pytest.mark.asyncio
+async def test_a_pair_with_a_target_file_prepares_without_the_translation_engine(
+    tmp_path: Path, mocker
+) -> None:
+    """The file carries the session, so a missing engine costs lines, not the session.
+
+    Only the opening lines and the cues the target file has no answer for want
+    the model. Refusing to prepare over those would take a session that plays
+    away from every viewer who has not downloaded the engine.
+    """
+    controller, warm, _ = _pair_controller(tmp_path, mocker)
+    warm.side_effect = EngineInstallError("Local translation is not installed yet.")
+
+    payload = await controller.prepare_session(
+        mode="subtitle_pair",
+        feature_id="match-1",
+        source_file_id="result-1",
+        target_file_id="result-2",
+    )
+
+    assert payload["session_mode"] == "subtitle_pair"
+    assert "not installed" in controller.state_snapshot()["warning_message"]
+
+
+@pytest.mark.asyncio
+async def test_a_pair_without_a_target_file_will_not_prepare_without_the_engine(
+    tmp_path: Path, mocker
+) -> None:
+    """With no target file the model is the only answer, so the failure stands."""
+    controller, warm, _ = _pair_controller(tmp_path, mocker)
+    warm.side_effect = EngineInstallError("Local translation is not installed yet.")
+
+    with pytest.raises(TranslationError):
+        await controller.prepare_session(
+            mode="subtitle_pair",
+            feature_id="match-1",
+            source_file_id="result-1",
+            target_file_id=None,
+        )
+
+
+@pytest.mark.asyncio
 async def test_prepare_auto_candidate_session_downloads_top_sources_and_best_target(
     tmp_path: Path, mocker
 ) -> None:
     controller = make_controller(tmp_path / "config.toml")
+    mocker.patch(
+        "meocosub2.overlay.controller.engine.ensure_ready",
+        new=AsyncMock(return_value="http://127.0.0.1:11436"),
+    )
     source_a = tmp_path / "source-a.srt"
     source_a.write_text("1\n00:00:01,000 --> 00:00:02,000\nhello there\n", encoding="utf-8")
     source_b = tmp_path / "source-b.srt"

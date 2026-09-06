@@ -64,13 +64,14 @@ Raised so far, all of them by live testing against a real player:
 | `config.py` | 502 | 535 | a timing offset the viewer sets, normalised on every way in |
 | `sync.py` | 634 | 702 | the viewer's offset at the clock's single entry point, and the task that answers the cues the target file left unpaired |
 | `overlay/ui/src/app.tsx` | 1494 | 1511 | handing the dock the offset, and the prep card a way to take a better-aligned target |
+| `overlay/controller.py` | 1785 | 1809 | letting a session with a target file prepare when the translation engine is missing, and saying what that costs |
 | `src-tauri/src/overlay_window.rs` | 467 | 469 | a dock wide enough for the timing control |
 
 The four largest are the ones worth naming, because they are where the work is:
 
 | File | Lines | What it holds |
 | --- | ---: | --- |
-| `overlay/controller.py` | 1,785 | session lifecycle, search orchestration, config, engine startup |
+| `overlay/controller.py` | 1,809 | session lifecycle, search orchestration, config, engine startup |
 | `overlay/ui/src/app.tsx` | 1,511 | the studio's whole screen state |
 | `overlay/ui/src/components/palette.tsx` | 1,478 | the search palette |
 | `subtitle_sources/aggregator.py` | 1,446 | provider-neutral search aggregation |

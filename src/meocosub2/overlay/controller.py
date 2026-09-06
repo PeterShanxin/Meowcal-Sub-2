@@ -77,6 +77,13 @@ TARGET_ALIGNMENT_SAMPLE = 3
 # budget rather than a provider's timeout. Whatever is weighed inside it is
 # reported; the rest is simply not mentioned.
 TARGET_ALIGNMENT_BUDGET_S = 15.0
+# Shown when the engine is missing but the target file can carry the session on
+# its own. It names what is lost rather than what failed: the viewer sees blank
+# stretches, and nothing else in the app explains them.
+NO_ENGINE_WARNING = (
+    "Local translation is not installed, so lines before the first match and cues the "
+    "target subtitles have no answer for will stay blank. Run setup from Settings to add it."
+)
 
 
 def search_result_payload(result: AggregatedSubtitleResult) -> dict[str, object]:
@@ -994,7 +1001,7 @@ class GuiController:
                 # Matched lines are translated as they appear rather than up front:
                 # a local 1.8B model needs hours for a whole subtitle file.
                 used_translation = True
-            await self._start_translation_engine()
+            engine_warning = await self._start_translation_engine(required=used_translation)
         except Exception as exc:
             await self._set_error(str(exc))
             raise
@@ -1069,8 +1076,14 @@ class GuiController:
             self._state.progress = AppProgress(
                 stage="ready", message="Session prepared.", current=1, total=1
             )
+            warnings = []
             if session.source_language_mode != "exact":
-                self._state.warning_message = "Using a Chinese-family source subtitle fallback because no exact source language match was available."
+                warnings.append(
+                    "Using a Chinese-family source subtitle fallback because no exact source language match was available."
+                )
+            if engine_warning:
+                warnings.append(engine_warning)
+            self._state.warning_message = " ".join(warnings)
         await self._emit_app_state()
         await self._emit_app_progress()
         return asdict(session)
@@ -1154,7 +1167,7 @@ class GuiController:
                 for candidate in source_candidates:
                     candidate.pair.target_lines = target_lines
                     assign_target_translations(candidate.pair.source_lines, target_lines)
-            await self._start_translation_engine()
+            engine_warning = await self._start_translation_engine(required=not target_lines)
         except Exception as exc:
             await self._set_error(str(exc))
             raise
@@ -1232,6 +1245,8 @@ class GuiController:
                 warnings.append(
                     "No target subtitle matched the requested language. The session will translate matched source lines live."
                 )
+            if engine_warning:
+                warnings.append(engine_warning)
             self._state.warning_message = " ".join(warnings)
         await self._emit_app_state()
         await self._emit_app_progress()
@@ -1272,7 +1287,7 @@ class GuiController:
         await self._emit_app_progress()
 
         try:
-            await self._start_translation_engine()
+            await self._start_translation_engine(required=True)
 
             target_path: Path | None = None
             target_lines = []
@@ -1420,18 +1435,27 @@ class GuiController:
             with suppress(asyncio.CancelledError):
                 await task
 
-    async def _start_translation_engine(self) -> None:
+    async def _start_translation_engine(self, *, required: bool) -> str:
         """Have the engine running before the session that needs it starts.
 
         Called while preparing whatever the target file turned out to be. Until a
         match anchors the clock the model is the only thing that can fill the
         plate, and starting it on the first read spends that whole window
         loading; it also answers the lines the target file has none for.
+
+        A session with a target file still plays without it, so a missing engine
+        is reported and stepped over. Returns the warning to show, empty when the
+        engine is up. Where nothing but the model can fill the plate the same
+        failure ends preparation, because the session would show nothing at all.
         """
         try:
             await engine.ensure_ready()
         except (engine.EngineStartError, engine.EngineInstallError) as exc:
-            raise TranslationError(str(exc)) from exc
+            if required:
+                raise TranslationError(str(exc)) from exc
+            logger.warning("Preparing without local translation: %s", exc)
+            return NO_ENGINE_WARNING
+        return ""
 
     async def _run_sync_loop(self, runtime: PreparedRuntime, config: AppConfig) -> None:
         # Debug events ride alongside the normal broadcast path so the dashboard
