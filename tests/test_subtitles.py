@@ -1,7 +1,12 @@
 from pathlib import Path
 
 from meocosub2.models import SubtitleLine
-from meocosub2.subtitles import align_subtitles, assign_target_translations, load_subtitle_file
+from meocosub2.subtitles import (
+    align_subtitles,
+    alignment_report,
+    assign_target_translations,
+    load_subtitle_file,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -73,3 +78,50 @@ def test_assign_target_translations_prefers_smallest_midpoint_delta_when_no_over
     assign_target_translations(source, target, max_midpoint_delta_ms=200)
 
     assert source[0].translated == "Near and short"
+
+
+def _cue(index: int, start_ms: int, end_ms: int, text: str) -> SubtitleLine:
+    return SubtitleLine(index=index, start_ms=start_ms, end_ms=end_ms, text=text)
+
+
+def test_a_target_file_that_answers_everything_leaves_nothing_unpaired() -> None:
+    source = [_cue(0, 0, 2000, "s0"), _cue(1, 3000, 5000, "s1")]
+    target = [_cue(0, 0, 2000, "t0"), _cue(1, 3000, 5000, "t1")]
+
+    report = alignment_report(source, target)
+
+    assert report.total_cues == 2
+    assert report.unpaired_cues == 0
+    assert report.unpaired_ms == 0
+
+
+def test_the_report_counts_the_seconds_the_plate_would_hold_the_wrong_line() -> None:
+    # A cue the target file has nothing over is a cue the plate spends showing
+    # the line before it, so the cost is measured in time rather than in lines.
+    source = [_cue(0, 0, 2000, "s0"), _cue(1, 60_000, 64_500, "s1")]
+    target = [_cue(0, 0, 2000, "t0")]
+
+    report = alignment_report(source, target)
+
+    assert report.unpaired_cues == 1
+    assert report.unpaired_ms == 4500
+
+
+def test_reporting_on_a_candidate_leaves_the_session_lines_alone() -> None:
+    # The viewer's own choice is already paired; asking about a rival must not
+    # repair or disturb it.
+    source = [_cue(0, 0, 2000, "s0")]
+    source[0].translated = "chosen"
+
+    alignment_report(source, [_cue(0, 0, 2000, "rival")])
+
+    assert source[0].translated == "chosen"
+
+
+def test_a_target_file_with_no_lines_answers_nothing() -> None:
+    source = [_cue(0, 0, 2000, "s0"), _cue(1, 3000, 5000, "s1")]
+
+    report = alignment_report(source, [])
+
+    assert report.unpaired_cues == 2
+    assert report.unpaired_ms == 4000

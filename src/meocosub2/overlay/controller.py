@@ -35,7 +35,9 @@ from meocosub2.models import (
     PreparedSession,
     SearchRequest,
     SourceSubtitleCandidate,
+    SubtitleLine,
     SubtitlePair,
+    TargetAlignment,
 )
 from meocosub2.semantic import SemanticIndex
 from meocosub2.subtitle_sources import (
@@ -48,7 +50,12 @@ from meocosub2.subtitle_sources import (
     SubtitleSearchAggregator,
 )
 from meocosub2.subtitle_sources.utils import result_id_for
-from meocosub2.subtitles import align_subtitles, assign_target_translations, load_subtitle_file
+from meocosub2.subtitles import (
+    align_subtitles,
+    alignment_report,
+    assign_target_translations,
+    load_subtitle_file,
+)
 from meocosub2.sync import (
     MATCHED,
     CandidateSession,
@@ -62,6 +69,14 @@ logger = logging.getLogger(__name__)
 CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 AUTO_SOURCE_CANDIDATE_LIMIT = 3
 AUTO_TARGET_CANDIDATE_LIMIT = 1
+# How many target files the viewer did not choose are weighed against the source,
+# so they can see whether a better-aligned one was on offer. Each is tens of
+# kilobytes; the point is a comparison, not a survey.
+TARGET_ALIGNMENT_SAMPLE = 3
+# The whole comparison is advice arriving during preparation, so it is given a
+# budget rather than a provider's timeout. Whatever is weighed inside it is
+# reported; the rest is simply not mentioned.
+TARGET_ALIGNMENT_BUDGET_S = 15.0
 
 
 def search_result_payload(result: AggregatedSubtitleResult) -> dict[str, object]:
@@ -984,6 +999,9 @@ class GuiController:
             await self._set_error(str(exc))
             raise
 
+        alignment = await self._weigh_target_candidates(
+            effective_feature_id, target_entry, source_lines, target_lines
+        )
         pair = align_subtitles(source_lines, target_lines)
         session = PreparedSession(
             session_id=uuid4().hex[:8],
@@ -1022,6 +1040,7 @@ class GuiController:
             target_line_count=len(target_lines),
             translated_line_count=sum(1 for line in source_lines if line.translated),
             used_translation=used_translation,
+            target_alignment=alignment,
         )
 
         async with self._lock:
@@ -1516,6 +1535,73 @@ class GuiController:
             )
         )
         return matches[:limit]
+
+    async def _weigh_target_candidates(
+        self,
+        feature_id: str | None,
+        chosen_entry: AggregatedSubtitleResult | None,
+        source_lines: list[SubtitleLine],
+        target_lines: list[SubtitleLine],
+    ) -> list[TargetAlignment]:
+        """How the chosen target file compares with the others for this episode.
+
+        Target files differ by more than an order of magnitude in how much of the
+        source they answer, and every cue they do not answer is one the local
+        model writes instead of a translator. The viewer's choice is never
+        overridden: the comparison is reported and they decide what to do.
+
+        Weighing a rival costs a download, so the whole comparison runs on a
+        budget. A rival that will not arrive in time is simply not mentioned -
+        preparation must not fail, or slow down noticeably, for advice.
+        """
+        if not target_lines or chosen_entry is None:
+            return []
+        chosen = alignment_report(source_lines, target_lines)
+        weighed = [
+            TargetAlignment(
+                result_id=chosen_entry.result_id,
+                file_name=chosen_entry.file_name,
+                provider=chosen_entry.provider_label or chosen_entry.provider,
+                unpaired_cues=chosen.unpaired_cues,
+                unpaired_ms=chosen.unpaired_ms,
+                chosen=True,
+            )
+        ]
+        if feature_id is None:
+            return weighed
+
+        rivals = [
+            entry
+            for entry in self._candidate_results_for_feature(
+                feature_id, self._state.target_language, TARGET_ALIGNMENT_SAMPLE + 1
+            )
+            if entry.result_id != chosen_entry.result_id
+        ][:TARGET_ALIGNMENT_SAMPLE]
+
+        deadline = time.monotonic() + TARGET_ALIGNMENT_BUDGET_S
+        for entry in rivals:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                path = await asyncio.wait_for(self._aggregator.download(entry), remaining)
+                rival_lines = load_subtitle_file(path)
+            except Exception:
+                logger.debug("Could not weigh target candidate %s", entry.result_id, exc_info=True)
+                continue
+            report = alignment_report(source_lines, rival_lines)
+            weighed.append(
+                TargetAlignment(
+                    result_id=entry.result_id,
+                    file_name=entry.file_name,
+                    provider=entry.provider_label or entry.provider,
+                    unpaired_cues=report.unpaired_cues,
+                    unpaired_ms=report.unpaired_ms,
+                )
+            )
+
+        weighed.sort(key=lambda item: (item.unpaired_ms, item.unpaired_cues))
+        return weighed
 
     async def _set_progress(self, stage: str, message: str, current: int, total: int) -> None:
         async with self._lock:

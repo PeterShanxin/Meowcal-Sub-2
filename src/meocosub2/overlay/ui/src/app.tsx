@@ -1264,6 +1264,7 @@ export function App(): JSX.Element {
               source={sources.find((s) => s.id === selectedSourceId) ?? null}
               target={targets.find((t) => t.id === selectedTargetId) ?? null}
               prepared={snapshot?.prepared_session ?? null}
+              onPickTarget={(resultId) => void onPickTarget(resultId)}
             />
             <PreviewCard line={liveLines[liveLines.length - 1] ?? null} />
           </div>

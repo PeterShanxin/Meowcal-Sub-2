@@ -1348,3 +1348,91 @@ async def test_starting_without_a_capture_region_is_refused(tmp_path: Path) -> N
 
     with pytest.raises(ValueError, match="capture region"):
         await controller.start_session()
+
+
+def _add_rival_target(controller: GuiController, result_id: str, file_name: str) -> None:
+    """A second English subtitle for the same episode, for the alignment weigh-in."""
+    rival = replace(
+        controller._search_catalog.results[1],
+        result_id=result_id,
+        file_name=file_name,
+        download_count=5,
+    )
+    controller._search_catalog = replace(
+        controller._search_catalog,
+        results=[*controller._search_catalog.results, rival],
+    )
+    controller._state.search_results = [
+        *controller._state.search_results,
+        {
+            "id": result_id,
+            "resultId": result_id,
+            "matchId": "match-1",
+            "provider": "opensubtitles",
+            "providerLabel": "OpenSubtitles",
+            "language": "en",
+            "fileName": file_name,
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_better_aligned_target_is_reported_ahead_of_the_chosen_one(
+    tmp_path: Path, mocker
+) -> None:
+    """The viewer's pick stands; they are shown what it costs them."""
+    controller, _, download = _pair_controller(tmp_path, mocker)
+    _add_rival_target(controller, "result-3", "rival.srt")
+
+    source = tmp_path / "two-line-source.srt"
+    source.write_text(
+        "1\n00:00:00,000 --> 00:00:02,000\ns0\n\n2\n00:00:03,000 --> 00:00:05,000\ns1\n",
+        encoding="utf-8",
+    )
+    chosen = tmp_path / "half.srt"
+    chosen.write_text("1\n00:00:00,000 --> 00:00:02,000\nt0\n", encoding="utf-8")
+    rival = tmp_path / "whole.srt"
+    rival.write_text(
+        "1\n00:00:00,000 --> 00:00:02,000\nt0\n\n2\n00:00:03,000 --> 00:00:05,000\nt1\n",
+        encoding="utf-8",
+    )
+    download.side_effect = [source, chosen, rival]
+
+    payload = await controller.prepare_session(
+        mode="subtitle_pair",
+        feature_id="match-1",
+        source_file_id="result-1",
+        target_file_id="result-2",
+    )
+
+    alignment = payload["target_alignment"]
+    assert [entry["result_id"] for entry in alignment] == ["result-3", "result-2"]
+    assert alignment[0]["unpaired_cues"] == 0
+    assert alignment[1]["unpaired_cues"] == 1
+    assert alignment[1]["unpaired_ms"] == 2000
+    assert alignment[1]["chosen"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_candidate_that_will_not_download_is_left_out_rather_than_fatal(
+    tmp_path: Path, mocker
+) -> None:
+    """The weigh-in is advice arriving during preparation, not a step of it."""
+    controller, _, download = _pair_controller(tmp_path, mocker)
+    _add_rival_target(controller, "result-3", "rival.srt")
+
+    source = tmp_path / "source-again.srt"
+    source.write_text("1\n00:00:00,000 --> 00:00:02,000\ns0\n", encoding="utf-8")
+    chosen = tmp_path / "chosen-again.srt"
+    chosen.write_text("1\n00:00:00,000 --> 00:00:02,000\nt0\n", encoding="utf-8")
+    download.side_effect = [source, chosen, RuntimeError("provider is down")]
+
+    payload = await controller.prepare_session(
+        mode="subtitle_pair",
+        feature_id="match-1",
+        source_file_id="result-1",
+        target_file_id="result-2",
+    )
+
+    assert payload["session_mode"] == "subtitle_pair"
+    assert [entry["result_id"] for entry in payload["target_alignment"]] == ["result-2"]
