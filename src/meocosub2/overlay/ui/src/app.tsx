@@ -413,7 +413,12 @@ export function App(): JSX.Element {
         error: err instanceof Error ? err.message : String(err),
       });
     } finally {
-      store.set({ inspectingSource: false });
+      // Only the read for the source still chosen may lift the wait. Changing
+      // the source starts a second read, and letting the first one finish for
+      // it opened the list while the answer that reorders it was still coming.
+      if (store.get().selectedSourceId === selectedSourceId) {
+        store.set({ inspectingSource: false });
+      }
     }
   }, []);
 
