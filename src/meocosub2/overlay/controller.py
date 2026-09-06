@@ -1627,11 +1627,18 @@ class GuiController:
             return
         async with self._lock:
             self._state.gap_fill = GapFillProgress(filled=0, total=gaps, active=True)
-        # Registered before the state saying it is running is published. A
-        # target chosen, or Start pressed, during that broadcast would otherwise
-        # find no task to stop and leave this one filling a file nobody wants
-        # against the session that replaced it.
+        # Registered before the state saying it is running is published, and it
+        # cancels whatever it replaces in the same step. A target chosen, or
+        # Start pressed, during that broadcast would otherwise find no task to
+        # stop; and two target picks can be in flight at once, where overwriting
+        # the handle without cancelling would leave the earlier fill running
+        # untracked, holding the engine's one slot for a file nobody chose.
+        previous = self._prefill_task
         self._prefill_task = asyncio.create_task(self._run_prefill(lines))
+        if previous is not None and not previous.done():
+            previous.cancel()
+            with suppress(asyncio.CancelledError):
+                await previous
         await self._emit_app_state()
 
     async def _run_prefill(self, lines: list[SubtitleLine]) -> None:
@@ -1645,7 +1652,7 @@ class GuiController:
             # Nothing is blocked by this: the session still plays off the target
             # file, and its own filler meets the same engine and says so there.
             logger.exception("Answering the target file's gaps before the session failed")
-        await self._prefill_idle()
+        await self._prefill_finished()
 
     async def _report_prefill(self, filled: int) -> None:
         async with self._lock:
@@ -1655,13 +1662,18 @@ class GuiController:
             self._state.gap_fill = replace(current, filled=filled)
         await self._emit_app_state()
 
-    async def _prefill_idle(self) -> None:
-        """Nothing is being answered any more, however the pass ended."""
+    async def _prefill_finished(self) -> None:
+        """Say this pass is over, unless a later preparation has taken over.
+
+        A fill that ends after being replaced is reporting on a file the app has
+        moved on from; letting it publish would say the current fill had stopped.
+        """
         async with self._lock:
+            if self._prefill_task is not asyncio.current_task():
+                return
+            self._prefill_task = None
             if self._state.gap_fill is not None:
                 self._state.gap_fill = replace(self._state.gap_fill, active=False)
-            if self._prefill_task is asyncio.current_task():
-                self._prefill_task = None
         await self._emit_app_state()
 
     async def _stop_prefill(self) -> None:
@@ -1672,7 +1684,10 @@ class GuiController:
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
-        await self._prefill_idle()
+        async with self._lock:
+            if self._state.gap_fill is not None:
+                self._state.gap_fill = replace(self._state.gap_fill, active=False)
+        await self._emit_app_state()
 
     async def _run_sync_loop(self, runtime: PreparedRuntime, config: AppConfig) -> None:
         # Debug events ride alongside the normal broadcast path so the dashboard

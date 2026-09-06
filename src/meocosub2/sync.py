@@ -671,9 +671,7 @@ async def run_session_loop(
                     # It will not answer the next file's gaps either, and asking
                     # is what the viewer's own reads are queueing behind.
                     return
-                # A pass ends early when the lock moves to another candidate,
-                # or when a match places the video and the gaps left want
-                # ordering around it. Both are answered by going round again.
+                # The lock can have moved while that ran, which is what ended it.
                 continue
             await asyncio.sleep(FOLLOW_POLL_S)
 

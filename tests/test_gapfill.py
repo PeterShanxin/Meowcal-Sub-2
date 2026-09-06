@@ -231,28 +231,43 @@ async def test_the_budget_goes_to_what_is_coming_rather_than_what_has_gone_by() 
     assert asked == [f"s{index}" for index in range(10, MAX_FILLED_LINES + 10)]
 
 
-async def test_a_pass_that_began_blind_stops_once_a_match_places_the_video() -> None:
-    """The session's filler starts before the first read, so it starts blind.
-
-    Ending the pass is what lets the caller order the gaps left around the
-    viewer; working through a list built with nowhere to start from can spend
-    the whole budget behind them.
-    """
-    episode = lines(("s0", ""), ("s1", "t1"), ("s2", ""), ("s3", ""))
+async def test_a_match_landing_mid_pass_moves_the_fill_to_the_cues_ahead() -> None:
+    """The session's filler starts before the first read, so it starts blind."""
+    episode = lines(("s0", ""), ("s1", ""), ("s2", "t2"), ("s3", ""), ("s4", ""))
     placed: list[int | None] = [None]
     asked: list[str] = []
 
     async def translate(text: str, pairs: list[tuple[str, str]]) -> str:
         asked.append(text)
-        placed[0] = 2
+        placed[0] = 3
         return f"answered {text}"
 
     outcome = await fill_gaps(
         lambda: episode, translate, lambda: False, unchanged, lambda: placed[0]
     )
 
-    assert asked == ["s0"]
-    assert outcome.completed is False
+    # The first cue was chosen with nowhere to start from; every one after it
+    # was chosen against the position the match established.
+    assert asked == ["s0", "s3", "s4", "s1"]
+    assert outcome.completed is True
+
+
+async def test_a_seek_moves_the_fill_to_where_the_viewer_went() -> None:
+    """The order is chosen per cue, so it is never stale by a whole pass."""
+    episode = lines(("s0", ""), ("s1", ""), ("s2", "t2"), ("s3", ""), ("s4", ""))
+    placed: list[int | None] = [3]
+    asked: list[str] = []
+
+    async def translate(text: str, pairs: list[tuple[str, str]]) -> str:
+        asked.append(text)
+        placed[0] = 0
+        return f"answered {text}"
+
+    await fill_gaps(lambda: episode, translate, lambda: False, unchanged, lambda: placed[0])
+
+    # s4 was next while the viewer sat at cue 3; the seek back to the opening
+    # put the cues they were about to reach in front of it again.
+    assert asked == ["s3", "s0", "s1", "s4"]
 
 
 async def test_a_pass_that_knows_where_the_video_is_runs_to_the_end() -> None:

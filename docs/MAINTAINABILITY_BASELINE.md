@@ -78,8 +78,8 @@ Raised so far, all of them by live testing against a real player:
 | `overlay/ui/src/app.tsx` | 1519 | 1566 | reading the chosen source at the target step, and holding what it found |
 | `overlay/ui/src/components/palette.tsx` | 1478 | 1489 | the target step waiting on that read, and the row it can add |
 | `overlay/controller.py` | 1906 | 1947 | reusing the source the target step fetched, and measuring candidates over what the file already answers |
-| `overlay/controller.py` | 1947 | 2051 | answering the target file's gaps while the app is idle, before a session starts |
-| `sync.py` | 742 | 762 | filling from the cue the video has reached, and wrapping to the ones behind |
+| `overlay/controller.py` | 1947 | 2066 | answering the target file's gaps while the app is idle, before a session starts |
+| `sync.py` | 742 | 760 | filling from the cue the video has reached, and wrapping to the ones behind |
 | `matcher.py` | 544 | 553 | naming the position the video has reached, which `line_at` leaves blank between cues |
 | `overlay/ui/src/app.tsx` | 1580 | 1581 | handing the prep card the count of gaps still to write |
 | `overlay/ui/src/app.tsx` | 1566 | 1580 | keeping the target list unreachable by keyboard while that read is in flight |

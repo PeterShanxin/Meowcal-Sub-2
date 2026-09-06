@@ -9,7 +9,7 @@ import pytest
 from meocosub2.config import AppConfig
 from meocosub2.engine import EngineInstallError
 from meocosub2.errors import TranslationError
-from meocosub2.models import PreparedRuntime, SearchRequest
+from meocosub2.models import GapFillProgress, PreparedRuntime, SearchRequest, SubtitleLine
 from meocosub2.overlay.controller import GuiController
 from meocosub2.subtitle_sources.types import (
     AggregatedEpisode,
@@ -1756,3 +1756,52 @@ async def test_stopping_counts_the_gaps_the_session_answered_for_itself(
     await controller.stop_session()
 
     assert controller.state_snapshot()["gap_fill"] == {"filled": 1, "total": 1, "active": False}
+
+
+def _gapped_lines(text: str) -> list[SubtitleLine]:
+    """One cue already answered and one still waiting, which is a file with holes."""
+    return [
+        SubtitleLine(index=0, start_ms=0, end_ms=900, text=f"{text} 0", translated="answered"),
+        SubtitleLine(index=1, start_ms=10_000, end_ms=10_900, text=f"{text} 1", translated=""),
+    ]
+
+
+async def test_a_second_preparation_cancels_the_fill_the_first_one_started(
+    tmp_path: Path, mocker
+) -> None:
+    """Two target picks can be in flight at once; only one may hold the engine."""
+    asking = asyncio.Event()
+
+    async def fill(lines, config, on_progress) -> None:
+        asking.set()
+        await asyncio.Event().wait()
+
+    mocker.patch("meocosub2.overlay.controller.fill_before_the_session", new=fill)
+    controller = make_controller(tmp_path / "config.toml")
+
+    await controller._start_prefill(_gapped_lines("first"))
+    first = controller._prefill_task
+    await asking.wait()
+    await controller._start_prefill(_gapped_lines("second"))
+
+    assert first.cancelled()
+    assert controller._prefill_task is not None
+    assert controller._prefill_task is not first
+    assert controller.state_snapshot()["gap_fill"]["active"] is True
+
+    await controller._stop_prefill()
+
+
+async def test_a_replaced_fill_ending_does_not_report_the_current_one_stopped(
+    tmp_path: Path,
+) -> None:
+    controller = make_controller(tmp_path / "config.toml")
+    controller._state.gap_fill = GapFillProgress(filled=2, total=5, active=True)
+    owner = asyncio.create_task(asyncio.sleep(0))
+    controller._prefill_task = owner
+
+    await controller._prefill_finished()
+
+    assert controller.state_snapshot()["gap_fill"]["active"] is True
+    assert controller._prefill_task is owner
+    await owner
