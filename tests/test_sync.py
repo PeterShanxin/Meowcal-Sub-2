@@ -446,7 +446,14 @@ async def test_cues_changing_faster_than_a_poll_are_all_drawn(monkeypatch) -> No
     sync_module.capture_region = lambda region: MagicMock()
     try:
         loop = asyncio.create_task(run_session_loop(session, config(), broadcast))
-        await asyncio.sleep(0.45)
+        # Waited for rather than timed. A fixed window measures how quickly the
+        # runner gets the first match anchored as much as it measures the
+        # scheduling, and the last cue is drawn 60ms after the one before it.
+        # An implementation that polls still never produces the middle cue,
+        # however long this waits.
+        deadline = monotonic() + 5.0
+        while len([text for text in broadcasts if text]) < 3 and monotonic() < deadline:
+            await asyncio.sleep(0.01)
         loop.cancel()
         with pytest.raises(asyncio.CancelledError):
             await loop
