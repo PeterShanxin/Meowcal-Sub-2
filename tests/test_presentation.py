@@ -104,23 +104,34 @@ def test_partial_target_overlap_never_becomes_source_fallback() -> None:
 
 def test_ordered_unique_anchors_choose_robust_offset_and_ignore_repeats() -> None:
     source = [
-        line(0, 0, 1000, "s0", "first"),
-        line(1, 2000, 3000, "s1", "repeated"),
-        line(2, 4000, 5000, "s2", "repeated"),
-        line(3, 6000, 7000, "s3", "steady"),
-        line(4, 8000, 9000, "s4", "late"),
+        line(index, index * 2000, index * 2000 + 1000, f"s{index}", f"anchor {index}")
+        for index in range(10)
     ]
     target = [
-        line(0, 900, 1900, "first"),
-        line(1, 2900, 3900, "repeated"),
-        line(2, 4900, 5900, "repeated"),
-        line(3, 6900, 7900, "steady"),
-        line(4, 9300, 10300, "late"),
+        line(
+            index,
+            index * 2000 + (1300 if index == 9 else 900),
+            index * 2000 + (2300 if index == 9 else 1900),
+            f"anchor {index}",
+        )
+        for index in range(10)
     ]
+    source.extend(
+        [
+            line(10, 20_000, 21_000, "s10", "repeated"),
+            line(11, 22_000, 23_000, "s11", "repeated"),
+        ]
+    )
+    target.extend(
+        [
+            line(10, 20_900, 21_900, "repeated"),
+            line(11, 22_900, 23_900, "repeated"),
+        ]
+    )
 
     track = PresentationTrack(source, target)
 
-    assert track.anchor_count == 3
+    assert track.anchor_count == 10
     assert track.offset_ms == 900
 
 
@@ -134,10 +145,83 @@ def test_model_translation_does_not_anchor_and_no_anchors_defaults_to_zero() -> 
     assert track.offset_ms == 0
 
 
+def test_single_unique_phrase_does_not_set_global_offset() -> None:
+    source = [line(0, 0, 1000, "source", "okay")]
+    target = [line(0, 60_000, 61_000, "okay")]
+
+    track = PresentationTrack(source, target)
+
+    assert track.anchor_count == 1
+    assert track.offset_ms == 0
+
+
+def test_two_inconsistent_anchors_default_to_zero_offset() -> None:
+    source = [
+        line(0, 0, 1000, "source one", "first"),
+        line(1, 2000, 3000, "source two", "second"),
+    ]
+    target = [
+        line(0, 60_000, 61_000, "first"),
+        line(1, 122_000, 123_000, "second"),
+    ]
+
+    track = PresentationTrack(source, target)
+
+    assert track.anchor_count == 2
+    assert track.offset_ms == 0
+
+
+def test_agreeing_anchors_at_200_ms_p90_residual_set_global_offset() -> None:
+    source = [
+        line(0, 0, 1000, "source one", "first"),
+        line(1, 2000, 3000, "source two", "second"),
+    ]
+    target = [
+        line(0, 900, 1900, "first"),
+        line(1, 3300, 4300, "second"),
+    ]
+
+    track = PresentationTrack(source, target)
+
+    assert track.anchor_count == 2
+    assert track.offset_ms == 1100
+
+
+def test_anchor_p90_residual_above_200_ms_defaults_to_zero_offset() -> None:
+    source = [
+        line(0, 0, 1000, "source one", "first"),
+        line(1, 2000, 3000, "source two", "second"),
+    ]
+    target = [
+        line(0, 900, 1900, "first"),
+        line(1, 3302, 4302, "second"),
+    ]
+
+    track = PresentationTrack(source, target)
+
+    assert track.anchor_count == 2
+    assert track.offset_ms == 0
+
+
 def test_each_candidate_calculates_its_own_offset() -> None:
-    target = [line(0, 1000, 2000, "shared")]
-    first = PresentationTrack([line(0, 0, 1000, "a", "shared")], target)
-    second = PresentationTrack([line(0, 500, 1500, "b", "shared")], target)
+    target = [
+        line(0, 1000, 2000, "shared first"),
+        line(1, 3000, 4000, "shared second"),
+    ]
+    first = PresentationTrack(
+        [
+            line(0, 0, 1000, "a", "shared first"),
+            line(1, 2000, 3000, "b", "shared second"),
+        ],
+        target,
+    )
+    second = PresentationTrack(
+        [
+            line(0, 500, 1500, "c", "shared first"),
+            line(1, 2500, 3500, "d", "shared second"),
+        ],
+        target,
+    )
 
     assert first.offset_ms == 1000
     assert second.offset_ms == 500

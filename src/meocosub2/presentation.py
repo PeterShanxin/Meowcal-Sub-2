@@ -34,6 +34,9 @@ class _Anchor:
 
 
 _ANCHOR_WORDS = re.compile(r"[^\W_]+", re.UNICODE)
+# The measured shared human cues had a 190 ms P90 residual. Keep automatic
+# calibration inside that agreement band rather than trusting isolated phrases.
+_MAX_ANCHOR_P90_RESIDUAL_MS = 200
 
 
 class PresentationTrack:
@@ -44,11 +47,7 @@ class PresentationTrack:
         self.target_lines = target_lines
         anchors = _ordered_unique_anchors(source_lines, target_lines)
         self.anchor_count = len(anchors)
-        self.offset_ms = (
-            int(round(statistics.median(anchor.offset_twice_ms for anchor in anchors) / 2))
-            if anchors
-            else 0
-        )
+        self.offset_ms = _corroborated_offset_ms(anchors)
 
         self._target_entries = tuple(
             (line, position, line.start_ms - self.offset_ms, line.end_ms - self.offset_ms)
@@ -147,6 +146,17 @@ def _ordered_unique_anchors(
         ]
     ]
     return _longest_ordered_chain(sorted(anchors, key=lambda anchor: anchor.source_position))
+
+
+def _corroborated_offset_ms(anchors: list[_Anchor]) -> int:
+    if len(anchors) < 2:
+        return 0
+    offset_twice_ms = statistics.median(anchor.offset_twice_ms for anchor in anchors)
+    residuals = sorted(abs(anchor.offset_twice_ms - offset_twice_ms) for anchor in anchors)
+    p90_residual_twice_ms = residuals[(len(residuals) * 9 - 1) // 10]
+    if p90_residual_twice_ms > _MAX_ANCHOR_P90_RESIDUAL_MS * 2:
+        return 0
+    return int(round(offset_twice_ms / 2))
 
 
 def _longest_ordered_chain(anchors: list[_Anchor]) -> list[_Anchor]:

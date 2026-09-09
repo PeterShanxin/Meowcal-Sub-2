@@ -389,7 +389,11 @@ class CandidateSession:
     async def _match(self, ocr_text: str) -> tuple[str | None, MatchResult | None]:
         window = self._timeline.window_ms()
         if self._locked is not None:
-            result = await self._matchers[self._locked].match_best(ocr_text, window, self._semantic)
+            matcher = self._matchers[self._locked]
+            # An unchanged read supplies no new evidence against this candidate.
+            if matcher.is_repeated_frame(ocr_text):
+                return None, None
+            result = await matcher.match_best(ocr_text, window, self._semantic)
             if result is not None and self._timeline.accepts(
                 result.start_ms,
                 result.line_index,

@@ -88,10 +88,25 @@ async def test_candidate_switch_uses_its_own_target_mapping(monkeypatch):
     import meocosub2.timeline as timeline
 
     monkeypatch.setattr(timeline, "monotonic", lambda: 10.0)
-    target = [cue(0, 1000, 3000, "shared target")]
-    first = candidate("a", [cue(0, 0, 2000, "first candidate source", "shared target")], target)
+    target = [
+        cue(i, 1000 + i * 3000, 3000 + i * 3000, text)
+        for i, text in enumerate(["shared target", "another target", "final target"])
+    ]
+    first = candidate(
+        "a",
+        [
+            cue(i, i * 3000, 2000 + i * 3000, f"first candidate source {i}", line.text)
+            for i, line in enumerate(target)
+        ],
+        target,
+    )
     second = candidate(
-        "b", [cue(0, 20000, 22000, "second candidate source", "shared target")], target
+        "b",
+        [
+            cue(i, 20000 + i * 3000, 22000 + i * 3000, f"second candidate source {i}", line.text)
+            for i, line in enumerate(target)
+        ],
+        target,
     )
     session = CandidateSession([first, second], AppConfig(sync_bias_ms=0), no_engine)
     session._lock("a")
@@ -135,8 +150,9 @@ async def test_all_rapid_targets_play_while_ocr_stalls(monkeypatch):
 
     monkeypatch.setattr(sync, "DISPLAY_LEAD_MS", 0)
     session = make_session(
-        [cue(0, 0, 500, "A single long source sentence")],
-        [cue(0, 0, 90, "first"), cue(1, 120, 160, "short"), cue(2, 180, 380, "last")],
+        [cue(0, 0, 1500, "A single long source sentence")],
+        # Shorter than the 200 ms fallback poll, with room for Windows timer jitter.
+        [cue(0, 0, 300, "first"), cue(1, 450, 600, "short"), cue(2, 750, 1000, "last")],
     )
     shown = []
     completed = asyncio.Event()
@@ -228,3 +244,97 @@ async def test_clock_transition_allows_a_similar_ocr_cue_to_confirm_its_source(m
             run_session_loop(session, AppConfig(capture_interval_ms=0), broadcast, observe), 5
         )
     assert [r["matchIdx"] for r in observations if r.get("confirmed")] == [0, 1]
+
+
+async def test_unchanged_reads_after_target_transition_keep_automatic_candidate(monkeypatch):
+    import meocosub2.sync as sync
+    import meocosub2.timeline as timeline
+
+    now = 10.0
+    monkeypatch.setattr(timeline, "monotonic", lambda: now)
+    monkeypatch.setattr(sync, "DISPLAY_LEAD_MS", 0)
+    source = [cue(0, 0, 3000, "A single long source sentence")]
+    targets = [
+        cue(i, i * 1000, (i + 1) * 1000, text)
+        for i, text in enumerate(["first target", "second target", "third target"])
+    ]
+    session = CandidateSession(
+        [
+            candidate("a", source, targets),
+            candidate("b", [cue(0, 0, 3000, "Completely unrelated dialogue")], targets),
+        ],
+        AppConfig(sync_bias_ms=0),
+        no_engine,
+    )
+    assert (await session.match(source[0].text)).text == "first target"
+    now = 11.1
+    assert session.line_now().text == "second target"
+    for _ in range(4):
+        await session.match(source[0].text)
+    assert session.status()["lockedCandidateId"] == "a"
+    now = 12.1
+    assert session.line_now().text == "third target"
+
+
+async def test_distinct_failed_reads_still_unlock_automatic_candidate():
+    source = [cue(0, 0, 3000, "A single long source sentence")]
+    target = [cue(0, 0, 3000, "target")]
+    session = CandidateSession(
+        [
+            candidate("a", source, target),
+            candidate("b", [cue(0, 0, 3000, "Completely unrelated dialogue")], target),
+        ],
+        AppConfig(sync_bias_ms=0),
+        no_engine,
+    )
+    await session.match(source[0].text)
+    await session.match("zxqv zxqv zxqv")
+    for _ in range(4):
+        await session.match("zxqv zxqv zxqv")
+    assert session.status()["lockedCandidateId"] == "a"
+    await session.match("jkpw jkpw jkpw")
+    await session.match("bfgm bfgm bfgm")
+    assert session.status()["lockedCandidateId"] is None
+
+
+async def test_automatic_session_plays_later_targets_under_stable_ocr(monkeypatch):
+    import meocosub2.sync as sync
+
+    monkeypatch.setattr(sync, "DISPLAY_LEAD_MS", 0)
+    source = [cue(0, 0, 1500, "A single long source sentence")]
+    targets = [
+        cue(i, i * 500, (i + 1) * 500, text)
+        for i, text in enumerate(["first target", "second target", "third target"])
+    ]
+    session = CandidateSession(
+        [
+            candidate("a", source, targets),
+            candidate("b", [cue(0, 0, 1500, "Unrelated candidate dialogue")], targets),
+        ],
+        AppConfig(sync_bias_ms=0),
+        no_engine,
+    )
+    shown = []
+    completed = asyncio.Event()
+
+    async def ocr(*args):
+        return source[0].text
+
+    async def broadcast(text, source):
+        shown.append(text)
+        if text == "third target":
+            completed.set()
+
+    monkeypatch.setattr(sync, "ocr_image", ocr)
+    monkeypatch.setattr(sync, "capture_region", lambda region: MagicMock())
+    task = asyncio.create_task(
+        run_session_loop(session, AppConfig(capture_interval_ms=5), broadcast)
+    )
+    try:
+        await asyncio.wait_for(completed.wait(), 5)
+        assert session.status()["lockedCandidateId"] == "a"
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+    assert shown == ["first target", "second target", "third target"]

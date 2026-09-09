@@ -71,9 +71,11 @@ rows, and the browser supplies natural wrapping.
 Each source candidate has its own constant mapping, `target_ms = source_ms +
 offset_ms`. The offset is the median midpoint difference from unique, ordered
 matching human translations carried by the source and the target file. Model
-translations never calibrate it. With no shared human-language anchors, the files
-are assumed to use the same clock (zero offset); mismatched releases without
-such evidence still need independently established alignment. For the measured
+translations never calibrate it. Calibration requires at least two anchors and
+a nearest-rank P90 absolute residual of at most 200 ms around the median. With
+insufficient or inconsistent evidence, the files are assumed to use the same
+clock (zero offset); mismatched releases without corroboration still need
+independently established alignment. For the measured
 S04E08 pair, 384 shared anchors support -902 ms with 190 ms p90 absolute residual;
 affine fitting does not improve the median residual, so no rate parameter is used.
 
