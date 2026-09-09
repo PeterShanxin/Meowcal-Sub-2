@@ -282,3 +282,28 @@ async def test_a_pass_that_knows_where_the_video_is_runs_to_the_end() -> None:
 
     assert asked == ["s2", "s3", "s0"]
     assert outcome.completed is True
+
+
+async def test_target_context_and_human_fallback_leave_only_real_gaps_for_the_model() -> None:
+    from meocosub2.presentation import PresentationTrack
+
+    episode = lines(("s0", ""), ("s1", "human answer"), ("s2", ""))
+    target = [SubtitleLine(10, 0, 900, "target answer")]
+    track = PresentationTrack(episode, target)
+    requests = []
+
+    async def translate(text, pairs):
+        requests.append((text, pairs))
+        return "model answer"
+
+    outcome = await fill_gaps(
+        lambda: episode, translate, lambda: False, unchanged, answer=track.answer
+    )
+
+    assert outcome.filled == 1
+    assert requests == [("s2", [("s0", "target answer"), ("s1", "human answer")])]
+    assert episode[0].translated == ""
+    assert episode[1].translated == "human answer"
+    assert episode[2].translation_source == "model"
+    assert track.resolve_at(2500).text == "model answer"
+    assert track.resolve_at(2500).cues[0].kind == "model"

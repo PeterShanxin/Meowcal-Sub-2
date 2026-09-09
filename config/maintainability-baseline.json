@@ -6,9 +6,9 @@
     "src-tauri/src/overlay_window.rs": 469,
     "src/meocosub2/config.py": 535,
     "src/meocosub2/engine/runtime.py": 521,
-    "src/meocosub2/matcher.py": 553,
+    "src/meocosub2/matcher.py": 531,
     "src/meocosub2/opensubtitles/client.py": 885,
-    "src/meocosub2/overlay/controller.py": 2066,
+    "src/meocosub2/overlay/controller.py": 2060,
     "src/meocosub2/overlay/ui/src/app.tsx": 1581,
     "src/meocosub2/overlay/ui/src/components/palette.tsx": 1489,
     "src/meocosub2/overlay/ui/src/components/primitives.tsx": 436,
@@ -16,7 +16,7 @@
     "src/meocosub2/overlay/ui/src/styles/theme.css": 687,
     "src/meocosub2/subtitle_sources/aggregator.py": 1458,
     "src/meocosub2/subtitle_sources/subdl.py": 623,
-    "src/meocosub2/sync.py": 760
+    "src/meocosub2/sync.py": 799
   },
   "lintBudgets": {
     "ruff": 0,

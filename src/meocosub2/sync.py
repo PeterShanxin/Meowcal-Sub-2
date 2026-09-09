@@ -1,12 +1,8 @@
-"""The live capture loop: read the subtitle strip, decide what it says, show it.
+"""Synchronize OCR to source subtitles and render the chosen presentation track.
 
-Three things can answer a read. Matching it against the downloaded subtitle file
-takes about a millisecond and gives the line a translator already wrote. Most
-reads do not match - the burned-in subtitles are usually a different translation
-from the file - but a read that does match says where the video is, and from
-then on the file's own line at that position answers the rest. Only a read with
-no match and no anchor behind it goes to the local model, which costs closer to
-a second, and which is what fills the plate until the first match lands.
+A source match places PlaybackTimeline. An independent target file then owns
+its cue transitions; source-carried and model translations answer uncovered
+source cues. Without an anchor, live OCR translation supplies the plate.
 """
 
 from __future__ import annotations
@@ -16,7 +12,7 @@ import logging
 from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from time import monotonic
 
 from meocosub2.capture import capture_region, ocr_image
@@ -25,6 +21,7 @@ from meocosub2.engine import EngineInstallError, EngineStartError
 from meocosub2.gapfill import fill_gaps
 from meocosub2.matcher import BOTH, SubtitleMatcher
 from meocosub2.models import MatchResult, SourceSubtitleCandidate, SubtitleLine
+from meocosub2.presentation import PresentationTrack
 from meocosub2.semantic import SemanticError, SemanticIndex
 from meocosub2.subtitle_gate import LineChange, SubtitleGate
 from meocosub2.timeline import PlaybackTimeline
@@ -137,7 +134,7 @@ class LiveTranslator:
 
 
 class CandidateSession:
-    """Matches OCR against downloaded subtitle candidates and shows the paired line.
+    """Matches OCR against source candidates and resolves their presentation tracks.
 
     With one candidate this is a straight match. With several it locks onto the
     one that agrees with the screen and unlocks when it stops agreeing, so a
@@ -164,14 +161,13 @@ class CandidateSession:
             )
             for candidate in candidates
         }
-        # Whether anything has already answered some of these cues, which is
-        # what makes the unanswered ones gaps worth filling rather than the whole
-        # file. A paired target file is one way; a bilingual source answering
-        # itself is the other, and it leaves no `target_lines` behind to see.
-        # Reading the cues covers both, and says no for a live-translation
-        # session, where every cue is unanswered by definition.
+        self._presentations = {
+            candidate.result_id: candidate.pair.presentation for candidate in candidates
+        }
         self.has_target_file = any(
-            line.translated for candidate in candidates for line in candidate.pair.source_lines
+            candidate.pair.target_lines
+            or any(line.translated for line in candidate.pair.source_lines)
+            for candidate in candidates
         )
         self._open_translator = translator
         self._open_index = semantic
@@ -185,6 +181,15 @@ class CandidateSession:
         self._misses = 0
         self._semantic: SemanticIndex | None = None
         self._semantic_build: asyncio.Task[None] | None = None
+
+    @property
+    def presentation(self) -> PresentationTrack | None:
+        return self._presentations.get(self._locked) if self._locked is not None else None
+
+    @property
+    def independent_target(self) -> bool:
+        track = self.presentation
+        return track is not None and bool(track.target_lines)
 
     @property
     def followed_lines(self) -> list[SubtitleLine]:
@@ -258,6 +263,11 @@ class CandidateSession:
             "confirmed": True,
             **self.status(),
         }
+        if self.independent_target:
+            resolution = self.line_now()
+            if resolution is not None:
+                resolution.detail.update(detail)
+            return resolution
         covers_through = result.line_index + result.span - 1
         if result.translated:
             return Resolution(
@@ -320,22 +330,38 @@ class CandidateSession:
         position = self.clock_ms()
         if self._locked is None or position is None:
             return None
-        change = self._matchers[self._locked].next_change_ms(position)
+        track = self.presentation
+        change = (
+            track.next_change_ms(position)
+            if track is not None and track.target_lines
+            else self._matchers[self._locked].next_change_ms(position)
+        )
         return None if change is None else max(0.0, (change - position) / 1000)
 
     def line_now(self) -> Resolution | None:
-        """The file's own line for wherever the video has reached.
+        """Resolve the current source clock through the chosen presentation owner.
 
-        Most reads do not match: the burned-in subtitles are usually a different
-        translation from the file, so the words differ where the dialogue does
-        not. The position does not differ. Measured over a real session, every
-        accepted match implied the same distance between the file and the
-        playback to within a second across six minutes, so one match places
-        every line after it, and later matches only have to keep agreeing.
+        Independent target intervals also answer with explicit silence. Sessions
+        using only source-aligned translations retain their source cue behavior.
         """
         position = self.clock_ms()
         if self._locked is None or position is None:
             return None
+        track = self.presentation
+        if track is not None and track.target_lines:
+            frame = track.resolve_at(position)
+            return Resolution(
+                text=frame.text,
+                matched=True,
+                detail={
+                    "presentationCues": [asdict(cue) for cue in frame.cues],
+                    "presentationClockMs": position + track.offset_ms,
+                    "mappingOffsetMs": track.offset_ms,
+                    "candidateId": self._locked,
+                    "confirmed": False,
+                    **self.status(),
+                },
+            )
         result = self._matchers[self._locked].line_at(position)
         if result is None:
             return Resolution(text="", matched=True, detail=dict(self.status()))
@@ -423,6 +449,7 @@ class DirectTranslationSession:
     """Translates what OCR reads, with no source subtitle file to match against."""
 
     mode = "translation"
+    independent_target = False
 
     def __init__(
         self,
@@ -572,14 +599,12 @@ async def run_session_loop(
                 # differently rather than silence.
                 continue
             if await show(line.text, MATCHED):
-                # A line the clock turned to is not one a read has agreed with,
-                # so reads of it start looking for a match again. The sequence
-                # moves with it: a translation still in flight belongs to the
-                # cue that has just been replaced, and lands as a matched line
-                # rather than a translated one, so nothing else would stop it
-                # overwriting this one with the previous dialogue.
+                # Replacing a plate invalidates translations still in flight.
+                # Target transitions do not change what OCR confirmed about
+                # the source cue; only a new source observation does that.
                 screen.seq += 1
-                screen.confirmed = False
+                if not session.independent_target:
+                    screen.confirmed = False
                 screen.covers_through = None
 
     async def translate_into(resolution: Resolution, seq: int) -> None:
@@ -607,6 +632,17 @@ async def run_session_loop(
                 # matching; it is not worth a second trip to the model.
                 return {}
             resolution = Resolution(translate=ocr_text)
+        if session.independent_target and session.anchored:
+            if pending is not None:
+                pending.cancel()
+                pending = None
+            if resolution.detail.get("confirmed"):
+                screen.confirmed = True
+            # Matching and scheduled rendering resolve the same target intervals,
+            # including silence. Source spans cannot hold a target cue on screen.
+            screen.covers_through = None
+            await show(resolution.text, MATCHED)
+            return resolution.detail
         if resolution.text:
             if pending is not None:
                 pending.cancel()
@@ -657,13 +693,15 @@ async def run_session_loop(
         answered: set[int] = set()
         while True:
             following = session.followed_lines
-            if following and id(following) not in answered:
+            track = session.presentation
+            if following and track is not None and id(following) not in answered:
                 outcome = await fill_gaps(
                     lambda: session.followed_lines,
                     session.translate_from_file,
                     lambda: pending is not None and not pending.done(),
                     redraw,
                     lambda: session.followed_position,
+                    answer=track.answer,
                 )
                 if outcome.completed:
                     answered.add(id(following))
@@ -724,7 +762,8 @@ async def run_session_loop(
                     else:
                         gate.remember(ocr_text)
                         screen.seq += 1
-                        screen.matched = False
+                        if not (session.independent_target and session.anchored):
+                            screen.matched = False
                         screen.confirmed = False
                         screen.covers_through = None
                         # Timed from before the capture, not from after the

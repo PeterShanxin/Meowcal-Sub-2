@@ -19,7 +19,7 @@ import logging
 from collections.abc import Awaitable, Callable
 
 from meocosub2.config import AppConfig
-from meocosub2.gapfill import FillOutcome, fill_gaps
+from meocosub2.gapfill import Answer, FillOutcome, fill_gaps, own_translation
 from meocosub2.models import SubtitleLine
 from meocosub2.sync import open_live_translator
 
@@ -33,6 +33,7 @@ async def fill_before_the_session(
     lines: list[SubtitleLine],
     config: AppConfig,
     on_progress: Progress,
+    answer: Answer = own_translation,
 ) -> FillOutcome:
     """Answer what the target file left unpaired, reporting each cue as it lands.
 
@@ -54,6 +55,7 @@ async def fill_before_the_session(
             translator.translate_from_file,
             lambda: False,
             one_more,
+            answer=answer,
         )
     finally:
         await client.close()

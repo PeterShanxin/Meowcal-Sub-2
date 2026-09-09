@@ -86,6 +86,14 @@ Raised so far, all of them by live testing against a real player:
 | `sync.py` | 737 | 742 | judging a session by what has been answered rather than by whether a target file exists |
 | `src-tauri/src/overlay_window.rs` | 467 | 469 | a dock wide enough for the timing control |
 
+The target presentation change records these measured limits:
+
+| File | From | To | Why |
+| --- | ---: | ---: | --- |
+| `matcher.py` | 553 | 531 | share cue formatting with the target presentation owner |
+| `overlay/controller.py` | 2066 | 2060 | retain target tracks and use their coverage for prefill |
+| `sync.py` | 760 | 799 | resolve and schedule independent target cues while keeping source confirmation separate from plate changes |
+
 The four largest are the ones worth naming, because they are where the work is:
 
 | File | Lines | What it holds |

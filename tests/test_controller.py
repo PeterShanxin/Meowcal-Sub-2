@@ -1583,8 +1583,8 @@ async def test_preparing_a_pair_answers_the_gaps_before_the_session_starts(
     """The engine is idle between the target being chosen and sync starting."""
     filled: list[list[str]] = []
 
-    async def fill(lines, config, on_progress) -> None:
-        filled.append([line.text for line in lines if not line.translated])
+    async def fill(lines, config, on_progress, answer) -> None:
+        filled.append([line.text for line in lines if not answer(line)])
         await on_progress(1)
 
     mocker.patch("meocosub2.overlay.controller.fill_before_the_session", new=fill)
@@ -1639,7 +1639,7 @@ async def test_starting_the_session_waits_for_the_fill_to_let_go_of_the_engine(
     asking = asyncio.Event()
     stopped = asyncio.Event()
 
-    async def fill(lines, config, on_progress) -> None:
+    async def fill(lines, config, on_progress, answer) -> None:
         asking.set()
         try:
             await asyncio.Event().wait()
@@ -1672,7 +1672,7 @@ async def test_preparing_again_stops_the_fill_the_last_selection_started(
 ) -> None:
     """Those answers belong to a pairing the viewer has moved on from."""
 
-    async def fill(lines, config, on_progress) -> None:
+    async def fill(lines, config, on_progress, answer) -> None:
         await asyncio.Event().wait()
 
     mocker.patch("meocosub2.overlay.controller.fill_before_the_session", new=fill)
@@ -1690,7 +1690,7 @@ async def test_the_fill_is_registered_before_the_state_saying_it_is_running(
 ) -> None:
     """Otherwise a target chosen during that broadcast finds nothing to stop."""
 
-    async def fill(lines, config, on_progress) -> None:
+    async def fill(lines, config, on_progress, answer) -> None:
         await asyncio.Event().wait()
 
     mocker.patch("meocosub2.overlay.controller.fill_before_the_session", new=fill)
@@ -1721,7 +1721,7 @@ async def test_the_fill_is_registered_before_the_state_saying_it_is_running(
 async def test_a_search_that_throws_the_preparation_away_stops_its_fill(
     tmp_path: Path, mocker
 ) -> None:
-    async def fill(lines, config, on_progress) -> None:
+    async def fill(lines, config, on_progress, answer) -> None:
         await asyncio.Event().wait()
 
     mocker.patch("meocosub2.overlay.controller.fill_before_the_session", new=fill)
@@ -1751,7 +1751,8 @@ async def test_stopping_counts_the_gaps_the_session_answered_for_itself(
     assert controller.state_snapshot()["gap_fill"] == {"filled": 0, "total": 1, "active": False}
 
     lines = controller._prepared_runtime.source_candidates[0].pair.source_lines
-    next(line for line in lines if not line.translated).translated = "再见"
+    pair = controller._prepared_runtime.source_candidates[0].pair
+    next(line for line in lines if not pair.presentation.answer(line)).translated = "再见"
 
     await controller.stop_session()
 
@@ -1772,7 +1773,7 @@ async def test_a_second_preparation_cancels_the_fill_the_first_one_started(
     """Two target picks can be in flight at once; only one may hold the engine."""
     asking = asyncio.Event()
 
-    async def fill(lines, config, on_progress) -> None:
+    async def fill(lines, config, on_progress, answer) -> None:
         asking.set()
         await asyncio.Event().wait()
 

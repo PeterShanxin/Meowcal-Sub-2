@@ -1,7 +1,11 @@
 """Shared data models for Meowcal-Sub-2."""
 
 from dataclasses import dataclass, field
-from typing import Literal
+from functools import cached_property
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from meocosub2.presentation import PresentationTrack
 
 
 @dataclass
@@ -11,12 +15,19 @@ class SubtitleLine:
     end_ms: int
     text: str
     translated: str = ""
+    translation_source: Literal["human", "model"] = "human"
 
 
 @dataclass
 class SubtitlePair:
     source_lines: list[SubtitleLine]
     target_lines: list[SubtitleLine] = field(default_factory=list)
+
+    @cached_property
+    def presentation(self) -> "PresentationTrack":
+        from meocosub2.presentation import PresentationTrack
+
+        return PresentationTrack(self.source_lines, self.target_lines)
 
 
 @dataclass
@@ -166,7 +177,7 @@ class PreparedRuntime:
         if not self.source_candidates:
             return True
         return any(
-            not line.translated
+            not candidate.pair.presentation.answer(line)
             for candidate in self.source_candidates
             for line in candidate.pair.source_lines
         )

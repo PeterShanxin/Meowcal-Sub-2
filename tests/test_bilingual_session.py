@@ -152,7 +152,10 @@ async def test_a_chosen_target_leaves_its_gaps_to_the_source_own_words(
     lines = runtime.source_candidates[0].pair.source_lines
     # The plate never sees both scripts at once, whatever answered the cue.
     assert [line.text for line in lines] == ["你好", "再见"]
-    assert lines[0].translated == "Hi there"
+    assert lines[0].translated == "Hello there"
+    track = runtime.source_candidates[0].pair.presentation
+    assert track.resolve_at(1000).text == "Hi there"
+    assert track.resolve_at(4000).text == "Goodbye now"
     assert lines[1].translated == "Goodbye now"
     assert payload["used_translation"] is False
 

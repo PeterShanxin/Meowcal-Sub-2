@@ -21,7 +21,7 @@ from meocosub2.capture import available_ocr_languages, resolve_ocr_language
 from meocosub2.config import AppConfig, config_to_payload, overlay_style_payload, save_config
 from meocosub2.errors import TranslationError
 from meocosub2.event_log import log_event
-from meocosub2.gapfill import unanswered
+from meocosub2.gapfill import Answer, own_translation, unanswered
 from meocosub2.languages import (
     is_chinese_family,
     language_label,
@@ -57,7 +57,6 @@ from meocosub2.subtitle_sources.utils import result_id_for
 from meocosub2.subtitles import (
     align_subtitles,
     alignment_report,
-    assign_target_translations,
     load_subtitle_file,
 )
 from meocosub2.sync import (
@@ -88,15 +87,10 @@ DOWNLOADS_KEPT_FOR_WATCHING = 2
 # Stands where a target file id would, for the translation a bilingual source
 # already carries. It names no downloadable file, so it never reaches a provider.
 SOURCE_OWN_TRANSLATION = "__source__"
-# Shown when the engine is missing but the target file can carry the session on
-# its own. It names what the viewer will see rather than what failed. The two
-# symptoms differ: nothing has been drawn yet before the first match, while a
-# cue the target file has no answer for leaves the previous line on the plate,
-# which is the stale line this session's filling exists to replace.
+# Human tracks can carry a session without the optional translation engine.
 NO_ENGINE_WARNING = (
-    "Local translation is not installed, so the plate stays empty until the first match "
-    "and holds the previous line through cues the target subtitles do not answer. "
-    "Run setup from Settings to add it."
+    "Local translation is not installed. Human subtitles remain available after a match, "
+    "but untranslated gaps cannot be filled. Run setup from Settings to add it."
 )
 
 
@@ -1088,10 +1082,8 @@ class GuiController:
             # in one language, which is what the plate draws and what the model
             # is asked to translate - an unsplit bilingual cue put both scripts
             # on the plate and handed the model a string containing its own
-            # answer. The translation it yields then sits underneath whatever
-            # comes next: a chosen target file overwrites the cues it answers
-            # and leaves the rest to the file's own words, which beat anything
-            # the model would write for them and cost nothing.
+            # answer. Carried translations remain source-aligned fallbacks;
+            # a separate target file keeps its own cue identity and timing.
             bilingual = split_bilingual(
                 source_lines, self._state.source_language, self._state.target_language
             )
@@ -1100,8 +1092,6 @@ class GuiController:
             # since each of them falls back to it alike.
             carried = [line.translated for line in source_lines]
 
-            if target_lines and not own_translation:
-                assign_target_translations(source_lines, target_lines)
             # Matched lines are translated as they appear rather than up front:
             # a local 1.8B model needs hours for a whole subtitle file. It is
             # needed only where nothing else answered - neither a target file
@@ -1161,7 +1151,9 @@ class GuiController:
             else None,
             target_path=str(target_path) if target_path is not None else None,
             target_line_count=bilingual.split_cues if own_translation else len(target_lines),
-            translated_line_count=sum(1 for line in source_lines if line.translated),
+            translated_line_count=sum(
+                bool(pair.presentation.answer(line)) for line in source_lines
+            ),
             used_translation=used_translation,
             target_alignment=alignment,
         )
@@ -1203,7 +1195,7 @@ class GuiController:
         await self._emit_app_state()
         await self._emit_app_progress()
         if not engine_warning:
-            await self._start_prefill(source_lines)
+            await self._start_prefill(source_lines, pair.presentation.answer)
         return asdict(session)
 
     async def _prepare_auto_candidate_session(self, feature_id: str | None) -> dict[str, object]:
@@ -1289,8 +1281,7 @@ class GuiController:
                 )
                 target_lines = load_subtitle_file(target_path)
                 for candidate in source_candidates:
-                    candidate.pair.target_lines = target_lines
-                    assign_target_translations(candidate.pair.source_lines, target_lines)
+                    candidate.pair = align_subtitles(candidate.pair.source_lines, target_lines)
             # A candidate that answered itself needs the model no more than a
             # paired target file does.
             answered = any(
@@ -1340,7 +1331,7 @@ class GuiController:
                 1
                 for candidate in source_candidates
                 for line in candidate.pair.source_lines
-                if line.translated
+                if candidate.pair.presentation.answer(line)
             ),
             used_translation=not bool(target_lines),
             source_candidate_count=len(source_candidates),
@@ -1566,7 +1557,8 @@ class GuiController:
         current = self._state.gap_fill
         if runtime is None or current is None or len(runtime.source_candidates) != 1:
             return
-        remaining = len(unanswered(runtime.source_candidates[0].pair.source_lines))
+        pair = runtime.source_candidates[0].pair
+        remaining = len(unanswered(pair.source_lines, pair.presentation.answer))
         self._state.gap_fill = replace(current, filled=current.total - remaining, active=False)
 
     def _make_debug_broadcast(self) -> Callable[[dict[str, object]], Awaitable[None]]:
@@ -1611,7 +1603,9 @@ class GuiController:
             return NO_ENGINE_WARNING
         return ""
 
-    async def _start_prefill(self, lines: list[SubtitleLine]) -> None:
+    async def _start_prefill(
+        self, lines: list[SubtitleLine], answer: Answer = own_translation
+    ) -> None:
         """Answer the target file's gaps while the viewer is still setting up.
 
         Only where something already answers some of these cues - a paired
@@ -1620,9 +1614,9 @@ class GuiController:
         would spend the whole engine on the file's opening while the viewer
         waits on the line in front of them.
         """
-        if not any(line.translated for line in lines):
+        if not any(answer(line) for line in lines):
             return
-        gaps = len(unanswered(lines))
+        gaps = len(unanswered(lines, answer))
         if not gaps:
             return
         async with self._lock:
@@ -1634,16 +1628,16 @@ class GuiController:
         # the handle without cancelling would leave the earlier fill running
         # untracked, holding the engine's one slot for a file nobody chose.
         previous = self._prefill_task
-        self._prefill_task = asyncio.create_task(self._run_prefill(lines))
+        self._prefill_task = asyncio.create_task(self._run_prefill(lines, answer))
         if previous is not None and not previous.done():
             previous.cancel()
             with suppress(asyncio.CancelledError):
                 await previous
         await self._emit_app_state()
 
-    async def _run_prefill(self, lines: list[SubtitleLine]) -> None:
+    async def _run_prefill(self, lines: list[SubtitleLine], answer: Answer) -> None:
         try:
-            await fill_before_the_session(lines, self.config, self._report_prefill)
+            await fill_before_the_session(lines, self.config, self._report_prefill, answer)
         except asyncio.CancelledError:
             # The state is settled by whoever cancelled, which can await this
             # task where a callback running under cancellation could not.

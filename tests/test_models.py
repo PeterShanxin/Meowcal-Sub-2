@@ -18,3 +18,17 @@ def test_match_result_fields() -> None:
     assert result.line_index == 5
     assert result.score == 87.3
     assert result.target_text == "你好"
+
+
+def test_target_coverage_is_available_without_source_translation_or_an_engine() -> None:
+    from meocosub2.models import PreparedRuntime, SourceSubtitleCandidate
+
+    source = [SubtitleLine(0, 0, 4000, "source")]
+    target = [SubtitleLine(0, 0, 2000, "first"), SubtitleLine(1, 2000, 4000, "second")]
+    pair = SubtitlePair(source, target)
+    candidate = SourceSubtitleCandidate("a", "a.srt", "test", "en", "a.srt", pair)
+    runtime = PreparedRuntime("subtitle_pair", target, source_candidates=[candidate])
+
+    assert not runtime.needs_live_translation
+    assert source[0].translated == ""
+    assert pair.presentation.resolve_at(2500).text == "second"

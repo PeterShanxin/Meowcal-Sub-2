@@ -56,32 +56,35 @@ owns the measured limits that `scripts/verify.ps1` enforces.
 
 ## What Fills The Subtitle Plate
 
-Three things answer a read of the capture region, in this order:
+Source subtitles synchronize playback; target subtitles own presentation.
+OCR text and semantic matching anchor `PlaybackTimeline` against the selected
+source candidate. An anchor unconfirmed for 90 seconds is dropped.
 
-1. A text match against the downloaded subtitle file (~1ms). Anchors the
-   playback clock.
-2. The file's own line at the clock's predicted position, when the read matched
-   nothing. Measured over a real session, the distance between file position and
-   playback held to within a second across six minutes, so one match places
-   every line after it. An anchor nothing has agreed with for 90s is dropped.
-3. The local model translating the read (~1s), when there is no anchor.
+With a separate target file, `PresentationTrack` retains every target cue's
+index, interval, ordering and text. Both immediate matches and the clock renderer
+resolve that same track. Its scheduler wakes at target boundaries even when OCR
+stalls. Intervals are half-open `[start, end)`; genuine target overlaps remain
+simultaneous, and target presentation has no source overlap threshold or stale-line
+grace. Each cue's typesetting is flattened independently, except explicit speaker
+rows, and the browser supplies natural wrapping.
 
-Reads of a cue already on screen may only improve on it by matching outright —
-letting the clock answer again would swap the line mid-cue.
+Each source candidate has its own constant mapping, `target_ms = source_ms +
+offset_ms`. The offset is the median midpoint difference from unique, ordered
+matching human translations carried by the source and the target file. Model
+translations never calibrate it. With no shared human-language anchors, the files
+are assumed to use the same clock (zero offset); mismatched releases without
+such evidence still need independently established alignment. For the measured
+S04E08 pair, 384 shared anchors support -902 ms with 190 ms p90 absolute residual;
+affine fitting does not improve the median residual, so no rate parameter is used.
 
-A fourth source fills the plate without answering a read at all. Where the
-target file has no line over a source cue, that cue would otherwise leave the
-plate holding the line before it for as long as it runs — between 4 and 93
-seconds of an episode, measured across four English candidates for one episode.
-A background task asks the local model for those, in playback order, using the
-neighbouring answered cues as source/target examples so the wording matches the
-rest of the file ([gapfill.py](../src/meocosub2/gapfill.py)). It starts a fill
-only when no read is in flight, since the engine serves one request at a time.
-
-That is the one case where a cue already on screen may change without a match.
-The line being replaced is the previous cue's, held over because this one had no
-answer, so the swap puts a right line where a wrong one was rather than trading
-one good line for another.
+A source cue that has any projected target coverage does not fill the target's
+intentional gaps. Wholly uncovered source cues use their carried human translation,
+then a local model answer. `gapfill.py` reads target coverage and neighboring human
+answers through the presentation track without copying target strings onto source
+cues. Idle prefill and playback filling share that lookup; model answers remain
+source-aligned and are read when their interval arrives. Without a source anchor,
+live OCR translation remains the fallback. Bilingual-only sessions retain their
+source-aligned presentation behavior.
 
 ## Log Inspection
 

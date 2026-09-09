@@ -4,7 +4,6 @@ from meocosub2.models import SubtitleLine
 from meocosub2.subtitles import (
     align_subtitles,
     alignment_report,
-    assign_target_translations,
     load_subtitle_file,
 )
 
@@ -34,7 +33,7 @@ def test_load_subtitle_file_falls_back_to_latin1(tmp_path: Path) -> None:
     assert lines[0].text == "Olé mundo"
 
 
-def test_align_subtitles_pairs_by_index() -> None:
+def test_align_subtitles_keeps_both_tracks() -> None:
     source = [
         SubtitleLine(index=0, start_ms=0, end_ms=1000, text="Hello"),
         SubtitleLine(index=1, start_ms=1000, end_ms=2000, text="World"),
@@ -52,32 +51,6 @@ def test_align_subtitles_empty_target() -> None:
     source = [SubtitleLine(index=0, start_ms=0, end_ms=1000, text="Hello")]
     pair = align_subtitles(source, [])
     assert pair.target_lines == []
-
-
-def test_assign_target_translations_uses_time_overlap_before_index() -> None:
-    source = [
-        SubtitleLine(index=0, start_ms=0, end_ms=1000, text="A"),
-        SubtitleLine(index=1, start_ms=1000, end_ms=2000, text="B"),
-    ]
-    target = [
-        SubtitleLine(index=0, start_ms=1000, end_ms=2000, text="Translated B"),
-        SubtitleLine(index=1, start_ms=0, end_ms=1000, text="Translated A"),
-    ]
-    assign_target_translations(source, target)
-    assert source[0].translated == "Translated A"
-    assert source[1].translated == "Translated B"
-
-
-def test_assign_target_translations_prefers_smallest_midpoint_delta_when_no_overlap() -> None:
-    source = [SubtitleLine(index=0, start_ms=1000, end_ms=1100, text="A")]
-    target = [
-        SubtitleLine(index=0, start_ms=0, end_ms=999, text="Far but long"),
-        SubtitleLine(index=1, start_ms=1110, end_ms=1120, text="Near and short"),
-    ]
-
-    assign_target_translations(source, target, max_midpoint_delta_ms=200)
-
-    assert source[0].translated == "Near and short"
 
 
 def _cue(index: int, start_ms: int, end_ms: int, text: str) -> SubtitleLine:

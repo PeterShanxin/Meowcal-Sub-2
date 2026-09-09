@@ -10,7 +10,7 @@ It gets that line one of two ways:
 
 - **Matched to a downloaded subtitle.** When a subtitle file exists for what you
   are watching, the app downloads a few candidates, matches what OCR reads against
-  them, and shows the paired line from the target-language file.
+  them, and plays the target-language file using its own subtitle timings.
 - **Translated on this machine.** When no source subtitle matches, the app
   translates what OCR reads with its own local engine. Nothing captured from your
   screen leaves the device.

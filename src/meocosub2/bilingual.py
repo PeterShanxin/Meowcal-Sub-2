@@ -94,6 +94,7 @@ def split_bilingual(
         for line, own, other in divisions:
             line.text = own
             line.translated = other
+            line.translation_source = "human"
         logger.debug(
             "Subtitle file carries its own translation on %d of %d cues",
             report.split_cues,
