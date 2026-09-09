@@ -27,6 +27,7 @@ from meocosub2.semantic import SemanticIndex
 from meocosub2.textnorm import (
     clean_cjk_text,
     collapse_whitespace,
+    format_subtitle_cue,
     is_cjk_char,
     is_cjk_compactable_char,
     normalize_ocr_spaced_cjk,
@@ -65,13 +66,9 @@ PLATE_LINES = 2
 SIMULTANEOUS_MS = 300
 # Cues that genuinely run at once reach the plate as separate rows, the way they
 # were on the screen they came from. The overlay's own stylesheet is what renders
-# it, and `_flatten_wrapping` is what keeps a single cue from claiming a row it
+# it, and `format_subtitle_cue` is what keeps a single cue from claiming a row it
 # does not need.
 ROW_BREAK = "\n"
-# A row opening with a dash is the subtitle convention for a change of speaker,
-# which is a row the plate has to keep. Covers the hyphen and the dashes files
-# reach for in its place.
-SPEAKER_ROW = re.compile(r"^\s*[-‐-―]\s*\S")
 
 TEXT = "text"
 SEMANTIC = "semantic"
@@ -90,25 +87,6 @@ def _collapse(text: str) -> str:
     """`normalize_ocr_spaced_cjk` is general despite its name: it decides whether
     the join needs a space, which between two CJK characters it does not."""
     return normalize_ocr_spaced_cjk(collapse_whitespace(text))
-
-
-def _flatten_wrapping(text: str) -> str:
-    """A cue as it should be shown, with the file's own typesetting undone.
-
-    Subtitle files routinely wrap a single sentence across two rows to suit a
-    narrower plate than this one. Kept, that wrap reaches the overlay as a row
-    break and reads as a second speaker, turning a line of dialogue into a block.
-
-    A cue whose every row opens with a dash is not wrapped: it is the file
-    marking two people talking over each other, and those rows are what was on
-    the screen the cue came from. Measured over the subtitle files this repo has
-    cached, they run from 3% to 92% of a file's multi-row cues, so reading them
-    as wrapping would put both speakers on one row.
-    """
-    rows = [row for row in text.split(ROW_BREAK) if row.strip()]
-    if len(rows) > 1 and all(SPEAKER_ROW.match(row) for row in rows):
-        return ROW_BREAK.join(_collapse(row) for row in rows)
-    return _collapse(text)
 
 
 def _joined(parts: Iterable[str], separator: str = " ") -> str:
@@ -385,9 +363,9 @@ class SubtitleMatcher:
         return MatchResult(
             line_index=first.index,
             score=0.0,
-            source_text=_joined((_flatten_wrapping(line.text) for line in showing), ROW_BREAK),
+            source_text=_joined((format_subtitle_cue(line.text) for line in showing), ROW_BREAK),
             target_text=_joined(
-                (_flatten_wrapping(line.translated or line.text) for line in showing), ROW_BREAK
+                (format_subtitle_cue(line.translated or line.text) for line in showing), ROW_BREAK
             ),
             start_ms=first.start_ms,
             span=final.index - first.index + 1,
@@ -542,9 +520,9 @@ class SubtitleMatcher:
         return MatchResult(
             line_index=line.index,
             score=candidate.score,
-            source_text=_joined(_flatten_wrapping(part.text) for part in covered),
+            source_text=_joined(format_subtitle_cue(part.text) for part in covered),
             target_text=_joined(
-                _flatten_wrapping(part.translated or part.text) for part in covered
+                format_subtitle_cue(part.translated or part.text) for part in covered
             ),
             start_ms=line.start_ms,
             span=candidate.span,

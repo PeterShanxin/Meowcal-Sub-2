@@ -140,3 +140,11 @@ def trim_edge_noise(text: str) -> str:
 
 def clean_cjk_text(text: str) -> str:
     return normalize_ocr_spaced_cjk(trim_edge_noise(collapse_whitespace(text)))
+
+
+def format_subtitle_cue(text: str) -> str:
+    """Undo file wrapping while retaining explicit changes of speaker."""
+    rows = [row for row in text.split("\n") if row.strip()]
+    if len(rows) > 1 and all(re.match(r"^\s*[-‐-―]\s*\S", row) for row in rows):
+        return "\n".join(normalize_ocr_spaced_cjk(collapse_whitespace(row)) for row in rows)
+    return normalize_ocr_spaced_cjk(collapse_whitespace(text))

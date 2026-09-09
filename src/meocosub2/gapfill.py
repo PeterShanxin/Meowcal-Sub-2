@@ -1,16 +1,7 @@
-"""Filling the lines the target subtitle file has no answer for.
+"""Fill source cues unanswered by a human target track or carried translation.
 
-Two subtitle files for one episode rarely carry the same lines. Where the target
-file has nothing over a source cue, `assign_target_translations` leaves it
-unpaired, and the plate holds the previous line for as long as that cue runs.
-Measured across four English candidates for one episode, that was between 1 and
-20 cues, or 4 to 93 seconds of an episode showing the wrong line.
-
-The local model answers those, and it answers them better than it answers the
-screen: the input is the file's own clean text rather than a damaged read, the
-timing is known so nothing has to arrive within a cue, and the neighbouring cues
-*are* paired - so the model can be shown what this translation already calls
-things and asked to match it.
+Target answers can supply neighboring examples without being copied onto source
+cues. Model answers remain source-aligned fallbacks.
 """
 
 from __future__ import annotations
@@ -46,16 +37,24 @@ Translate = Callable[[str, list[tuple[str, str]]], Awaitable[str]]
 # Where the video has reached in the file, as a position in `lines`. None
 # before anything has placed it, and before a session exists at all.
 FromIndex = Callable[[], int | None]
+Answer = Callable[[SubtitleLine], str]
 
 
-def context_pairs(lines: list[SubtitleLine], index: int) -> list[tuple[str, str]]:
+def own_translation(line: SubtitleLine) -> str:
+    return line.translated
+
+
+def context_pairs(
+    lines: list[SubtitleLine], index: int, answer: Answer = own_translation
+) -> list[tuple[str, str]]:
     """Answered cues around `index`, source beside target, in playback order."""
     earlier: list[tuple[str, str]] = []
     start = max(0, index - CONTEXT_SEARCH_LIMIT)
     for position in range(index - 1, start - 1, -1):
         line = lines[position]
-        if line.translated:
-            earlier.append((line.text, line.translated))
+        translation = answer(line)
+        if translation:
+            earlier.append((line.text, translation))
             if len(earlier) == CONTEXT_BEFORE:
                 break
     earlier.reverse()
@@ -64,20 +63,26 @@ def context_pairs(lines: list[SubtitleLine], index: int) -> list[tuple[str, str]
     stop = min(len(lines), index + 1 + CONTEXT_SEARCH_LIMIT)
     for position in range(index + 1, stop):
         line = lines[position]
-        if line.translated:
-            later.append((line.text, line.translated))
+        translation = answer(line)
+        if translation:
+            later.append((line.text, translation))
             if len(later) == CONTEXT_AFTER:
                 break
 
     return earlier + later
 
 
-def unanswered(lines: list[SubtitleLine]) -> list[int]:
+def unanswered(lines: list[SubtitleLine], answer: Answer = own_translation) -> list[int]:
     """Positions of the cues that carry text with nothing paired to them."""
-    return [index for index, line in enumerate(lines) if line.text and not line.translated]
+    return [index for index, line in enumerate(lines) if line.text and not answer(line)]
 
 
-def next_gap(lines: list[SubtitleLine], attempted: set[int], reached: int | None) -> int | None:
+def next_gap(
+    lines: list[SubtitleLine],
+    attempted: set[int],
+    reached: int | None,
+    answer: Answer = own_translation,
+) -> int | None:
     """The cue to answer next: the first one still unpaired at or after `reached`.
 
     Wraps to the start once nothing is left ahead, so the cues the viewer has
@@ -89,7 +94,7 @@ def next_gap(lines: list[SubtitleLine], attempted: set[int], reached: int | None
     A cue the model declined counts as attempted. Asking again inside one pass
     would spend the engine on the answer it has already refused to give.
     """
-    gaps = [index for index in unanswered(lines) if index not in attempted]
+    gaps = [index for index in unanswered(lines, answer) if index not in attempted]
     if not gaps:
         return None
     if reached is None:
@@ -117,13 +122,13 @@ async def fill_gaps(
     busy: Callable[[], bool],
     on_filled: Callable[[], Awaitable[None]],
     from_index: FromIndex | None = None,
+    answer: Answer = own_translation,
 ) -> FillOutcome:
     """Answer the unpaired cues of the file being followed, and say how it ended.
 
-    Written back onto the lines themselves, the way `assign_target_translations`
-    already pairs them, so the clock draws a filled cue with no further wiring.
-    A line the model cannot answer usefully is left unpaired rather than filled
-    with something wrong: the plate then behaves exactly as it does today.
+    Answers are written onto the source lines as model fallbacks. The presentation
+    track reads those same objects when their interval arrives. Human target cues
+    remain in their own track; `answer` supplies their coverage and context.
 
     `followed_lines` is asked again at every cue rather than read once. A session
     with several candidates can stop following one and take another, and the
@@ -138,10 +143,12 @@ async def fill_gaps(
     own order is the only order there is.
     """
     lines = followed_lines()
-    if not unanswered(lines):
+    if not unanswered(lines, answer):
         return FillOutcome(0, True)
 
-    logger.debug("Filling the %d cue(s) the target file left unpaired", len(unanswered(lines)))
+    logger.debug(
+        "Filling the %d cue(s) the target file left unpaired", len(unanswered(lines, answer))
+    )
     attempted: set[int] = set()
     filled = 0
     completed = False
@@ -154,14 +161,14 @@ async def fill_gaps(
         if followed_lines() is not lines:
             logger.debug("Stopped filling: the session is following a different subtitle file")
             break
-        index = next_gap(lines, attempted, from_index() if from_index is not None else None)
+        index = next_gap(lines, attempted, from_index() if from_index is not None else None, answer)
         if index is None:
             completed = True
             break
         attempted.add(index)
         line = lines[index]
         try:
-            answer = await translate(line.text, context_pairs(lines, index))
+            translation = await translate(line.text, context_pairs(lines, index, answer))
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -170,9 +177,10 @@ async def fill_gaps(
             logger.exception("Filling the unpaired cue at index %d failed; stopping", index)
             engine_failed = True
             break
-        if not answer:
+        if not translation:
             continue
-        line.translated = answer
+        line.translated = translation
+        line.translation_source = "model"
         filled += 1
         await on_filled()
     logger.debug("Filled %d cue(s); %d attempted", filled, len(attempted))
