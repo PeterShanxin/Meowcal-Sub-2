@@ -16,7 +16,7 @@
     "src/meocosub2/overlay/ui/src/styles/theme.css": 687,
     "src/meocosub2/subtitle_sources/aggregator.py": 1458,
     "src/meocosub2/subtitle_sources/subdl.py": 623,
-    "src/meocosub2/sync.py": 799
+    "src/meocosub2/sync.py": 798
   },
   "lintBudgets": {
     "ruff": 0,

@@ -599,12 +599,11 @@ async def run_session_loop(
                 # differently rather than silence.
                 continue
             if await show(line.text, MATCHED):
-                # Replacing a plate invalidates translations still in flight.
-                # Target transitions do not change what OCR confirmed about
-                # the source cue; only a new source observation does that.
+                # A clock transition lets similar OCR reads confirm the source
+                # again: REPEAT alone cannot prove the same dialogue is still up.
+                # The sequence also invalidates translations still in flight.
                 screen.seq += 1
-                if not session.independent_target:
-                    screen.confirmed = False
+                screen.confirmed = False
                 screen.covers_through = None
 
     async def translate_into(resolution: Resolution, seq: int) -> None:

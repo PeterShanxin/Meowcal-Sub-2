@@ -92,7 +92,7 @@ The target presentation change records these measured limits:
 | --- | ---: | ---: | --- |
 | `matcher.py` | 553 | 531 | share cue formatting with the target presentation owner |
 | `overlay/controller.py` | 2066 | 2060 | retain target tracks and use their coverage for prefill |
-| `sync.py` | 760 | 799 | resolve and schedule independent target cues while keeping source confirmation separate from plate changes |
+| `sync.py` | 760 | 798 | resolve and schedule independent target cues while keeping source confirmation separate from plate changes |
 
 The four largest are the ones worth naming, because they are where the work is:
 

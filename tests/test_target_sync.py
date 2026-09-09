@@ -186,3 +186,45 @@ def test_speaker_rows_belong_to_one_target_cue(monkeypatch):
     assert frame.text == "- Hello\n- Goodbye"
     assert len(frame.detail["presentationCues"]) == 1
     assert frame.detail["presentationCues"][0]["index"] == 7
+
+
+async def test_clock_transition_allows_a_similar_ocr_cue_to_confirm_its_source(monkeypatch):
+    import meocosub2.sync as sync
+    from meocosub2.subtitle_gate import LineChange, SubtitleGate
+
+    source = [cue(0, 0, 90, "The door is open"), cue(1, 120, 1000, "The gate is open")]
+    gate = SubtitleGate()
+    gate.remember(source[0].text)
+    assert gate.classify(source[1].text) is LineChange.REPEAT
+    session = make_session(
+        source, [cue(0, 0, 90, "first target"), cue(1, 120, 1000, "next target")]
+    )
+    monkeypatch.setattr(sync, "DISPLAY_LEAD_MS", 0)
+    next_plate = asyncio.Event()
+    observations = []
+    reads = 0
+
+    async def ocr(*args):
+        nonlocal reads
+        reads += 1
+        if reads == 1:
+            return source[0].text
+        if reads == 2:
+            await next_plate.wait()
+            return source[1].text
+        raise asyncio.CancelledError
+
+    async def broadcast(text, source):
+        if text == "next target":
+            next_plate.set()
+
+    async def observe(data):
+        observations.append(data)
+
+    monkeypatch.setattr(sync, "ocr_image", ocr)
+    monkeypatch.setattr(sync, "capture_region", lambda region: MagicMock())
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(
+            run_session_loop(session, AppConfig(capture_interval_ms=0), broadcast, observe), 5
+        )
+    assert [r["matchIdx"] for r in observations if r.get("confirmed")] == [0, 1]
