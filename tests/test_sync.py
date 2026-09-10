@@ -150,6 +150,44 @@ async def test_silence_releases_the_clock_and_same_phrase_can_match_again(monkey
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "initial_index,resumed_time,completed_time,resumed_index",
+    [(0, 5.0, 5.0, 1), (1, 6.0, 6.0, 1), (0, 1.0, 5.0, 0)],
+)
+async def test_repeated_phrase_after_silence_follows_the_nearest_occurrence(
+    monkeypatch, initial_index, resumed_time, completed_time, resumed_index
+) -> None:
+    import meocosub2.timeline as timeline
+
+    now = float(initial_index * 5)
+    monkeypatch.setattr(timeline, "monotonic", lambda: now)
+    lines = [
+        SubtitleLine(0, 0, 2000, "Can you hear me", "first occurrence"),
+        SubtitleLine(1, 5000, 7000, "Can you hear me", "second occurrence"),
+    ]
+    session = CandidateSession([make_candidate("a", lines)], config(), never_translates())
+    # Establish the real position without using the ambiguous phrase itself.
+    assert session._timeline.accepts(initial_index * 5000, initial_index, 100, now=now)
+    session.clear_cue()
+    now = resumed_time
+    session.saw_new_cue(now)
+    now = completed_time
+    result = await session.match("Can you hear me")
+    assert result is not None
+    assert result.detail["matchIdx"] == resumed_index
+    assert result.text == lines[resumed_index].translated
+
+
+@pytest.mark.asyncio
+async def test_direct_translation_reuses_target_text_after_the_phrase_disappears() -> None:
+    target = [SubtitleLine(0, 0, 3000, "Please close the door.")]
+    session = DirectTranslationSession(target, config(), fake_translator("Please close door"))
+    assert await session.translate("关门") == "Please close the door."
+    session.clear_cue()
+    assert await session.translate("关门") == "Please close the door."
+
+
+@pytest.mark.asyncio
 async def test_expired_session_waits_for_dialogue_to_confirm_a_backward_seek(monkeypatch) -> None:
     import meocosub2.timeline as timeline
 

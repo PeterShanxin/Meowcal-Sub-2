@@ -393,12 +393,13 @@ class CandidateSession:
 
     async def _match(self, ocr_text: str) -> tuple[str | None, MatchResult | None]:
         window = self._timeline.window_ms()
+        position = self._timeline.cue_position_ms
         if self._locked is not None:
             matcher = self._matchers[self._locked]
             # An unchanged read supplies no new evidence against this candidate.
             if matcher.is_repeated_frame(ocr_text):
                 return None, None
-            result = await matcher.match_best(ocr_text, window, self._semantic)
+            result = await matcher.match_best(ocr_text, window, self._semantic, position)
             if result is not None and self._timeline.accepts(
                 result.start_ms,
                 result.line_index,
@@ -420,7 +421,7 @@ class CandidateSession:
         # for the one that wins, so there is none to consult until it has.
         best_id, best = "", None
         for result_id, matcher in self._matchers.items():
-            result = matcher.match(ocr_text, window)
+            result = matcher.match(ocr_text, window, position)
             if result is not None and (best is None or result.score > best.score):
                 best_id, best = result_id, result
         if best is None:
@@ -486,7 +487,8 @@ class DirectTranslationSession:
         return None
 
     def clear_cue(self) -> None:
-        return None
+        if self._matcher is not None:
+            self._matcher.clear_cue()
 
     def status(self) -> dict[str, object]:
         return {}

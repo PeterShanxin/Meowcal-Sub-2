@@ -178,6 +178,30 @@ def test_expiry_recovery_rejects_cues_running_backwards() -> None:
     assert not timeline.anchored
 
 
+@pytest.mark.parametrize("scores", [(65, 65), (100, 65), (65, 100)])
+@pytest.mark.parametrize("lost_by", ["expiry", "misses"])
+def test_recovery_requires_strong_evidence_from_both_cues(scores, lost_by) -> None:
+    timeline = anchored_at(600_000)
+    if lost_by == "expiry":
+        assert timeline.position_ms(ANCHOR_MAX_AGE_S + 1) is None
+    else:
+        for now in range(1, ANCHOR_ABANDON_MISSES + 1):
+            assert not read(timeline, 1_200_000, 400, 65, now)
+    assert not read(timeline, 60_000, 20, scores[0], 100)
+    assert not read(timeline, 63_000, 21, scores[1], 103)
+    assert not timeline.anchored
+
+
+def test_weak_match_that_drops_an_anchor_cannot_seed_recovery() -> None:
+    timeline = anchored_at(600_000)
+    for now in range(1, ANCHOR_ABANDON_MISSES):
+        assert not read(timeline, 1_200_000, 400, 65, now)
+    assert not read(timeline, 628_000, 30, 65, 8)
+    assert not timeline.anchored
+    assert not read(timeline, 631_000, 31, 100, 11)
+    assert read(timeline, 634_000, 32, 100, 14)
+
+
 def test_cleared_cue_does_not_freeze_the_clock_during_silence() -> None:
     timeline = anchored_at(600_000)
     timeline.clear_cue()
