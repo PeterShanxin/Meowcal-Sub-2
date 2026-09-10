@@ -69,3 +69,14 @@ def test_nearby_correct_anchor_clears_rejected_jump_evidence():
     assert not offer(timeline, 406_030, 162, 70, now=5.705, seen_at=5.705)
     assert offer(timeline, 398_620, 155, 70, now=8, seen_at=8)
     assert not offer(timeline, 409_030, 163, 70, now=8.705, seen_at=8.705)
+
+
+def test_clearer_read_of_a_paused_cue_uses_its_original_prediction():
+    timeline = PlaybackTimeline()
+    assert timeline.accepts(600_000, 10, 100, now=0)
+    timeline.saw_new_cue(now=3)
+    for now in range(4, 13):
+        timeline.saw_same_cue(now=now)
+    assert timeline.position_ms(now=12) == 603_000
+    assert timeline.accepts(603_000, 11, 70, now=12)
+    assert timeline.status(now=12).drift_ms == 0

@@ -196,7 +196,13 @@ class PlaybackTimeline:
         # far apart they are, which is what makes them comparable at all.
         offset_ms = line_start_ms - int(at * 1000)
 
-        predicted = self.predicted_ms(at)
+        # A held cue may have accumulated pause credit since its first read.
+        # Recomputing its earlier position would subtract that credit twice.
+        predicted = (
+            self._cue_started_ms
+            if at == self._cue_since and self._cue_started_ms is not None
+            else self.predicted_ms(at)
+        )
         if predicted is None:
             if (
                 confident
