@@ -65,19 +65,24 @@ async def test_reanchor_and_bias_resolve_in_the_target_coordinate_system(monkeyp
     import meocosub2.sync as sync
     import meocosub2.timeline as timeline
 
-    monkeypatch.setattr(timeline, "monotonic", lambda: 10.0)
+    now = 10.0
+    monkeypatch.setattr(timeline, "monotonic", lambda: now)
     monkeypatch.setattr(sync, "DISPLAY_LEAD_MS", 0)
     bias = 0
     source = [
         cue(0, 1000, 3000, "A quiet morning in the garden", "Opening target"),
-        cue(1, 101000, 103000, "Astronauts landed safely", "Ending target"),
+        cue(1, 100000, 101000, "The landing lights are visible"),
+        cue(2, 101000, 103000, "Astronauts landed safely", "Ending target"),
     ]
     target = [cue(0, 0, 2000, "Opening target"), cue(1, 100000, 102000, "Ending target")]
     session = make_session(source, target, bias_source=lambda: bias)
     assert (await session.match(source[0].text)).text == "Opening target"
-    # A seek needs a second agreeing observation, as in the real timeline.
+    # Different cues one second apart corroborate the new playback offset.
+    session.saw_new_cue(now)
     await session.match(source[1].text)
-    assert (await session.match("Astronauts have landed safely")).text == "Ending target"
+    now += 1
+    session.saw_new_cue(now)
+    assert (await session.match(source[2].text)).text == "Ending target"
     bias = -1001
     assert session.line_now().text == ""
     bias = 500

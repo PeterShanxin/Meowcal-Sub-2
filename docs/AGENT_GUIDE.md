@@ -59,6 +59,10 @@ owns the measured limits that `scripts/verify.ps1` enforces.
 Source subtitles synchronize playback; target subtitles own presentation.
 OCR text and semantic matching anchor `PlaybackTimeline` against the selected
 source candidate. An anchor unconfirmed for 90 seconds is dropped.
+The search window does not authorize a weak clock correction beyond 2 seconds.
+Such corrections need different cues observed within 15 seconds whose playback
+offsets agree within 2 seconds; repeated reads of one cue cannot confirm a jump.
+Whole-file seeks additionally require strong text or text/semantic agreement.
 
 With a separate target file, `PresentationTrack` retains every target cue's
 index, interval, ordering and text. Both immediate matches and the clock renderer

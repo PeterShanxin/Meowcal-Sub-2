@@ -133,7 +133,7 @@ def test_the_window_brackets_the_prediction() -> None:
 
 def test_drift_records_how_far_the_prediction_was_out() -> None:
     timeline = anchored_at(600_000)
-    timeline.accepts(604_000, 11, score=70.0, now=3.0)
+    read(timeline, 604_000, 11, score=70.0, now=3.0)
     assert timeline.status(now=3.0).drift_ms == 1_000
 
 
