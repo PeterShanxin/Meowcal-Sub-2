@@ -35,6 +35,17 @@ def test_duplicate_frames_return_none() -> None:
     assert matcher.match("Hello there") is None
 
 
+def test_temporal_tie_break_does_not_override_a_better_text_match() -> None:
+    matcher = SubtitleMatcher(
+        [
+            SubtitleLine(0, 0, 2000, "Open the door"),
+            SubtitleLine(1, 5000, 7000, "Open the gate"),
+        ]
+    )
+    result = matcher.match("Open the door", window_ms=(-3000, 30000), position_ms=5000)
+    assert result is not None and result.line_index == 0
+
+
 def test_short_noise_returns_none() -> None:
     matcher = SubtitleMatcher(make_lines())
     assert matcher.match("hi") is None

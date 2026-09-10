@@ -74,6 +74,7 @@ class PlaybackTimeline:
         self._pending_offset_ms: int | None = None
         self._pending_index: int | None = None
         self._pending_at = 0.0
+        self._recovering = False
 
     @property
     def anchored(self) -> bool:
@@ -83,6 +84,11 @@ class PlaybackTimeline:
     def anchor_ms(self) -> int | None:
         """The file position the last accepted match fixed the clock to."""
         return self._anchor_ms
+
+    @property
+    def cue_position_ms(self) -> int | None:
+        """Where the current OCR cue was first seen, before recognition latency."""
+        return self._cue_started_ms if self._cue_started_ms is not None else self.predicted_ms()
 
     def status(self, now: float | None = None) -> TimelineStatus:
         return TimelineStatus(
@@ -135,7 +141,7 @@ class PlaybackTimeline:
         return self.predicted_ms(now)
 
     def window_ms(self, now: float | None = None) -> tuple[int, int] | None:
-        predicted = self.predicted_ms(now)
+        predicted = self.position_ms(now)
         if predicted is None:
             return None
         return predicted - WINDOW_BACK_MS, predicted + WINDOW_FORWARD_MS
@@ -147,6 +153,12 @@ class PlaybackTimeline:
         # Taken from the running clock rather than the reported one, so that
         # walking back to a pause does not leave the clock walked back forever.
         self._cue_started_ms = self._running_ms(now)
+        self._cue_credited_s = 0.0
+
+    def clear_cue(self) -> None:
+        """A blank region ends the cue hold without discarding playback timing."""
+        self._cue_since = None
+        self._cue_started_ms = None
         self._cue_credited_s = 0.0
 
     def saw_same_cue(self, now: float | None = None) -> None:
@@ -195,6 +207,7 @@ class PlaybackTimeline:
         # matches of the same playback imply nearly the same distance however
         # far apart they are, which is what makes them comparable at all.
         offset_ms = line_start_ms - int(at * 1000)
+        strong = confident or score >= SEEK_SCORE
 
         # A held cue may have accumulated pause credit since its first read.
         # Recomputing its earlier position would subtract that credit twice.
@@ -204,10 +217,11 @@ class PlaybackTimeline:
             else self.predicted_ms(at)
         )
         if predicted is None:
-            if (
-                confident
-                or score >= SEEK_SCORE
-                or self._agrees_with_pending(offset_ms, line_index, at)
+            if self._recovering and not strong:
+                self._pending_offset_ms = None
+                return False
+            if (not self._recovering and strong) or self._agrees_with_pending(
+                offset_ms, line_index, at
             ):
                 self._anchor(line_start_ms, at, drift=None)
                 return True
@@ -215,14 +229,12 @@ class PlaybackTimeline:
             return False
 
         in_window = predicted - WINDOW_BACK_MS <= line_start_ms <= predicted + WINDOW_FORWARD_MS
-        if abs(line_start_ms - predicted) <= AGREEING_OFFSET_MS or (
-            in_window and (confident or score >= SEEK_SCORE)
-        ):
+        if abs(line_start_ms - predicted) <= AGREEING_OFFSET_MS or (in_window and strong):
             self._anchor(line_start_ms, at, drift=line_start_ms - predicted)
             return True
 
         self._misses += 1
-        if not in_window and score < SEEK_SCORE and not confident:
+        if not in_window and not strong:
             self._pending_offset_ms = None
             self._forget_anchor_if_hopeless()
             return False
@@ -236,7 +248,8 @@ class PlaybackTimeline:
         # abandoning a hopeless anchor does not also discard the evidence that
         # would let the next match replace it.
         self._forget_anchor_if_hopeless()
-        self._remember_pending(offset_ms, line_index, at)
+        if not self._recovering or strong:
+            self._remember_pending(offset_ms, line_index, at)
         return False
 
     def _remember_pending(self, offset_ms: int, line_index: int, at: float) -> None:
@@ -248,7 +261,8 @@ class PlaybackTimeline:
         pending = self._pending_offset_ms
         return (
             pending is not None
-            and line_index != self._pending_index
+            and self._pending_index is not None
+            and line_index > self._pending_index
             and 0 < at - self._pending_at <= CONFIRMATION_MAX_AGE_S
             and abs(offset_ms - pending) <= AGREEING_OFFSET_MS
         )
@@ -266,18 +280,26 @@ class PlaybackTimeline:
         self._drift_ms = drift
         self._misses = 0
         self._pending_offset_ms = None
+        self._recovering = False
 
     def _forget_anchor_if_hopeless(self) -> None:
         if self._misses >= ANCHOR_ABANDON_MISSES:
             logger.debug("Timeline dropped its anchor after %d rejected matches", self._misses)
+            cue_since = self._cue_since
             self.reset()
+            self._cue_since = cue_since
+            self._recovering = True
 
     def _expire_stale_anchor(self, now: float) -> None:
         if self._anchor_ms is not None and now - self._anchor_at > ANCHOR_MAX_AGE_S:
             logger.debug(
                 "Timeline dropped an anchor nothing agreed with for %.0fs", ANCHOR_MAX_AGE_S
             )
+            # Expiry can run between a frame's capture and its OCR result.
+            cue_since = self._cue_since
             self.reset()
+            self._cue_since = cue_since
+            self._recovering = True
 
     def reset(self) -> None:
         self._anchor_ms = None
@@ -289,3 +311,4 @@ class PlaybackTimeline:
         self._misses = 0
         self._drift_ms = None
         self._pending_offset_ms = None
+        self._recovering = False

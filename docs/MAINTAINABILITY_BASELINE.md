@@ -94,6 +94,10 @@ The target presentation change records these measured limits:
 | `overlay/controller.py` | 2066 | 2060 | retain target tracks and use their coverage for prefill |
 | `sync.py` | 760 | 798 | resolve and schedule independent target cues while keeping source confirmation separate from plate changes |
 | `sync.py` | 798 | 802 | distinguish unchanged OCR confirmation retries from failed candidate matches |
+| `matcher.py` | 531 | 535 | allow a repeated phrase to match again after the capture region clears |
+| `sync.py` | 802 | 824 | end cue holds during silence and clear expired playback without publishing stale translations |
+| `matcher.py` | 535 | 550 | distinguish equally matching repeated phrases by their captured playback position |
+| `sync.py` | 824 | 826 | pass the captured position to matching and clear direct-translation target cue memory |
 
 The four largest are the ones worth naming, because they are where the work is:
 

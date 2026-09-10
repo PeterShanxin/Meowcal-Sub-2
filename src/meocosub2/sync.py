@@ -239,6 +239,11 @@ class CandidateSession:
     def saw_same_cue(self, at: float | None = None) -> None:
         self._timeline.saw_same_cue(at)
 
+    def clear_cue(self) -> None:
+        self._timeline.clear_cue()
+        for matcher in self._matchers.values():
+            matcher.clear_cue()
+
     def status(self) -> dict[str, object]:
         timeline = self._timeline.status()
         return {
@@ -388,12 +393,13 @@ class CandidateSession:
 
     async def _match(self, ocr_text: str) -> tuple[str | None, MatchResult | None]:
         window = self._timeline.window_ms()
+        position = self._timeline.cue_position_ms
         if self._locked is not None:
             matcher = self._matchers[self._locked]
             # An unchanged read supplies no new evidence against this candidate.
             if matcher.is_repeated_frame(ocr_text):
                 return None, None
-            result = await matcher.match_best(ocr_text, window, self._semantic)
+            result = await matcher.match_best(ocr_text, window, self._semantic, position)
             if result is not None and self._timeline.accepts(
                 result.start_ms,
                 result.line_index,
@@ -415,7 +421,7 @@ class CandidateSession:
         # for the one that wins, so there is none to consult until it has.
         best_id, best = "", None
         for result_id, matcher in self._matchers.items():
-            result = matcher.match(ocr_text, window)
+            result = matcher.match(ocr_text, window, position)
             if result is not None and (best is None or result.score > best.score):
                 best_id, best = result_id, result
         if best is None:
@@ -479,6 +485,10 @@ class DirectTranslationSession:
 
     def saw_same_cue(self, at: float | None = None) -> None:
         return None
+
+    def clear_cue(self) -> None:
+        if self._matcher is not None:
+            self._matcher.clear_cue()
 
     def status(self) -> dict[str, object]:
         return {}
@@ -568,6 +578,19 @@ async def run_session_loop(
             return
         await show(text, source)
 
+    async def clear_plate() -> None:
+        nonlocal pending
+        if pending is not None:
+            pending.cancel()
+            pending = None
+        screen.seq += 1
+        screen.confirmed = False
+        screen.covers_through = None
+        screen.matched = False
+        if screen.text:
+            screen.text = ""
+            await broadcast("", MATCHED)
+
     async def render_from_the_clock() -> None:
         """Play the file forward, once a match has said where the video is.
 
@@ -590,9 +613,13 @@ async def run_session_loop(
                 )
             nudge.clear()
             if not session.anchored:
+                if screen.matched:
+                    await clear_plate()
                 continue
             line = session.line_now()
             if line is None:
+                if not session.anchored:
+                    await clear_plate()
                 continue
             covered, reached = screen.covers_through, line.covers_through
             if covered is not None and (reached is None or reached <= covered):
@@ -617,6 +644,8 @@ async def run_session_loop(
             raise
         except Exception:
             logger.exception("Translating %r failed", resolution.translate[:60])
+            return
+        if resolution.matched and not session.anchored:
             return
         await publish(translated, resolution.source, seq)
 
@@ -736,22 +765,17 @@ async def run_session_loop(
 
                 if is_untranslatable(ocr_text):
                     empty_reads += 1
+                    if empty_reads == CLEAR_AFTER_EMPTY_READS:
+                        gate.clear()
+                        session.clear_cue()
+                        screen.confirmed = False
+                        screen.covers_through = None
                     # While the clock is running it decides what is on screen.
                     # A read comes back empty often enough - a frame caught
                     # mid-fade, pale text over a pale background - that letting
                     # it blank the plate loses lines that are plainly there.
-                    if (
-                        empty_reads >= CLEAR_AFTER_EMPTY_READS
-                        and screen.text
-                        and not session.anchored
-                    ):
-                        gate.clear()
-                        screen.seq += 1
-                        screen.text = ""
-                        screen.matched = False
-                        screen.confirmed = False
-                        screen.covers_through = None
-                        await broadcast("", MATCHED)
+                    if empty_reads >= CLEAR_AFTER_EMPTY_READS and not session.anchored:
+                        await clear_plate()
                 else:
                     empty_reads = 0
                     change = gate.classify(ocr_text)

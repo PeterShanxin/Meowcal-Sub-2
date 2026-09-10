@@ -189,6 +189,46 @@ async def test_all_rapid_targets_play_while_ocr_stalls(monkeypatch):
     assert shown == ["first", "", "short", "", "last", ""]
 
 
+async def test_expiry_clears_the_plate_while_ocr_stalls(monkeypatch):
+    import meocosub2.sync as sync
+    import meocosub2.timeline as timeline
+
+    monkeypatch.setattr(timeline, "ANCHOR_MAX_AGE_S", 0.05)
+    session = make_session(
+        [cue(0, 0, 10_000, "The last dialogue before silence")],
+        [cue(0, 0, 10_000, "Last target")],
+    )
+    first = True
+    cleared = asyncio.Event()
+    shown = []
+
+    async def ocr(*args):
+        nonlocal first
+        if first:
+            first = False
+            return session.followed_lines[0].text
+        await asyncio.Event().wait()
+
+    async def broadcast(text, source):
+        shown.append(text)
+        if text == "":
+            cleared.set()
+
+    monkeypatch.setattr(sync, "ocr_image", ocr)
+    monkeypatch.setattr(sync, "capture_region", lambda region: MagicMock())
+    task = asyncio.create_task(
+        run_session_loop(session, AppConfig(capture_interval_ms=0), broadcast)
+    )
+    try:
+        await asyncio.wait_for(cleared.wait(), 2)
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+    assert shown == ["Last target", ""]
+    assert not session.anchored
+
+
 @pytest.mark.parametrize("overlap", [1, 100, 500])
 def test_source_overlap_cannot_add_a_target_cue(monkeypatch, overlap):
     source = [cue(0, 0, 2000 + overlap, "first source"), cue(1, 2000, 4000, "second source")]

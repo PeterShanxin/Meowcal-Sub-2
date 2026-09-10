@@ -195,6 +195,10 @@ class SubtitleMatcher:
 
     def reset(self) -> None:
         self._last_match_position = None
+        self.clear_cue()
+
+    def clear_cue(self) -> None:
+        """Allow a phrase to match again after it disappears from the region."""
         self._last_frame_hash = None
 
     def _search_indices(self, window_ms: tuple[int, int] | None = None) -> range:
@@ -255,14 +259,21 @@ class SubtitleMatcher:
         indices: range,
         scorer: Callable[[str, str], float],
         table: list[str],
+        position_ms: int | None = None,
     ) -> tuple[int, int, float] | None:
         """The best line, or pair of lines, in `indices` - as (index, span, score)."""
-        singles = {index: table[index] for index in indices if table[index]}
+        # Equal text scores follow the clock rather than the first occurrence.
+        ordered = (
+            indices
+            if position_ms is None
+            else sorted(indices, key=lambda index: abs(self._starts[index] - position_ms))
+        )
+        singles = {index: table[index] for index in ordered if table[index]}
         best_single = self._best_of(normalized_ocr, singles, scorer)
 
         pairs = {
             index: self._join.join((table[index], table[index + 1]))
-            for index in indices
+            for index in ordered
             if index + 1 < len(table) and table[index] and table[index + 1]
         }
         best_pair = self._best_of(normalized_ocr, pairs, scorer)
@@ -407,12 +418,17 @@ class SubtitleMatcher:
             changes = settled.end_ms + FOLLOW_GRACE_MS + 1
         return changes if following is None else min(changes, following)
 
-    def match(self, ocr_text: str, window_ms: tuple[int, int] | None = None) -> MatchResult | None:
+    def match(
+        self,
+        ocr_text: str,
+        window_ms: tuple[int, int] | None = None,
+        position_ms: int | None = None,
+    ) -> MatchResult | None:
         """The best line by text alone."""
         normalized_ocr = self._normalize_for_match(ocr_text)
         if not self._worth_matching(normalized_ocr):
             return None
-        best = self._fuzzy(normalized_ocr, window_ms)
+        best = self._fuzzy(normalized_ocr, window_ms, position_ms)
         return None if best is None else self._result(best, TEXT)
 
     async def match_best(
@@ -420,6 +436,7 @@ class SubtitleMatcher:
         ocr_text: str,
         window_ms: tuple[int, int] | None = None,
         semantic: SemanticIndex | None = None,
+        position_ms: int | None = None,
     ) -> MatchResult | None:
         """The best line by text and by meaning together.
 
@@ -432,7 +449,7 @@ class SubtitleMatcher:
         if not self._worth_matching(normalized_ocr):
             return None
 
-        fuzzy = self._fuzzy(normalized_ocr, window_ms)
+        fuzzy = self._fuzzy(normalized_ocr, window_ms, position_ms)
         if fuzzy is not None and fuzzy.score >= STRONG_TEXT_SCORE:
             return self._result(fuzzy, TEXT)
         if semantic is None or not semantic.ready:
@@ -479,7 +496,9 @@ class SubtitleMatcher:
         self._last_frame_hash = current_hash
         return True
 
-    def _fuzzy(self, normalized_ocr: str, window_ms: tuple[int, int] | None) -> _Candidate | None:
+    def _fuzzy(
+        self, normalized_ocr: str, window_ms: tuple[int, int] | None, position_ms: int | None
+    ) -> _Candidate | None:
         # Two separate questions, and one predicate cannot answer both. Which
         # half of a bilingual cue this read belongs to is about script, so it
         # counts Hangul; which scorer suits it is about spacing, and Korean
@@ -491,7 +510,7 @@ class SubtitleMatcher:
         table = self._normalized if ocr_written_in_cjk else self._normalized_latin
 
         window = self._search_indices(window_ms)
-        best = self._extract_best(normalized_ocr, window, scorer, table)
+        best = self._extract_best(normalized_ocr, window, scorer, table, position_ms)
         in_window = best is not None
         if best is None:
             best = self._extract_best(normalized_ocr, range(len(self.subtitles)), scorer, table)
