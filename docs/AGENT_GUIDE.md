@@ -108,6 +108,9 @@ source-aligned presentation behavior.
   Lowering `fuzzy_threshold` buys wrong lines, not right ones. Lines that do not
   match are placed by the playback clock instead (see below).
 - If OCR text looks garbled → wrong capture region or OCR language; check `capture.region` in config.
+- OCR compares the original image, equalized image, and a neutral-white text mask.
+  The mask can recover rows hidden by scene texture; the other passes preserve
+  colored or dim text. Selection uses cleaned text quality, not physical row count.
 - If subtitle search returns 0 results → grep `OS /subtitles params=` to confirm language codes (`zhs` for Simplified Chinese) and `parent_feature_id` are present.
 - Live debug panel: set `[debug] mode = true` in config.toml, open the studio while a session is running; panel appears bottom-right showing the last 20 iterations.
 - The studio requires a per-run token. Read it from `%APPDATA%/meowcal-sub-2/runtime.json` and send it as `X-Meowcal-Token`, or open `/?token=...`. Unauthenticated requests get 401, foreign origins 403.
