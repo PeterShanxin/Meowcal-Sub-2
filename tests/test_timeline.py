@@ -33,6 +33,21 @@ def test_an_unanchored_timeline_has_nothing_to_offer_the_matcher() -> None:
     assert not timeline.anchored
 
 
+def test_abandoned_anchor_does_not_turn_same_frame_variants_into_new_observations():
+    timeline = anchored_at(600_000)
+    timeline.saw_new_cue(now=3)
+    for attempt in range(ANCHOR_ABANDON_MISSES):
+        now = 3 + attempt / 4
+        timeline.saw_same_cue(now=now)
+        assert not timeline.accepts(1_200_000, 400, 70, now=now)
+    assert not timeline.anchored
+    timeline.saw_same_cue(now=5)
+    assert not timeline.accepts(1_200_000, 400, 95, now=5)
+    timeline.saw_same_cue(now=5.5)
+    assert not timeline.accepts(1_200_500, 401, 95, now=5.5)
+    assert not timeline.anchored
+
+
 def test_a_near_exact_first_match_anchors_on_its_own() -> None:
     timeline = anchored_at(600_000)
     assert timeline.anchored

@@ -277,7 +277,9 @@ class PlaybackTimeline:
     def _forget_anchor_if_hopeless(self) -> None:
         if self._misses >= ANCHOR_ABANDON_MISSES:
             logger.debug("Timeline dropped its anchor after %d rejected matches", self._misses)
+            cue_since = self._cue_since
             self.reset()
+            self._cue_since = cue_since
             self._recovering = True
 
     def _expire_stale_anchor(self, now: float) -> None:
