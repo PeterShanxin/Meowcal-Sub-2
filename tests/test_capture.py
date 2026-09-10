@@ -12,6 +12,7 @@ from meocosub2.capture import (
     capture_region_jpeg,
     ocr_image,
     preprocess_for_ocr,
+    preprocess_white_text_for_ocr,
 )
 
 
@@ -117,8 +118,36 @@ def test_ocr_output_is_cleaned_before_it_leaves_capture(monkeypatch) -> None:
 
     monkeypatch.setattr(capture_module, "_run_ocr", fake_ocr)
     monkeypatch.setattr(capture_module, "preprocess_for_ocr", lambda image: image)
-    text = asyncio.run(capture_module.ocr_image(object(), "zh-CN"))
+    text = asyncio.run(capture_module.ocr_image(Image.new("RGB", (1, 1)), "zh-CN"))
     assert text == "很自然我们甚至不会察觉"
+
+
+def test_white_text_mask_separates_subtitles_from_bright_colored_scenery() -> None:
+    image = Image.new("RGB", (5, 1))
+    image.putdata([(255, 255, 255), (220, 220, 220), (219, 255, 255), (255, 255, 0), (0, 0, 0)])
+
+    assert list(preprocess_white_text_for_ocr(image).getdata()) == [255, 255, 0, 0, 0]
+
+
+@pytest.mark.asyncio
+async def test_white_text_pass_recovers_row_missing_from_whole_scene_passes(mocker) -> None:
+    # Boundary results reproduce Windows OCR dropping a row against a busy scene.
+    mocker.patch(
+        "meocosub2.capture._run_ocr",
+        new=mocker.AsyncMock(side_effect=["请 坐", "请 坐", "大 家 好 请 坐"]),
+    )
+
+    assert await ocr_image(Image.new("RGB", (4, 2)), "zh-CN") == "大家好请坐"
+
+
+@pytest.mark.asyncio
+async def test_white_text_pass_does_not_discard_complete_colored_subtitles(mocker) -> None:
+    mocker.patch(
+        "meocosub2.capture._run_ocr",
+        new=mocker.AsyncMock(side_effect=["大 家 好 请 坐", "请 坐", ""]),
+    )
+
+    assert await ocr_image(Image.new("RGB", (4, 2), "yellow"), "zh-CN") == "大家好请坐"
 
 
 def test_capture_region_jpeg_encodes_what_was_grabbed(mocker) -> None:

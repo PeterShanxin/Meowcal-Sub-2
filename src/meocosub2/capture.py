@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from time import monotonic
 
 import mss
-from PIL import Image, ImageOps
+from PIL import Image, ImageChops, ImageOps
 from winocr import OcrEngine
 
 from meocosub2.languages import normalize_ocr_language
@@ -94,6 +94,14 @@ def preprocess_for_ocr(image: Image.Image) -> Image.Image:
     return equalized.point(lambda pixel: 255 if pixel >= 128 else 0)
 
 
+def preprocess_white_text_for_ocr(image: Image.Image) -> Image.Image:
+    # Equalization preserves scene edges that can hide an entire subtitle row.
+    # Require every channel to be bright so colored scenery stays out of the mask.
+    red, green, blue = image.convert("RGB").split()
+    darkest_channel = ImageChops.darker(ImageChops.darker(red, green), blue)
+    return darkest_channel.point(lambda pixel: 255 if pixel >= 220 else 0)
+
+
 def _should_try_raw_first(language: str) -> bool:
     normalized = normalize_ocr_language(language)
     return normalized.startswith("zh") or normalized.startswith("ja")
@@ -126,6 +134,8 @@ async def ocr_image(image: Image.Image, language: str) -> str:
     raw_first = _should_try_raw_first(resolution.resolved_language)
     passes = [image, preprocess_for_ocr(image)] if raw_first else [preprocess_for_ocr(image), image]
     pass_names = ["raw", "preprocessed"] if raw_first else ["preprocessed", "raw"]
+    passes.append(preprocess_white_text_for_ocr(image))
+    pass_names.append("white-text")
     best_text = ""
     best_score = (0, 0)
     best_pass = "none"
