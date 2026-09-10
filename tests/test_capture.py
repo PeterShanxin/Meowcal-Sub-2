@@ -1,17 +1,16 @@
 import asyncio
 import io
-import sys
 from types import SimpleNamespace
 
 import pytest
 from PIL import Image
 
 from meocosub2.capture import (
-    _run_ocr,
     capture_region,
     capture_region_jpeg,
     ocr_image,
     preprocess_for_ocr,
+    preprocess_white_text_for_ocr,
 )
 
 
@@ -73,34 +72,6 @@ async def test_ocr_image_returns_empty_string_on_exception(mocker) -> None:
     assert result == ""
 
 
-@pytest.mark.asyncio
-async def test_run_ocr_uses_running_loop(mocker) -> None:
-    class FakeLoop:
-        def __init__(self) -> None:
-            self.called = False
-
-        def run_in_executor(self, executor, func):
-            self.called = True
-            future = asyncio.Future()
-            future.set_result(func())
-            return future
-
-    fake_loop = FakeLoop()
-    running_loop = mocker.patch(
-        "meocosub2.capture.asyncio.get_running_loop", return_value=fake_loop
-    )
-    sys.modules["winocr"] = SimpleNamespace(
-        recognize_pil=lambda image, language: SimpleNamespace(text="hello")
-    )
-    try:
-        result = await _run_ocr(Image.new("RGB", (1, 1)), "en")
-    finally:
-        sys.modules.pop("winocr", None)
-    assert result == "hello"
-    running_loop.assert_called_once()
-    assert fake_loop.called
-
-
 def test_ocr_output_is_cleaned_before_it_leaves_capture(monkeypatch) -> None:
     import asyncio
 
@@ -117,8 +88,89 @@ def test_ocr_output_is_cleaned_before_it_leaves_capture(monkeypatch) -> None:
 
     monkeypatch.setattr(capture_module, "_run_ocr", fake_ocr)
     monkeypatch.setattr(capture_module, "preprocess_for_ocr", lambda image: image)
-    text = asyncio.run(capture_module.ocr_image(object(), "zh-CN"))
+    text = asyncio.run(capture_module.ocr_image(Image.new("RGB", (1, 1)), "zh-CN"))
     assert text == "很自然我们甚至不会察觉"
+
+
+def test_white_text_mask_separates_subtitles_from_bright_colored_scenery() -> None:
+    image = Image.new("RGB", (5, 1))
+    image.putdata([(255, 255, 255), (200, 200, 200), (199, 255, 255), (255, 255, 0), (0, 0, 0)])
+
+    assert list(preprocess_white_text_for_ocr(image).getdata()) == [255, 255, 0, 0, 0]
+
+
+@pytest.mark.asyncio
+async def test_white_text_pass_recovers_row_missing_from_whole_scene_passes(mocker) -> None:
+    # Boundary results reproduce Windows OCR dropping a row against a busy scene.
+    mocker.patch(
+        "meocosub2.capture._run_ocr",
+        new=mocker.AsyncMock(side_effect=["请 坐 下", "请 坐 下", "大 家 好 请 坐 下"]),
+    )
+
+    assert await ocr_image(Image.new("RGB", (4, 2)), "zh-CN") == "大家好请坐下"
+
+
+@pytest.mark.asyncio
+async def test_white_text_pass_does_not_discard_complete_colored_subtitles(mocker) -> None:
+    mocker.patch(
+        "meocosub2.capture._run_ocr",
+        new=mocker.AsyncMock(side_effect=["大 家 好 请 坐", "请 坐", "请勿靠近展览入口服务中心"]),
+    )
+
+    assert await ocr_image(Image.new("RGB", (4, 2), "yellow"), "zh-CN") == "大家好请坐"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "original, white_text",
+    [
+        ("大家请坐下", "大家好欢迎参观展览入口"),
+        ("请把门关好", "大家请将窗关好再坐下"),
+        ("大家请坐下", "下坐请家大入口服务中心"),
+        ("", "欢迎参观展览入口"),
+        ("坐", "大家请坐下"),
+        ("请坐", "大家请坐下"),
+    ],
+)
+async def test_white_text_needs_corroboration_from_whole_scene(
+    mocker, original, white_text
+) -> None:
+    mocker.patch(
+        "meocosub2.capture._run_ocr",
+        new=mocker.AsyncMock(side_effect=[original, original, white_text]),
+    )
+
+    assert await ocr_image(Image.new("RGB", (4, 2)), "zh-CN") == original
+
+
+@pytest.mark.asyncio
+async def test_white_text_extension_allows_one_recognition_error_in_five_letters(mocker) -> None:
+    mocker.patch(
+        "meocosub2.capture._run_ocr",
+        new=mocker.AsyncMock(side_effect=["请把门关好", "", "大家请把窗关好再坐下"]),
+    )
+
+    assert await ocr_image(Image.new("RGB", (4, 2)), "zh-CN") == "大家请把窗关好再坐下"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("successful_passes", [0, 1, 2])
+async def test_ocr_timeout_returns_prior_read_or_blank(mocker, successful_passes) -> None:
+    completed = 0
+
+    async def recognize(image, language):
+        nonlocal completed
+        if completed < successful_passes:
+            completed += 1
+            return "大家好请坐"
+        await asyncio.Event().wait()
+
+    mocker.patch("meocosub2.capture._OCR_PASS_TIMEOUT_SECONDS", 0.01, create=True)
+    run_ocr = mocker.patch("meocosub2.capture._run_ocr", side_effect=recognize)
+
+    result = await asyncio.wait_for(ocr_image(Image.new("RGB", (4, 2)), "zh-CN"), timeout=0.2)
+    assert result == ("大家好请坐" if successful_passes else "")
+    assert run_ocr.await_count == successful_passes + 1
 
 
 def test_capture_region_jpeg_encodes_what_was_grabbed(mocker) -> None:
