@@ -50,9 +50,11 @@ class OcrOperation:
 
 
 @pytest.fixture
-def native_ocr(mocker):
+async def native_ocr(mocker):
+    # Windows Python 3.11 timers can fire one 15.6 ms clock tick early.
+    mocker.patch.object(asyncio.get_running_loop(), "_clock_resolution", 0.016)
     mocker.patch.object(capture, "_pending_ocr", None)
-    mocker.patch.object(capture, "_OCR_PASS_TIMEOUT_SECONDS", 0.01)
+    mocker.patch.object(capture, "_OCR_PASS_TIMEOUT_SECONDS", 0.1)
     return mocker.patch("winocr.recognize_pil")
 
 
@@ -60,7 +62,7 @@ def native_ocr(mocker):
 async def test_native_ocr_handles_completion_before_callback_registration(native_ocr):
     native_ocr.return_value = OcrOperation().finish(" hello ")
 
-    assert await asyncio.wait_for(capture._run_ocr(Image.new("RGB", (4, 2)), "en"), 0.2) == "hello"
+    assert await asyncio.wait_for(capture._run_ocr(Image.new("RGB", (4, 2)), "en"), 1.0) == "hello"
 
 
 @pytest.mark.asyncio
@@ -71,9 +73,9 @@ async def test_native_ocr_receives_completion_from_another_thread(native_ocr):
     thread = threading.Thread(target=lambda: operation.finish("hello"), daemon=True)
     thread.start()
     try:
-        assert await asyncio.wait_for(task, 0.2) == "hello"
+        assert await asyncio.wait_for(task, 1.0) == "hello"
     finally:
-        thread.join(timeout=0.2)
+        thread.join(timeout=1.0)
     assert not thread.is_alive()
 
 
@@ -82,14 +84,14 @@ async def test_timed_out_native_operation_is_not_replaced_until_it_finishes(nati
     operation = native_ocr.return_value = OcrOperation()
     image = Image.new("RGB", (4, 2))
 
-    assert await asyncio.wait_for(capture.ocr_image(image, "en"), 0.2) == ""
+    assert await asyncio.wait_for(capture.ocr_image(image, "en"), 1.0) == ""
     assert operation.cancel_count == 1
-    assert await asyncio.wait_for(capture.ocr_image(image, "en"), 0.2) == ""
+    assert await asyncio.wait_for(capture.ocr_image(image, "en"), 1.0) == ""
     assert native_ocr.call_count == 1
 
     operation.finish("late result")
     native_ocr.return_value = OcrOperation().finish("new result")
-    assert await asyncio.wait_for(capture.ocr_image(image, "en"), 0.2) == "new result"
+    assert await asyncio.wait_for(capture.ocr_image(image, "en"), 1.0) == "new result"
 
 
 @pytest.mark.asyncio
@@ -101,7 +103,7 @@ async def test_timed_out_native_white_pass_preserves_prior_read(native_ocr):
         pending,
     ]
 
-    result = await asyncio.wait_for(capture.ocr_image(Image.new("RGB", (4, 2)), "en"), 0.2)
+    result = await asyncio.wait_for(capture.ocr_image(Image.new("RGB", (4, 2)), "en"), 1.0)
     assert result == "please sit down"
     assert pending.cancel_count == 1
 
@@ -126,7 +128,7 @@ async def test_native_cancel_failure_does_not_enqueue_more_operations(native_ocr
     operation.cancel_error = RuntimeError("native cancel failed")
 
     with caplog.at_level(logging.DEBUG):
-        result = await asyncio.wait_for(capture.ocr_image(Image.new("RGB", (4, 2)), "en"), 0.2)
+        result = await asyncio.wait_for(capture.ocr_image(Image.new("RGB", (4, 2)), "en"), 1.0)
     assert result == ""
     assert native_ocr.call_count == 1
     assert "native cancel failed" in caplog.text
@@ -156,7 +158,7 @@ async def test_native_cancel_failure_preserves_session_cancellation(native_ocr, 
 
     native_ocr.side_effect = recognize
     task = asyncio.create_task(capture.ocr_image(Image.new("RGB", (4, 2)), "en"))
-    await asyncio.wait_for(started.wait(), 0.2)
+    await asyncio.wait_for(started.wait(), 1.0)
     with caplog.at_level(logging.DEBUG):
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
