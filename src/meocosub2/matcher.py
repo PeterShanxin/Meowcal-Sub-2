@@ -195,6 +195,10 @@ class SubtitleMatcher:
 
     def reset(self) -> None:
         self._last_match_position = None
+        self.clear_cue()
+
+    def clear_cue(self) -> None:
+        """Allow a phrase to match again after it disappears from the region."""
         self._last_frame_hash = None
 
     def _search_indices(self, window_ms: tuple[int, int] | None = None) -> range:

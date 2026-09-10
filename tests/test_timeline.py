@@ -1,3 +1,5 @@
+import pytest
+
 from meocosub2.timeline import (
     AGREEING_OFFSET_MS,
     ANCHOR_ABANDON_MISSES,
@@ -109,9 +111,10 @@ def test_an_anchor_nothing_agrees_with_is_eventually_abandoned() -> None:
     for attempt in range(ANCHOR_ABANDON_MISSES):
         assert not timeline.accepts(1_200_000, 400, score=70.0, now=1.0 + attempt)
     assert not timeline.anchored
-    # With no anchor left the session can find the video again, on the same
-    # evidence any first match needs.
-    assert timeline.accepts(1_200_000, 400, score=100.0, now=10.0)
+    # Losing a contradicted anchor must not reopen single-match startup trust.
+    assert not read(timeline, 1_200_000, 400, score=100.0, now=10.0)
+    assert not timeline.anchored
+    assert read(timeline, 1_203_000, 401, score=100.0, now=13.0)
 
 
 def test_an_anchor_no_match_has_confirmed_for_a_long_time_expires() -> None:
@@ -119,8 +122,58 @@ def test_an_anchor_no_match_has_confirmed_for_a_long_time_expires() -> None:
     late = ANCHOR_MAX_AGE_S + 1
     assert timeline.position_ms(now=late) is None
     assert not timeline.anchored
-    assert read(timeline, 60_000, 20, score=100.0, now=late)
-    assert timeline.predicted_ms(now=late) == 60_000
+    assert not read(timeline, 60_000, 20, score=100.0, now=late)
+    assert read(timeline, 63_000, 21, score=100.0, now=late + 3)
+    assert timeline.predicted_ms(now=late + 3) == 63_000
+
+
+def test_search_expires_the_anchor_before_selecting_candidates() -> None:
+    timeline = anchored_at(600_000)
+    assert timeline.window_ms(now=ANCHOR_MAX_AGE_S + 1) is None
+    assert not timeline.anchored
+
+
+def test_expiry_during_ocr_keeps_the_capture_time_for_recovery() -> None:
+    timeline = anchored_at(600_000)
+    timeline.saw_new_cue(now=89)
+    assert timeline.window_ms(now=94) is None
+    assert not timeline.accepts(100_000, 20, 100, now=94)
+    assert read(timeline, 107_000, 21, 100, now=96)
+
+
+@pytest.mark.parametrize("score,confident", [(100.0, False), (70.0, True)])
+def test_expired_anchor_requires_progressing_cues_even_with_strong_evidence(score, confident):
+    timeline = anchored_at(600_000)
+    late = ANCHOR_MAX_AGE_S + 1
+    timeline.saw_new_cue(late)
+    assert not timeline.accepts(60_000, 20, score, now=late, confident=confident)
+    assert timeline.position_ms(late) is None
+    # A near-exact read of the same phrase cannot corroborate its own location.
+    timeline.saw_new_cue(late + 1)
+    assert not timeline.accepts(60_000, 20, score, now=late + 1, confident=confident)
+    timeline.saw_new_cue(late + 2)
+    assert timeline.accepts(62_000, 21, score, now=late + 2, confident=confident)
+
+
+def test_expiry_recovery_rejects_cues_running_backwards() -> None:
+    timeline = anchored_at(600_000)
+    late = ANCHOR_MAX_AGE_S + 1
+    assert not read(timeline, 60_000, 20, 100, late)
+    assert not read(timeline, 59_500, 19, 100, late + 0.5)
+    assert not timeline.anchored
+
+
+def test_cleared_cue_does_not_freeze_the_clock_during_silence() -> None:
+    timeline = anchored_at(600_000)
+    timeline.clear_cue()
+    assert timeline.position_ms(now=30) == 630_000
+
+
+def test_cleared_cue_keeps_time_already_spent_paused() -> None:
+    timeline = anchored_at(600_000)
+    timeline.saw_same_cue(now=30)
+    timeline.clear_cue()
+    assert timeline.position_ms(now=40) == 616_000
 
 
 def test_the_window_brackets_the_prediction() -> None:

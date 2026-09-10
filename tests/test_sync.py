@@ -130,6 +130,96 @@ async def test_empty_reads_do_not_blank_a_line_the_clock_is_sure_of() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("now", [1.0, 30.0])
+async def test_silence_releases_the_clock_and_same_phrase_can_match_again(monkeypatch, now) -> None:
+    import meocosub2.sync as sync
+    import meocosub2.timeline as timeline
+
+    clock = 0.0
+    monkeypatch.setattr(timeline, "monotonic", lambda: clock)
+    monkeypatch.setattr(sync, "monotonic", lambda: clock)
+    session = CandidateSession([make_candidate("a", paired_lines())], config(), never_translates())
+    await drive(session, config(), ["Hello there", "", "", ""])
+    clock = now
+    assert session.clock_ms() == int(now * 1000) + sync.DISPLAY_LEAD_MS
+    if now == 1.0:
+        # Empty frames separated this phrase from its earlier read.
+        session.saw_new_cue(now)
+        resolution = await session.match("Hello there")
+        assert resolution is not None and resolution.detail.get("confirmed")
+
+
+@pytest.mark.asyncio
+async def test_expired_session_waits_for_dialogue_to_confirm_a_backward_seek(monkeypatch) -> None:
+    import meocosub2.timeline as timeline
+
+    now = 0.0
+    monkeypatch.setattr(timeline, "monotonic", lambda: now)
+    lines = [
+        SubtitleLine(0, 100_000, 102_000, "The earlier scene begins", "earlier target"),
+        SubtitleLine(1, 103_000, 105_000, "Someone answers the telephone", "recovered target"),
+        SubtitleLine(2, 600_000, 603_000, "We have arrived at the station", "initial target"),
+    ]
+    session = CandidateSession([make_candidate("a", lines)], config(), never_translates())
+    assert (await session.match(lines[2].text)).text == "initial target"
+    now = timeline.ANCHOR_MAX_AGE_S + 1
+    session.saw_new_cue(now)
+    assert await session.match(lines[0].text) is None
+    assert not session.anchored
+    now += 3
+    session.saw_new_cue(now)
+    assert (await session.match(lines[1].text)).text == "recovered target"
+    assert session.anchored
+
+
+@pytest.mark.asyncio
+async def test_translation_cannot_fill_a_plate_after_its_match_expires(monkeypatch) -> None:
+    import meocosub2.sync as sync
+    import meocosub2.timeline as timeline
+
+    now = 0.0
+    monkeypatch.setattr(timeline, "monotonic", lambda: now)
+    monkeypatch.setattr(sync, "monotonic", lambda: now)
+    ready = asyncio.Event()
+    client = MagicMock()
+
+    async def translate(*args):
+        await ready.wait()
+        return "late target"
+
+    client.translate = AsyncMock(side_effect=translate)
+    session = CandidateSession(
+        [make_candidate("a", [SubtitleLine(0, 0, 3000, "The last source sentence")])],
+        config(),
+        translator_factory(LiveTranslator(client, "en", "zh")),
+    )
+    first = True
+    shown = []
+
+    async def ocr(*args):
+        nonlocal first, now
+        if first:
+            first = False
+            return "The last source sentence"
+        now = timeline.ANCHOR_MAX_AGE_S + 1
+        assert session.clock_ms() is None
+        ready.set()
+        for _ in range(5):
+            await asyncio.sleep(0)
+        raise asyncio.CancelledError()
+
+    async def broadcast(text, source):
+        shown.append(text)
+
+    monkeypatch.setattr(sync, "ocr_image", ocr)
+    monkeypatch.setattr(sync, "capture_region", lambda region: MagicMock())
+    with pytest.raises(asyncio.CancelledError):
+        await run_session_loop(session, config(), broadcast)
+    assert client.translate.await_count == 1
+    assert shown == []
+
+
+@pytest.mark.asyncio
 async def test_a_matched_line_without_a_translation_is_translated_live() -> None:
     untranslated = [SubtitleLine(index=0, start_ms=0, end_ms=3000, text="Hello there")]
     translator = fake_translator("你好")

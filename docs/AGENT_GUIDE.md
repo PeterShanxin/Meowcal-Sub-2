@@ -58,7 +58,13 @@ owns the measured limits that `scripts/verify.ps1` enforces.
 
 Source subtitles synchronize playback; target subtitles own presentation.
 OCR text and semantic matching anchor `PlaybackTimeline` against the selected
-source candidate. An anchor unconfirmed for 90 seconds is dropped.
+source candidate. An anchor unconfirmed for 90 seconds is dropped and its plate
+cleared. Recovery from an expired or repeatedly contradicted anchor needs two
+different, progressing cues whose observation times agree on the playback
+position, including after a seek. A single high score cannot restore a dropped
+anchor. Three consecutive empty OCR reads end
+the previous cue's pause hold and allow the same phrase to match again; while
+the anchor remains valid, the target track still owns presentation and silence.
 The search window does not authorize a weak clock correction beyond 2 seconds.
 Such corrections need different cues observed within 15 seconds whose playback
 offsets agree within 2 seconds; repeated reads of one cue cannot confirm a jump.
