@@ -19,9 +19,7 @@ from time import monotonic
 
 logger = logging.getLogger(__name__)
 
-# How far either side of the predicted position a line is still believable.
-# Forward is the generous side: playback moves that way, and a run of missed
-# reads leaves the next hit ahead of where the clock last heard from.
+# Search eligibility is deliberately wider than evidence for moving the clock.
 WINDOW_BACK_MS = 8_000
 WINDOW_FORWARD_MS = 25_000
 # A line the clock did not expect has to be this convincing before it is even
@@ -35,6 +33,8 @@ SEEK_SCORE = 88.0
 # and the wall clock barely moves: measured over a real session it held to
 # 28.9s +/- 0.8s across six minutes and 150 lines, with no rate drift.
 AGREEING_OFFSET_MS = 2_000
+# Corroboration must come from nearby dialogue, not an unrelated later scene.
+CONFIRMATION_MAX_AGE_S = 15.0
 # Consecutive rejected matches before the anchor is treated as wrong rather than
 # the reads as unlucky. Without this a bad anchor can never be escaped.
 ANCHOR_ABANDON_MISSES = 8
@@ -72,6 +72,8 @@ class PlaybackTimeline:
         self._misses = 0
         self._drift_ms: int | None = None
         self._pending_offset_ms: int | None = None
+        self._pending_index: int | None = None
+        self._pending_at = 0.0
 
     @property
     def anchored(self) -> bool:
@@ -173,16 +175,11 @@ class PlaybackTimeline:
     ) -> bool:
         """Whether a matched line is where the video actually is.
 
-        An anchored clock believes anything near its prediction. Everything else
-        - the first match of a session, and a match somewhere the clock did not
-        expect - has to be convincing on its own or be agreed with by a second
-        read that puts the video in the same place. `confident` says the read
-        was placed by text and by meaning together, which is the same standard
-        of evidence as a near-exact text score. That is what a viewer
-        dragging the progress bar looks like, and what one unlucky match does
-        not - and the asymmetry is deliberate, because a wrong anchor draws
-        wrong subtitles until something disagrees with it, which can take the
-        full ninety seconds an anchor is allowed to go unconfirmed.
+        Small corrections and strong in-window evidence follow the clock.
+        Larger weak moves require different cues whose observation times imply
+        the same playback offset.
+        A whole-file seek additionally needs strong text or agreement between
+        text and meaning. Repeated OCR of one cue cannot confirm itself.
         """
         now = monotonic() if now is None else now
         # The line was on screen before the frame that read it: a capture every
@@ -199,24 +196,32 @@ class PlaybackTimeline:
         # far apart they are, which is what makes them comparable at all.
         offset_ms = line_start_ms - int(at * 1000)
 
-        predicted = self.predicted_ms(now)
+        predicted = self.predicted_ms(at)
         if predicted is None:
-            if confident or score >= SEEK_SCORE or self._agrees_with_pending(offset_ms):
+            if (
+                confident
+                or score >= SEEK_SCORE
+                or self._agrees_with_pending(offset_ms, line_index, at)
+            ):
                 self._anchor(line_start_ms, at, drift=None)
                 return True
-            self._pending_offset_ms = offset_ms
+            self._remember_pending(offset_ms, line_index, at)
             return False
 
-        if predicted - WINDOW_BACK_MS <= line_start_ms <= predicted + WINDOW_FORWARD_MS:
+        in_window = predicted - WINDOW_BACK_MS <= line_start_ms <= predicted + WINDOW_FORWARD_MS
+        if abs(line_start_ms - predicted) <= AGREEING_OFFSET_MS or (
+            in_window and (confident or score >= SEEK_SCORE)
+        ):
             self._anchor(line_start_ms, at, drift=line_start_ms - predicted)
             return True
 
         self._misses += 1
-        if score < SEEK_SCORE and not confident:
+        if not in_window and score < SEEK_SCORE and not confident:
+            self._pending_offset_ms = None
             self._forget_anchor_if_hopeless()
             return False
 
-        if self._agrees_with_pending(offset_ms):
+        if self._agrees_with_pending(offset_ms, line_index, at):
             logger.debug("Timeline re-anchored to line %d after a seek", line_index)
             self._anchor(line_start_ms, at, drift=None)
             return True
@@ -225,12 +230,22 @@ class PlaybackTimeline:
         # abandoning a hopeless anchor does not also discard the evidence that
         # would let the next match replace it.
         self._forget_anchor_if_hopeless()
-        self._pending_offset_ms = offset_ms
+        self._remember_pending(offset_ms, line_index, at)
         return False
 
-    def _agrees_with_pending(self, offset_ms: int) -> bool:
+    def _remember_pending(self, offset_ms: int, line_index: int, at: float) -> None:
+        self._pending_offset_ms = offset_ms
+        self._pending_index = line_index
+        self._pending_at = at
+
+    def _agrees_with_pending(self, offset_ms: int, line_index: int, at: float) -> bool:
         pending = self._pending_offset_ms
-        return pending is not None and abs(offset_ms - pending) <= AGREEING_OFFSET_MS
+        return (
+            pending is not None
+            and line_index != self._pending_index
+            and 0 < at - self._pending_at <= CONFIRMATION_MAX_AGE_S
+            and abs(offset_ms - pending) <= AGREEING_OFFSET_MS
+        )
 
     def _anchor(self, line_start_ms: int, at: float, drift: int | None) -> None:
         self._anchor_ms = line_start_ms
