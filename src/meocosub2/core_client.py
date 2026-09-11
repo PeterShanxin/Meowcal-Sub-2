@@ -20,6 +20,7 @@ from meocosub2.core_process import (
     core_profile,
     core_storage_override,
     drain_stderr,
+    ended_message,
     legacy_engine_roots,
     terminate_process,
 )
@@ -109,6 +110,7 @@ class CoreClient:
         payload: bytes,
         token: int,
         cancelled: threading.Event,
+        externally_timed: bool = False,
     ) -> dict[str, Any]:
         validate_payload(method, params, payload)
         if timeout_s <= 0:
@@ -128,14 +130,18 @@ class CoreClient:
             timed_out.set()
             self._abort_if_active(token)
 
-        timer = threading.Timer(max(0, deadline - monotonic()), expire)
-        timer.daemon = True
+        timer = (
+            None if externally_timed else threading.Timer(max(0, deadline - monotonic()), expire)
+        )
+        if timer is not None:
+            timer.daemon = True
         try:
             with self._state_lock:
                 self._active_token = token
             if cancelled.is_set():
                 raise CoreClientError(f"Core {method} was cancelled")
-            timer.start()
+            if timer is not None:
+                timer.start()
             if timed_out.is_set():
                 raise CoreTimeoutError("CLIENT_TIMEOUT", f"Core {method} exceeded {timeout_s:.3g}s")
             process, started = self._ensure_started(cancelled, timed_out)
@@ -157,7 +163,8 @@ class CoreClient:
                 ) from error
             raise
         finally:
-            timer.cancel()
+            if timer is not None:
+                timer.cancel()
             with self._state_lock:
                 if self._active_token == token:
                     self._active_token = None
@@ -187,6 +194,8 @@ class CoreClient:
                 payload=payload,
                 token=token,
                 cancelled=cancelled,
+                # Async OCR's outer deadline aborts and drains its owned process.
+                externally_timed=method == "ocrRecognizeBgra",
             )
         )
         try:
@@ -347,7 +356,7 @@ class CoreClient:
             while True:
                 line = process.stdout.readline(FRAME_BYTES + 1)
                 if not line:
-                    raise CoreProtocolError(self._ended_message(process))
+                    raise CoreProtocolError(ended_message(process, self._stderr_tail))
                 if not line.endswith(b"\n") or len(line) > FRAME_BYTES:
                     raise CoreProtocolError("Core returned an oversized or incomplete frame")
                 try:
@@ -389,8 +398,3 @@ class CoreClient:
                 terminate_process(process)
                 return
             close_process_job(process)
-
-    def _ended_message(self, process: subprocess.Popen[bytes]) -> str:
-        code = process.poll()
-        detail = self._stderr_tail[-1] if self._stderr_tail else "no diagnostics"
-        return f"Meowcal Core ended unexpectedly (exit={code}; {detail})"

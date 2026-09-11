@@ -12,6 +12,12 @@ from pathlib import Path
 from meocosub2.core_protocol import CoreClientError
 
 
+def ended_message(process: subprocess.Popen[bytes], tail: deque[str]) -> str:
+    code = process.poll()
+    detail = tail[-1] if tail else "no diagnostics"
+    return f"Meowcal Core ended unexpectedly (exit={code}; {detail})"
+
+
 def core_profile() -> str:
     value = os.environ.get("MEOWCAL_CORE_PROFILE", "production").strip().lower()
     value = {"prod": "production", "dev": "development"}.get(value, value)

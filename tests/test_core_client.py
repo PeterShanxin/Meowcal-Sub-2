@@ -444,6 +444,8 @@ while True:
             Path(sys.argv[1], "header-read").touch()
             time.sleep(30)
         body = stream.read(request['payloadBytes'])
+        if sys.argv[3] == 'stall-response':
+            time.sleep(30)
         result = dict(length=len(body), checksum=sum(body))
     else:
         result = dict(installed=True)
@@ -534,6 +536,36 @@ def test_deadline_unblocks_real_binary_body_write(pipe_client):
             timeout_s=0.3,
         )
     assert client.process_generation is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["stall", "stall-response"])
+async def test_async_ocr_deadline_stops_blocked_io_without_a_timer_thread(
+    pipe_client, monkeypatch, mode
+):
+    client = pipe_client(mode)
+    await client.request("status", {}, timeout_s=3)
+    owned = client._process
+    width, height = (4096, 1024) if mode == "stall" else (2, 1)
+
+    def unexpected_timer(*args, **kwargs):
+        raise AssertionError("Async OCR must use its existing event-loop deadline")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(core_client.threading, "Timer", unexpected_timer)
+        with pytest.raises(CoreTimeoutError):
+            await asyncio.wait_for(
+                client.request(
+                    "ocrRecognizeBgra",
+                    ocr_params(width, height),
+                    payload=bytes(width * height * 4),
+                    timeout_s=0.3,
+                ),
+                timeout=3,
+            )
+    assert client.process_generation is None
+    assert owned.poll() is not None
+    assert await client.request("status", {}, timeout_s=3) == {"installed": True}
 
 
 @pytest.mark.parametrize(

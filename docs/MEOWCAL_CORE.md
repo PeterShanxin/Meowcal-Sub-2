@@ -57,6 +57,12 @@ a stalled write, or malformed framing terminates the owned OCR process before
 a later request starts a replacement. The handshake requires the binary OCR
 capability; incompatible runtimes cannot fall back to Base64.
 
+Async OCR uses its existing event-loop deadline to abort the process and drain
+the worker, avoiding a new timer thread for every recognition pass. This requires
+the event loop to remain responsive; Core separately enforces its native OCR
+deadline. Synchronous calls and translations retain an independent timer because
+a cancelled translation may keep draining after its caller has left.
+
 ## Existing installations
 
 Legacy roots are import candidates, not live dependencies. Core verifies a
