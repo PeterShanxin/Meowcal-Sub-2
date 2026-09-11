@@ -38,6 +38,9 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $UiDir = Join-Path $RepoRoot 'src/meocosub2/overlay/ui'
 $Biome = Join-Path $UiDir 'node_modules/.bin/biome.cmd'
 $ReportPath = Join-Path $RepoRoot '.verify-report.json'
+$CorePackageTest = Join-Path $RepoRoot 'scripts/tests/core-package.Tests.ps1'
+$CoreFetch = Join-Path $RepoRoot 'scripts/fetch-meowcal-core.ps1'
+$CoreResource = Join-Path $RepoRoot 'src-tauri/resources/core/meowcal-core.exe'
 $AllStages = @('setup', 'format', 'python', 'typescript', 'rust', 'smoke', 'ratchets')
 
 if ($List) {
@@ -59,6 +62,7 @@ function Start-Stage([string]$Name) {
 function Invoke-Check([string]$Label, [scriptblock]$Body) {
     Write-Host "-- $Label"
     try {
+        $global:LASTEXITCODE = 0
         & $Body
         if ($LASTEXITCODE -ne 0) { throw "exit code $LASTEXITCODE" }
     }
@@ -70,6 +74,8 @@ function Invoke-Check([string]$Label, [scriptblock]$Body) {
 
 Push-Location $RepoRoot
 try {
+    Invoke-Check 'Core package contract' { & $CorePackageTest }
+
     if ($Wanted -contains 'setup') {
         Start-Stage 'setup'
         if (-not (Test-Path $Biome)) {
@@ -126,6 +132,24 @@ try {
 
     if ($Wanted -contains 'rust') {
         Start-Stage 'rust'
+        Invoke-Check 'prepare pinned Core resource' { & $CoreFetch | Out-Null }
+        Invoke-Check 'real Core consumer handshake' {
+            if (-not (Test-Path -LiteralPath $CoreResource -PathType Leaf)) {
+                throw "Pinned Core resource is missing: $CoreResource"
+            }
+            $PreviousCoreExe = $env:MEOWCAL_CORE_EXE
+            $PreviousPythonPath = $env:PYTHONPATH
+            try {
+                $env:MEOWCAL_CORE_EXE = $CoreResource
+                $env:PYTHONPATH = Join-Path $RepoRoot 'src'
+                python -m pytest -q `
+                    tests/test_core_client.py::test_real_core_process_handshake_and_status
+            }
+            finally {
+                $env:MEOWCAL_CORE_EXE = $PreviousCoreExe
+                $env:PYTHONPATH = $PreviousPythonPath
+            }
+        }
         Invoke-Check 'cargo clippy' {
             cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings
         }

@@ -10,7 +10,8 @@
 - Studio route: [src/meocosub2/overlay/server.py](../src/meocosub2/overlay/server.py)
 - Subtitle source aggregator: [src/meocosub2/subtitle_sources](../src/meocosub2/subtitle_sources)
 - Capture loop and session strategies: [src/meocosub2/sync.py](../src/meocosub2/sync.py)
-- Managed local translation engine: [src/meocosub2/engine](../src/meocosub2/engine)
+- Managed local translation adapter: [src/meocosub2/engine](../src/meocosub2/engine)
+- Shared runtime contract: [docs/MEOWCAL_CORE.md](MEOWCAL_CORE.md)
 - Studio UI source (Vite + React + TS): [src/meocosub2/overlay/ui](../src/meocosub2/overlay/ui)
 - Studio UI entry: [src/meocosub2/overlay/ui/src/app.tsx](../src/meocosub2/overlay/ui/src/app.tsx)
 - Studio UI build output (served at `/`): [src/meocosub2/overlay/static/index.html](../src/meocosub2/overlay/static/index.html) + `static/assets/`
@@ -126,7 +127,8 @@ source-aligned presentation behavior.
   This preserves colored or dim subtitles when white scenery produces unrelated
   text. Eligible reads compete on cleaned text quality, not physical row count.
   Each pass waits at most one second. A timeout returns the best prior read and
-  requests native cancellation; another operation starts only after that one ends.
+  terminates the owned OCR Core process; a new process handles later frames.
+  Recognition never queues behind model inference.
 - If subtitle search returns 0 results → grep `OS /subtitles params=` to confirm language codes (`zhs` for Simplified Chinese) and `parent_feature_id` are present.
 - Live debug panel: set `[debug] mode = true` in config.toml, open the studio while a session is running; panel appears bottom-right showing the last 20 iterations.
 - The studio requires a per-run token. Read it from `%APPDATA%/meowcal-sub-2/runtime.json` and send it as `X-Meowcal-Token`, or open `/?token=...`. Unauthenticated requests get 401, foreign origins 403.
@@ -140,28 +142,18 @@ source-aligned presentation behavior.
 
 ### Stopping the app without leaking the engine
 
-The backend spawns `llama-server.exe` with the translation model resident, about
-**1.1GB each**, on a dynamic loopback port. Two mechanisms keep it from
-outliving the app, and both are best-effort:
-
-- the shell puts the backend in a Win32 job object with
-  `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Job membership is inherited, so however
-  the shell ends, the backend and the engine go with it
-  ([process_lifetime.rs](../src-tauri/src/process_lifetime.rs));
-- the backend sweeps engines stranded by earlier runs before it starts one
-  ([engine/orphans.py](../src/meocosub2/engine/orphans.py)). Ownership is decided
-  by path and by whether the parent is still alive, so another install's working
-  engine is never touched.
-
-Neither covers a backend started by hand (`python -m meocosub2.cli serve`) and
-then force-killed — that one is only covered by the backend's own job object.
+The backend owns separate Core processes for OCR and HY-MT inference. Core owns
+its `llama-server.exe` child and installation lease. Closing the transport,
+timeout, cancellation, or application shutdown ends that owned process tree.
+Windows job objects cover abnormal exits; a failed lifetime attachment must
+prevent launch from continuing. BGE has its own Sub 2 process lifetime.
 
 Stop a session the way the app does: `POST /api/session/stop`, then the shell's
 own Stop control or closing its window. After stopping, and before launching
 again, confirm nothing survived:
 
 ```powershell
-Get-Process llama-server, meowcal-sub-2-shell -ErrorAction SilentlyContinue |
+Get-Process llama-server, meowcal-core, meowcal-sub-2-shell -ErrorAction SilentlyContinue |
   Select-Object Id, Name, @{n='MB';e={[int]($_.WorkingSet64/1MB)}}
 ```
 

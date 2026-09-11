@@ -12,7 +12,6 @@ import re
 from itertools import pairwise
 from time import monotonic
 
-import httpx
 from rapidfuzz import fuzz
 
 from meocosub2 import engine
@@ -265,33 +264,24 @@ def drop_restated_context(translated: str, context_lines: list[str]) -> str:
 
 
 class TranslationClient:
-    """A short-lived connection to the managed engine, reused for a whole session."""
+    """Translation policy around one serialized Core completion transport."""
 
-    def __init__(self, base_url: str, model: str, timeout_s: float) -> None:
-        self._base_url = base_url
-        self._model = model
-        self._client = httpx.AsyncClient(timeout=timeout_s)
+    def __init__(self, timeout_s: float) -> None:
+        self._timeout_s = timeout_s
 
     async def _complete(self, prompt: str) -> str:
         started = monotonic()
         try:
-            response = await self._client.post(
-                f"{self._base_url}/v1/chat/completions",
-                json={
-                    "model": self._model,
+            payload = await engine.complete(
+                {
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": MAX_OUTPUT_TOKENS,
                     **SAMPLING,
                 },
+                self._timeout_s,
             )
-            response.raise_for_status()
-            payload = response.json()
-        except httpx.HTTPError as exc:
+        except engine.EngineStartError as exc:
             raise TranslationError(f"The local translation engine did not respond: {exc}") from exc
-        except ValueError as exc:
-            raise TranslationError(
-                "The local translation engine returned an unreadable reply."
-            ) from exc
 
         # Prompt and answer are the viewer's dialogue, so only their shape is
         # recorded. Without this the log says nothing about how long the model
@@ -350,10 +340,9 @@ class TranslationClient:
         return translated
 
     async def close(self) -> None:
-        await self._client.aclose()
+        return None
 
 
 async def open_translation_client(config: AppConfig) -> TranslationClient:
-    endpoint = await engine.ensure_ready()
-    manifest_model = engine.load_manifest().model.id
-    return TranslationClient(endpoint, manifest_model, config.translation_timeout_s)
+    await engine.ensure_ready()
+    return TranslationClient(config.translation_timeout_s)

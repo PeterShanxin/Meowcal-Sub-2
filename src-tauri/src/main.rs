@@ -1,15 +1,16 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
+mod backend_process;
 mod overlay_window;
 mod process_lifetime;
 
+use backend_process::{spawn_backend, BackendProcess};
 use overlay_window::OverlayAnchor;
 use reqwest::blocking::Client;
 use serde::Serialize;
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{
@@ -18,14 +19,6 @@ use tauri::{
     AppHandle, Emitter, Listener, Manager, PhysicalPosition, PhysicalSize, State,
 };
 use url::Url;
-
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
-
-const CREATE_NO_WINDOW: u32 = 0x08000000;
-
-#[derive(Clone)]
-struct BackendProcess(Arc<Mutex<Option<Child>>>);
 
 #[derive(Serialize, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
@@ -53,23 +46,6 @@ struct ShellState {
     /// Which live session the dock watcher belongs to. Stopping a session bumps
     /// it, which is how the watcher started by the previous one knows to stop.
     dock_generation: Arc<Mutex<u64>>,
-}
-
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("repo root")
-        .to_path_buf()
-}
-
-fn python_executable() -> PathBuf {
-    if let Ok(path) = std::env::var("MEOWCAL_PYTHON") {
-        let candidate = PathBuf::from(path);
-        if candidate.exists() {
-            return candidate;
-        }
-    }
-    repo_root().join(".venv").join("Scripts").join("python.exe")
 }
 
 fn config_path() -> PathBuf {
@@ -173,51 +149,6 @@ fn backend_ready() -> bool {
         })
         .map(|response| response.status().is_success())
         .unwrap_or(false)
-}
-
-fn spawn_backend(process: &BackendProcess) {
-    let python = python_executable();
-    log_shell_event(
-        "backend.spawn.requested",
-        serde_json::json!({
-            "python": python.display().to_string(),
-            "using_repo_venv": python.exists(),
-        }),
-    );
-    let mut command = if python.exists() {
-        let mut command = Command::new(python);
-        command.current_dir(repo_root());
-        command.args(["-m", "meocosub2.cli", "serve"]);
-        command
-    } else {
-        let mut command = Command::new("python");
-        command.current_dir(repo_root());
-        command.args(["-m", "meocosub2.cli", "serve"]);
-        command
-    };
-
-    #[cfg(target_os = "windows")]
-    {
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
-
-    match command.spawn() {
-        Ok(child) => {
-            let pid = child.id();
-            // Before the handle is stored, and before the backend has had time
-            // to start the engine: job membership is inherited, so enrolling the
-            // backend now is what takes the engine down with the shell too.
-            process_lifetime::attach_to_app_lifetime(&child);
-            log_shell_event("backend.spawn.started", serde_json::json!({ "pid": pid }));
-            *process.0.lock().expect("backend process lock") = Some(child);
-        }
-        Err(error) => {
-            log_shell_event(
-                "backend.spawn.failed",
-                serde_json::json!({ "error": error.to_string() }),
-            );
-        }
-    }
 }
 
 fn wait_for_backend(timeout: Duration) -> bool {
@@ -836,7 +767,7 @@ fn run_backend_boot(app: &AppHandle) {
         return;
     }
     emit_splash_status(app, "Starting Python backend...");
-    spawn_backend(app.state::<BackendProcess>().inner());
+    spawn_backend(app, app.state::<BackendProcess>().inner());
     emit_splash_status(app, "Waiting for backend (up to 60s)...");
     if wait_for_backend(Duration::from_secs(60)) {
         log_shell_event(
@@ -901,7 +832,7 @@ fn show_main(app: &AppHandle) {
 }
 
 fn main() {
-    let backend_process = BackendProcess(Arc::new(Mutex::new(None)));
+    let backend_process = BackendProcess::new();
     let shell_state = ShellState {
         prev_main_bounds: Arc::new(Mutex::new(None)),
         selector_backdrop: Arc::new(Mutex::new(None)),

@@ -10,16 +10,18 @@ Docs:
 ## Requirements
 
 - Python 3.11+
-- Windows for OCR support via `winocr`
+- Windows and the pinned Meowcal Core runtime for OCR and local translation
 - Optional desktop shell: WebView2/Tauri runtime on Windows
 - Optional subtitle sources:
   - OpenSubtitles API key
   - SubDL API key
   - ASSRT token
 
-Translation runs on this machine. The app installs and manages its own engine
-(Tencent HY-MT1.5 on `llama-server`, about 1.1 GB) the first time you ask for it
-from Settings; an existing Meowcal Sub v1 engine install is reused as-is.
+Translation runs on this machine through Meowcal Core (Tencent HY-MT1.5 on
+`llama-server`, about 1.1 GB). Settings controls installation through Core.
+Existing engine artifacts can be verified and copied into Core storage; the old
+application installation stays available for rollback. Sub 2 does not require
+Sub 1 to be installed. See [the Core contract](docs/MEOWCAL_CORE.md).
 
 ## Install
 

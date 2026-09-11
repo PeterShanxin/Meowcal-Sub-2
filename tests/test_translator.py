@@ -1,6 +1,8 @@
-import httpx
+import json
+
 import pytest
 
+from meocosub2 import engine
 from meocosub2.errors import TranslationError
 from meocosub2.translator import (
     TranslationClient,
@@ -34,46 +36,46 @@ def test_short_real_subtitles_are_translatable(text: str) -> None:
     assert not is_untranslatable(text)
 
 
-def _client(handler) -> TranslationClient:
-    client = TranslationClient("http://engine.test", "model-id", 5.0)
-    client._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    return client
+def _client(monkeypatch, handler) -> TranslationClient:
+    async def complete(request, _timeout_s):
+        return handler(request)
+
+    monkeypatch.setattr(engine, "complete", complete)
+    return TranslationClient(5.0)
 
 
 @pytest.mark.asyncio
-async def test_translate_posts_the_prompt_and_returns_the_cleaned_reply() -> None:
+async def test_translate_posts_the_prompt_and_returns_the_cleaned_reply(monkeypatch) -> None:
     seen: dict[str, object] = {}
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen["url"] = str(request.url)
-        seen["body"] = request.read().decode()
-        return httpx.Response(
-            200, json={"choices": [{"message": {"content": 'Translation: "你好"'}}]}
-        )
+    def handler(request: dict) -> dict:
+        seen["body"] = request
+        return {"choices": [{"message": {"content": 'Translation: "你好"'}}]}
 
-    client = _client(handler)
+    client = _client(monkeypatch, handler)
     assert await client.translate("Hello", "en", "zh") == "你好"
-    assert seen["url"] == "http://engine.test/v1/chat/completions"
-    assert "将以下文本翻译为" in str(seen["body"])
+    assert "将以下文本翻译为" in json.dumps(seen["body"], ensure_ascii=False)
+    assert seen["body"]["max_tokens"] == 150
+    assert seen["body"]["temperature"] == 0.3
     await client.close()
 
 
 @pytest.mark.asyncio
-async def test_translate_skips_the_engine_for_ocr_noise() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover - must not run
+async def test_translate_skips_the_engine_for_ocr_noise(monkeypatch) -> None:
+    def handler(request: dict) -> dict:  # pragma: no cover - must not run
         raise AssertionError("noise should never reach the engine")
 
-    client = _client(handler)
+    client = _client(monkeypatch, handler)
     assert await client.translate("//", "en", "zh") == ""
     await client.close()
 
 
 @pytest.mark.asyncio
-async def test_translate_reports_an_unreachable_engine() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("connection refused")
+async def test_translate_reports_an_unreachable_engine(monkeypatch) -> None:
+    def handler(request: dict) -> dict:
+        raise engine.EngineStartError("connection refused")
 
-    client = _client(handler)
+    client = _client(monkeypatch, handler)
     with pytest.raises(TranslationError):
         await client.translate("Hello", "en", "zh")
     await client.close()
@@ -108,14 +110,11 @@ def test_empty_output_is_refused() -> None:
 
 
 @pytest.mark.asyncio
-async def test_unusable_output_is_not_shown() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            json={"choices": [{"message": {"content": "x " * 400}}]},
-        )
+async def test_unusable_output_is_not_shown(monkeypatch) -> None:
+    def handler(request: dict) -> dict:
+        return {"choices": [{"message": {"content": "x " * 400}}]}
 
-    client = _client(handler)
+    client = _client(monkeypatch, handler)
     assert await client.translate("请给我们五分钟", "zh", "en") == ""
     await client.close()
 
@@ -219,16 +218,15 @@ def test_a_short_context_line_does_not_condemn_a_longer_answer() -> None:
 
 
 @pytest.mark.asyncio
-async def test_an_echoed_answer_is_asked_again_without_the_context() -> None:
+async def test_an_echoed_answer_is_asked_again_without_the_context(monkeypatch) -> None:
     prompts: list[str] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        body = request.read().decode()
-        prompts.append(body)
+    def handler(request: dict) -> dict:
+        prompts.append(json.dumps(request, ensure_ascii=False))
         reply = "Wait a moment." if len(prompts) == 1 else "Look at this."
-        return httpx.Response(200, json={"choices": [{"message": {"content": reply}}]})
+        return {"choices": [{"message": {"content": reply}}]}
 
-    client = _client(handler)
+    client = _client(monkeypatch, handler)
     assert await client.translate("你看这个", "zh", "en", ["Wait a moment."]) == "Look at this."
     assert len(prompts) == 2
     assert "Wait a moment." in prompts[0]
@@ -237,11 +235,11 @@ async def test_an_echoed_answer_is_asked_again_without_the_context() -> None:
 
 
 @pytest.mark.asyncio
-async def test_an_answer_that_echoes_twice_is_still_refused() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"choices": [{"message": {"content": "Wait a moment."}}]})
+async def test_an_answer_that_echoes_twice_is_still_refused(monkeypatch) -> None:
+    def handler(request: dict) -> dict:
+        return {"choices": [{"message": {"content": "Wait a moment."}}]}
 
-    client = _client(handler)
+    client = _client(monkeypatch, handler)
     assert await client.translate("你看这个", "zh", "en", ["Wait a moment."]) == ""
     await client.close()
 
@@ -258,7 +256,7 @@ def test_pairs_about_other_lines_all_stay_in_the_echo_check() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_gap_translated_the_same_as_its_neighbour_is_still_filled() -> None:
+async def test_a_gap_translated_the_same_as_its_neighbour_is_still_filled(monkeypatch) -> None:
     """The old check dropped it twice over and left the cue unanswered for good.
 
     Asked for a line whose neighbour says the same thing, the model answers the
@@ -267,11 +265,11 @@ async def test_a_gap_translated_the_same_as_its_neighbour_is_still_filled() -> N
     """
     asked: list[str] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        asked.append(request.read().decode())
-        return httpx.Response(200, json={"choices": [{"message": {"content": "Okay."}}]})
+    def handler(request: dict) -> dict:
+        asked.append(json.dumps(request, ensure_ascii=False))
+        return {"choices": [{"message": {"content": "Okay."}}]}
 
-    client = _client(handler)
+    client = _client(monkeypatch, handler)
     filled = await client.translate("好的", "zh", "en", pairs=[("好的", "Okay.")])
     assert filled == "Okay."
     # Answered first time: no retry, because nothing looked like an echo.

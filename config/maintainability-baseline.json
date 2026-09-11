@@ -2,10 +2,10 @@
   "measuredOn": "2026-09-06",
   "newFileMaxLines": 400,
   "legacyFileCeilings": {
-    "src-tauri/src/main.rs": 1033,
+    "src-tauri/src/main.rs": 964,
     "src-tauri/src/overlay_window.rs": 469,
     "src/meocosub2/config.py": 535,
-    "src/meocosub2/engine/runtime.py": 521,
+    "src/meocosub2/engine/runtime.py": 212,
     "src/meocosub2/matcher.py": 550,
     "src/meocosub2/opensubtitles/client.py": 885,
     "src/meocosub2/overlay/controller.py": 2060,

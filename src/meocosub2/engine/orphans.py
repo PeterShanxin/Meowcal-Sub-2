@@ -1,6 +1,6 @@
-"""Translation engines left behind by earlier runs, and ending them.
+"""Subtitle matching processes left behind by earlier runs, and ending them.
 
-The engine is a separate executable holding a multi-gigabyte model resident.
+The matcher is a separate executable holding the BGE model resident.
 `runtime.shutdown` ends it on the graceful path, and the job objects cover the
 paths where our code does not get to run - but neither reaches an engine that
 was already stranded before this process started. Without a sweep at startup,
@@ -176,7 +176,8 @@ def reap(executable: Path) -> int:
     for orphan in orphans(_snapshot(executable.name), executable, os.getpid()):
         if _terminate(orphan.pid, executable):
             logger.info(
-                "Ended a translation engine left behind by an earlier run (pid=%d)", orphan.pid
+                "Ended a subtitle matching process left behind by an earlier run (pid=%d)",
+                orphan.pid,
             )
             ended += 1
     return ended

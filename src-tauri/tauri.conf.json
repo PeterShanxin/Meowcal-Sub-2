@@ -5,8 +5,8 @@
   "identifier": "com.meowcal.sub2",
   "build": {
     "frontendDist": "../src/meocosub2/overlay/static",
-    "beforeDevCommand": "",
-    "beforeBuildCommand": "npm --prefix ../src/meocosub2/overlay/ui run build"
+    "beforeDevCommand": "pwsh -NoProfile -File ../scripts/fetch-meowcal-core.ps1",
+    "beforeBuildCommand": "pwsh -NoProfile -File ../scripts/fetch-meowcal-core.ps1 && npm --prefix ../src/meocosub2/overlay/ui run build"
   },
   "app": {
     "withGlobalTauri": true,
@@ -74,6 +74,11 @@
   },
   "bundle": {
     "active": false,
+    "resources": {
+      "resources/core/meowcal-core.exe": "core/meowcal-core.exe",
+      "resources/core/meowcal-core.json": "core/meowcal-core.json",
+      "resources/core/LICENSE": "core/LICENSE"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

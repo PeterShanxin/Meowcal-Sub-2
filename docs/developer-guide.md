@@ -60,14 +60,58 @@ The current provider-neutral selection model uses opaque `matchId` and `resultId
 
 ## Translation Engine
 
-The app owns the engine process. `src/meocosub2/engine/` resolves the HY-MT1.5
-artifacts from `manifest.json` (the same artifact set Meowcal Sub v1 ships),
-adopts a complete v1 install when one is present, downloads and verifies them
-otherwise, starts `llama-server` on a loopback port, health-checks `/health`,
-falls back from GPU to CPU when the GPU start misses its window, and ties the
-child to the backend with a Windows job object so it cannot outlive a crash.
+`src/meocosub2/engine/` adapts the versioned Meowcal Core API to the studio's
+status and install controls. Core owns HY-MT artifact verification, installation,
+recovery, GPU/CPU policy, and inference. It accepts verified legacy artifacts as
+import sources without depending on another application's running installation.
+The backend owns its Core processes; OCR and inference have separate transports.
+See [MEOWCAL_CORE.md](MEOWCAL_CORE.md) for storage and compatibility rules.
 
-Prompt shape, sampling and output validation are ported from v1: the instruction
+### Pinned Core runtime
+
+`config/meowcal-core.lock.json` binds Sub 2 to one released Core version, API
+major, x64 ZIP digest, and ARM64 ZIP digest. A production build must not use a
+placeholder digest or depend on a Sub 1 checkout. Generate the reviewed lock
+from the checksum files published with the Core release:
+
+```powershell
+./scripts/write-meowcal-core-lock.ps1 `
+  -Version 0.1.0 `
+  -X64ChecksumPath .\downloads\meowcal-core-v0.1.0-windows-x64.zip.sha256 `
+  -Arm64ChecksumPath .\downloads\meowcal-core-v0.1.0-windows-arm64.zip.sha256
+```
+
+`scripts/fetch-meowcal-core.ps1` selects the current Windows architecture,
+downloads the exact locked asset, verifies the archive and package contract,
+then writes `src-tauri/resources/core/meowcal-core.exe`. Tauri runs it before
+development and production builds and bundles the executable, metadata, and
+license. At runtime the
+shell passes the absolute bundled path to Python as `MEOWCAL_CORE_EXE`.
+
+For an offline local build, point the fetcher at an already downloaded archive;
+the same lock and digest checks still apply:
+
+```powershell
+./scripts/fetch-meowcal-core.ps1 -ArchivePath $archive -Offline
+```
+
+To validate an unpublished candidate, generate a separate lock from that
+candidate's checksum files using `-OutputPath output/core/meowcal-core.local.lock.json`.
+Set these overrides before running the verifier, Tauri, or `run_app.vbs`:
+
+```powershell
+$env:MEOWCAL_CORE_LOCK = Join-Path $PWD 'output/core/meowcal-core.local.lock.json'
+$env:MEOWCAL_CORE_ARCHIVE = $archive
+```
+
+The local lock verifies the candidate; it does not replace the committed release
+pin. Before the first Core publication, production packaging is intentionally
+blocked until `config/meowcal-core.lock.json` contains the published asset hashes.
+
+`run_app.vbs` prepares the resource when needed and sets
+`MEOWCAL_CORE_PROFILE=development`. Installed builds use the production profile.
+
+Prompt shape, sampling, and output validation remain product-owned: the instruction
 template is Chinese whenever either side of the language pair is Chinese, and
 output that is far longer than its source, loops, restates the context it was
 given, or is written in the wrong script is discarded rather than shown.

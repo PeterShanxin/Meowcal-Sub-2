@@ -44,8 +44,9 @@ target = "zh"
 
 Translation needs no configuration. The first time a session needs it, Settings
 offers a one-time download of the translation engine (about 1.1 GB). If Meowcal
-Sub v1 already installed that engine on this machine, it is reused and nothing is
-downloaded.
+Sub v1 already installed matching engine artifacts on this machine, they are
+verified and copied into shared engine storage instead of downloaded again.
+The old installation is retained for rollback.
 
 ## Using It
 

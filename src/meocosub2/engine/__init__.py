@@ -1,44 +1,35 @@
-"""Managed local translation engine (Tencent HY-MT1.5 on llama-server).
-
-The app owns the engine process: it installs the artifacts, starts the server on a
-loopback port, health-checks it, and stops it when the app exits. Nothing about the
-translation path requires the user to run a server by hand.
-"""
+"""Sub2 adapters for translation Core and the independent BGE matcher."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import threading
 from dataclasses import dataclass, field
+from typing import Any
 
-from meocosub2.engine import install as install_module
-from meocosub2.engine import runtime as runtime_module
-from meocosub2.engine.install import EngineInstallError
-from meocosub2.engine.manifest import UnsupportedHost, load_manifest
-from meocosub2.engine.paths import resolve_paths
-from meocosub2.engine.runtime import EngineStartError, shutdown
+from meocosub2.core_client import CoreClient, CoreClientError, CoreError, resolve_core_executable
+from meocosub2.engine import install as embedding_install
+from meocosub2.engine import runtime as embedding_runtime
+from meocosub2.engine.manifest import load_manifest
+from meocosub2.engine.paths import own_paths
 
 logger = logging.getLogger(__name__)
 
 STARTUP_TIMEOUT_S = 120.0
+INSTALL_TIMEOUT_S = 1810.0
+REPAIR_REQUIRED_MESSAGE = (
+    "Local translation files are incomplete or damaged. Run setup from Settings to repair them."
+)
 
-__all__ = [
-    "EngineInstallError",
-    "EngineStartError",
-    "EngineStatus",
-    "ensure_embedding_ready",
-    "ensure_ready",
-    "install_engine",
-    "shutdown",
-    "status",
-]
+
+EngineInstallError = embedding_install.EngineInstallError
+EngineStartError = embedding_runtime.EngineStartError
 
 
 @dataclass(frozen=True)
 class EngineStatus:
-    """What the product can honestly say about the translation engine right now."""
-
     phase: str
     message: str
     model: str = ""
@@ -71,45 +62,52 @@ class _InstallJob:
     thread: threading.Thread | None = field(default=None, repr=False)
 
 
+_client: CoreClient | None = None
+_client_lock = threading.Lock()
 _install_job: _InstallJob | None = None
 _install_lock = threading.Lock()
-_start_lock = asyncio.Lock()
+_repair_error = ""
+_translation_ready_lock = asyncio.Lock()
+_ready_generation: int | None = None
+_ready_endpoint: str | None = None
+_embedding_start_lock = asyncio.Lock()
 _embedding_install_lock = asyncio.Lock()
 
 
-def _accelerator_label() -> str:
-    return "GPU" if runtime_module.active_gpu_active() else "CPU"
+def _core() -> CoreClient:
+    global _client
+    with _client_lock:
+        if _client is None:
+            _client = CoreClient(resolve_core_executable())
+        return _client
 
 
-def status() -> EngineStatus:
-    """A synchronous snapshot. Never starts or installs anything."""
-    try:
-        manifest = load_manifest()
-        runtime = manifest.runtime_for_host()
-    except UnsupportedHost as error:
-        return EngineStatus("unsupported", str(error))
+def _model() -> str:
+    hello = _core().hello_result
+    if hello is None:
+        _core().request_sync("status", {}, timeout_s=15.0)
+        hello = _core().hello_result
+    assert hello is not None
+    return str(hello["model"])
 
-    model = manifest.model.id
-    with _install_lock:
-        job = _install_job
-    if job is not None and not job.done:
-        return EngineStatus("installing", job.message, model, install_percent=job.percent)
-    if job is not None and job.error:
-        return EngineStatus("failed", job.error, model)
 
-    endpoint = runtime_module.active_endpoint()
-    if endpoint is not None:
+def _status_from_result(result: dict[str, Any]) -> EngineStatus:
+    model = str(result.get("model") or "")
+    if result.get("ready") is True:
+        acceleration = str(result.get("acceleration") or "").upper()
+        managed = result.get("managedConfig")
+        port = managed.get("port") if isinstance(managed, dict) else None
+        endpoint = f"http://127.0.0.1:{port}" if isinstance(port, int) else None
+        suffix = f" ({acceleration})" if acceleration else ""
         return EngineStatus(
             "ready",
-            f"Local translation is ready ({_accelerator_label()}).",
+            f"Local translation is ready{suffix}.",
             model,
             endpoint=endpoint,
             install_percent=100,
-            accelerator=_accelerator_label(),
+            accelerator=acceleration,
         )
-
-    paths = resolve_paths(manifest, runtime)
-    if paths.is_complete(manifest, runtime):
+    if result.get("installed") is True:
         return EngineStatus(
             "idle",
             "Local translation is installed and starts with a session.",
@@ -123,87 +121,161 @@ def status() -> EngineStatus:
     )
 
 
+def status() -> EngineStatus:
+    """Return a snapshot without starting or installing the HY-MT runtime."""
+    with _install_lock:
+        job = _install_job
+        repair_error = _repair_error
+    if job is not None and not job.done:
+        return EngineStatus("installing", job.message, install_percent=job.percent)
+    if job is not None and job.error:
+        return EngineStatus("failed", job.error)
+    if repair_error:
+        return EngineStatus("failed", repair_error)
+    try:
+        return _status_from_result(_core().request_sync("status", {}, timeout_s=15.0))
+    except CoreClientError as error:
+        return EngineStatus("failed", str(error))
+
+
 def install_engine() -> EngineStatus:
-    """Start (or report) the background download of the engine artifacts."""
-    manifest = load_manifest()
-    runtime = manifest.runtime_for_host()
-    paths = resolve_paths(manifest, runtime)
-    if paths.is_complete(manifest, runtime):
-        return status()
+    """Start or report the one background Core installation request."""
+    current = status()
+    if current.phase in {"ready", "idle", "installing"}:
+        return current
 
     with _install_lock:
         global _install_job
-        already_running = _install_job is not None and not _install_job.done
-        if not already_running:
-            job = _InstallJob()
-            _install_job = job
-    if already_running:
-        # A second request while the download runs reports on the one in flight.
-        # `status()` takes the same lock, so it must be called outside it.
-        return status()
+        if _install_job is not None and not _install_job.done:
+            return EngineStatus(
+                "installing", _install_job.message, install_percent=_install_job.percent
+            )
+        job = _InstallJob()
+        _install_job = job
+    _invalidate_ready()
 
-    def progress(message: str, percent: int) -> None:
+    def progress(message: str) -> None:
         job.message = message
-        job.percent = percent
+        match = re.search(r"\b(\d{1,3})%", message)
+        if match:
+            job.percent = max(0, min(99, int(match.group(1))))
 
     def run() -> None:
+        global _repair_error
         try:
-            install_module.install(paths, manifest, runtime, progress)
-        except (EngineInstallError, OSError) as error:
+            _core().request_sync("install", {}, timeout_s=INSTALL_TIMEOUT_S, progress=progress)
+            job.percent = 100
+            with _install_lock:
+                _repair_error = ""
+        except CoreClientError as error:
             logger.exception("Translation engine install failed")
             job.error = str(error)
         finally:
             job.done = True
 
-    job.thread = threading.Thread(target=run, name="engine-install", daemon=True)
+    job.thread = threading.Thread(target=run, name="core-install", daemon=True)
     job.thread.start()
-    return status()
+    return EngineStatus("installing", job.message, install_percent=job.percent)
 
 
 async def ensure_ready(timeout_s: float = STARTUP_TIMEOUT_S) -> str:
-    """Return a healthy engine endpoint, starting the process if needed.
+    """Ask Core to verify, start, and health-check the pinned HY-MT model."""
+    global _ready_endpoint, _ready_generation, _repair_error
+    client = _core()
+    async with _translation_ready_lock:
+        generation = client.process_generation
+        if generation is not None and generation == _ready_generation and _ready_endpoint:
+            return _ready_endpoint
+        try:
+            result = await client.request("ready", {}, timeout_s=timeout_s)
+        except CoreError as error:
+            if "ASSET" in error.code:
+                with _install_lock:
+                    _repair_error = REPAIR_REQUIRED_MESSAGE
+                raise EngineInstallError(str(error)) from error
+            raise EngineStartError(str(error)) from error
+        except CoreClientError as error:
+            raise EngineStartError(str(error)) from error
+        managed = result.get("managedConfig")
+        generation = client.process_generation
+        if (
+            not isinstance(managed, dict)
+            or not isinstance(managed.get("port"), int)
+            or generation is None
+        ):
+            raise EngineStartError("Core returned an invalid ready configuration.")
+        _ready_generation = generation
+        _ready_endpoint = f"http://127.0.0.1:{managed['port']}"
+        with _install_lock:
+            _repair_error = ""
+            if _install_job is not None and _install_job.done:
+                _install_job.error = ""
+        return _ready_endpoint
 
-    Installation is never implicit: a machine without the artifacts is told to run
-    setup rather than silently pulling 1.1 GB in the middle of a session.
-    """
-    manifest = load_manifest()
-    runtime = manifest.runtime_for_host()
-    paths = resolve_paths(manifest, runtime)
-    if not paths.is_complete(manifest, runtime):
-        raise EngineStartError(
-            "Local translation is not installed yet. Run setup from Settings to "
-            "download the translation engine."
+
+async def complete(request: dict[str, Any], timeout_s: float) -> dict[str, Any]:
+    """Send one owned OpenAI-compatible request through Core."""
+    await ensure_ready()
+    request = dict(request)
+    request["model"] = _model()
+    timeout_ms = max(1, min(90_000, int(timeout_s * 1000)))
+    try:
+        return await _core().request(
+            "complete",
+            {"request": request, "timeoutMs": timeout_ms},
+            timeout_s=timeout_s + 2.0,
         )
-    async with _start_lock:
-        endpoint = await runtime_module.ensure_ready(paths, manifest, runtime, timeout_s)
-    logger.info("Translation engine ready at %s (%s)", endpoint, _accelerator_label())
-    return endpoint
+    except CoreError as error:
+        if error.code == "NOT_READY":
+            _invalidate_ready()
+        raise EngineStartError(str(error)) from error
+    except CoreClientError as error:
+        raise EngineStartError(str(error)) from error
+
+
+def _invalidate_ready() -> None:
+    global _ready_endpoint, _ready_generation
+    _ready_generation = None
+    _ready_endpoint = None
 
 
 async def ensure_embedding_ready(timeout_s: float = STARTUP_TIMEOUT_S) -> str:
-    """Return a healthy endpoint for the model that matches reads to subtitle lines.
-
-    Separate from `ensure_ready` because the two answer different questions. A
-    session without this model still translates; it just falls back on character
-    matching, which the burned-in subtitles usually defeat. An install predating
-    this model - including an adopted v1 engine - is exactly that case, and it
-    reports itself complete, so nothing else will ever fetch this. The 26 MB is
-    downloaded here rather than sent back to Settings as a chore.
-    """
+    """Start Sub2's independent CPU BGE model from its own verified tree."""
     manifest = load_manifest()
     runtime = manifest.runtime_for_host()
-    paths = resolve_paths(manifest, runtime)
-    if not paths.embedding_is_complete(manifest):
-        # Serialised, and checked again inside: a session that switches subtitle
-        # candidates while this is still downloading asks a second time, and two
-        # installers writing the same part file is a corrupt download on Windows
-        # rather than two copies of a small one. Cancelling the caller's task
-        # does not stop a thread already inside the download.
+    paths = own_paths(manifest, runtime)
+    if not paths.embedding_is_complete(manifest, runtime):
         async with _embedding_install_lock:
-            if not paths.embedding_is_complete(manifest):
-                logger.info("Downloading the subtitle matching model (%s)", manifest.embedding.id)
-                await asyncio.to_thread(install_module.install_embedding, paths, manifest)
-    async with _start_lock:
-        endpoint = await runtime_module.ensure_embedding_ready(paths, manifest, timeout_s)
-    logger.info("Subtitle matching model ready at %s", endpoint)
-    return endpoint
+            if not paths.embedding_is_complete(manifest, runtime):
+                await asyncio.to_thread(
+                    embedding_install.install_embedding, paths, manifest, runtime
+                )
+    async with _embedding_start_lock:
+        return await embedding_runtime.ensure_embedding_ready(paths, manifest, timeout_s)
+
+
+def shutdown() -> None:
+    """Stop every Core process and BGE process owned by this backend."""
+    global _client
+    with _client_lock:
+        client, _client = _client, None
+    _invalidate_ready()
+    if client is not None:
+        client.close_sync()
+    embedding_runtime.shutdown()
+    from meocosub2 import native_ocr
+
+    native_ocr.shutdown()
+
+
+__all__ = [
+    "EngineInstallError",
+    "EngineStartError",
+    "EngineStatus",
+    "complete",
+    "ensure_embedding_ready",
+    "ensure_ready",
+    "install_engine",
+    "shutdown",
+    "status",
+]
