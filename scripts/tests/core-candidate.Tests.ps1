@@ -114,7 +114,7 @@ if not "%FAKE_CARGO_EXIT%"=="0" exit /b %FAKE_CARGO_EXIT%
 set "destination=%FAKE_CORE_SOURCE%\core\target\%FAKE_CORE_TARGET%\release"
 if not exist "%destination%" mkdir "%destination%"
 copy /y "%FAKE_CORE_BINARY%" "%destination%\meowcal-core.exe" >nul
-exit /b 0
+exit /b %errorlevel%
 '@ | Set-Content -LiteralPath (Join-Path $shimDirectory "cargo.cmd") -Encoding ascii
 
     $target = if ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq "Arm64") {
@@ -168,10 +168,6 @@ exit /b 0
     Remove-Item -LiteralPath (Join-Path $source "untracked.txt")
 
     $env:FAKE_CARGO_EXIT = "0"
-    Assert-Throws {
-        & $candidateScript -SourcePath $source -ConfigPath $pinPath
-    } "invalid --version-json output"
-
     $wrongMachine = if ($target -eq "aarch64-pc-windows-msvc") {
         [uint16]0x8664
     } else {
@@ -182,6 +178,12 @@ exit /b 0
     Assert-Throws {
         & $candidateScript -SourcePath $source -ConfigPath $pinPath
     } "PE machine"
+
+    # Execute the fixture last so no later case replaces a recently mapped image.
+    $env:FAKE_CORE_BINARY = Join-Path $env:SystemRoot "System32\cmd.exe"
+    Assert-Throws {
+        & $candidateScript -SourcePath $source -ConfigPath $pinPath
+    } "invalid --version-json output"
 
     $verifySource = Get-Content -LiteralPath (Join-Path $repositoryRoot "scripts\verify.ps1") -Raw
     if ($verifySource -notmatch '(?s)if \(\$CoreCandidateSource\).*?& \$CoreCandidatePrepare' -or
