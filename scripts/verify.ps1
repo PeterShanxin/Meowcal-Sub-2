@@ -20,6 +20,10 @@
 .PARAMETER List
     Print the stages and exit.
 
+.PARAMETER CoreCandidateSource
+    Use the exact source candidate pinned in config/meowcal-core.candidate.json
+    for development verification. Omit to require the reviewed release lock.
+
 .EXAMPLE
     .\scripts\verify.ps1
     .\scripts\verify.ps1 -Stage python, ratchets
@@ -28,7 +32,8 @@
 param(
     [ValidateSet('setup', 'format', 'python', 'typescript', 'rust', 'smoke', 'ratchets')]
     [string[]]$Stage,
-    [switch]$List
+    [switch]$List,
+    [string]$CoreCandidateSource
 )
 
 $ErrorActionPreference = 'Stop'
@@ -38,6 +43,12 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $UiDir = Join-Path $RepoRoot 'src/meocosub2/overlay/ui'
 $Biome = Join-Path $UiDir 'node_modules/.bin/biome.cmd'
 $ReportPath = Join-Path $RepoRoot '.verify-report.json'
+$CorePackageTest = Join-Path $RepoRoot 'scripts/tests/core-package.Tests.ps1'
+$CoreCandidateTest = Join-Path $RepoRoot 'scripts/tests/core-candidate.Tests.ps1'
+$CoreFetch = Join-Path $RepoRoot 'scripts/fetch-meowcal-core.ps1'
+$CoreCandidatePrepare = Join-Path $RepoRoot 'scripts/prepare-core-candidate.ps1'
+$CoreCandidateConfig = Join-Path $RepoRoot 'config/meowcal-core.candidate.json'
+$CoreResource = Join-Path $RepoRoot 'src-tauri/resources/core/meowcal-core.exe'
 $AllStages = @('setup', 'format', 'python', 'typescript', 'rust', 'smoke', 'ratchets')
 
 if ($List) {
@@ -59,6 +70,7 @@ function Start-Stage([string]$Name) {
 function Invoke-Check([string]$Label, [scriptblock]$Body) {
     Write-Host "-- $Label"
     try {
+        $global:LASTEXITCODE = 0
         & $Body
         if ($LASTEXITCODE -ne 0) { throw "exit code $LASTEXITCODE" }
     }
@@ -70,6 +82,9 @@ function Invoke-Check([string]$Label, [scriptblock]$Body) {
 
 Push-Location $RepoRoot
 try {
+    Invoke-Check 'Core package contract' { & $CorePackageTest }
+    Invoke-Check 'Core source candidate contract' { & $CoreCandidateTest }
+
     if ($Wanted -contains 'setup') {
         Start-Stage 'setup'
         if (-not (Test-Path $Biome)) {
@@ -126,6 +141,32 @@ try {
 
     if ($Wanted -contains 'rust') {
         Start-Stage 'rust'
+        if ($CoreCandidateSource) {
+            Invoke-Check 'prepare pinned Core source candidate' {
+                & $CoreCandidatePrepare -SourcePath $CoreCandidateSource `
+                    -ConfigPath $CoreCandidateConfig | Out-Null
+            }
+        }
+        else {
+            Invoke-Check 'prepare pinned Core release resource' { & $CoreFetch | Out-Null }
+        }
+        Invoke-Check 'real Core consumer handshake' {
+            if (-not (Test-Path -LiteralPath $CoreResource -PathType Leaf)) {
+                throw "Pinned Core resource is missing: $CoreResource"
+            }
+            $PreviousCoreExe = $env:MEOWCAL_CORE_EXE
+            $PreviousPythonPath = $env:PYTHONPATH
+            try {
+                $env:MEOWCAL_CORE_EXE = $CoreResource
+                $env:PYTHONPATH = Join-Path $RepoRoot 'src'
+                python -m pytest -q `
+                    tests/test_core_client.py::test_real_core_process_handshake_and_status
+            }
+            finally {
+                $env:MEOWCAL_CORE_EXE = $PreviousCoreExe
+                $env:PYTHONPATH = $PreviousPythonPath
+            }
+        }
         Invoke-Check 'cargo clippy' {
             cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings
         }

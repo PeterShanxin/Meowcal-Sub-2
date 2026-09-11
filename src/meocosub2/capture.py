@@ -11,16 +11,13 @@ from time import monotonic
 import mss
 from PIL import Image, ImageChops, ImageOps
 from rapidfuzz.distance import LCSseq
-from winocr import OcrEngine
-from winrt.windows.foundation import AsyncStatus, IAsyncOperation
-from winrt.windows.media.ocr import OcrResult
 
+from meocosub2 import native_ocr
 from meocosub2.languages import normalize_ocr_language
 from meocosub2.textnorm import clean_cjk_text, is_cjk_char
 
 logger = logging.getLogger(__name__)
 _OCR_PASS_TIMEOUT_SECONDS = 1.0
-_pending_ocr: IAsyncOperation[OcrResult] | None = None
 
 
 @dataclass(frozen=True)
@@ -30,16 +27,16 @@ class OcrResolution:
     warning_message: str = ""
 
 
-def available_ocr_languages() -> list[str]:
+def available_ocr_languages(*, refresh: bool = True) -> list[str]:
     try:
-        return sorted({item.language_tag for item in OcrEngine.available_recognizer_languages})
+        return sorted(set(native_ocr.available_languages(refresh=refresh)))
     except Exception:
         return []
 
 
 def resolve_ocr_language(language: str) -> OcrResolution:
     requested = normalize_ocr_language(language)
-    installed = available_ocr_languages()
+    installed = available_ocr_languages(refresh=False)
     if not installed:
         return OcrResolution(requested, requested, "Windows OCR languages could not be enumerated.")
 
@@ -121,42 +118,11 @@ def _ocr_score(text: str) -> tuple[int, int]:
 
 
 async def _run_ocr(image: Image.Image, language: str) -> str:
-    import winocr
-
-    global _pending_ocr
-    # Native cancellation is best-effort. Do not pile up operations behind one
-    # that has timed out but still has not finished.
-    if _pending_ocr is not None and _pending_ocr.status == AsyncStatus.STARTED:
-        return ""
-    operation = winocr.recognize_pil(image, language)
-    _pending_ocr = operation
-    loop = asyncio.get_running_loop()
-    completed = loop.create_future()
-
-    def deliver_completion() -> None:
-        if not completed.done():
-            completed.set_result(None)
-
-    def on_complete(operation, status) -> None:
-        if not loop.is_closed():
-            loop.call_soon_threadsafe(deliver_completion)
-
-    operation.completed = on_complete
-    try:
-        # WinRT's await adapter waits for native completion even after cancel();
-        # the callback lets our timeout release the capture loop immediately.
-        await completed
-    except asyncio.CancelledError:
-        try:
-            operation.cancel()
-        except Exception as exc:
-            logger.debug("OCR cancellation failed: %s", exc)
-        raise
-    return operation.get_results().text.strip()
+    return await native_ocr.recognize(image, language, _OCR_PASS_TIMEOUT_SECONDS)
 
 
 async def ocr_image(image: Image.Image, language: str) -> str:
-    resolution = resolve_ocr_language(language)
+    resolution = await asyncio.to_thread(resolve_ocr_language, language)
     raw_first = _should_try_raw_first(resolution.resolved_language)
     passes = [image, preprocess_for_ocr(image)] if raw_first else [preprocess_for_ocr(image), image]
     pass_names = ["raw", "preprocessed"] if raw_first else ["preprocessed", "raw"]

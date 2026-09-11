@@ -1,24 +1,17 @@
-from dataclasses import replace
+import json
+import subprocess
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from meocosub2 import engine
+from meocosub2.core_client import CoreError
 from meocosub2.engine import install as install_module
-from meocosub2.engine import paths as paths_module
 from meocosub2.engine import runtime as runtime_module
-from meocosub2.engine.install import EngineInstallError
 from meocosub2.engine.manifest import load_manifest
-from meocosub2.engine.paths import InstallPaths, resolve_paths
-from meocosub2.engine.runtime import (
-    LaunchPlan,
-    embedding_plan,
-    gpu_launch_supported,
-    launch_arguments,
-    select_loopback_port,
-    worker_threads,
-)
+from meocosub2.engine.paths import InstallPaths, own_paths
+from meocosub2.engine.runtime import LaunchPlan, embedding_plan, launch_arguments, worker_threads
 
 
 @pytest.fixture
@@ -26,124 +19,45 @@ def manifest():
     return load_manifest()
 
 
-def test_the_manifest_publishes_a_runtime_for_this_host(manifest) -> None:
-    runtime = manifest.runtime_for_host()
-    assert runtime.executable.relative_path == "llama-server.exe"
-    assert manifest.model.artifact.size_bytes > 0
+def test_manifest_contains_only_the_independent_bge_workload(manifest) -> None:
+    raw = json.loads(Path(engine.__file__).with_name("manifest.json").read_text(encoding="utf-8"))
+    assert "model" not in raw
+    assert "HY-MT" not in json.dumps(raw)
+    assert manifest.embedding.artifact.size_bytes == 26_472_640
+    assert manifest.runtime_for_host().executable.relative_path == "llama-server.exe"
+
+
+def test_matching_model_has_its_own_runtime_tree(manifest, monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    paths = own_paths(manifest, manifest.runtime_for_host())
+    assert paths.root == tmp_path / "com.meowcal.sub2" / "engine"
+    assert paths.executable.is_relative_to(paths.root)
+    assert paths.embedding_model.is_relative_to(paths.root)
 
 
 def a_plan(**overrides) -> LaunchPlan:
-    """A launch plan spelled out, so the argument builder is tested on its own.
-
-    Which runtime `runtime_for_host` picks depends on the machine running the
-    tests, and its GPU policy with it.
-    """
     fields = {
-        "role": "translation",
         "executable": Path("llama-server.exe"),
-        "model": Path("model.gguf"),
+        "model": Path("embedding.gguf"),
         "alias": "test-model",
         "host": "127.0.0.1",
-        "preferred_port": 11436,
-        "context_size": 2048,
-        "extra_args": ("--jinja",),
-        "log_stem": "test-server",
+        "preferred_port": 11437,
+        "context_size": 512,
+        "extra_args": ("--embedding", "--pooling", "cls"),
     }
     return LaunchPlan(**{**fields, **overrides})
 
 
-def test_the_launch_line_pins_the_model_port_and_context() -> None:
-    plan = a_plan(gpu_layers=99, policy_args=("--no-kv-offload",))
-    arguments = launch_arguments(plan, 12345)
-    assert arguments[:2] == ["-m", str(plan.model)]
+def test_matching_launch_is_cpu_cls_embedding(manifest) -> None:
+    runtime = manifest.runtime_for_host()
+    arguments = launch_arguments(embedding_plan(own_paths(manifest, runtime), manifest), 12345)
     assert arguments[arguments.index("--port") + 1] == "12345"
-    assert arguments[arguments.index("-c") + 1] == "2048"
-    assert arguments[arguments.index("-ngl") + 1] == "99"
-    assert arguments[-1] == "--no-kv-offload"
-    assert "--threads" in arguments
-
-
-def test_a_cpu_launch_asks_for_no_gpu_layers() -> None:
-    arguments = launch_arguments(a_plan(), 1)
     assert arguments[arguments.index("-ngl") + 1] == "0"
-    assert "--no-kv-offload" not in arguments
-
-
-def test_the_matching_model_launches_in_embedding_mode_with_its_trained_pooling(
-    manifest,
-) -> None:
-    """bge is trained with CLS pooling; mean-pooling it degrades every score."""
-    runtime = manifest.runtime_for_host()
-    plan = embedding_plan(resolve_paths(manifest, runtime), manifest)
-    arguments = launch_arguments(plan, 11437)
-    assert "--embedding" in arguments
     assert arguments[arguments.index("--pooling") + 1] == "cls"
-    # Never offloaded, and pointed at its own model rather than the translator's.
-    assert arguments[arguments.index("-ngl") + 1] == "0"
-    assert arguments[1].endswith(manifest.embedding.artifact.file_name)
-
-
-def test_the_matching_model_is_not_required_for_a_v1_install_to_be_adopted(
-    manifest, monkeypatch
-) -> None:
-    """A v1 engine tree predates this model, so demanding it would reject them all.
-
-    `is_complete` is what decides whether to adopt a v1 install instead of
-    downloading 1.1 GB again.
-    """
-    runtime = manifest.runtime_for_host()
-    paths = resolve_paths(manifest, runtime)
-    # A tree carrying the runtime and the translation model, and nothing else.
-    monkeypatch.setattr(paths_module, "_has_size", lambda path, size: path != paths.embedding_model)
-
-    assert paths.is_complete(manifest, runtime)
-    assert not paths.embedding_is_complete(manifest)
-
-
-@pytest.mark.asyncio
-async def test_a_session_fetches_the_matching_model_an_adopted_install_never_had(
-    manifest, monkeypatch
-) -> None:
-    """The gap the adoption rule above leaves open.
-
-    An adopted v1 tree reports itself complete, so Settings has nothing left to
-    offer and no other path would ever download this. A session that needs it
-    and finds it missing measured as a session with matching switched off.
-    """
-    runtime = manifest.runtime_for_host()
-    paths = resolve_paths(manifest, runtime)
-    monkeypatch.setattr(paths_module, "_has_size", lambda path, size: path != paths.embedding_model)
-    fetched: list[Path] = []
-    monkeypatch.setattr(
-        engine.install_module,
-        "install_embedding",
-        lambda paths, manifest: fetched.append(paths.embedding_model),
-    )
-    monkeypatch.setattr(
-        engine.runtime_module,
-        "ensure_embedding_ready",
-        AsyncMock(return_value="http://127.0.0.1:11437"),
-    )
-
-    assert await engine.ensure_embedding_ready() == "http://127.0.0.1:11437"
-    assert fetched == [paths.embedding_model]
-
-
-def test_the_matching_model_lives_in_our_own_tree_even_when_v1_is_adopted(
-    manifest,
-) -> None:
-    """v2 never writes into a v1 install, so its model cannot be stored there."""
-    runtime = manifest.runtime_for_host()
-    v1_root = Path("C:/somewhere/com.meowcal.sub/meowcal-sub")
-    adopted = paths_module._from_root(v1_root, manifest, runtime, adopted=True)
-
-    assert adopted.model.is_relative_to(v1_root)
-    assert not adopted.embedding_model.is_relative_to(v1_root)
+    assert "--embedding" in arguments
 
 
 class FakeProcess:
-    """A spawned engine, reduced to whether it is still running."""
-
     def __init__(self, pid: int) -> None:
         self.pid = pid
         self.terminated = False
@@ -154,78 +68,82 @@ class FakeProcess:
     def terminate(self) -> None:
         self.terminated = True
 
+    def kill(self) -> None:
+        self.terminated = True
+
     def wait(self, timeout=None) -> int:
         return 0
 
 
-def test_starting_an_engine_stops_the_one_it_replaces(tmp_path: Path, monkeypatch) -> None:
-    """A dropped handle does not stop a process holding gigabytes of model.
-
-    Measured once: a race opening the translator started nine engines in twenty
-    seconds, each one abandoning the last, until they were competing for the GPU
-    and crashing each other.
-    """
+def test_starting_a_matcher_stops_the_one_it_replaces(tmp_path: Path, monkeypatch) -> None:
     executable = tmp_path / "llama-server.exe"
-    model = tmp_path / "model.gguf"
+    model = tmp_path / "embedding.gguf"
     executable.write_bytes(b"x")
     model.write_bytes(b"x")
-    plan = a_plan(executable=executable, model=model)
-    paths = InstallPaths(
-        root=tmp_path,
-        runtime_dir=tmp_path,
-        runtime_archive=tmp_path / "runtime.zip",
-        executable=executable,
-        model_dir=tmp_path,
-        model=model,
-        embedding_model_dir=tmp_path,
-        embedding_model=tmp_path / "embedding.gguf",
-    )
+    paths = InstallPaths(tmp_path, tmp_path, tmp_path / "runtime.zip", executable, tmp_path, model)
     spawned: list[FakeProcess] = []
     monkeypatch.setattr(
         runtime_module.subprocess,
         "Popen",
         lambda *args, **kwargs: spawned.append(FakeProcess(len(spawned))) or spawned[-1],
     )
-    monkeypatch.setattr(runtime_module, "_attach_to_process_lifetime", lambda process: None)
-
+    monkeypatch.setattr(runtime_module, "attach_process_to_lifetime", lambda process: None)
+    monkeypatch.setattr(runtime_module, "close_process_job", lambda process: None)
     try:
-        runtime_module._start(plan, paths)
-        runtime_module._start(plan, paths)
-        assert spawned[0].terminated, "the engine being replaced must be stopped"
+        runtime_module._start(a_plan(executable=executable, model=model), paths)
+        runtime_module._start(a_plan(executable=executable, model=model), paths)
+        assert spawned[0].terminated
         assert not spawned[1].terminated
     finally:
-        runtime_module.shutdown(plan.role)
+        runtime_module.shutdown()
 
 
-def test_the_engine_leaves_cores_for_capture_and_ocr() -> None:
+@pytest.mark.parametrize(
+    "failure", [OSError("terminate failed"), subprocess.TimeoutExpired("matcher", 3)]
+)
+def test_failed_matcher_attachment_kills_and_reaps_child(tmp_path, monkeypatch, failure):
+    executable = tmp_path / "llama-server.exe"
+    model = tmp_path / "embedding.gguf"
+    executable.write_bytes(b"x")
+    model.write_bytes(b"x")
+    paths = InstallPaths(tmp_path, tmp_path, tmp_path / "runtime.zip", executable, tmp_path, model)
+    child = MagicMock()
+    child.poll.return_value = None
+    child.stdin = child.stdout = child.stderr = None
+    if isinstance(failure, OSError):
+        child.terminate.side_effect = failure
+        child.wait.return_value = 0
+    else:
+        child.wait.side_effect = [failure, 0]
+    monkeypatch.setattr(runtime_module.subprocess, "Popen", lambda *args, **kwargs: child)
+    monkeypatch.setattr(runtime_module, "_owned", None)
+    monkeypatch.setattr(
+        runtime_module, "attach_process_to_lifetime", MagicMock(side_effect=OSError("job refused"))
+    )
+    with pytest.raises(runtime_module.EngineStartError, match="ownership failed"):
+        runtime_module._start(a_plan(executable=executable, model=model), paths)
+    child.kill.assert_called_once()
+    assert child.wait.call_args.kwargs == {"timeout": 3}
+    assert runtime_module._owned is None
+
+
+def test_matching_runtime_leaves_cores_for_capture_and_ocr() -> None:
     assert worker_threads(12) == 8
     assert worker_threads(4) == 4
     assert worker_threads(1) == 4
 
 
-def test_the_gpu_policy_is_refused_when_the_runtime_asks_for_no_layers(manifest) -> None:
+def test_same_size_corruption_is_not_a_complete_bge_install(
+    tmp_path: Path, manifest, monkeypatch
+) -> None:
     runtime = manifest.runtime_for_host()
-    cpu_only = replace(runtime, gpu_layers=0)
-    assert not gpu_launch_supported(cpu_only)
-
-
-def test_a_loopback_port_is_always_available() -> None:
-    assert 1 <= select_loopback_port(0) <= 65535
-
-
-def test_an_incomplete_install_is_not_reported_as_complete(tmp_path: Path, manifest) -> None:
-    runtime = manifest.runtime_for_host()
-    paths = InstallPaths(
-        root=tmp_path,
-        runtime_dir=tmp_path / "runtime",
-        runtime_archive=tmp_path / "runtime.zip",
-        executable=tmp_path / "runtime" / "llama-server.exe",
-        model_dir=tmp_path / "models",
-        model=tmp_path / "models" / "model.gguf",
-        embedding_model_dir=tmp_path / "models" / "embedding",
-        embedding_model=tmp_path / "models" / "embedding" / "embedding.gguf",
-    )
-    assert not paths.is_complete(manifest, runtime)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    paths = own_paths(manifest, runtime)
+    paths.executable.parent.mkdir(parents=True)
+    paths.embedding_model.parent.mkdir(parents=True)
+    paths.executable.write_bytes(b"x" * runtime.executable.size_bytes)
+    paths.embedding_model.write_bytes(b"x" * manifest.embedding.artifact.size_bytes)
+    assert not paths.embedding_is_complete(manifest, runtime)
 
 
 def test_a_truncated_artifact_fails_verification(tmp_path: Path) -> None:
@@ -234,47 +152,187 @@ def test_a_truncated_artifact_fails_verification(tmp_path: Path) -> None:
     assert not install_module.file_matches(artifact, 999, "0" * 64)
 
 
-def test_a_full_disk_is_reported_before_any_download(tmp_path: Path, manifest, monkeypatch) -> None:
-    monkeypatch.setattr(
-        install_module.shutil, "disk_usage", lambda _: type("Usage", (), {"free": 1})()
-    )
-    runtime = manifest.runtime_for_host()
-    paths = InstallPaths(
-        root=tmp_path,
-        runtime_dir=tmp_path / "runtime",
-        runtime_archive=tmp_path / "runtime.zip",
-        executable=tmp_path / "runtime" / "llama-server.exe",
-        model_dir=tmp_path / "models",
-        model=tmp_path / "models" / "model.gguf",
-        embedding_model_dir=tmp_path / "models" / "embedding",
-        embedding_model=tmp_path / "models" / "embedding" / "embedding.gguf",
-    )
-    with pytest.raises(EngineInstallError, match="free"):
-        install_module.install(paths, manifest, runtime)
+class FakeCore:
+    def __init__(self) -> None:
+        self.hello_result = {"model": "HY-MT1.5-1.8B-Q4_K_M"}
+        self.process_generation = 1
+        self.installed = False
+        self.sync_calls: list[str] = []
+        self.async_calls: list[tuple[str, dict]] = []
+
+    def request_sync(self, method, params, *, timeout_s, progress=None):
+        self.sync_calls.append(method)
+        if method == "status":
+            return {
+                "installed": self.installed,
+                "ready": False,
+                "model": self.hello_result["model"],
+            }
+        self.installed = True
+        return {"installed": True, "ready": False, "model": self.hello_result["model"]}
+
+    async def request(self, method, params, *, timeout_s):
+        self.async_calls.append((method, params))
+        if method == "ready":
+            if self.process_generation is None:
+                self.process_generation = 2
+            return {"managedConfig": {"port": 54321}}
+        return {"choices": [{"message": {"content": "Okay."}}]}
 
 
-def test_a_second_install_request_reports_the_one_in_flight(monkeypatch) -> None:
-    import threading
-
-    from meocosub2 import engine
-
-    started = threading.Event()
-    release = threading.Event()
-
-    def slow_install(*_args, **_kwargs):
-        started.set()
-        release.wait(timeout=5)
-
-    monkeypatch.setattr(install_module, "install", slow_install)
-    monkeypatch.setattr(
-        engine, "resolve_paths", lambda *_: type("Paths", (), {"is_complete": lambda *_: False})()
-    )
+def test_status_does_not_start_or_install_the_model(monkeypatch) -> None:
+    fake = FakeCore()
+    monkeypatch.setattr(engine, "_core", lambda: fake)
     monkeypatch.setattr(engine, "_install_job", None)
-    try:
-        engine.install_engine()
-        assert started.wait(timeout=5)
-        # Would deadlock if the second request re-entered the install lock.
-        assert engine.install_engine().phase == "installing"
-    finally:
-        release.set()
-        monkeypatch.setattr(engine, "_install_job", None)
+    result = engine.status()
+    assert result.phase == "needsSetup"
+    assert fake.sync_calls == ["status"]
+
+
+@pytest.mark.asyncio
+async def test_ready_and_complete_use_core_with_the_pinned_model(monkeypatch) -> None:
+    fake = FakeCore()
+    monkeypatch.setattr(engine, "_core", lambda: fake)
+    monkeypatch.setattr(engine, "_ready_generation", None)
+    monkeypatch.setattr(engine, "_ready_endpoint", None)
+    assert await engine.ensure_ready() == "http://127.0.0.1:54321"
+    response = await engine.complete({"messages": [], "model": "wrong"}, 5.0)
+    assert response["choices"][0]["message"]["content"] == "Okay."
+    assert fake.async_calls[1][0] == "complete"
+    request = fake.async_calls[1][1]
+    assert request["request"]["model"] == "HY-MT1.5-1.8B-Q4_K_M"
+    assert request["timeoutMs"] == 5000
+
+
+@pytest.mark.asyncio
+async def test_unverified_legacy_assets_keep_the_existing_setup_error(monkeypatch) -> None:
+    fake = FakeCore()
+
+    async def unverified(*args, **kwargs):
+        raise CoreError("CORE_ASSETS_UNVERIFIED", "Run Install/Repair from Settings.")
+
+    fake.request = unverified
+    monkeypatch.setattr(engine, "_core", lambda: fake)
+    monkeypatch.setattr(engine, "_ready_generation", None)
+    monkeypatch.setattr(engine, "_ready_endpoint", None)
+    monkeypatch.setattr(engine, "_repair_error", "")
+    with pytest.raises(engine.EngineInstallError, match="Install/Repair"):
+        await engine.ensure_ready()
+    assert engine.status().message == engine.REPAIR_REQUIRED_MESSAGE
+
+
+@pytest.mark.asyncio
+async def test_completions_do_not_repeat_ready_for_the_same_process(monkeypatch) -> None:
+    fake = FakeCore()
+    monkeypatch.setattr(engine, "_core", lambda: fake)
+    monkeypatch.setattr(engine, "_ready_generation", None)
+    monkeypatch.setattr(engine, "_ready_endpoint", None)
+    await engine.ensure_ready()
+    await engine.complete({"messages": []}, 1)
+    assert await engine.complete({"messages": []}, 1) == {
+        "choices": [{"message": {"content": "Okay."}}]
+    }
+    assert [method for method, _ in fake.async_calls] == ["ready", "complete", "complete"]
+
+
+@pytest.mark.asyncio
+async def test_new_core_generation_is_made_ready_before_completion(monkeypatch) -> None:
+    fake = FakeCore()
+    monkeypatch.setattr(engine, "_core", lambda: fake)
+    monkeypatch.setattr(engine, "_ready_generation", None)
+    monkeypatch.setattr(engine, "_ready_endpoint", None)
+    await engine.ensure_ready()
+    fake.process_generation = None
+    await engine.complete({"messages": []}, 1)
+    assert [method for method, _ in fake.async_calls] == ["ready", "ready", "complete"]
+    assert fake.process_generation == 2
+
+
+def test_failed_asset_verification_unlocks_install_repair(monkeypatch) -> None:
+    fake = FakeCore()
+    fake.sync_calls = []
+    monkeypatch.setattr(engine, "_core", lambda: fake)
+    monkeypatch.setattr(engine, "_install_job", None)
+    monkeypatch.setattr(engine, "_repair_error", "Run Install/Repair from Settings.")
+    assert engine.status().phase == "failed"
+    installing = engine.install_engine()
+    assert installing.phase == "installing"
+    assert engine._install_job.thread is not None
+    engine._install_job.thread.join(timeout=1)
+    assert "install" in fake.sync_calls
+    assert engine.status().phase == "idle"
+
+
+@pytest.mark.asyncio
+async def test_repair_invalidates_ready_state_until_core_is_started_again(monkeypatch) -> None:
+    fake = FakeCore()
+    monkeypatch.setattr(engine, "_core", lambda: fake)
+    monkeypatch.setattr(engine, "_install_job", None)
+    monkeypatch.setattr(engine, "_repair_error", "")
+    monkeypatch.setattr(engine, "_ready_generation", None)
+    monkeypatch.setattr(engine, "_ready_endpoint", None)
+
+    await engine.ensure_ready()
+    engine._repair_error = engine.REPAIR_REQUIRED_MESSAGE
+    assert engine.install_engine().phase == "installing"
+    assert engine._install_job is not None
+    assert engine._install_job.thread is not None
+    engine._install_job.thread.join(timeout=1)
+
+    await engine.ensure_ready()
+    assert [method for method, _ in fake.async_calls] == ["ready", "ready"]
+
+
+@pytest.mark.asyncio
+async def test_successful_ready_clears_a_completed_install_error(monkeypatch) -> None:
+    fake = FakeCore()
+    stale_job = engine._InstallJob(error="Previous install failed.", done=True)
+    monkeypatch.setattr(engine, "_core", lambda: fake)
+    monkeypatch.setattr(engine, "_install_job", stale_job)
+    monkeypatch.setattr(engine, "_repair_error", "")
+    monkeypatch.setattr(engine, "_ready_generation", None)
+    monkeypatch.setattr(engine, "_ready_endpoint", None)
+
+    await engine.ensure_ready()
+
+    assert stale_job.error == ""
+
+
+@pytest.mark.asyncio
+async def test_missing_bge_install_downloads_private_runtime_and_model(
+    manifest, monkeypatch
+) -> None:
+    runtime = manifest.runtime_for_host()
+    paths = own_paths(manifest, runtime)
+    monkeypatch.setattr(engine, "own_paths", lambda *_: paths)
+    monkeypatch.setattr(InstallPaths, "embedding_is_complete", lambda *_: False)
+    installed = MagicMock()
+    monkeypatch.setattr(engine.embedding_install, "install_embedding", installed)
+    monkeypatch.setattr(
+        engine.embedding_runtime,
+        "ensure_embedding_ready",
+        AsyncMock(return_value="http://127.0.0.1:11437"),
+    )
+    assert await engine.ensure_embedding_ready() == "http://127.0.0.1:11437"
+    installed.assert_called_once_with(paths, manifest, runtime)
+
+
+def test_backend_shutdown_closes_translation_ocr_and_bge(monkeypatch) -> None:
+    class ClosableCore:
+        closed = False
+
+        def close_sync(self):
+            self.closed = True
+
+    core = ClosableCore()
+    monkeypatch.setattr(engine, "_client", core)
+    bge_shutdown = MagicMock()
+    monkeypatch.setattr(engine.embedding_runtime, "shutdown", bge_shutdown)
+    from meocosub2 import native_ocr
+
+    ocr_shutdown = MagicMock()
+    monkeypatch.setattr(native_ocr, "shutdown", ocr_shutdown)
+    engine.shutdown()
+    assert core.closed
+    bge_shutdown.assert_called_once_with()
+    ocr_shutdown.assert_called_once_with()

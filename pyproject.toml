@@ -16,7 +16,6 @@ dependencies = [
     "httpx>=0.25",
     "pysubs2>=1.6",
     "mss>=9.0",
-    "winocr>=0.0.15",
     "rapidfuzz>=3.0",
     "pillow>=10.0",
     "fastapi>=0.100",

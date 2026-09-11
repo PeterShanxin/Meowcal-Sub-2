@@ -3,6 +3,8 @@ Set WshShell = CreateObject("WScript.Shell")
 
 repoRoot = fso.GetParentFolderName(WScript.ScriptFullName)
 shellPath = repoRoot & "\src-tauri\target\debug\meowcal-sub-2-shell.exe"
+corePath = repoRoot & "\src-tauri\resources\core\meowcal-core.exe"
+coreLockPath = repoRoot & "\config\meowcal-core.lock.json"
 webviewDataPath = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\com.meowcal.sub2\EBWebView"
 eventLogOverride = WshShell.ExpandEnvironmentStrings("%MEOCOSUB2_EVENT_LOG_PATH%")
 If eventLogOverride <> "" And eventLogOverride <> "%MEOCOSUB2_EVENT_LOG_PATH%" Then
@@ -156,6 +158,7 @@ Function IsRebuildNeeded()
     repoRoot & "\src-tauri\Cargo.toml", _
     repoRoot & "\src-tauri\tauri.conf.json", _
     repoRoot & "\src-tauri\build.rs", _
+    corePath, _
     repoRoot & "\Cargo.lock" _
   )
     If fso.FileExists(f) Then
@@ -228,6 +231,19 @@ WshShell.CurrentDirectory = repoRoot
 LogEvent "launcher.start", """repoRoot"":""" & JsonEscape(repoRoot) & """,""forceRebuild"":" & LCase(CStr(forceRebuild))
 RunCleanup
 
+LogEvent "launcher.core.prepare.start", """lockPath"": """ & JsonEscape(coreLockPath) & """"
+coreResult = WshShell.Run( _
+  "powershell -NoProfile -ExecutionPolicy Bypass -File """ & repoRoot & "\scripts\fetch-meowcal-core.ps1"" -UsePrepared", _
+  0, _
+  True _
+)
+If coreResult <> 0 Then
+  LogEvent "launcher.core.prepare.failed", """exitCode"":" & CStr(coreResult)
+  MsgBox "Meowcal Core could not be prepared. Check the release lock and network connection.", vbCritical, "Meowcal Sub 2"
+  WScript.Quit coreResult
+End If
+LogEvent "launcher.core.prepare.done", """path"": """ & JsonEscape(corePath) & """"
+
 ' Only wipe WebView cache on explicit --rebuild (forces full WebView reinit otherwise)
 If forceRebuild And fso.FolderExists(webviewDataPath) Then
   On Error Resume Next
@@ -252,6 +268,7 @@ End If
 
 If fso.FileExists(shellPath) Then
   LogEvent "launcher.shell.launch", """path"":""" & JsonEscape(shellPath) & """"
+  WshShell.Environment("PROCESS")("MEOWCAL_CORE_PROFILE") = "development"
   WshShell.Run Chr(34) & shellPath & Chr(34), 0, False
 Else
   LogEvent "launcher.shell.missing", """path"":""" & JsonEscape(shellPath) & """"

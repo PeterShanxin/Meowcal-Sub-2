@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import suppress
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -152,11 +153,50 @@ async def test_two_source_reads_do_not_replace_one_target_plate(monkeypatch):
 
 async def test_all_rapid_targets_play_while_ocr_stalls(monkeypatch):
     import meocosub2.sync as sync
+    import meocosub2.timeline as timeline
 
     monkeypatch.setattr(sync, "DISPLAY_LEAD_MS", 0)
+    now = 10.0
+    monkeypatch.setattr(sync, "monotonic", lambda: now)
+    monkeypatch.setattr(timeline, "monotonic", lambda: now)
+
+    # Advance on requested timeouts so runner load cannot skip a whole short interval.
+    class ClockEvent:
+        def __init__(self):
+            self._set = False
+
+        def set(self):
+            self._set = True
+
+        def clear(self):
+            self._set = False
+
+        def is_set(self):
+            return self._set
+
+        def wait(self):
+            return self
+
+    async def advance_to_timeout(event, timeout):
+        nonlocal now
+        await asyncio.sleep(0)
+        if event.is_set():
+            return
+        now += timeout
+        raise TimeoutError
+
+    async def inline_to_thread(function, *args):
+        return function(*args)
+
+    clock_asyncio = SimpleNamespace(**vars(asyncio))
+    clock_asyncio.Event = ClockEvent
+    clock_asyncio.wait_for = advance_to_timeout
+    clock_asyncio.to_thread = inline_to_thread
+    monkeypatch.setattr(sync, "asyncio", clock_asyncio)
+
     session = make_session(
         [cue(0, 0, 1500, "A single long source sentence")],
-        # Shorter than the 200 ms fallback poll, with room for Windows timer jitter.
+        # Shorter than the 200 ms fallback poll.
         [cue(0, 0, 300, "first"), cue(1, 450, 600, "short"), cue(2, 750, 1000, "last")],
     )
     shown = []

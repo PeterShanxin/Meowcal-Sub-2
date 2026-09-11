@@ -6,6 +6,7 @@ __pycache__/
 .playwright-cli/
 output/
 src-tauri/target/
+src-tauri/resources/core/
 docs/plans/
 
 # Frontend tooling artifacts (built output is committed so Python-only runs work)
