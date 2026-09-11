@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import base64
-
 from PIL import Image
 
 from meocosub2.core_client import CoreClient, resolve_core_executable
@@ -41,16 +39,16 @@ async def recognize(image: Image.Image, language: str, timeout_s: float) -> str:
     # already chosen the pixels and Core performs no resizing or thresholding.
     pixels = image.convert("RGBA").tobytes("raw", "BGRA")
     response = await _ocr_client().request(
-        "ocrRecognize",
+        "ocrRecognizeBgra",
         {
             "language": language,
             "width": width,
             "height": height,
             "stride": width * 4,
-            "bgraBase64": base64.b64encode(pixels).decode("ascii"),
             "timeoutMs": max(1, int(timeout_s * 1000)),
         },
         timeout_s=timeout_s,
+        payload=pixels,
     )
     text = response.get("text")
     if not isinstance(text, str):

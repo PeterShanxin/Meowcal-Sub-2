@@ -14,6 +14,11 @@ from meocosub2.capture import (
 )
 
 
+@pytest.fixture(autouse=True)
+def installed_ocr_languages(mocker):
+    mocker.patch("meocosub2.capture.available_ocr_languages", return_value=["en-US", "zh-CN"])
+
+
 def test_capture_region_returns_pil_image(mocker) -> None:
     screenshot = SimpleNamespace(size=(2, 1), bgra=b"\x00\x00\x00\xff\xff\xff\xff\xff")
     sct = mocker.MagicMock()

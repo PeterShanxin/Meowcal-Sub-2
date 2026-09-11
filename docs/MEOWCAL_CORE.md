@@ -47,6 +47,16 @@ instead of replacing files in use. Upgrading Sub 1 cannot change Sub 2's pin or
 remove the old Core version. Rollback reinstates the prior application and pin;
 older data directories are retained.
 
+OCR uses `ocrRecognizeBgra`: a UTF-8 JSON header ending in a newline, followed
+by exactly `payloadBytes` raw BGRA bytes without a trailing delimiter. Control
+requests carry zero payload bytes. All JSON headers and responses are limited to
+256 KiB; packed OCR frames are limited to 4096 pixels per dimension and 64 MiB.
+The header carries language, dimensions, packed stride, and a 1–30000 ms timeout.
+The client deadline includes writing the complete header and pixels. Cancellation,
+a stalled write, or malformed framing terminates the owned OCR process before
+a later request starts a replacement. The handshake requires the binary OCR
+capability; incompatible runtimes cannot fall back to Base64.
+
 ## Existing installations
 
 Legacy roots are import candidates, not live dependencies. Core verifies a

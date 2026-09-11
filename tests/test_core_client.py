@@ -1,4 +1,5 @@
 import asyncio
+import io
 import json
 import os
 import queue
@@ -13,18 +14,18 @@ from meocosub2 import core_client
 from meocosub2.core_client import (
     CORE_CAPABILITIES,
     CoreClient,
+    CoreError,
     CoreProtocolError,
     CoreTimeoutError,
 )
 
 
-class FakeOutput:
+class FakeOutput(io.RawIOBase):
     def __init__(self, process) -> None:
         self.process = process
-        self.lines: queue.Queue[str] = queue.Queue()
-        self.closed = False
+        self.lines: queue.Queue[bytes] = queue.Queue()
 
-    def readline(self, size=-1) -> str:
+    def readline(self, size=-1) -> bytes:
         line = self.lines.get(timeout=5)
         if 0 < size < len(line):
             self.lines.put(line[size:])
@@ -33,39 +34,60 @@ class FakeOutput:
             self.process.alive = False
         return line
 
+    def readable(self):
+        return True
+
+    def readinto(self, buffer):
+        data = self.readline(len(buffer))
+        buffer[: len(data)] = data
+        return len(data)
+
     def close(self) -> None:
-        self.closed = True
+        super().close()
 
 
-class EmptyStderr:
+class EmptyStderr(io.RawIOBase):
     def __init__(self) -> None:
-        self.closed = False
+        super().__init__()
 
-    def readline(self, size=-1) -> str:
-        return ""
+    def readline(self, size=-1) -> bytes:
+        return b""
+
+    def readable(self):
+        return True
+
+    def readinto(self, buffer):
+        data = self.readline(len(buffer))
+        buffer[: len(data)] = data
+        return len(data)
 
     def close(self) -> None:
-        self.closed = True
+        super().close()
 
 
-class FakeInput:
+class FakeInput(io.RawIOBase):
     def __init__(self, process) -> None:
         self.process = process
-        self.closed = False
+        self.pending = bytearray()
+        self.frame = None
 
-    def write(self, frame: str) -> int:
+    def write(self, frame: bytes) -> int:
         if self.process.block_write:
             self.process.write_released.wait(timeout=5)
             if not self.process.alive:
                 raise BrokenPipeError("process ended")
-        self.process.receive(json.loads(frame))
+        self.pending.extend(frame)
+        if self.frame is None and b"\n" in self.pending:
+            header, self.pending = self.pending.split(b"\n", 1)
+            self.frame = json.loads(header)
+        if self.frame is not None and len(self.pending) == self.frame["payloadBytes"]:
+            received, self.frame = self.frame, None
+            self.pending.clear()
+            self.process.receive(received)
         return len(frame)
 
-    def flush(self) -> None:
-        return None
-
     def close(self) -> None:
-        self.closed = True
+        super().close()
 
 
 class FakeProcess:
@@ -79,6 +101,7 @@ class FakeProcess:
         self.handler = handler
         self.frames: list[dict] = []
         self.stdout = FakeOutput(self)
+        self.output = self.stdout
         self.stderr = EmptyStderr()
         self.stdin = FakeInput(self)
 
@@ -99,7 +122,7 @@ class FakeProcess:
         self.handler(self, frame)
 
     def send(self, request_id: int, **body) -> None:
-        self.stdout.lines.put(json.dumps({"id": request_id, **body}) + "\n")
+        self.output.lines.put((json.dumps({"id": request_id, **body}) + "\n").encode())
 
     def poll(self):
         return None if self.alive else 0
@@ -108,7 +131,7 @@ class FakeProcess:
         if self.alive:
             self.alive = False
             self.write_released.set()
-            self.stdout.lines.put("")
+            self.output.lines.put(b"")
 
     kill = terminate
 
@@ -149,7 +172,13 @@ def test_handshake_progress_and_result_follow_the_pinned_jsonl_contract(client_f
     assert progress == ["Checking 40%"]
     assert processes[0].frames[0]["method"] == "hello"
     assert processes[0].frames[0]["params"]["expectedVersion"] == "0.1.0"
-    assert processes[0].frames[1] == {"id": 2, "api": 1, "method": "status", "params": {}}
+    assert processes[0].frames[1] == {
+        "id": 2,
+        "api": 1,
+        "method": "status",
+        "params": {},
+        "payloadBytes": 0,
+    }
 
 
 def test_core_timeout_is_typed_and_discards_the_process(client_factory) -> None:
@@ -158,7 +187,7 @@ def test_core_timeout_is_typed_and_discards_the_process(client_factory) -> None:
 
     client, processes = client_factory(handler)
     with pytest.raises(CoreTimeoutError) as caught:
-        client.request_sync("ocrRecognize", {}, timeout_s=1)
+        client.request_sync("ocrRecognizeBgra", ocr_params(), payload=bytes(8), timeout_s=1)
     assert caught.value.code == "OCR_TIMEOUT"
     assert not processes[0].alive
     assert client.hello_result is None
@@ -170,6 +199,29 @@ def test_local_timeout_kills_and_reaps_the_owned_process(client_factory) -> None
         client.request_sync("ready", {}, timeout_s=0.03)
     assert caught.value.code == "CLIENT_TIMEOUT"
     assert not processes[0].alive
+
+
+def test_unusable_native_process_is_discarded_before_recovery(client_factory) -> None:
+    failed = False
+
+    def handler(process, frame):
+        nonlocal failed
+        if not failed:
+            failed = True
+            process.send(
+                frame["id"], error={"code": "OCR_PROCESS_UNUSABLE", "message": "lost callback"}
+            )
+        else:
+            process.send(frame["id"], result={"recovered": True})
+
+    client, processes = client_factory(handler)
+    with pytest.raises(CoreError) as caught:
+        client.request_sync("ocrRecognizeBgra", ocr_params(), payload=bytes(8), timeout_s=1)
+    assert caught.value.code == "OCR_PROCESS_UNUSABLE"
+    assert not processes[0].alive
+    assert client.hello_result is None
+    assert client.request_sync("status", {}, timeout_s=1) == {"recovered": True}
+    assert len(processes) == 2
 
 
 def test_local_timeout_unblocks_a_full_stdin_pipe(client_factory) -> None:
@@ -327,7 +379,7 @@ def test_restart_cleans_an_already_exited_process_before_replacing_it(
 
 def test_oversized_or_unterminated_response_fails_closed(client_factory) -> None:
     def handler(process, frame):
-        process.stdout.lines.put("{" + "x" * core_client.FRAME_BYTES)
+        process.output.lines.put(b"{" + b"x" * core_client.FRAME_BYTES)
 
     client, processes = client_factory(handler)
     with pytest.raises(CoreProtocolError, match="oversized"):
@@ -366,3 +418,231 @@ def test_windows_job_owned_child_is_killed_and_reaped() -> None:
         if process.poll() is None:
             process.kill()
             process.wait(timeout=3)
+
+
+@pytest.fixture
+def pipe_client(monkeypatch, tmp_path):
+    script = tmp_path / "core_fixture.py"
+    script.write_text(
+        """import json, sys, time
+from pathlib import Path
+stream = sys.stdin.buffer
+while True:
+    line = stream.readline()
+    if not line:
+        break
+    request = json.loads(line)
+    method = request['method']
+    if method == 'hello':
+        caps = json.loads(sys.argv[2])
+        if sys.argv[3] == 'legacy':
+            caps[caps.index('ocrRecognizeBgra')] = 'ocrRecognize'
+        result = dict(version='0.1.0', api=1, capabilities=caps,
+                      model='test', storageRoot=sys.argv[1])
+    elif method == 'ocrRecognizeBgra':
+        if sys.argv[3] == 'stall':
+            Path(sys.argv[1], "header-read").touch()
+            time.sleep(30)
+        body = stream.read(request['payloadBytes'])
+        result = dict(length=len(body), checksum=sum(body))
+    else:
+        result = dict(installed=True)
+    print(json.dumps(dict(id=request['id'], result=result)), flush=True)
+    if method == 'shutdown':
+        break
+""",
+        encoding="utf-8",
+    )
+    spawn = subprocess.Popen
+    clients = []
+
+    def make(mode="echo"):
+        def start(*args, **kwargs):
+            return spawn(
+                [
+                    sys.executable,
+                    "-u",
+                    str(script),
+                    str(tmp_path),
+                    json.dumps(sorted(CORE_CAPABILITIES)),
+                    mode,
+                ],
+                **kwargs,
+            )
+
+        monkeypatch.setattr(core_client.subprocess, "Popen", start)
+        client = CoreClient(script, legacy_roots=[])
+        clients.append(client)
+        return client
+
+    make.marker = tmp_path / "header-read"
+    yield make
+    for client in clients:
+        client.abort()
+
+
+def ocr_params(width=2, height=1):
+    return dict(language="en-US", width=width, height=height, stride=width * 4, timeoutMs=1000)
+
+
+def test_binary_pipe_preserves_newlines_and_next_control_frame(pipe_client):
+    client = pipe_client()
+    pixels = bytes([0, 10, 13, 255, 123, 34, 0, 255])
+    result = client.request_sync("ocrRecognizeBgra", ocr_params(), payload=pixels, timeout_s=3)
+    assert result == {"length": len(pixels), "checksum": sum(pixels)}
+    assert client.request_sync("status", {}, timeout_s=3) == {"installed": True}
+
+
+def test_legacy_ocr_capability_fails_before_pixels_are_sent(pipe_client):
+    client = pipe_client("legacy")
+    with pytest.raises(CoreProtocolError, match="pinned contract"):
+        client.request_sync("ocrRecognizeBgra", ocr_params(), payload=bytes(8), timeout_s=3)
+    assert client.process_generation is None
+
+
+@pytest.mark.asyncio
+async def test_cancellation_unblocks_real_binary_body_write_and_restarts(pipe_client):
+    client = pipe_client("stall")
+    task = asyncio.create_task(
+        client.request(
+            "ocrRecognizeBgra",
+            ocr_params(4096, 1024),
+            payload=bytes(16 * 1024 * 1024),
+            timeout_s=5,
+        )
+    )
+
+    async def wait_for_header():
+        while not pipe_client.marker.exists():
+            await asyncio.sleep(0.01)
+
+    await asyncio.wait_for(wait_for_header(), 3)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, 3)
+    assert client.process_generation is None
+    assert await client.request("status", {}, timeout_s=3) == {"installed": True}
+
+
+def test_deadline_unblocks_real_binary_body_write(pipe_client):
+    client = pipe_client("stall")
+    with pytest.raises(CoreTimeoutError):
+        client.request_sync(
+            "ocrRecognizeBgra",
+            ocr_params(4096, 1024),
+            payload=bytes(16 * 1024 * 1024),
+            timeout_s=0.3,
+        )
+    assert client.process_generation is None
+
+
+@pytest.mark.parametrize(
+    "params,payload",
+    [
+        (ocr_params(), bytes(7)),
+        ({**ocr_params(), "stride": 9}, bytes(9)),
+        ({**ocr_params(), "timeoutMs": 30001}, bytes(8)),
+        ({**ocr_params(), "width": True}, bytes(8)),
+        ({**ocr_params(), "bgraBase64": "AA=="}, bytes(8)),
+    ],
+)
+def test_invalid_binary_layout_is_rejected_before_launch(client_factory, params, payload):
+    client, processes = client_factory(lambda process, frame: None)
+    with pytest.raises(CoreProtocolError, match="packed BGRA"):
+        client.request_sync("ocrRecognizeBgra", params, payload=payload, timeout_s=1)
+    assert processes == []
+
+
+def test_short_writes_send_exactly_one_header_and_body(client_factory, monkeypatch):
+    client, processes = client_factory(lambda process, frame: process.send(frame["id"], result={}))
+    client.request_sync("status", {}, timeout_s=1)
+    process = processes[0]
+    transmitted = bytearray()
+
+    def short_write(part):
+        count = min(3, len(part))
+        transmitted.extend(part[:count])
+        if b"\n" in transmitted:
+            header, body = transmitted.split(b"\n", 1)
+            request = json.loads(header)
+            if len(body) == request["payloadBytes"]:
+                process.send(request["id"], result={"text": "ok"})
+        return count
+
+    monkeypatch.setattr(process.stdin, "write", short_write)
+    pixels = b"\n\r\x00\xff" * 2
+    assert client.request_sync("ocrRecognizeBgra", ocr_params(), payload=pixels, timeout_s=1) == {
+        "text": "ok"
+    }
+    header, body = transmitted.split(b"\n", 1)
+    assert json.loads(header)["payloadBytes"] == len(pixels)
+    assert body == pixels
+
+
+def test_failed_partial_write_discards_transport_before_recovery(client_factory, monkeypatch):
+    client, processes = client_factory(lambda process, frame: process.send(frame["id"], result={}))
+    client.request_sync("status", {}, timeout_s=1)
+    calls = 0
+
+    def broken_write(part):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return 2
+        raise BrokenPipeError("partial header")
+
+    monkeypatch.setattr(processes[0].stdin, "write", broken_write)
+    with pytest.raises(BrokenPipeError):
+        client.request_sync("ocrRecognizeBgra", ocr_params(), payload=bytes(8), timeout_s=1)
+    assert not processes[0].alive
+    assert client.request_sync("status", {}, timeout_s=1) == {}
+    assert len(processes) == 2
+
+
+@pytest.mark.parametrize("response", [b"not json\n", b'{"id":999,"result":{}}\n', b"\xff\n"])
+def test_malformed_binary_response_closes_before_recovery(client_factory, response):
+    attempts = 0
+
+    def handler(process, frame):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            process.output.lines.put(response)
+        else:
+            process.send(frame["id"], result={})
+
+    client, processes = client_factory(handler)
+    with pytest.raises(CoreProtocolError):
+        client.request_sync("status", {}, timeout_s=1)
+    assert not processes[0].alive
+    assert client.request_sync("status", {}, timeout_s=1) == {}
+    assert len(processes) == 2
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows job objects are platform-specific")
+def test_concurrent_cleanup_closes_job_handle_once(mocker):
+    import ctypes
+    from types import SimpleNamespace
+
+    from meocosub2.core_process import close_process_job
+
+    entered, release = threading.Event(), threading.Event()
+    kernel = mocker.Mock()
+
+    def close_handle(handle):
+        entered.set()
+        assert release.wait(1)
+        return True
+
+    kernel.CloseHandle.side_effect = close_handle
+    mocker.patch.object(ctypes, "WinDLL", return_value=kernel)
+    process = SimpleNamespace(_meowcal_core_job=123)
+    cleanup = threading.Thread(target=close_process_job, args=(process,))
+    cleanup.start()
+    try:
+        assert entered.wait(1)
+        close_process_job(process)
+    finally:
+        release.set()
+        cleanup.join(1)
+    kernel.CloseHandle.assert_called_once_with(123)

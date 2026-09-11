@@ -138,8 +138,11 @@ def attach_process_to_lifetime(process: subprocess.Popen) -> None:
 
 
 def close_process_job(process: subprocess.Popen) -> None:
-    job = getattr(process, "_meowcal_core_job", None)
-    if not job or os.name != "nt":
+    if os.name != "nt":
+        return
+    # Timeout and the unblocked writer can finish cleanup concurrently.
+    job = vars(process).pop("_meowcal_core_job", None)
+    if not job:
         return
     import ctypes
     from ctypes import wintypes
@@ -148,11 +151,10 @@ def close_process_job(process: subprocess.Popen) -> None:
     kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
     kernel32.CloseHandle.restype = wintypes.BOOL
     kernel32.CloseHandle(job)
-    del process._meowcal_core_job  # noqa: SLF001
 
 
 def terminate_process(process: subprocess.Popen) -> None:
-    """End and reap the exact child before closing its blocking text streams."""
+    """End and reap the exact child before closing its blocking streams."""
     if process.poll() is None:
         process.terminate()
         try:
@@ -168,7 +170,7 @@ def terminate_process(process: subprocess.Popen) -> None:
     close_process_job(process)
 
 
-def drain_stderr(process: subprocess.Popen[str], tail: deque[str], max_chars: int) -> None:
+def drain_stderr(process: subprocess.Popen[bytes], tail: deque[str], max_chars: int) -> None:
     """Keep bounded diagnostics without allowing an unbounded native log line."""
     if process.stderr is None:
         return
@@ -179,4 +181,4 @@ def drain_stderr(process: subprocess.Popen[str], tail: deque[str], max_chars: in
             return
         if not line:
             return
-        tail.append(line[:max_chars].strip())
+        tail.append(line[:max_chars].decode("utf-8", errors="replace").strip())

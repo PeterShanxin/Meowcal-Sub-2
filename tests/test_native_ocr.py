@@ -1,5 +1,4 @@
 import asyncio
-import base64
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -24,10 +23,10 @@ async def test_native_adapter_preserves_pixel_order_and_pass_timeout(core):
 
     assert await capture._run_ocr(image, "en-US") == "hello"
     method, params = core.request.call_args.args
-    assert method == "ocrRecognize"
+    assert method == "ocrRecognizeBgra"
     assert params["language"] == "en-US"
     assert (params["width"], params["height"], params["stride"]) == (2, 1, 8)
-    assert base64.b64decode(params["bgraBase64"]) == bytes([30, 20, 10, 255, 60, 50, 40, 255])
+    assert core.request.call_args.kwargs["payload"] == bytes([30, 20, 10, 255, 60, 50, 40, 255])
     assert params["timeoutMs"] == 1000
     assert core.request.call_args.kwargs["timeout_s"] == 1.0
 
@@ -38,7 +37,7 @@ async def test_native_adapter_passes_preprocessed_grayscale_without_resizing(cor
     image.putdata([0, 255])
     await capture._run_ocr(image, "zh-Hans-CN")
     params = core.request.call_args.args[1]
-    assert base64.b64decode(params["bgraBase64"]) == bytes([0, 0, 0, 255, 255, 255, 255, 255])
+    assert core.request.call_args.kwargs["payload"] == bytes([0, 0, 0, 255, 255, 255, 255, 255])
     assert params["language"] == "zh-Hans-CN"
 
 
