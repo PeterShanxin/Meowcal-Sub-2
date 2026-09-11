@@ -7,10 +7,12 @@ from PIL import Image
 from meocosub2.core_client import CoreClient, resolve_core_executable
 
 _client: CoreClient | None = None
+_languages: list[str] | None = None
 
 
 def shutdown() -> None:
-    global _client
+    global _client, _languages
+    _languages = None
     client, _client = _client, None
     if client is not None:
         client.close_sync()
@@ -23,12 +25,17 @@ def _ocr_client() -> CoreClient:
     return _client
 
 
-def available_languages() -> list[str]:
+def available_languages(*, refresh: bool = False) -> list[str]:
+    global _languages
+    if not refresh and _languages is not None:
+        return list(_languages)
+    _languages = None
     response = _ocr_client().request_sync("ocrLanguages", {}, timeout_s=5.0)
     languages = response.get("languages")
     if not isinstance(languages, list) or not all(isinstance(tag, str) for tag in languages):
         raise RuntimeError("Core returned invalid OCR languages")
-    return languages
+    _languages = list(languages)
+    return list(languages)
 
 
 async def recognize(image: Image.Image, language: str, timeout_s: float) -> str:

@@ -162,10 +162,10 @@ def close_process_job(process: subprocess.Popen) -> None:
 def terminate_process(process: subprocess.Popen) -> None:
     """End and reap the exact child before closing its blocking streams."""
     if process.poll() is None:
-        process.terminate()
         try:
+            process.terminate()
             process.wait(timeout=3)
-        except subprocess.TimeoutExpired:
+        except (OSError, subprocess.TimeoutExpired):
             process.kill()
             with suppress(subprocess.TimeoutExpired):
                 process.wait(timeout=3)

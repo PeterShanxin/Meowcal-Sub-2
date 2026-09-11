@@ -5,7 +5,8 @@ param(
     [string]$LockPath,
     [string]$ArchivePath,
     [string]$DestinationPath,
-    [switch]$Offline
+    [switch]$Offline,
+    [switch]$UsePrepared
 )
 
 $ErrorActionPreference = "Stop"
@@ -103,6 +104,26 @@ if ($lockedArchitectures.Count -ne 2 -or
 }
 
 $selected = $lock.architectures.$Architecture
+$receiptPath = "$DestinationPath.receipt"
+function Get-PreparedIdentity {
+    $directory = Split-Path -Parent $DestinationPath
+    $paths = @($LockPath, $DestinationPath, (Join-Path $directory "meowcal-core.json"),
+        (Join-Path $directory "LICENSE"))
+    $hashes = @($paths | ForEach-Object {
+        (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash.ToLowerInvariant()
+    })
+    return (@($Architecture) + $hashes) -join "`n"
+}
+if ($UsePrepared -and (Test-Path -LiteralPath $receiptPath -PathType Leaf)) {
+    try {
+        if ([IO.File]::ReadAllText($receiptPath) -ceq (Get-PreparedIdentity)) {
+            Write-Host "Using verified prepared Meowcal Core at $DestinationPath."
+            return
+        }
+    } catch {
+        Write-Verbose "Prepared Core resources need verification: $_"
+    }
+}
 $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) (
     "meowcal-core-fetch-" + [guid]::NewGuid().ToString("N")
 )
@@ -212,6 +233,7 @@ try {
         Move-Item -LiteralPath $temporaryLicense -Destination $licenseDestination -Force
         Move-Item -LiteralPath $temporaryMetadata -Destination $metadataDestination -Force
         Move-Item -LiteralPath $temporaryDestination -Destination $DestinationPath -Force
+        [IO.File]::WriteAllText($receiptPath, (Get-PreparedIdentity))
     } finally {
         Remove-Item -LiteralPath $temporaryDestination -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $temporaryMetadata -Force -ErrorAction SilentlyContinue

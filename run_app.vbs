@@ -175,18 +175,6 @@ Function IsRebuildNeeded()
   IsRebuildNeeded = False
 End Function
 
-Function IsCorePrepareNeeded()
-  If Not fso.FileExists(corePath) Then
-    IsCorePrepareNeeded = True
-    Exit Function
-  End If
-  If Not fso.FileExists(coreLockPath) Then
-    IsCorePrepareNeeded = True
-    Exit Function
-  End If
-  IsCorePrepareNeeded = fso.GetFile(coreLockPath).DateLastModified > fso.GetFile(corePath).DateLastModified
-End Function
-
 Function CheckUIFolderNewer(folderPath, refTime)
   CheckUIFolderNewer = False
   If Not fso.FolderExists(folderPath) Then Exit Function
@@ -243,20 +231,18 @@ WshShell.CurrentDirectory = repoRoot
 LogEvent "launcher.start", """repoRoot"":""" & JsonEscape(repoRoot) & """,""forceRebuild"":" & LCase(CStr(forceRebuild))
 RunCleanup
 
-If forceRebuild Or IsCorePrepareNeeded() Then
-  LogEvent "launcher.core.prepare.start", """lockPath"": """ & JsonEscape(coreLockPath) & """"
-  coreResult = WshShell.Run( _
-    "powershell -NoProfile -ExecutionPolicy Bypass -File """ & repoRoot & "\scripts\fetch-meowcal-core.ps1""", _
-    1, _
-    True _
-  )
-  If coreResult <> 0 Then
-    LogEvent "launcher.core.prepare.failed", """exitCode"":" & CStr(coreResult)
-    MsgBox "Meowcal Core could not be prepared. Check the release lock and network connection.", vbCritical, "Meowcal Sub 2"
-    WScript.Quit coreResult
-  End If
-  LogEvent "launcher.core.prepare.done", """path"": """ & JsonEscape(corePath) & """"
+LogEvent "launcher.core.prepare.start", """lockPath"": """ & JsonEscape(coreLockPath) & """"
+coreResult = WshShell.Run( _
+  "powershell -NoProfile -ExecutionPolicy Bypass -File """ & repoRoot & "\scripts\fetch-meowcal-core.ps1"" -UsePrepared", _
+  0, _
+  True _
+)
+If coreResult <> 0 Then
+  LogEvent "launcher.core.prepare.failed", """exitCode"":" & CStr(coreResult)
+  MsgBox "Meowcal Core could not be prepared. Check the release lock and network connection.", vbCritical, "Meowcal Sub 2"
+  WScript.Quit coreResult
 End If
+LogEvent "launcher.core.prepare.done", """path"": """ & JsonEscape(corePath) & """"
 
 ' Only wipe WebView cache on explicit --rebuild (forces full WebView reinit otherwise)
 If forceRebuild And fso.FolderExists(webviewDataPath) Then

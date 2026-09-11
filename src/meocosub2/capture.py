@@ -27,16 +27,16 @@ class OcrResolution:
     warning_message: str = ""
 
 
-def available_ocr_languages() -> list[str]:
+def available_ocr_languages(*, refresh: bool = True) -> list[str]:
     try:
-        return sorted(set(native_ocr.available_languages()))
+        return sorted(set(native_ocr.available_languages(refresh=refresh)))
     except Exception:
         return []
 
 
 def resolve_ocr_language(language: str) -> OcrResolution:
     requested = normalize_ocr_language(language)
-    installed = available_ocr_languages()
+    installed = available_ocr_languages(refresh=False)
     if not installed:
         return OcrResolution(requested, requested, "Windows OCR languages could not be enumerated.")
 
@@ -122,7 +122,7 @@ async def _run_ocr(image: Image.Image, language: str) -> str:
 
 
 async def ocr_image(image: Image.Image, language: str) -> str:
-    resolution = resolve_ocr_language(language)
+    resolution = await asyncio.to_thread(resolve_ocr_language, language)
     raw_first = _should_try_raw_first(resolution.resolved_language)
     passes = [image, preprocess_for_ocr(image)] if raw_first else [preprocess_for_ocr(image), image]
     pass_names = ["raw", "preprocessed"] if raw_first else ["preprocessed", "raw"]

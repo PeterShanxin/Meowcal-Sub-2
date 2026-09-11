@@ -163,8 +163,21 @@ try {
         throw "Installed Core resource hashes do not match its retained metadata."
     }
 
+    # A checkout gives the lock a newer timestamp than the extracted binary.
+    (Get-Item -LiteralPath $destination).LastWriteTime = [datetime]::Now.AddDays(-2)
+    & $fetchScript -Architecture x64 -LockPath $lockPath -DestinationPath $destination -Offline -UsePrepared
+    $savedBinary = [IO.File]::ReadAllBytes($destination)
+    [IO.File]::WriteAllBytes($destination, [byte[]]@(1, 2, 3))
+    Assert-Throws {
+        & $fetchScript -Architecture x64 -LockPath $lockPath -DestinationPath $destination -Offline -UsePrepared
+    } "Offline Core preparation requires"
+    [IO.File]::WriteAllBytes($destination, $savedBinary)
+
     $wrongHashLock = Join-Path $temporaryDirectory "wrong-hash.json"
     New-CoreLock -Path $wrongHashLock -X64Sha256 ("b" * 64)
+    Assert-Throws {
+        & $fetchScript -Architecture x64 -LockPath $wrongHashLock -DestinationPath $destination -Offline -UsePrepared
+    } "Offline Core preparation requires"
     Assert-Throws {
         & $fetchScript -Architecture x64 -LockPath $wrongHashLock `
             -ArchivePath $archive -DestinationPath $destination -Offline

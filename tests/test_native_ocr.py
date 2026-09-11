@@ -9,6 +9,7 @@ from meocosub2 import capture, native_ocr
 
 @pytest.fixture
 def core(mocker):
+    mocker.patch.object(native_ocr, "_languages", None)
     client = Mock()
     client.request = AsyncMock(return_value={"text": " hello "})
     client.request_sync.return_value = {"languages": ["en-US", "zh-Hans-CN"]}
@@ -44,6 +45,39 @@ async def test_native_adapter_passes_preprocessed_grayscale_without_resizing(cor
 def test_native_languages_use_shared_core(core):
     assert capture.available_ocr_languages() == ["en-US", "zh-Hans-CN"]
     core.request_sync.assert_called_once_with("ocrLanguages", {}, timeout_s=5.0)
+
+
+def test_language_discovery_is_cached_and_explicit_refresh_replaces_it(core):
+    assert capture.resolve_ocr_language("en-US").resolved_language == "en-US"
+    assert capture.resolve_ocr_language("en-US").resolved_language == "en-US"
+    core.request_sync.assert_called_once()
+    core.request_sync.return_value = {"languages": ["en-GB"]}
+    assert capture.available_ocr_languages() == ["en-GB"]
+    assert capture.resolve_ocr_language("en-US").resolved_language == "en-GB"
+    assert core.request_sync.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_slow_language_discovery_does_not_block_playback_clock(core):
+    import threading
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    def languages(*args, **kwargs):
+        entered.set()
+        assert release.wait(2)
+        return {"languages": ["en-US"]}
+
+    core.request_sync.side_effect = languages
+    task = asyncio.create_task(capture.ocr_image(Image.new("RGB", (1, 1)), "en-US"))
+    try:
+        await asyncio.wait_for(asyncio.to_thread(entered.wait, 1), timeout=1.5)
+        assert entered.is_set()
+        assert not task.done()
+    finally:
+        release.set()
+        await task
 
 
 @pytest.mark.asyncio

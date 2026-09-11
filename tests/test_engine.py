@@ -1,4 +1,5 @@
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -95,6 +96,35 @@ def test_starting_a_matcher_stops_the_one_it_replaces(tmp_path: Path, monkeypatc
         assert not spawned[1].terminated
     finally:
         runtime_module.shutdown()
+
+
+@pytest.mark.parametrize(
+    "failure", [OSError("terminate failed"), subprocess.TimeoutExpired("matcher", 3)]
+)
+def test_failed_matcher_attachment_kills_and_reaps_child(tmp_path, monkeypatch, failure):
+    executable = tmp_path / "llama-server.exe"
+    model = tmp_path / "embedding.gguf"
+    executable.write_bytes(b"x")
+    model.write_bytes(b"x")
+    paths = InstallPaths(tmp_path, tmp_path, tmp_path / "runtime.zip", executable, tmp_path, model)
+    child = MagicMock()
+    child.poll.return_value = None
+    child.stdin = child.stdout = child.stderr = None
+    if isinstance(failure, OSError):
+        child.terminate.side_effect = failure
+        child.wait.return_value = 0
+    else:
+        child.wait.side_effect = [failure, 0]
+    monkeypatch.setattr(runtime_module.subprocess, "Popen", lambda *args, **kwargs: child)
+    monkeypatch.setattr(runtime_module, "_owned", None)
+    monkeypatch.setattr(
+        runtime_module, "attach_process_to_lifetime", MagicMock(side_effect=OSError("job refused"))
+    )
+    with pytest.raises(runtime_module.EngineStartError, match="ownership failed"):
+        runtime_module._start(a_plan(executable=executable, model=model), paths)
+    child.kill.assert_called_once()
+    assert child.wait.call_args.kwargs == {"timeout": 3}
+    assert runtime_module._owned is None
 
 
 def test_matching_runtime_leaves_cores_for_capture_and_ocr() -> None:

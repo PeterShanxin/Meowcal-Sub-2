@@ -13,7 +13,7 @@ from pathlib import Path
 
 import httpx
 
-from meocosub2.core_process import attach_process_to_lifetime, close_process_job
+from meocosub2.core_process import attach_process_to_lifetime, close_process_job, terminate_process
 from meocosub2.engine import orphans
 from meocosub2.engine.manifest import Manifest
 from meocosub2.engine.paths import InstallPaths
@@ -172,8 +172,7 @@ def _start(plan: LaunchPlan, paths: InstallPaths) -> _OwnedEngine:
     try:
         attach_process_to_lifetime(process)
     except OSError as error:
-        process.terminate()
-        process.wait(timeout=3)
+        terminate_process(process)
         raise EngineStartError(f"Subtitle matching process ownership failed: {error}") from error
     engine = _OwnedEngine(process, str(plan.executable), str(plan.model), port)
     with _lock:

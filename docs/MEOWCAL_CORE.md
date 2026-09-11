@@ -63,6 +63,12 @@ the event loop to remain responsive; Core separately enforces its native OCR
 deadline. Synchronous calls and translations retain an independent timer because
 a cancelled translation may keep draining after its caller has left.
 
+Language discovery is cached across captured frames. Initial discovery runs off
+the event loop; explicit language-list refresh replaces the cache, and OCR
+shutdown clears it. The launcher reuses prepared Core resources only when the
+release lock and executable, metadata, and license hashes match the preparation
+receipt. File timestamps do not determine whether Core needs downloading.
+
 ## Existing installations
 
 Legacy roots are import candidates, not live dependencies. Core verifies a
