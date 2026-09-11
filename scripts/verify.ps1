@@ -20,6 +20,10 @@
 .PARAMETER List
     Print the stages and exit.
 
+.PARAMETER CoreCandidateSource
+    Use the exact source candidate pinned in config/meowcal-core.candidate.json
+    for development verification. Omit to require the reviewed release lock.
+
 .EXAMPLE
     .\scripts\verify.ps1
     .\scripts\verify.ps1 -Stage python, ratchets
@@ -28,7 +32,8 @@
 param(
     [ValidateSet('setup', 'format', 'python', 'typescript', 'rust', 'smoke', 'ratchets')]
     [string[]]$Stage,
-    [switch]$List
+    [switch]$List,
+    [string]$CoreCandidateSource
 )
 
 $ErrorActionPreference = 'Stop'
@@ -39,7 +44,10 @@ $UiDir = Join-Path $RepoRoot 'src/meocosub2/overlay/ui'
 $Biome = Join-Path $UiDir 'node_modules/.bin/biome.cmd'
 $ReportPath = Join-Path $RepoRoot '.verify-report.json'
 $CorePackageTest = Join-Path $RepoRoot 'scripts/tests/core-package.Tests.ps1'
+$CoreCandidateTest = Join-Path $RepoRoot 'scripts/tests/core-candidate.Tests.ps1'
 $CoreFetch = Join-Path $RepoRoot 'scripts/fetch-meowcal-core.ps1'
+$CoreCandidatePrepare = Join-Path $RepoRoot 'scripts/prepare-core-candidate.ps1'
+$CoreCandidateConfig = Join-Path $RepoRoot 'config/meowcal-core.candidate.json'
 $CoreResource = Join-Path $RepoRoot 'src-tauri/resources/core/meowcal-core.exe'
 $AllStages = @('setup', 'format', 'python', 'typescript', 'rust', 'smoke', 'ratchets')
 
@@ -75,6 +83,7 @@ function Invoke-Check([string]$Label, [scriptblock]$Body) {
 Push-Location $RepoRoot
 try {
     Invoke-Check 'Core package contract' { & $CorePackageTest }
+    Invoke-Check 'Core source candidate contract' { & $CoreCandidateTest }
 
     if ($Wanted -contains 'setup') {
         Start-Stage 'setup'
@@ -132,7 +141,15 @@ try {
 
     if ($Wanted -contains 'rust') {
         Start-Stage 'rust'
-        Invoke-Check 'prepare pinned Core resource' { & $CoreFetch | Out-Null }
+        if ($CoreCandidateSource) {
+            Invoke-Check 'prepare pinned Core source candidate' {
+                & $CoreCandidatePrepare -SourcePath $CoreCandidateSource `
+                    -ConfigPath $CoreCandidateConfig | Out-Null
+            }
+        }
+        else {
+            Invoke-Check 'prepare pinned Core release resource' { & $CoreFetch | Out-Null }
+        }
         Invoke-Check 'real Core consumer handshake' {
             if (-not (Test-Path -LiteralPath $CoreResource -PathType Leaf)) {
                 throw "Pinned Core resource is missing: $CoreResource"

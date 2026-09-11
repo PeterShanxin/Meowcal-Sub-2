@@ -33,6 +33,23 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Resolve pinned Core candidate
+        if: ${{ hashFiles('config/meowcal-core.lock.json') == '' }}
+        id: core-candidate
+        shell: pwsh
+        run: |
+          $commit = .\scripts\prepare-core-candidate.ps1 -ResolveCommit
+          "commit=$commit" >> $env:GITHUB_OUTPUT
+
+      - name: Checkout pinned Core candidate
+        if: ${{ hashFiles('config/meowcal-core.lock.json') == '' }}
+        uses: actions/checkout@v6
+        with:
+          repository: PeterShanxin/Meowcal-Sub
+          ref: ${{ steps.core-candidate.outputs.commit }}
+          path: .meowcal-core-candidate
+          persist-credentials: false
+
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -68,7 +85,12 @@ jobs:
 
       - name: Verify
         shell: pwsh
-        run: .\scripts\verify.ps1
+        run: |
+          if (Test-Path -LiteralPath .\config\meowcal-core.lock.json) {
+            .\scripts\verify.ps1
+          } else {
+            .\scripts\verify.ps1 -CoreCandidateSource .\.meowcal-core-candidate
+          }
 
   verify-arm64:
     name: Verify ARM64
@@ -78,6 +100,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          persist-credentials: false
+
+      - name: Resolve pinned Core candidate
+        if: ${{ hashFiles('config/meowcal-core.lock.json') == '' }}
+        id: core-candidate
+        shell: pwsh
+        run: |
+          $commit = .\scripts\prepare-core-candidate.ps1 -ResolveCommit
+          "commit=$commit" >> $env:GITHUB_OUTPUT
+
+      - name: Checkout pinned Core candidate
+        if: ${{ hashFiles('config/meowcal-core.lock.json') == '' }}
+        uses: actions/checkout@v6
+        with:
+          repository: PeterShanxin/Meowcal-Sub
+          ref: ${{ steps.core-candidate.outputs.commit }}
+          path: .meowcal-core-candidate
           persist-credentials: false
 
       - name: Set up Python
@@ -117,4 +156,9 @@ jobs:
         shell: pwsh
         env:
           CARGO_BUILD_JOBS: 1
-        run: .\scripts\verify.ps1
+        run: |
+          if (Test-Path -LiteralPath .\config\meowcal-core.lock.json) {
+            .\scripts\verify.ps1
+          } else {
+            .\scripts\verify.ps1 -CoreCandidateSource .\.meowcal-core-candidate
+          }

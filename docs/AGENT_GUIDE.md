@@ -183,6 +183,15 @@ rustup component add rustfmt clippy
 `-Stage <name>` runs part of it while iterating; `-List` names the stages. A
 full run is the authoritative result.
 
+Until the reviewed Core release lock exists, Windows CI checks out the exact
+40-character commit in `config/meowcal-core.candidate.json` and passes that
+checkout to `verify.ps1 -CoreCandidateSource`. Once
+`config/meowcal-core.lock.json` is checked in, CI skips the source candidate and
+uses normal verification against the released artifacts. The source path is only
+for CI and local development verification. Every Tauri development or production
+build still requires the reviewed release hashes enforced by
+`fetch-meowcal-core.ps1`.
+
 What it cannot prove: OCR, WebView2 rendering, the capture selector, and the
 overlay plate. Those need a real Windows run of the app.
 
