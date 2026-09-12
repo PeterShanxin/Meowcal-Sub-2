@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from meocosub2 import core_client
+from meocosub2 import core_client, core_process
 from meocosub2.core_client import (
     CORE_CAPABILITIES,
     CoreClient,
@@ -145,14 +145,13 @@ class FakeProcess:
 def client_factory(monkeypatch, tmp_path: Path):
     processes: list[FakeProcess] = []
 
-    def make(handler, version: str = "0.1.0", metadata_version: str | None = None):
+    def make(handler, version: str = "0.1.0", metadata_version: str = "0.1.0"):
         executable = tmp_path / "fake-core.exe"
         executable.touch()
-        if metadata_version is not None:
-            (tmp_path / "meowcal-core.json").write_text(
-                json.dumps({"coreVersion": metadata_version, "apiVersion": 1}),
-                encoding="utf-8",
-            )
+        (tmp_path / "meowcal-core.json").write_text(
+            json.dumps({"coreVersion": metadata_version, "apiVersion": 1}),
+            encoding="utf-8",
+        )
 
         def spawn(*args, **kwargs):
             process = FakeProcess(tmp_path.resolve(), handler, version=version)
@@ -165,6 +164,24 @@ def client_factory(monkeypatch, tmp_path: Path):
         return CoreClient(executable, legacy_roots=[]), processes
 
     return make
+
+
+@pytest.mark.parametrize(
+    "metadata,pattern",
+    [
+        (None, "metadata is missing"),
+        ("not json", "metadata is invalid"),
+        ("{}", "does not match"),
+        ('{"coreVersion":"0.1.1","apiVersion":2}', "does not match"),
+    ],
+)
+def test_pinned_metadata_is_required_and_typed(tmp_path: Path, metadata, pattern) -> None:
+    executable = tmp_path / "meowcal-core.exe"
+    executable.touch()
+    if metadata is not None:
+        (tmp_path / "meowcal-core.json").write_text(metadata, encoding="utf-8")
+    with pytest.raises(core_process.CoreClientError, match=pattern):
+        core_process.core_version_for_executable(executable)
 
 
 def test_pinned_metadata_drives_the_real_consumer_handshake(client_factory) -> None:
@@ -474,6 +491,9 @@ while True:
         break
 """,
         encoding="utf-8",
+    )
+    (tmp_path / "meowcal-core.json").write_text(
+        json.dumps({"coreVersion": "0.1.0", "apiVersion": 1}), encoding="utf-8"
     )
     spawn = subprocess.Popen
     clients = []

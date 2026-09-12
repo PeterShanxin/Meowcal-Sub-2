@@ -11,7 +11,7 @@ from collections import deque
 from contextlib import suppress
 from pathlib import Path
 
-from meocosub2.core_protocol import CORE_API_VERSION, CORE_VERSION, CoreClientError
+from meocosub2.core_protocol import CORE_API_VERSION, CoreClientError
 
 _CORE_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 _CORE_METADATA_MAX_BYTES = 64 * 1024
@@ -21,7 +21,7 @@ def core_version_for_executable(executable: Path) -> str:
     """Read the verified package version next to a pinned Core executable."""
     metadata_path = executable.with_name("meowcal-core.json")
     if not metadata_path.is_file():
-        return CORE_VERSION
+        raise CoreClientError(f"Meowcal Core metadata is missing: {metadata_path}")
     try:
         if metadata_path.stat().st_size > _CORE_METADATA_MAX_BYTES:
             raise CoreClientError("Meowcal Core metadata exceeds the size limit")
