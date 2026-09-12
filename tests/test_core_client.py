@@ -429,8 +429,9 @@ def test_oversized_or_unterminated_response_fails_closed(client_factory) -> None
     reason="a real pinned Core executable was not supplied",
 )
 def test_real_core_process_handshake_and_status(tmp_path: Path) -> None:
+    executable = Path(os.environ["MEOWCAL_CORE_EXE"])
     client = CoreClient(
-        Path(os.environ["MEOWCAL_CORE_EXE"]),
+        executable,
         profile="development",
         storage_root=tmp_path,
         legacy_roots=[],
@@ -438,7 +439,9 @@ def test_real_core_process_handshake_and_status(tmp_path: Path) -> None:
     try:
         result = client.request_sync("status", {}, timeout_s=15)
         assert isinstance(result.get("installed"), bool)
-        assert client.hello_result["version"] == "0.1.0"
+        assert client.hello_result["version"] == core_process.core_version_for_executable(
+            executable
+        )
     finally:
         client.close_sync()
 

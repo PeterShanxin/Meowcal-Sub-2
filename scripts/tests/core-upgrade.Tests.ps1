@@ -36,7 +36,8 @@ function New-CoreAsset {
         [Parameter(Mandatory)][string]$Directory,
         [Parameter(Mandatory)][string]$Version,
         [Parameter(Mandatory)][string]$Architecture,
-        [int]$ApiVersion = 1
+        [object]$ApiVersion = 1,
+        [object]$SchemaVersion = 1
     )
     $staging = Join-Path $Directory ("staging-$Architecture")
     New-Item -ItemType Directory -Path $staging -Force | Out-Null
@@ -46,7 +47,7 @@ function New-CoreAsset {
         $license = Join-Path $staging "LICENSE"
         [IO.File]::WriteAllText($license, "license`n")
         $metadata = [ordered]@{
-            schemaVersion = 1; coreVersion = $Version; apiVersion = $ApiVersion
+            schemaVersion = $SchemaVersion; coreVersion = $Version; apiVersion = $ApiVersion
             os = "windows"; architecture = $Architecture; executable = "meowcal-core.exe"
             executableSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $binary).Hash.ToLowerInvariant()
             license = "LICENSE"
@@ -71,10 +72,13 @@ function New-ReleaseFixture {
         [Parameter(Mandatory)][string]$Version,
         [Parameter(Mandatory)][string]$AssetDirectory,
         [switch]$Prerelease,
-        [int]$ApiVersion = 1
+        [object]$ApiVersion = 1,
+        [object]$SchemaVersion = 1
     )
-    $x64 = New-CoreAsset -Directory $AssetDirectory -Version $Version -Architecture x64 -ApiVersion $ApiVersion
-    $arm64 = New-CoreAsset -Directory $AssetDirectory -Version $Version -Architecture arm64 -ApiVersion $ApiVersion
+    $x64 = New-CoreAsset -Directory $AssetDirectory -Version $Version -Architecture x64 `
+        -ApiVersion $ApiVersion -SchemaVersion $SchemaVersion
+    $arm64 = New-CoreAsset -Directory $AssetDirectory -Version $Version -Architecture arm64 `
+        -ApiVersion $ApiVersion -SchemaVersion $SchemaVersion
     $assetPaths = @($x64, "$x64.sha256", $arm64, "$arm64.sha256")
     $assets = @($assetPaths | ForEach-Object {
         $name = [IO.Path]::GetFileName($_)
@@ -169,6 +173,22 @@ try {
     Assert-Throws { Invoke-Updater -ReleasePath $badApiRelease -AssetDirectory $badApiAssets `
         -LockPath (Join-Path $temporaryDirectory "api-fail.json") -ResultPath $result } "metadata does not match"
 
+    $coercibleMetadataAssets = Join-Path $temporaryDirectory "coercible-metadata-assets"
+    New-Item -ItemType Directory -Path $coercibleMetadataAssets | Out-Null
+    $coercibleMetadataRelease = Join-Path $temporaryDirectory "coercible-metadata.json"
+    New-ReleaseFixture -Path $coercibleMetadataRelease -Version "0.4.0" `
+        -AssetDirectory $coercibleMetadataAssets -ApiVersion "1"
+    Assert-Throws { Invoke-Updater -ReleasePath $coercibleMetadataRelease -AssetDirectory $coercibleMetadataAssets `
+        -LockPath (Join-Path $temporaryDirectory "coercible-api-fail.json") -ResultPath $result } "metadata does not match"
+
+    $coercibleSchemaAssets = Join-Path $temporaryDirectory "coercible-schema-assets"
+    New-Item -ItemType Directory -Path $coercibleSchemaAssets | Out-Null
+    $coercibleSchemaRelease = Join-Path $temporaryDirectory "coercible-schema.json"
+    New-ReleaseFixture -Path $coercibleSchemaRelease -Version "0.5.0" `
+        -AssetDirectory $coercibleSchemaAssets -SchemaVersion "1"
+    Assert-Throws { Invoke-Updater -ReleasePath $coercibleSchemaRelease -AssetDirectory $coercibleSchemaAssets `
+        -LockPath (Join-Path $temporaryDirectory "coercible-schema-fail.json") -ResultPath $result } "metadata does not match"
+
     $olderAssets = Join-Path $temporaryDirectory "older-assets"
     New-Item -ItemType Directory -Path $olderAssets | Out-Null
     $olderRelease = Join-Path $temporaryDirectory "older.json"
@@ -179,7 +199,7 @@ try {
 
     $workflow = Get-Content -LiteralPath (Join-Path $repositoryRoot ".github\workflows\core-upgrade.yml") -Raw
     foreach ($requirement in @(
-        'schedule:', 'workflow_dispatch:', 'CORE_UPGRADE_TOKEN',
+        'schedule:', 'workflow_dispatch:', 'GITHUB_TOKEN:', 'CORE_UPGRADE_TOKEN',
         'peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676',
         'draft: true', 'config/meowcal-core.lock.json', 'RUNNER_TEMP'
     )) {
@@ -193,11 +213,19 @@ try {
         $consumerCi -notmatch '(?m)^\s{2}verify-arm64:\s*$') {
         throw "Consumer CI must retain its pull_request trigger and both architecture checks for generated upgrade PRs."
     }
-    if ($workflow -match 'token:\s*\$\{\{\s*github\.token') {
+    if ($workflow -match '(?m)^\s{10}token:\s*\$\{\{\s*github\.token') {
         throw "Core upgrade PR creation must use an explicitly configured token so pull_request CI is emitted."
     }
     if ($workflow -match '(?ms)^\s{4}env:\s*\r?\n\s+CORE_UPGRADE_TOKEN:') {
         throw "Core upgrade token must not be available to the whole job."
+    }
+    if ($workflow -notmatch '(?ms)Resolve, verify, and prepare the lock.*?GITHUB_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}') {
+        throw "Core release discovery must receive the job's read-only GitHub token."
+    }
+    $updaterSource = Get-Content -LiteralPath $updater -Raw
+    if ($updaterSource -notmatch '\$headers\.Authorization\s*=\s*"Bearer \$env:GITHUB_TOKEN"' -or
+        $updaterSource -notmatch 'Environment\.Remove\(\$tokenName\)') {
+        throw "Core release discovery must authenticate only its API request and clear tokens before probing Core."
     }
     $verify = Get-Content -LiteralPath (Join-Path $repositoryRoot "scripts\verify.ps1") -Raw
     if ($verify -notmatch [regex]::Escape("scripts/tests/core-upgrade.Tests.ps1")) {

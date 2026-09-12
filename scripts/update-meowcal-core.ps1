@@ -70,6 +70,54 @@ function Get-PeMachine {
     } finally { $stream.Dispose() }
 }
 
+function Get-CoreVersionJson {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Architecture
+    )
+
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $Path
+    $startInfo.ArgumentList.Add("--version-json")
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardInput = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($tokenName in @("GITHUB_TOKEN", "GH_TOKEN", "CORE_UPGRADE_TOKEN")) {
+        [void]$startInfo.Environment.Remove($tokenName)
+    }
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    $started = $false
+    try {
+        $started = $process.Start()
+        if (-not $started) {
+            throw "Core $Architecture executable did not start for --version-json."
+        }
+        $process.StandardInput.Close()
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit(15000)) {
+            $process.Kill($true)
+            $process.WaitForExit()
+            throw "Core $Architecture executable timed out while answering --version-json."
+        }
+        $stdout = $stdoutTask.GetAwaiter().GetResult().Trim()
+        $stderr = $stderrTask.GetAwaiter().GetResult().Trim()
+        if ($process.ExitCode -ne 0) {
+            throw "Core $Architecture executable did not answer --version-json: $stderr"
+        }
+        return $stdout
+    } finally {
+        if ($started -and -not $process.HasExited) {
+            $process.Kill($true)
+            $process.WaitForExit()
+        }
+        $process.Dispose()
+    }
+}
+
 function Get-ReleaseList {
     if ($ReleaseJsonPath) {
         if (-not (Test-Path -LiteralPath $ReleaseJsonPath -PathType Leaf)) {
@@ -80,9 +128,13 @@ function Get-ReleaseList {
 
     $releases = [System.Collections.Generic.List[object]]::new()
     for ($page = 1; $page -le 100; $page++) {
+        $headers = @{ Accept = "application/vnd.github+json"; "User-Agent" = "Meowcal-Core-Updater" }
+        if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_TOKEN)) {
+            $headers.Authorization = "Bearer $env:GITHUB_TOKEN"
+        }
         try {
             $pageReleases = @(Invoke-RestMethod `
-                -Headers @{ Accept = "application/vnd.github+json"; "User-Agent" = "Meowcal-Core-Updater" } `
+                -Headers $headers `
                 -Uri "https://api.github.com/repos/$repository/releases?per_page=100&page=$page" `
                 -TimeoutSec 30)
         } catch {
@@ -159,8 +211,9 @@ function Read-CurrentLock {
     $properties = @($lock.PSObject.Properties.Name)
     $required = @("schemaVersion", "repository", "tag", "coreVersion", "apiVersion", "architectures")
     if (@($required | Where-Object { $_ -notin $properties }).Count -ne 0 -or
-        $lock.schemaVersion -ne 1 -or $lock.repository -ne $repository -or
-        $lock.apiVersion -ne $apiVersion -or
+        $lock.schemaVersion -isnot [long] -or $lock.schemaVersion -ne 1 -or
+        $lock.repository -ne $repository -or
+        $lock.apiVersion -isnot [long] -or $lock.apiVersion -ne $apiVersion -or
         $lock.coreVersion -notmatch '^\d+\.\d+\.\d+$' -or
         $lock.tag -ne "core-v$($lock.coreVersion)") {
         throw "Existing Core lock has an invalid canonical identity or version."
@@ -234,8 +287,10 @@ function Test-CoreArchive {
             @($expectedProperties | Where-Object { $_ -notin $actualProperties }).Count -ne 0) {
             throw "Core $Architecture metadata fields do not match schema 1."
         }
-        if ($metadata.schemaVersion -ne 1 -or $metadata.coreVersion -ne $Version -or
-            $metadata.apiVersion -ne $apiVersion -or $metadata.os -ne "windows" -or
+        if ($metadata.schemaVersion -isnot [long] -or $metadata.schemaVersion -ne 1 -or
+            $metadata.coreVersion -isnot [string] -or $metadata.coreVersion -ne $Version -or
+            $metadata.apiVersion -isnot [long] -or $metadata.apiVersion -ne $apiVersion -or
+            $metadata.os -isnot [string] -or $metadata.os -ne "windows" -or
             $metadata.architecture -ne $Architecture -or $metadata.executable -ne "meowcal-core.exe" -or
             $metadata.license -ne "LICENSE") {
             throw "Core $Architecture package metadata does not match the release contract."
@@ -257,21 +312,16 @@ function Test-CoreArchive {
             throw "Core $Architecture executable PE machine does not match the package architecture."
         }
         if ($RunExecutableContract) {
-            $stdoutPath = Join-Path $temporaryDirectory "version.stdout"
-            $stderrPath = Join-Path $temporaryDirectory "version.stderr"
-            $process = Start-Process -FilePath $binaryPath -ArgumentList "--version-json" `
-                -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath `
-                -WindowStyle Hidden -PassThru
-            if (-not $process.WaitForExit(15000)) {
-                Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-                throw "Core x64 executable timed out while answering --version-json."
-            }
-            if ($process.ExitCode -ne 0) { throw "Core x64 executable did not answer --version-json." }
-            try { $versionInfo = Get-Content -LiteralPath $stdoutPath -Raw | ConvertFrom-Json }
-            catch { throw "Core x64 executable returned invalid --version-json output: $_" }
-            if ($versionInfo.version -ne $Version -or $versionInfo.api -ne $apiVersion -or
-                @($requiredCapabilities | Where-Object { $_ -notin $versionInfo.capabilities }).Count -ne 0) {
-                throw "Core x64 executable version, API, or capabilities do not match the v1 consumer contract."
+            $versionJson = Get-CoreVersionJson -Path $binaryPath -Architecture $Architecture
+            try { $versionInfo = $versionJson | ConvertFrom-Json }
+            catch { throw "Core $Architecture executable returned invalid --version-json output: $_" }
+            $capabilities = @($versionInfo.capabilities)
+            if ($versionInfo.version -isnot [string] -or $versionInfo.version -ne $Version -or
+                $versionInfo.api -isnot [long] -or $versionInfo.api -ne $apiVersion -or
+                @($capabilities | Where-Object { $_ -isnot [string] }).Count -ne 0 -or
+                $capabilities.Count -ne $requiredCapabilities.Count -or
+                (Compare-Object -ReferenceObject $requiredCapabilities -DifferenceObject $capabilities -CaseSensitive)) {
+                throw "Core $Architecture executable version, API, or capabilities do not match the v1 consumer contract."
             }
         }
         return $archiveHash
