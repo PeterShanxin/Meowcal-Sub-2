@@ -87,6 +87,9 @@ then writes `src-tauri/resources/core/meowcal-core.exe`. Tauri runs it before
 development and production builds and bundles the executable, metadata, and
 license. At runtime the
 shell passes the absolute bundled path to Python as `MEOWCAL_CORE_EXE`.
+The Python client reads the pinned `coreVersion` from the adjacent verified
+metadata before sending the handshake, so a Core pin can advance independently
+of the application version.
 
 For an offline local build, point the fetcher at an already downloaded archive;
 the same lock and digest checks still apply:

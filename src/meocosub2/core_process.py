@@ -2,14 +2,46 @@
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import subprocess
 import sys
 from collections import deque
 from contextlib import suppress
 from pathlib import Path
 
-from meocosub2.core_protocol import CoreClientError
+from meocosub2.core_protocol import CORE_API_VERSION, CoreClientError
+
+_CORE_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
+_CORE_METADATA_MAX_BYTES = 64 * 1024
+
+
+def core_version_for_executable(executable: Path, expected_version: str | None = None) -> str:
+    """Resolve an explicit version or the verified package version next to Core."""
+    if expected_version is not None:
+        return expected_version
+    metadata_path = executable.with_name("meowcal-core.json")
+    if not metadata_path.is_file():
+        raise CoreClientError(f"Meowcal Core metadata is missing: {metadata_path}")
+    try:
+        if metadata_path.stat().st_size > _CORE_METADATA_MAX_BYTES:
+            raise CoreClientError("Meowcal Core metadata exceeds the size limit")
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except CoreClientError:
+        raise
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise CoreClientError(f"Meowcal Core metadata is invalid: {error}") from error
+    version = metadata.get("coreVersion") if isinstance(metadata, dict) else None
+    api_version = metadata.get("apiVersion") if isinstance(metadata, dict) else None
+    if (
+        not isinstance(version, str)
+        or not _CORE_VERSION_PATTERN.fullmatch(version)
+        or type(api_version) is not int
+        or api_version != CORE_API_VERSION
+    ):
+        raise CoreClientError("Meowcal Core metadata does not match the v1 package contract")
+    return version
 
 
 def ended_message(process: subprocess.Popen[bytes], tail: deque[str]) -> str:

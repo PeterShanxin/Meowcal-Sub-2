@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from meocosub2 import core_client
+from meocosub2 import core_client, core_process
 from meocosub2.core_client import (
     CORE_CAPABILITIES,
     CoreClient,
@@ -91,7 +91,7 @@ class FakeInput(io.RawIOBase):
 
 
 class FakeProcess:
-    def __init__(self, storage_root: Path, handler) -> None:
+    def __init__(self, storage_root: Path, handler, version: str = "0.1.0") -> None:
         self.pid = 42
         self.alive = True
         self.exit_after_read = False
@@ -99,6 +99,7 @@ class FakeProcess:
         self.write_released = threading.Event()
         self.storage_root = storage_root
         self.handler = handler
+        self.version = version
         self.frames: list[dict] = []
         self.stdout = FakeOutput(self)
         self.output = self.stdout
@@ -111,7 +112,7 @@ class FakeProcess:
             self.send(
                 frame["id"],
                 result={
-                    "version": "0.1.0",
+                    "version": self.version,
                     "api": 1,
                     "capabilities": sorted(CORE_CAPABILITIES),
                     "model": "HY-MT1.5-1.8B-Q4_K_M",
@@ -144,18 +145,56 @@ class FakeProcess:
 def client_factory(monkeypatch, tmp_path: Path):
     processes: list[FakeProcess] = []
 
-    def make(handler):
+    def make(handler, version: str = "0.1.0", metadata_version: str = "0.1.0"):
+        executable = tmp_path / "fake-core.exe"
+        executable.touch()
+        (tmp_path / "meowcal-core.json").write_text(
+            json.dumps({"coreVersion": metadata_version, "apiVersion": 1}),
+            encoding="utf-8",
+        )
+
         def spawn(*args, **kwargs):
-            process = FakeProcess(tmp_path.resolve(), handler)
+            process = FakeProcess(tmp_path.resolve(), handler, version=version)
             processes.append(process)
             return process
 
         monkeypatch.setattr(core_client.subprocess, "Popen", spawn)
         monkeypatch.setattr(core_client, "attach_process_to_lifetime", lambda process: None)
         monkeypatch.setattr(core_client, "close_process_job", lambda process: None)
-        return CoreClient(Path("fake-core.exe"), legacy_roots=[]), processes
+        return CoreClient(executable, legacy_roots=[]), processes
 
     return make
+
+
+@pytest.mark.parametrize(
+    "metadata,pattern",
+    [
+        (None, "metadata is missing"),
+        ("not json", "metadata is invalid"),
+        ("{}", "does not match"),
+        ('{"coreVersion":"0.1.1","apiVersion":2}', "does not match"),
+        ('{"coreVersion":"0.1.0","apiVersion":1}' + " " * (64 * 1024), "exceeds the size limit"),
+    ],
+    ids=("missing", "invalid", "missing fields", "wrong API", "oversized"),
+)
+def test_pinned_metadata_is_required_and_typed(tmp_path: Path, metadata, pattern) -> None:
+    executable = tmp_path / "meowcal-core.exe"
+    executable.touch()
+    if metadata is not None:
+        (tmp_path / "meowcal-core.json").write_text(metadata, encoding="utf-8")
+    with pytest.raises(core_process.CoreClientError, match=pattern):
+        core_process.core_version_for_executable(executable)
+
+
+def test_pinned_metadata_drives_the_real_consumer_handshake(client_factory) -> None:
+    client, processes = client_factory(
+        lambda process, frame: process.send(frame["id"], result={"installed": True}),
+        version="0.1.1",
+        metadata_version="0.1.1",
+    )
+
+    assert client.request_sync("status", {}, timeout_s=1) == {"installed": True}
+    assert processes[0].frames[0]["params"]["expectedVersion"] == "0.1.1"
 
 
 def test_handshake_progress_and_result_follow_the_pinned_jsonl_contract(client_factory) -> None:
@@ -392,8 +431,9 @@ def test_oversized_or_unterminated_response_fails_closed(client_factory) -> None
     reason="a real pinned Core executable was not supplied",
 )
 def test_real_core_process_handshake_and_status(tmp_path: Path) -> None:
+    executable = Path(os.environ["MEOWCAL_CORE_EXE"])
     client = CoreClient(
-        Path(os.environ["MEOWCAL_CORE_EXE"]),
+        executable,
         profile="development",
         storage_root=tmp_path,
         legacy_roots=[],
@@ -401,7 +441,9 @@ def test_real_core_process_handshake_and_status(tmp_path: Path) -> None:
     try:
         result = client.request_sync("status", {}, timeout_s=15)
         assert isinstance(result.get("installed"), bool)
-        assert client.hello_result["version"] == "0.1.0"
+        assert client.hello_result["version"] == core_process.core_version_for_executable(
+            executable
+        )
     finally:
         client.close_sync()
 
@@ -454,6 +496,9 @@ while True:
         break
 """,
         encoding="utf-8",
+    )
+    (tmp_path / "meowcal-core.json").write_text(
+        json.dumps({"coreVersion": "0.1.0", "apiVersion": 1}), encoding="utf-8"
     )
     spawn = subprocess.Popen
     clients = []

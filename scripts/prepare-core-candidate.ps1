@@ -63,8 +63,12 @@ function Get-CoreVersionJson {
     $startInfo.ArgumentList.Add("--version-json")
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardInput = $true
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
+    foreach ($tokenName in @("GITHUB_TOKEN", "GH_TOKEN", "CORE_UPGRADE_TOKEN")) {
+        [void]$startInfo.Environment.Remove($tokenName)
+    }
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
     $started = $false
@@ -73,6 +77,7 @@ function Get-CoreVersionJson {
         if (-not $started) {
             throw "Core candidate executable did not start."
         }
+        $process.StandardInput.Close()
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
         $stderrTask = $process.StandardError.ReadToEndAsync()
         if (-not $process.WaitForExit(10000)) {
@@ -203,11 +208,14 @@ $requiredCapabilities = @(
     "status", "install", "ready", "complete", "shutdown", "ocrInitialize",
     "ocrLanguages", "ocrRecognizeBgra"
 )
+$capabilities = @($versionInfo.capabilities)
 if ($versionInfo.version -isnot [string] -or
     $versionInfo.version -ne $pin.coreVersion -or
     $versionInfo.api -isnot [long] -or
     $versionInfo.api -ne $pin.apiVersion -or
-    @($requiredCapabilities | Where-Object { $_ -notin $versionInfo.capabilities }).Count -ne 0) {
+    @($capabilities | Where-Object { $_ -isnot [string] }).Count -ne 0 -or
+    $capabilities.Count -ne $requiredCapabilities.Count -or
+    (Compare-Object -ReferenceObject $requiredCapabilities -DifferenceObject $capabilities -CaseSensitive)) {
     throw "Core candidate version, API, or capabilities do not match the pinned v1 contract."
 }
 

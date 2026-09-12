@@ -38,12 +38,13 @@ function New-TestPe {
 function New-CoreArchive {
     param(
         [Parameter(Mandatory)][string]$Path,
-        [string]$Version = "0.1.0",
+        [string]$Version = "0.1.1",
         [int]$ApiVersion = 1,
         [string]$Architecture = "x64",
         [string]$PeArchitecture = $Architecture,
         [switch]$CorruptExecutableHash,
-        [switch]$CorruptLicenseHash
+        [switch]$CorruptLicenseHash,
+        [int]$MetadataPaddingBytes = 0
     )
     $staging = "$Path.staging"
     New-Item -ItemType Directory -Path $staging -Force | Out-Null
@@ -69,7 +70,7 @@ function New-CoreArchive {
         }
         [IO.File]::WriteAllText(
             (Join-Path $staging "meowcal-core.json"),
-            (($metadata | ConvertTo-Json) + "`n"),
+            (($metadata | ConvertTo-Json) + "`n" + (" " * $MetadataPaddingBytes)),
             [Text.UTF8Encoding]::new($false)
         )
         Compress-Archive -Path (Join-Path $staging "*") -DestinationPath $Path -Force
@@ -82,7 +83,7 @@ function New-CoreLock {
     param(
         [Parameter(Mandatory)][string]$Path,
         [Parameter(Mandatory)][string]$X64Sha256,
-        [string]$Version = "0.1.0",
+        [string]$Version = "0.1.1",
         [string]$Arm64Sha256 = ("a" * 64)
     )
     $lock = [ordered]@{
@@ -123,13 +124,13 @@ try {
     $arm64Checksum = Join-Path $temporaryDirectory "arm64.sha256"
     [IO.File]::WriteAllText(
         $x64Checksum,
-        "$archiveHash  meowcal-core-v0.1.0-windows-x64.zip`n"
+        "$archiveHash  meowcal-core-v0.1.1-windows-x64.zip`n"
     )
     [IO.File]::WriteAllText(
         $arm64Checksum,
-        "$('a' * 64)  meowcal-core-v0.1.0-windows-arm64.zip`n"
+        "$('a' * 64)  meowcal-core-v0.1.1-windows-arm64.zip`n"
     )
-    & $writeLockScript -Version 0.1.0 -X64ChecksumPath $x64Checksum `
+    & $writeLockScript -Version 0.1.1 -X64ChecksumPath $x64Checksum `
         -Arm64ChecksumPath $arm64Checksum -OutputPath $lockPath | Out-Null
     $destination = Join-Path $temporaryDirectory "installed\meowcal-core.exe"
 
@@ -193,6 +194,16 @@ try {
             -ArchivePath $wrongVersionArchive -DestinationPath $destination -Offline
     } "version does not match"
 
+    $oversizedMetadataArchive = Join-Path $temporaryDirectory "oversized-metadata.zip"
+    New-CoreArchive -Path $oversizedMetadataArchive -MetadataPaddingBytes 65536
+    $oversizedMetadataLock = Join-Path $temporaryDirectory "oversized-metadata.json"
+    New-CoreLock -Path $oversizedMetadataLock `
+        -X64Sha256 (Get-FileHash -Algorithm SHA256 $oversizedMetadataArchive).Hash.ToLowerInvariant()
+    Assert-Throws {
+        & $fetchScript -Architecture x64 -LockPath $oversizedMetadataLock `
+            -ArchivePath $oversizedMetadataArchive -DestinationPath $destination -Offline
+    } "metadata exceeds the 64 KiB runtime limit"
+
     $wrongArchitectureArchive = Join-Path $temporaryDirectory "wrong-architecture.zip"
     New-CoreArchive -Path $wrongArchitectureArchive -Architecture arm64
     $wrongArchitectureLock = Join-Path $temporaryDirectory "wrong-architecture.json"
@@ -252,10 +263,10 @@ try {
 
     [IO.File]::WriteAllText(
         $x64Checksum,
-        "$('0' * 64)  meowcal-core-v0.1.0-windows-x64.zip`n"
+        "$('0' * 64)  meowcal-core-v0.1.1-windows-x64.zip`n"
     )
     Assert-Throws {
-        & $writeLockScript -Version 0.1.0 -X64ChecksumPath $x64Checksum `
+        & $writeLockScript -Version 0.1.1 -X64ChecksumPath $x64Checksum `
             -Arm64ChecksumPath $arm64Checksum -OutputPath $lockPath
     } "real lowercase SHA-256"
 
