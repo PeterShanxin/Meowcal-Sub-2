@@ -173,8 +173,10 @@ try {
         }
     }
     $consumerCi = Get-Content -LiteralPath (Join-Path $repositoryRoot ".github\workflows\windows-ci.yml") -Raw
-    if ($consumerCi -notmatch '(?m)^\s*pull_request:\s*$') {
-        throw "Consumer CI must retain a pull_request trigger for generated upgrade PRs."
+    if ($consumerCi -notmatch '(?m)^\s*pull_request:\s*$' -or
+        $consumerCi -notmatch '(?m)^\s{2}verify-x64:\s*$' -or
+        $consumerCi -notmatch '(?m)^\s{2}verify-arm64:\s*$') {
+        throw "Consumer CI must retain its pull_request trigger and both architecture checks for generated upgrade PRs."
     }
     if ($workflow -match 'token:\s*\$\{\{\s*github\.token') {
         throw "Core upgrade PR creation must use an explicitly configured token so pull_request CI is emitted."

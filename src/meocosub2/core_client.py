@@ -19,6 +19,7 @@ from meocosub2.core_process import (
     close_process_job,
     core_profile,
     core_storage_override,
+    core_version_for_executable,
     drain_stderr,
     ended_message,
     legacy_engine_roots,
@@ -27,7 +28,6 @@ from meocosub2.core_process import (
 from meocosub2.core_process import resolve_core_executable as resolve_core_executable
 from meocosub2.core_protocol import CORE_CAPABILITIES as CORE_CAPABILITIES
 from meocosub2.core_protocol import (
-    CORE_VERSION,
     FRAME_BYTES,
     PROGRESS_CHARS,
     CoreClientError,
@@ -58,7 +58,7 @@ class CoreClient:
         profile: str | None = None,
         storage_root: Path | None = None,
         legacy_roots: Iterable[Path] | None = None,
-        expected_version: str = CORE_VERSION,
+        expected_version: str | None = None,
     ) -> None:
         self._executable = executable.resolve()
         self._client = client
@@ -66,7 +66,11 @@ class CoreClient:
         self._storage_root = storage_root.resolve() if storage_root else core_storage_override()
         roots = legacy_engine_roots(self._profile) if legacy_roots is None else legacy_roots
         self._legacy_roots = tuple(Path(root).resolve() for root in roots)
-        self._expected_version = expected_version
+        self._expected_version = (
+            core_version_for_executable(self._executable)
+            if expected_version is None
+            else expected_version
+        )
         self._request_lock = threading.Lock()
         self._state_lock = threading.Lock()
         self._process: subprocess.Popen[bytes] | None = None
