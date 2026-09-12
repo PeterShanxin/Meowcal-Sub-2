@@ -66,11 +66,7 @@ class CoreClient:
         self._storage_root = storage_root.resolve() if storage_root else core_storage_override()
         roots = legacy_engine_roots(self._profile) if legacy_roots is None else legacy_roots
         self._legacy_roots = tuple(Path(root).resolve() for root in roots)
-        self._expected_version = (
-            core_version_for_executable(self._executable)
-            if expected_version is None
-            else expected_version
-        )
+        self._expected_version = core_version_for_executable(self._executable, expected_version)
         self._request_lock = threading.Lock()
         self._state_lock = threading.Lock()
         self._process: subprocess.Popen[bytes] | None = None

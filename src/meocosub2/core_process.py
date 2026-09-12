@@ -17,8 +17,10 @@ _CORE_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 _CORE_METADATA_MAX_BYTES = 64 * 1024
 
 
-def core_version_for_executable(executable: Path) -> str:
-    """Read the verified package version next to a pinned Core executable."""
+def core_version_for_executable(executable: Path, expected_version: str | None = None) -> str:
+    """Resolve an explicit version or the verified package version next to Core."""
+    if expected_version is not None:
+        return expected_version
     metadata_path = executable.with_name("meowcal-core.json")
     if not metadata_path.is_file():
         raise CoreClientError(f"Meowcal Core metadata is missing: {metadata_path}")
