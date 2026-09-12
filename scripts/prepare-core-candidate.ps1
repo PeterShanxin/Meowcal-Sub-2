@@ -63,6 +63,7 @@ function Get-CoreVersionJson {
     $startInfo.ArgumentList.Add("--version-json")
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardInput = $true
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
     $process = [Diagnostics.Process]::new()
@@ -73,6 +74,7 @@ function Get-CoreVersionJson {
         if (-not $started) {
             throw "Core candidate executable did not start."
         }
+        $process.StandardInput.Close()
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
         $stderrTask = $process.StandardError.ReadToEndAsync()
         if (-not $process.WaitForExit(10000)) {
