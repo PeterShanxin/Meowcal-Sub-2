@@ -323,17 +323,17 @@ try {
     $arm64Asset = $assetNames[2]
     $x64Checksum = Get-Checksum -ChecksumPath $assets[$assetNames[1]] -AssetName $x64Asset
     $arm64Checksum = Get-Checksum -ChecksumPath $assets[$assetNames[3]] -AssetName $arm64Asset
+    if ($current -and [version]$current.coreVersion -eq [version]$version -and
+        ($current.architectures.x64.sha256 -ne $x64Checksum -or
+         $current.architectures.arm64.sha256 -ne $arm64Checksum)) {
+        throw "Published Core tag $tag has digests different from the existing lock; refusing to rewrite an immutable pin."
+    }
     $x64ArchiveHash = Test-CoreArchive -ArchivePath $assets[$x64Asset] -ExpectedChecksum $x64Checksum `
         -Version $version -Architecture x64 -RunExecutableContract:(!$SkipExecutableContractCheck)
     $arm64ArchiveHash = Test-CoreArchive -ArchivePath $assets[$arm64Asset] -ExpectedChecksum $arm64Checksum `
         -Version $version -Architecture arm64
 
     if ($current) {
-        if ([version]$current.coreVersion -eq [version]$version -and
-            ($current.architectures.x64.sha256 -ne $x64Checksum -or
-             $current.architectures.arm64.sha256 -ne $arm64Checksum)) {
-            throw "Published Core tag $tag has digests different from the existing lock; refusing to rewrite an immutable pin."
-        }
         if ([version]$current.coreVersion -ge [version]$version) {
             Write-Result -Status "unchanged" -Message "Core lock already covers $($current.coreVersion); no upgrade is needed." `
                 -Version $current.coreVersion -Tag $current.tag

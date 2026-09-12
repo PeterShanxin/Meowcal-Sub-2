@@ -45,6 +45,7 @@ $Biome = Join-Path $UiDir 'node_modules/.bin/biome.cmd'
 $ReportPath = Join-Path $RepoRoot '.verify-report.json'
 $CorePackageTest = Join-Path $RepoRoot 'scripts/tests/core-package.Tests.ps1'
 $CoreCandidateTest = Join-Path $RepoRoot 'scripts/tests/core-candidate.Tests.ps1'
+$CoreUpgradeTest = Join-Path $RepoRoot 'scripts/tests/core-upgrade.Tests.ps1'
 $CoreFetch = Join-Path $RepoRoot 'scripts/fetch-meowcal-core.ps1'
 $CoreCandidatePrepare = Join-Path $RepoRoot 'scripts/prepare-core-candidate.ps1'
 $CoreCandidateConfig = Join-Path $RepoRoot 'config/meowcal-core.candidate.json'
@@ -84,6 +85,7 @@ Push-Location $RepoRoot
 try {
     Invoke-Check 'Core package contract' { & $CorePackageTest }
     Invoke-Check 'Core source candidate contract' { & $CoreCandidateTest }
+    Invoke-Check 'Core upgrade automation' { & $CoreUpgradeTest }
 
     if ($Wanted -contains 'setup') {
         Start-Stage 'setup'

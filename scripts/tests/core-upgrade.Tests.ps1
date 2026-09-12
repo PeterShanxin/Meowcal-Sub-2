@@ -142,6 +142,21 @@ try {
         throw "Repeating the same release must be idempotent."
     }
 
+    $sameVersionAssets = Join-Path $temporaryDirectory "same-version-assets"
+    New-Item -ItemType Directory -Path $sameVersionAssets | Out-Null
+    $sameVersionRelease = Join-Path $temporaryDirectory "same-version-corrupt.json"
+    New-ReleaseFixture -Path $sameVersionRelease -Version "0.2.0" -AssetDirectory $sameVersionAssets
+    $sameVersionX64 = Join-Path $sameVersionAssets "meowcal-core-v0.2.0-windows-x64.zip"
+    [IO.File]::WriteAllBytes($sameVersionX64, [Text.Encoding]::UTF8.GetBytes("corrupt`n"))
+    $sameVersionHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $sameVersionX64).Hash.ToLowerInvariant()
+    [IO.File]::WriteAllText(
+        "$sameVersionX64.sha256",
+        "$sameVersionHash  meowcal-core-v0.2.0-windows-x64.zip`n",
+        [Text.UTF8Encoding]::new($false)
+    )
+    Assert-Throws { Invoke-Updater -ReleasePath $sameVersionRelease -AssetDirectory $sameVersionAssets `
+        -LockPath $lock -ResultPath $result } "digests different from the existing lock"
+
     $x64Checksum = Join-Path $assets "meowcal-core-v0.2.0-windows-x64.zip.sha256"
     [IO.File]::WriteAllText($x64Checksum, ("a" * 64) + "  meowcal-core-v0.2.0-windows-x64.zip`n")
     Assert-Throws { Invoke-Updater -ReleasePath $release -AssetDirectory $assets `
@@ -183,6 +198,10 @@ try {
     }
     if ($workflow -match '(?ms)^\s{4}env:\s*\r?\n\s+CORE_UPGRADE_TOKEN:') {
         throw "Core upgrade token must not be available to the whole job."
+    }
+    $verify = Get-Content -LiteralPath (Join-Path $repositoryRoot "scripts\verify.ps1") -Raw
+    if ($verify -notmatch [regex]::Escape("scripts/tests/core-upgrade.Tests.ps1")) {
+        throw "Standard verification must run the Core upgrade automation tests."
     }
 
     Write-Host "Core upgrade automation tests passed." -ForegroundColor Green
