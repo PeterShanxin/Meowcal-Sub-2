@@ -6,10 +6,8 @@ param(
     [string]$ResultPath,
     [switch]$SkipExecutableContractCheck
 )
-
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
-
 $repository = "PeterShanxin/Meowcal-Sub"
 $apiVersion = 1
 $requiredCapabilities = @(
@@ -29,7 +27,6 @@ function Write-Result {
         [string]$Tag,
         [bool]$Changed = $false
     )
-
     $result = [ordered]@{
         status = $Status
         message = $Message
@@ -52,7 +49,6 @@ function Write-Result {
 
 function Get-PeMachine {
     param([Parameter(Mandatory)][string]$Path)
-
     $stream = [IO.File]::OpenRead($Path)
     try {
         $reader = [IO.BinaryReader]::new($stream)
@@ -71,11 +67,7 @@ function Get-PeMachine {
 }
 
 function Get-CoreVersionJson {
-    param(
-        [Parameter(Mandatory)][string]$Path,
-        [Parameter(Mandatory)][string]$Architecture
-    )
-
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Architecture)
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $Path
     $startInfo.ArgumentList.Add("--version-json")
@@ -125,7 +117,6 @@ function Get-ReleaseList {
         }
         return @(Get-Content -LiteralPath $ReleaseJsonPath -Raw | ConvertFrom-Json)
     }
-
     $releases = [System.Collections.Generic.List[object]]::new()
     for ($page = 1; $page -le 100; $page++) {
         $headers = @{ Accept = "application/vnd.github+json"; "User-Agent" = "Meowcal-Core-Updater" }
@@ -148,7 +139,6 @@ function Get-ReleaseList {
 
 function Get-StableRelease {
     param([AllowEmptyCollection()][object[]]$Releases = @())
-
     $candidates = foreach ($release in $Releases) {
         if ($release.draft -or $release.prerelease) { continue }
         $match = [regex]::Match([string]$release.tag_name, '^core-v(?<version>\d+\.\d+\.\d+)$')
@@ -169,7 +159,6 @@ function Get-AssetFile {
         [Parameter(Mandatory)][string]$Directory,
         [Parameter(Mandatory)][string]$Tag
     )
-
     $expectedUrl = "https://github.com/$repository/releases/download/$Tag/$AssetName"
     if ([string]$Asset.browser_download_url -ne $expectedUrl) {
         throw "Core release asset $AssetName does not use the canonical GitHub download URL."
@@ -194,7 +183,6 @@ function Get-Checksum {
         [Parameter(Mandatory)][string]$ChecksumPath,
         [Parameter(Mandatory)][string]$AssetName
     )
-
     $line = (Get-Content -LiteralPath $ChecksumPath -Raw).Trim()
     $match = [regex]::Match($line, "^(?<hash>[0-9a-f]{64})  $([regex]::Escape($AssetName))$")
     if (-not $match.Success -or $match.Groups["hash"].Value -eq ("0" * 64)) {
@@ -207,7 +195,6 @@ function Read-CurrentLock {
     if (-not (Test-Path -LiteralPath $OutputPath -PathType Leaf)) { return $null }
     try { $lock = Get-Content -LiteralPath $OutputPath -Raw | ConvertFrom-Json }
     catch { throw "Existing Core lock is not valid JSON: $_" }
-
     $properties = @($lock.PSObject.Properties.Name)
     $required = @("schemaVersion", "repository", "tag", "coreVersion", "apiVersion", "architectures")
     if (@($required | Where-Object { $_ -notin $properties }).Count -ne 0 -or
@@ -260,12 +247,20 @@ function Test-CoreArchive {
                 @($expectedEntries | Where-Object { $_ -notin $entryNames }).Count -ne 0) {
                 throw "Core $Architecture archive must contain only LICENSE, meowcal-core.exe, and meowcal-core.json at its root."
             }
+            [long]$totalUncompressedBytes = 0
             foreach ($entry in $entries) {
                 if ($entry.FullName -ne $entry.Name -or $entry.FullName.Contains("..")) {
                     throw "Core $Architecture archive contains an unsafe path: $($entry.FullName)"
                 }
                 if ($entry.Length -gt 256MB) {
                     throw "Core $Architecture archive entry $($entry.Name) exceeds the 256 MiB extraction limit."
+                }
+                [long]$totalUncompressedBytes += $entry.Length
+                if ($totalUncompressedBytes -gt 512MB) {
+                    throw "Core $Architecture archive exceeds the 512 MiB extraction limit."
+                }
+                if ($entry.Name -eq "meowcal-core.json" -and $entry.Length -gt 64KB) {
+                    throw "Core $Architecture metadata exceeds the 64 KiB runtime limit."
                 }
             }
         } finally { $zip.Dispose() }

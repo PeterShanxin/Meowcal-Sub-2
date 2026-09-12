@@ -31,13 +31,37 @@ function New-TestPe {
     [IO.File]::WriteAllBytes($Path, $bytes)
 }
 
+function Set-ZipEntryLength {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$EntryName, [uint32]$Length)
+
+    $bytes = [IO.File]::ReadAllBytes($Path)
+    $name = [Text.Encoding]::UTF8.GetBytes($EntryName)
+    for ($offset = 0; $offset -le $bytes.Length - 46; $offset++) {
+        if ([BitConverter]::ToUInt32($bytes, $offset) -ne 0x02014B50) { continue }
+        $nameLength = [BitConverter]::ToUInt16($bytes, $offset + 28)
+        if ($nameLength -ne $name.Length) { continue }
+        $matches = $true
+        for ($index = 0; $index -lt $name.Length; $index++) {
+            if ($bytes[$offset + 46 + $index] -ne $name[$index]) { $matches = $false; break }
+        }
+        if ($matches) {
+            [BitConverter]::GetBytes($Length).CopyTo($bytes, $offset + 24)
+            [IO.File]::WriteAllBytes($Path, $bytes)
+            return
+        }
+    }
+    throw "ZIP entry was not found: $EntryName"
+}
+
 function New-CoreAsset {
     param(
         [Parameter(Mandatory)][string]$Directory,
         [Parameter(Mandatory)][string]$Version,
         [Parameter(Mandatory)][string]$Architecture,
         [object]$ApiVersion = 1,
-        [object]$SchemaVersion = 1
+        [object]$SchemaVersion = 1,
+        [int]$MetadataPaddingBytes = 0,
+        [switch]$OversizedAggregate
     )
     $staging = Join-Path $Directory ("staging-$Architecture")
     New-Item -ItemType Directory -Path $staging -Force | Out-Null
@@ -55,11 +79,15 @@ function New-CoreAsset {
         }
         [IO.File]::WriteAllText(
             (Join-Path $staging "meowcal-core.json"),
-            (($metadata | ConvertTo-Json) + "`n"),
+            (($metadata | ConvertTo-Json) + "`n" + (" " * $MetadataPaddingBytes)),
             [Text.UTF8Encoding]::new($false)
         )
         $asset = Join-Path $Directory "meowcal-core-v$Version-windows-$Architecture.zip"
         Compress-Archive -Path (Join-Path $staging "*") -DestinationPath $asset -Force
+        if ($OversizedAggregate) {
+            Set-ZipEntryLength -Path $asset -EntryName "LICENSE" -Length 256MB
+            Set-ZipEntryLength -Path $asset -EntryName "meowcal-core.exe" -Length 256MB
+        }
         $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $asset).Hash.ToLowerInvariant()
         [IO.File]::WriteAllText("$asset.sha256", "$hash  $([IO.Path]::GetFileName($asset))`n")
         return $asset
@@ -73,12 +101,16 @@ function New-ReleaseFixture {
         [Parameter(Mandatory)][string]$AssetDirectory,
         [switch]$Prerelease,
         [object]$ApiVersion = 1,
-        [object]$SchemaVersion = 1
+        [object]$SchemaVersion = 1,
+        [int]$MetadataPaddingBytes = 0,
+        [switch]$OversizedAggregate
     )
     $x64 = New-CoreAsset -Directory $AssetDirectory -Version $Version -Architecture x64 `
-        -ApiVersion $ApiVersion -SchemaVersion $SchemaVersion
+        -ApiVersion $ApiVersion -SchemaVersion $SchemaVersion -MetadataPaddingBytes $MetadataPaddingBytes `
+        -OversizedAggregate:$OversizedAggregate
     $arm64 = New-CoreAsset -Directory $AssetDirectory -Version $Version -Architecture arm64 `
-        -ApiVersion $ApiVersion -SchemaVersion $SchemaVersion
+        -ApiVersion $ApiVersion -SchemaVersion $SchemaVersion -MetadataPaddingBytes $MetadataPaddingBytes `
+        -OversizedAggregate:$OversizedAggregate
     $assetPaths = @($x64, "$x64.sha256", $arm64, "$arm64.sha256")
     $assets = @($assetPaths | ForEach-Object {
         $name = [IO.Path]::GetFileName($_)
@@ -189,6 +221,22 @@ try {
     Assert-Throws { Invoke-Updater -ReleasePath $coercibleSchemaRelease -AssetDirectory $coercibleSchemaAssets `
         -LockPath (Join-Path $temporaryDirectory "coercible-schema-fail.json") -ResultPath $result } "metadata does not match"
 
+    $oversizedMetadataAssets = Join-Path $temporaryDirectory "oversized-metadata-assets"
+    New-Item -ItemType Directory -Path $oversizedMetadataAssets | Out-Null
+    $oversizedMetadataRelease = Join-Path $temporaryDirectory "oversized-metadata.json"
+    New-ReleaseFixture -Path $oversizedMetadataRelease -Version "0.6.0" `
+        -AssetDirectory $oversizedMetadataAssets -MetadataPaddingBytes 65536
+    Assert-Throws { Invoke-Updater -ReleasePath $oversizedMetadataRelease -AssetDirectory $oversizedMetadataAssets `
+        -LockPath (Join-Path $temporaryDirectory "oversized-metadata-fail.json") -ResultPath $result } "metadata exceeds the 64 KiB runtime limit"
+
+    $oversizedAggregateAssets = Join-Path $temporaryDirectory "oversized-aggregate-assets"
+    New-Item -ItemType Directory -Path $oversizedAggregateAssets | Out-Null
+    $oversizedAggregateRelease = Join-Path $temporaryDirectory "oversized-aggregate.json"
+    New-ReleaseFixture -Path $oversizedAggregateRelease -Version "0.7.0" `
+        -AssetDirectory $oversizedAggregateAssets -OversizedAggregate
+    Assert-Throws { Invoke-Updater -ReleasePath $oversizedAggregateRelease -AssetDirectory $oversizedAggregateAssets `
+        -LockPath (Join-Path $temporaryDirectory "oversized-aggregate-fail.json") -ResultPath $result } "exceeds the 512 MiB extraction limit"
+
     $olderAssets = Join-Path $temporaryDirectory "older-assets"
     New-Item -ItemType Directory -Path $olderAssets | Out-Null
     $olderRelease = Join-Path $temporaryDirectory "older.json"
@@ -222,10 +270,17 @@ try {
     if ($workflow -notmatch '(?ms)Resolve, verify, and prepare the lock.*?GITHUB_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}') {
         throw "Core release discovery must receive the job's read-only GitHub token."
     }
+    if ($workflow -notmatch 'ref:\s*\$\{\{\s*github\.event\.repository\.default_branch\s*\}\}' -or
+        $workflow -notmatch 'base:\s*\$\{\{\s*github\.event\.repository\.default_branch\s*\}\}') {
+        throw "Core upgrades must check out and target the repository default branch."
+    }
     $updaterSource = Get-Content -LiteralPath $updater -Raw
     if ($updaterSource -notmatch '\$headers\.Authorization\s*=\s*"Bearer \$env:GITHUB_TOKEN"' -or
         $updaterSource -notmatch 'Environment\.Remove\(\$tokenName\)') {
         throw "Core release discovery must authenticate only its API request and clear tokens before probing Core."
+    }
+    if ((Get-Content -LiteralPath $updater).Count -gt 400) {
+        throw "The Core updater must remain at or below 400 lines."
     }
     $verify = Get-Content -LiteralPath (Join-Path $repositoryRoot "scripts\verify.ps1") -Raw
     if ($verify -notmatch [regex]::Escape("scripts/tests/core-upgrade.Tests.ps1")) {

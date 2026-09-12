@@ -43,7 +43,8 @@ function New-CoreArchive {
         [string]$Architecture = "x64",
         [string]$PeArchitecture = $Architecture,
         [switch]$CorruptExecutableHash,
-        [switch]$CorruptLicenseHash
+        [switch]$CorruptLicenseHash,
+        [int]$MetadataPaddingBytes = 0
     )
     $staging = "$Path.staging"
     New-Item -ItemType Directory -Path $staging -Force | Out-Null
@@ -69,7 +70,7 @@ function New-CoreArchive {
         }
         [IO.File]::WriteAllText(
             (Join-Path $staging "meowcal-core.json"),
-            (($metadata | ConvertTo-Json) + "`n"),
+            (($metadata | ConvertTo-Json) + "`n" + (" " * $MetadataPaddingBytes)),
             [Text.UTF8Encoding]::new($false)
         )
         Compress-Archive -Path (Join-Path $staging "*") -DestinationPath $Path -Force
@@ -192,6 +193,16 @@ try {
         & $fetchScript -Architecture x64 -LockPath $wrongVersionLock `
             -ArchivePath $wrongVersionArchive -DestinationPath $destination -Offline
     } "version does not match"
+
+    $oversizedMetadataArchive = Join-Path $temporaryDirectory "oversized-metadata.zip"
+    New-CoreArchive -Path $oversizedMetadataArchive -MetadataPaddingBytes 65536
+    $oversizedMetadataLock = Join-Path $temporaryDirectory "oversized-metadata.json"
+    New-CoreLock -Path $oversizedMetadataLock `
+        -X64Sha256 (Get-FileHash -Algorithm SHA256 $oversizedMetadataArchive).Hash.ToLowerInvariant()
+    Assert-Throws {
+        & $fetchScript -Architecture x64 -LockPath $oversizedMetadataLock `
+            -ArchivePath $oversizedMetadataArchive -DestinationPath $destination -Offline
+    } "metadata exceeds the 64 KiB runtime limit"
 
     $wrongArchitectureArchive = Join-Path $temporaryDirectory "wrong-architecture.zip"
     New-CoreArchive -Path $wrongArchitectureArchive -Architecture arm64

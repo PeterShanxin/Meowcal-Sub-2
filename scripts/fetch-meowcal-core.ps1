@@ -173,6 +173,9 @@ try {
             if ($totalUncompressedBytes -gt $maxTotalBytes) {
                 throw "Core archive exceeds the 512 MiB extraction limit."
             }
+            if ($entry.Name -eq "meowcal-core.json" -and $entry.Length -gt 64KB) {
+                throw "Core package metadata exceeds the 64 KiB runtime limit."
+            }
         }
     } finally {
         $zip.Dispose()

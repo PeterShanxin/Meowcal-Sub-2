@@ -173,7 +173,9 @@ def client_factory(monkeypatch, tmp_path: Path):
         ("not json", "metadata is invalid"),
         ("{}", "does not match"),
         ('{"coreVersion":"0.1.1","apiVersion":2}', "does not match"),
+        ('{"coreVersion":"0.1.0","apiVersion":1}' + " " * (64 * 1024), "exceeds the size limit"),
     ],
+    ids=("missing", "invalid", "missing fields", "wrong API", "oversized"),
 )
 def test_pinned_metadata_is_required_and_typed(tmp_path: Path, metadata, pattern) -> None:
     executable = tmp_path / "meowcal-core.exe"
