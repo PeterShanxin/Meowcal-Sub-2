@@ -38,7 +38,7 @@ function New-TestPe {
 function New-CoreArchive {
     param(
         [Parameter(Mandatory)][string]$Path,
-        [string]$Version = "0.1.0",
+        [string]$Version = "0.1.1",
         [int]$ApiVersion = 1,
         [string]$Architecture = "x64",
         [string]$PeArchitecture = $Architecture,
@@ -82,7 +82,7 @@ function New-CoreLock {
     param(
         [Parameter(Mandatory)][string]$Path,
         [Parameter(Mandatory)][string]$X64Sha256,
-        [string]$Version = "0.1.0",
+        [string]$Version = "0.1.1",
         [string]$Arm64Sha256 = ("a" * 64)
     )
     $lock = [ordered]@{
@@ -123,13 +123,13 @@ try {
     $arm64Checksum = Join-Path $temporaryDirectory "arm64.sha256"
     [IO.File]::WriteAllText(
         $x64Checksum,
-        "$archiveHash  meowcal-core-v0.1.0-windows-x64.zip`n"
+        "$archiveHash  meowcal-core-v0.1.1-windows-x64.zip`n"
     )
     [IO.File]::WriteAllText(
         $arm64Checksum,
-        "$('a' * 64)  meowcal-core-v0.1.0-windows-arm64.zip`n"
+        "$('a' * 64)  meowcal-core-v0.1.1-windows-arm64.zip`n"
     )
-    & $writeLockScript -Version 0.1.0 -X64ChecksumPath $x64Checksum `
+    & $writeLockScript -Version 0.1.1 -X64ChecksumPath $x64Checksum `
         -Arm64ChecksumPath $arm64Checksum -OutputPath $lockPath | Out-Null
     $destination = Join-Path $temporaryDirectory "installed\meowcal-core.exe"
 
@@ -252,10 +252,10 @@ try {
 
     [IO.File]::WriteAllText(
         $x64Checksum,
-        "$('0' * 64)  meowcal-core-v0.1.0-windows-x64.zip`n"
+        "$('0' * 64)  meowcal-core-v0.1.1-windows-x64.zip`n"
     )
     Assert-Throws {
-        & $writeLockScript -Version 0.1.0 -X64ChecksumPath $x64Checksum `
+        & $writeLockScript -Version 0.1.1 -X64ChecksumPath $x64Checksum `
             -Arm64ChecksumPath $arm64Checksum -OutputPath $lockPath
     } "real lowercase SHA-256"
 
