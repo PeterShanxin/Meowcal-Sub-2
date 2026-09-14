@@ -12,6 +12,12 @@ param(
 $ErrorActionPreference = "Stop"
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 
+function Test-IsIntegerValue {
+    param($Value, [Parameter(Mandatory)][long]$Expected)
+
+    return ($Value -is [int] -or $Value -is [long]) -and $Value -eq $Expected
+}
+
 function Get-PeMachine {
     param([Parameter(Mandatory)][string]$Path)
 
@@ -65,7 +71,7 @@ if (@($lockProperties | Where-Object { $_ -notin $expectedLockProperties }).Coun
     @($expectedLockProperties | Where-Object { $_ -notin $lockProperties }).Count -ne 0) {
     throw "Core release lock fields do not match schema 1."
 }
-if ($lock.schemaVersion -isnot [long] -or $lock.schemaVersion -ne 1) {
+if (-not (Test-IsIntegerValue -Value $lock.schemaVersion -Expected 1)) {
     throw "Unsupported Core release lock schema."
 }
 if ($lock.repository -ne "PeterShanxin/Meowcal-Sub") {
@@ -74,7 +80,7 @@ if ($lock.repository -ne "PeterShanxin/Meowcal-Sub") {
 if ($lock.coreVersion -notmatch '^\d+\.\d+\.\d+$') {
     throw "Locked Core version must use major.minor.patch."
 }
-if ($lock.apiVersion -isnot [long] -or $lock.apiVersion -ne 1) {
+if (-not (Test-IsIntegerValue -Value $lock.apiVersion -Expected 1)) {
     throw "Locked Core API version must be 1."
 }
 if ($lock.tag -ne "core-v$($lock.coreVersion)") {
@@ -198,11 +204,11 @@ try {
         @($expectedMetadataProperties | Where-Object { $_ -notin $metadataProperties }).Count -ne 0) {
         throw "Core package metadata fields do not match schema 1."
     }
-    if ($metadata.schemaVersion -isnot [long] -or $metadata.schemaVersion -ne 1) {
+    if (-not (Test-IsIntegerValue -Value $metadata.schemaVersion -Expected 1)) {
         throw "Unsupported Core package metadata schema."
     }
     if ($metadata.coreVersion -ne $lock.coreVersion) { throw "Core package version does not match the lock." }
-    if ($metadata.apiVersion -isnot [long] -or $metadata.apiVersion -ne $lock.apiVersion) {
+    if (-not (Test-IsIntegerValue -Value $metadata.apiVersion -Expected $lock.apiVersion)) {
         throw "Core package API version does not match the lock."
     }
     if ($metadata.os -ne "windows") { throw "Core package OS must be windows." }
