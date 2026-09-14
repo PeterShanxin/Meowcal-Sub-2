@@ -1,4 +1,6 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(debug_assertions)]
+use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
@@ -17,6 +19,7 @@ impl BackendProcess {
     }
 }
 
+#[cfg(debug_assertions)]
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -24,6 +27,7 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
+#[cfg(debug_assertions)]
 fn python_executable() -> PathBuf {
     if let Ok(path) = std::env::var("MEOWCAL_PYTHON") {
         let candidate = PathBuf::from(path);
@@ -34,11 +38,56 @@ fn python_executable() -> PathBuf {
     repo_root().join(".venv").join("Scripts").join("python.exe")
 }
 
-fn bundled_core_executable(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .resource_dir()
-        .map(|directory| directory.join("core").join("meowcal-core.exe"))
-        .map_err(|error| format!("Core resource directory is unavailable: {error}"))
+#[cfg(any(not(debug_assertions), test))]
+fn packaged_backend_command(resources: &Path) -> Result<Command, String> {
+    let directory = resources.join("backend");
+    let python = directory.join("python.exe");
+    if !python.is_file() {
+        return Err(format!("Bundled Python is missing: {}", python.display()));
+    }
+    let mut command = Command::new(python);
+    command.current_dir(directory);
+    command.args(["-I", "-B", "-m", "meocosub2.cli", "serve"]);
+    command.env(
+        "MEOWCAL_CORE_EXE",
+        resources.join("core").join("meowcal-core.exe"),
+    );
+    Ok(command)
+}
+
+#[cfg(not(debug_assertions))]
+fn backend_command(resources: &Path) -> Result<Command, String> {
+    // A release must never run code from PATH, an editable checkout, or PYTHONPATH.
+    packaged_backend_command(resources)
+}
+
+#[cfg(debug_assertions)]
+fn backend_command(resources: &Path) -> Result<Command, String> {
+    let python = python_executable();
+    let mut command = Command::new(if python.exists() {
+        python
+    } else {
+        "python".into()
+    });
+    command.current_dir(repo_root());
+    command.args(["-m", "meocosub2.cli", "serve"]);
+    command.env(
+        "MEOWCAL_CORE_EXE",
+        resources.join("core").join("meowcal-core.exe"),
+    );
+    Ok(command)
+}
+
+fn contain_backend(
+    mut child: Child,
+    attach: impl FnOnce(&Child) -> Result<(), String>,
+) -> Result<Child, String> {
+    if let Err(error) = attach(&child) {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error);
+    }
+    Ok(child)
 }
 
 /// Retry can call `spawn_backend` while a prior child is still alive but
@@ -59,9 +108,19 @@ pub(crate) fn spawn_backend(app: &AppHandle, process: &BackendProcess) {
     // later store would silently orphan the earlier child.
     let mut slot = process.0.lock().expect("backend process lock");
     kill_previous_backend(&mut slot);
-    let python = python_executable();
-    let core_executable = match bundled_core_executable(app) {
+    let resources = match app.path().resource_dir() {
         Ok(path) => path,
+        Err(error) => {
+            crate::log_shell_event(
+                "backend.spawn.failed",
+                serde_json::json!({ "error": error.to_string() }),
+            );
+            return;
+        }
+    };
+    let core_executable = resources.join("core").join("meowcal-core.exe");
+    let mut command = match backend_command(&resources) {
+        Ok(command) => command,
         Err(error) => {
             crate::log_shell_event(
                 "backend.spawn.failed",
@@ -73,23 +132,11 @@ pub(crate) fn spawn_backend(app: &AppHandle, process: &BackendProcess) {
     crate::log_shell_event(
         "backend.spawn.requested",
         serde_json::json!({
-            "python": python.display().to_string(),
-            "using_repo_venv": python.exists(),
+            "python": command.get_program().to_string_lossy(),
+            "packaged": !cfg!(debug_assertions),
             "core_executable": core_executable.display().to_string(),
         }),
     );
-    let mut command = if python.exists() {
-        let mut command = Command::new(python);
-        command.current_dir(repo_root());
-        command.args(["-m", "meocosub2.cli", "serve"]);
-        command
-    } else {
-        let mut command = Command::new("python");
-        command.current_dir(repo_root());
-        command.args(["-m", "meocosub2.cli", "serve"]);
-        command
-    };
-    command.env("MEOWCAL_CORE_EXE", core_executable);
 
     #[cfg(target_os = "windows")]
     {
@@ -101,9 +148,19 @@ pub(crate) fn spawn_backend(app: &AppHandle, process: &BackendProcess) {
             let pid = child.id();
             // Job membership is inherited, so enrolling the backend before it
             // starts Core keeps both processes bound to the shell lifetime.
-            crate::process_lifetime::attach_to_app_lifetime(&child);
-            crate::log_shell_event("backend.spawn.started", serde_json::json!({ "pid": pid }));
-            *slot = Some(child);
+            match contain_backend(child, crate::process_lifetime::attach_to_app_lifetime) {
+                Ok(child) => {
+                    crate::log_shell_event(
+                        "backend.spawn.started",
+                        serde_json::json!({ "pid": pid }),
+                    );
+                    *slot = Some(child);
+                }
+                Err(error) => crate::log_shell_event(
+                    "backend.spawn.failed",
+                    serde_json::json!({ "error": error }),
+                ),
+            }
         }
         Err(error) => {
             crate::log_shell_event(
@@ -118,6 +175,46 @@ pub(crate) fn spawn_backend(app: &AppHandle, process: &BackendProcess) {
 mod tests {
     use super::*;
     use std::sync::Barrier;
+
+    #[test]
+    fn failed_lifetime_attachment_terminates_and_reaps_the_backend() {
+        let child = Command::new("ping")
+            .args(["-n", "10", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .expect("fixture process");
+        let pid = child.id();
+        let result = contain_backend(child, |_| Err("fixture attachment failure".into()));
+        assert!(result.is_err());
+        assert!(!is_pid_running(pid));
+    }
+
+    #[test]
+    fn missing_packaged_python_does_not_fall_back_to_a_developer_install() {
+        let missing = std::env::temp_dir().join("meowcal-no-packaged-runtime");
+        assert!(packaged_backend_command(&missing).is_err());
+    }
+
+    #[test]
+    fn packaged_python_uses_only_its_own_runtime_directory() {
+        let resources =
+            std::env::temp_dir().join(format!("meowcal-package-test-{}", std::process::id()));
+        let backend = resources.join("backend");
+        std::fs::create_dir_all(&backend).expect("fixture directory");
+        std::fs::write(backend.join("python.exe"), []).expect("fixture executable");
+        let command = packaged_backend_command(&resources).expect("packaged command");
+        assert_eq!(command.get_program(), backend.join("python.exe"));
+        assert_eq!(command.get_current_dir(), Some(backend.as_path()));
+        let core = resources.join("core").join("meowcal-core.exe");
+        assert!(command
+            .get_envs()
+            .any(|(key, value)| key == "MEOWCAL_CORE_EXE" && value == Some(core.as_os_str())));
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            ["-I", "-B", "-m", "meocosub2.cli", "serve"]
+        );
+        std::fs::remove_dir_all(resources).expect("remove fixture");
+    }
 
     fn is_pid_running(pid: u32) -> bool {
         std::process::Command::new("tasklist")

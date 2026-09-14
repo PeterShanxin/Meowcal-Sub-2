@@ -98,6 +98,8 @@ The target presentation change records these measured limits:
 | `sync.py` | 802 | 824 | end cue holds during silence and clear expired playback without publishing stale translations |
 | `matcher.py` | 535 | 550 | distinguish equally matching repeated phrases by their captured playback position |
 | `sync.py` | 824 | 826 | pass the captured position to matching and clear direct-translation target cue memory |
+| `overlay/ui/src/app.tsx` | 1581 | 1584 | pass the selected target language to the subtitle preview instead of displaying a fixed language |
+| `sync.py` | 826 | 827 | require stable direct OCR reads before translation and break confirmation across empty frames |
 
 The four largest are the ones worth naming, because they are where the work is:
 

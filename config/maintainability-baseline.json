@@ -9,14 +9,14 @@
     "src/meocosub2/matcher.py": 550,
     "src/meocosub2/opensubtitles/client.py": 885,
     "src/meocosub2/overlay/controller.py": 2060,
-    "src/meocosub2/overlay/ui/src/app.tsx": 1581,
+    "src/meocosub2/overlay/ui/src/app.tsx": 1584,
     "src/meocosub2/overlay/ui/src/components/palette.tsx": 1489,
-    "src/meocosub2/overlay/ui/src/components/primitives.tsx": 436,
+    "src/meocosub2/overlay/ui/src/components/primitives.tsx": 382,
     "src/meocosub2/overlay/ui/src/components/variants/settings.tsx": 1229,
-    "src/meocosub2/overlay/ui/src/styles/theme.css": 687,
+    "src/meocosub2/overlay/ui/src/styles/theme.css": 685,
     "src/meocosub2/subtitle_sources/aggregator.py": 1458,
     "src/meocosub2/subtitle_sources/subdl.py": 623,
-    "src/meocosub2/sync.py": 826
+    "src/meocosub2/sync.py": 827
   },
   "lintBudgets": {
     "ruff": 0,
@@ -29,7 +29,8 @@
     },
     "frontend": {
       "scope": [
-        "src/state/mappers.ts"
+        "src/state/mappers.ts",
+        "src/lib/session.ts"
       ],
       "floors": {
         "statements": 89,

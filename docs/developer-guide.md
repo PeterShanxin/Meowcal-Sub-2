@@ -1,149 +1,154 @@
-# Meowcal-Sub-2 Developer Guide
+# Developer guide
 
-## Repo Shape
+Meowcal Sub 2 combines a Python backend, a React studio served over loopback,
+and a Tauri desktop shell. Read [AGENT_GUIDE.md](AGENT_GUIDE.md),
+[CODING_STANDARDS.md](CODING_STANDARDS.md), and
+[MAINTAINABILITY_BASELINE.md](MAINTAINABILITY_BASELINE.md) before changing code.
 
-- Python backend entrypoint: `python -m meocosub2.cli serve`
-- Served dashboard: `src/meocosub2/overlay/server.py`
-- Studio UI source (Vite + React + TS): `src/meocosub2/overlay/ui/`
-- Studio UI entry: `src/meocosub2/overlay/ui/src/app.tsx`
-- Studio UI build output (served at `/`): `src/meocosub2/overlay/static/index.html` + `src/meocosub2/overlay/static/assets/`
-- Subtitle-source logic: `src/meocosub2/subtitle_sources/`
-- Session orchestration: `src/meocosub2/overlay/controller.py`
-- Capture loop and session strategies: `src/meocosub2/sync.py`
-- Which OCR reads count as a new subtitle: `src/meocosub2/subtitle_gate.py`
-- Managed local translation engine: `src/meocosub2/engine/`
-- Studio authentication: `src/meocosub2/auth.py`
-- Desktop shell: `src-tauri/src/main.rs`
+## Set up a Windows checkout
 
-The desktop app is still the same local server-backed UI wrapped by Tauri. The browser path and the Tauri path share the same dashboard contract.
-
-## Source Of Truth
-
-- Live runtime behavior should be read from code under `src/` and `src-tauri/`.
-- `config.example.toml` is the current config-schema reference.
-- `docs/plans/` is intentionally non-authoritative and repo-ignored.
-
-## Frontend Module Map
-
-Under `src/meocosub2/overlay/ui/src/`:
-
-- `main.tsx`: React mount point.
-- `app.tsx`: top-level state machine (`home` → `prep` → `live`, plus `settings` / empty / no-key variants). Bootstraps state via `/api/state`, `/api/config`, `/api/languages`, `/api/engine/status`; wires the WebSocket; drives palette flow.
-- `components/primitives.tsx`: `Backdrop`, `TopBar`, `CatMark`, `CatMascot`, `Kbd`, `PaletteTabs`.
-- `components/palette.tsx`: the ⌘K command palette, tabs (Titles / Source / Target / Commands), lists, and footer hint.
-- `components/prep-card.tsx`: prep-phase session summary + preview card.
-- `components/live-dock.tsx`: live-phase subtitle view and bottom dock.
-- `components/variants/{empty,no-key,settings}.tsx`: first-launch, missing-provider, and full settings screens.
-- `hooks/use-api.ts`: typed REST wrapper.
-- `hooks/use-ws.ts`: `/ws/app` connection + dispatch.
-- `hooks/use-keybinds.ts`: global keybinds (⌘K / Tab / ↑↓ / ↵ / ⌘↵ / `,` / ⇧⌫).
-- `hooks/use-tauri.ts`: thin wrappers around `window.__TAURI__.core.invoke`.
-- `state/store.ts` + `state/mappers.ts`: single store (useSyncExternalStore) and backend → palette-shape mappers.
-
-Keep `app.tsx` as the top-level entry even when you move behavior between hooks/components.
-
-## Subtitle Studio Flow
-
-1. Dashboard loads `/api/config`, `/api/state`, and `/api/languages`.
-2. User searches for a title through `/api/search`.
-3. The dashboard narrows choices by matched title, then source subtitle, then target subtitle or local translation.
-4. `POST /api/session/prepare` creates one of:
-   - `auto_candidates`: several source subtitles to match against, plus a target file
-   - `subtitle_pair`: one chosen source subtitle
-   - `ocr_fallback`: no source subtitle, so reads are translated directly
-5. `POST /api/session/start` begins sync and pushes updates over the `/ws/app` WebSocket (state, progress, subtitle, style, error, debug).
-6. `POST /api/session/stop` ends the active session and clears overlay state.
-
-When the user enters the live phase, the studio calls the Tauri `enter_live_mode` command; the main window reshapes into a bottom-of-screen always-on-top strip. `exit_live_mode` restores the pre-live geometry.
-
-The current provider-neutral selection model uses opaque `matchId` and `resultId` values instead of provider file ids in the UI flow.
-
-## Translation Engine
-
-`src/meocosub2/engine/` adapts the versioned Meowcal Core API to the studio's
-status and install controls. Core owns HY-MT artifact verification, installation,
-recovery, GPU/CPU policy, and inference. It accepts verified legacy artifacts as
-import sources without depending on another application's running installation.
-The backend owns its Core processes; OCR and inference have separate transports.
-See [MEOWCAL_CORE.md](MEOWCAL_CORE.md) for storage and compatibility rules.
-
-### Pinned Core runtime
-
-`config/meowcal-core.lock.json` binds Sub 2 to one released Core version, API
-major, x64 ZIP digest, and ARM64 ZIP digest. A production build must not use a
-placeholder digest or depend on a Sub 1 checkout. Generate the reviewed lock
-from the checksum files published with the Core release:
+Install Python 3.11 or newer, Node.js 22 LTS (22.12 or newer) with npm, Rust,
+the Microsoft C++ build tools required by Tauri, and Microsoft WebView2.
+Vite also supports Node 20.19 or newer. Use PowerShell from the repo root:
 
 ```powershell
-./scripts/write-meowcal-core-lock.ps1 `
-  -Version 0.1.0 `
-  -X64ChecksumPath .\downloads\meowcal-core-v0.1.0-windows-x64.zip.sha256 `
-  -Arm64ChecksumPath .\downloads\meowcal-core-v0.1.0-windows-arm64.zip.sha256
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+npm --prefix src\meocosub2\overlay\ui ci
+python -m playwright install chromium
+rustup component add rustfmt clippy
 ```
 
-`scripts/fetch-meowcal-core.ps1` selects the current Windows architecture,
-downloads the exact locked asset, verifies the archive and package contract,
-then writes `src-tauri/resources/core/meowcal-core.exe`. Tauri runs it before
-development and production builds and bundles the executable, metadata, and
-license. At runtime the
-shell passes the absolute bundled path to Python as `MEOWCAL_CORE_EXE`.
-The Python client reads the pinned `coreVersion` from the adjacent verified
-metadata before sending the handshake, so a Core pin can advance independently
-of the application version.
+The debug shell prefers `.venv\Scripts\python.exe` for source development.
+`MEOWCAL_PYTHON` can select another development Python executable. Release builds
+use the bundled `backend/python.exe` and do not fall back to a developer install.
 
-For an offline local build, point the fetcher at an already downloaded archive;
-the same lock and digest checks still apply:
+Launch the development app with `run_app.vbs`. It prepares the pinned Core
+resource and builds the UI and debug shell when needed. `run_app.vbs --rebuild`
+forces a rebuild. Source development requires the toolchains above; release
+packages have their own launch instructions.
+
+For backend-only development:
 
 ```powershell
-./scripts/fetch-meowcal-core.ps1 -ArchivePath $archive -Offline
+python -m meocosub2.cli serve
 ```
 
-To validate an unpublished candidate, generate a separate lock from that
-candidate's checksum files using `-OutputPath output/core/meowcal-core.local.lock.json`.
-Set these overrides before running the verifier, Tauri, or `run_app.vbs`:
+Open the token-bearing URL printed by `serve`. Browser mode can inspect the
+studio, but the native capture selector and desktop strip require the shell.
+
+## Build a Windows distribution
+
+Use a native x64 or ARM64 Windows environment with PowerShell 7 and the tools
+above. Install GitHub CLI and authenticate with `gh auth login`; the build reads
+upstream license files that some published crates omit. CI supplies its read-only
+GitHub token for this step.
 
 ```powershell
-$env:MEOWCAL_CORE_LOCK = Join-Path $PWD 'output/core/meowcal-core.local.lock.json'
-$env:MEOWCAL_CORE_ARCHIVE = $archive
+.\scripts\verify.ps1
+.\scripts\build-windows-release.ps1
 ```
 
-The local lock verifies the candidate; it does not replace the committed release
-pin. Before the first Core publication, production packaging is intentionally
-blocked until `config/meowcal-core.lock.json` contains the published asset hashes.
+The build verifies the locked Core and CPython archives, installs hash-locked
+backend wheels, collects dependency notices, and produces an NSIS installer,
+portable ZIP, and SHA-256 list in `dist/`. Models are not bundled. Use a clean
+commit for release artifacts; the portable package records its source commit
+and whether the checkout had changes. Move any previous staging directory out
+of `dist/` before rebuilding. Native acceptance must pass before publishing.
 
-`run_app.vbs` prepares the resource when needed and sets
-`MEOWCAL_CORE_PROFILE=development`. Installed builds use the production profile.
+## Runtime map
 
-Prompt shape, sampling, and output validation remain product-owned: the instruction
-template is Chinese whenever either side of the language pair is Chinese, and
-output that is far longer than its source, loops, restates the context it was
-given, or is written in the wrong script is discarded rather than shown.
+| Responsibility | Source |
+| --- | --- |
+| CLI and local server lifetime | `src/meocosub2/cli.py` |
+| HTTP/WebSocket routes | `src/meocosub2/overlay/server.py` |
+| Session preparation and lifecycle | `src/meocosub2/overlay/controller.py` |
+| Subtitle providers and aggregation | `src/meocosub2/subtitle_sources/` |
+| OCR capture and playback sync | `src/meocosub2/capture.py`, `src/meocosub2/sync.py` |
+| Target cue presentation | `src/meocosub2/presentation.py` |
+| Core translation adapter and private BGE matcher | `src/meocosub2/engine/` |
+| Per-run authentication | `src/meocosub2/auth.py` |
+| Studio state and views | `src/meocosub2/overlay/ui/src/` |
+| Desktop windows and backend process | `src-tauri/src/` |
 
-## Studio Authentication
+The server-backed `/` route is the desktop studio. Edit React/TypeScript under
+`src/meocosub2/overlay/ui/src/`, then rebuild the committed served bundle:
 
-Every `/api/*` and `/ws/*` route requires a per-run token, presented as the
-`X-Meowcal-Token` header or a `token` query parameter. `serve` generates it,
-writes it to `%APPDATA%/meowcal-sub-2/runtime.json`, and injects it into the
-served page for the studio itself; the Tauri shell reads the same file. Requests
-carrying a foreign `Origin` are refused even with a valid token. Only `/static/*`
-is public.
+```powershell
+npm --prefix src\meocosub2\overlay\ui run build
+```
+
+Do not edit `overlay/static/assets/` directly. The hand-maintained selector and
+splash files under `overlay/static/` are embedded by Tauri; changes to them need
+a shell rebuild.
+
+`app.tsx` owns the studio's home, preparation, live, and settings flow. Typed
+API wrappers and WebSocket hooks connect it to the backend. Provider selection
+uses opaque `matchId` and `resultId` values. Source tracks establish playback
+position; the presentation track owns target cue intervals, overlaps, and gaps.
+See the [agent guide](AGENT_GUIDE.md) for matching and calibration invariants.
+
+## Pinned Meowcal Core
+
+[config/meowcal-core.lock.json](../config/meowcal-core.lock.json) pins a released
+Core version, API major, and SHA-256 hashes for x64 and ARM64 packages.
+`scripts/fetch-meowcal-core.ps1` selects and verifies the architecture's archive
+and package contract, then prepares `src-tauri/resources/core/`. Tauri invokes
+it before development and production builds. The shell passes the bundled
+executable path to the backend as `MEOWCAL_CORE_EXE`.
+
+Core owns Windows OCR and HY-MT installation, artifact verification, and
+inference. The backend owns separate Core transports for OCR and translation;
+BGE subtitle matching has a separate Sub 2 process and data directory. Translation
+prompt shape and output validation remain product-owned. See
+[MEOWCAL_CORE.md](MEOWCAL_CORE.md) for storage and compatibility rules.
+
+For a local build using a previously downloaded, locked archive:
+
+```powershell
+.\scripts\fetch-meowcal-core.ps1 -ArchivePath $coreArchive -Offline
+```
+
+The offline flag does not bypass lock or digest checks. Candidate verification
+and Core upgrades are documented in
+[CORE_UPGRADE_AUTOMATION.md](CORE_UPGRADE_AUTOMATION.md); a local candidate lock
+must not replace the reviewed release pin.
+
+## Authentication and diagnostics
+
+The backend binds to `127.0.0.1`. The studio and privileged HTTP/WebSocket
+routes require a per-run token, sent through `X-Meowcal-Token` or the `token`
+query parameter. The backend publishes it to
+`%APPDATA%\meowcal-sub-2\runtime.json`; the shell reads that file. Foreign
+request origins are rejected even when a token is supplied. Profile access by
+software running as the same Windows user remains outside this boundary.
+
+Configuration is at `%APPDATA%\meowcal-sub-2\config.toml`; see
+[config.example.toml](../config.example.toml). Logs are under the adjacent
+`logs` directory. Normal file and console logging use INFO; launch
+`python -m meocosub2.cli --verbose serve` to enable DEBUG OCR/subtitle traces.
+Normal logs can still contain titles, errors, and sensitive details. Use
+synthetic content for debugging and sanitize excerpts before sharing.
+
+The shell can reuse an existing backend on its configured port. Rebuilding the
+shell alone may therefore leave Python changes untested. Stop the session and
+close the app, identify any remaining process as task-owned before stopping
+it, and check for surviving Core or inference children before restarting.
 
 ## Verification
 
-Use these checks after changes:
-
 ```powershell
-pytest -q
-npm --prefix src\meocosub2\overlay\ui run build
-cargo check --manifest-path src-tauri\Cargo.toml
-python -m playwright install chromium
-python scripts\run_dashboard_smoke.py
+.\scripts\verify.ps1
 ```
 
-Install Chromium once per machine before the smoke check. The Playwright smoke script validates the served dashboard path only, fails closed if another dashboard is already occupying port `8765`, and does not prove native WebView2 correctness inside Tauri.
+This is the authoritative review gate and the command Windows CI runs. It
+covers formatting, lint, types, Python/Rust/studio suites, the served dashboard,
+and maintainability ratchets. `-List` prints stages; `-Stage <name>` runs a
+subset during development.
 
-## Commenting Guidance
-
-- Add short rationale comments where the code preserves compatibility, coordinates cross-module state, or handles a non-obvious runtime constraint.
-- Prefer comments that explain *why this branch exists* or *what invariant it protects*.
-- Avoid “commenting every line” in straightforward code.
+The served-dashboard smoke refuses to reuse a backend already occupying its
+port. A browser pass proves the served page, not Tauri/WebView2 rendering.
+Native OCR, capture selection, overlay placement, real translation inference,
+and process shutdown require a real Windows run. Evidence from one architecture
+does not prove the other.

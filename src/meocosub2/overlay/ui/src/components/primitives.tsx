@@ -108,69 +108,15 @@ export function Kbd({ children, dim }: { children: ReactNode; dim?: boolean }): 
   return <kbd data-dim={dim ? "true" : "false"}>{children}</kbd>;
 }
 
-export function CatMascot({
-  size = 56,
-  expression = "curious",
-}: {
-  size?: number;
-  expression?: "curious" | "sleepy";
-}): JSX.Element {
-  const gradId = `catbody-${expression}`;
+export function CatMascot({ size = 56 }: { size?: number }): JSX.Element {
   return (
-    <svg
+    <img
+      src="/static/shadow-cat-mark.svg"
       width={size}
-      height={size * 1.1}
-      viewBox="0 0 100 110"
-      style={{ display: "block" }}
-      aria-hidden
-    >
-      <defs>
-        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="var(--accent-hex)" stopOpacity="0.35" />
-          <stop offset="1" stopColor="var(--accent-deep)" stopOpacity="0.5" />
-        </linearGradient>
-      </defs>
-      <path d="M18 32 L22 12 L38 24 Z" fill={`url(#${gradId})`} />
-      <path d="M82 32 L78 12 L62 24 Z" fill={`url(#${gradId})`} />
-      <ellipse cx="50" cy="45" rx="30" ry="27" fill={`url(#${gradId})`} />
-      <path d="M25 60 Q25 95 50 100 Q75 95 75 60 Z" fill={`url(#${gradId})`} opacity="0.8" />
-      {expression === "sleepy" ? (
-        <>
-          <path
-            d="M38 44 Q42 42 46 44"
-            stroke="var(--accent-hex)"
-            strokeWidth="1.8"
-            fill="none"
-            strokeLinecap="round"
-          />
-          <path
-            d="M54 44 Q58 42 62 44"
-            stroke="var(--accent-hex)"
-            strokeWidth="1.8"
-            fill="none"
-            strokeLinecap="round"
-          />
-        </>
-      ) : (
-        <>
-          <ellipse cx="42" cy="44" rx="2.4" ry="4" fill="var(--accent-hex)" />
-          <ellipse cx="58" cy="44" rx="2.4" ry="4" fill="var(--accent-hex)" />
-        </>
-      )}
-      <path d="M48 52 L52 52 L50 55 Z" fill="var(--accent-hex)" opacity="0.8" />
-      <path
-        d="M30 54 L42 53 M30 57 L42 55"
-        stroke="var(--accent-hex)"
-        strokeWidth="0.8"
-        opacity="0.5"
-      />
-      <path
-        d="M70 54 L58 53 M70 57 L58 55"
-        stroke="var(--accent-hex)"
-        strokeWidth="0.8"
-        opacity="0.5"
-      />
-    </svg>
+      height={size}
+      alt=""
+      style={{ display: "block", margin: "0 auto" }}
+    />
   );
 }
 

@@ -1,13 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "studio-remote",
-  "description": "The studio UI is served over loopback rather than bundled, so its window needs the event permissions a local page gets by default.",
+  "description": "Allow the loopback studio to control capture and its live session.",
   "windows": ["main"],
   "remote": {
     "urls": ["http://127.0.0.1:*", "http://localhost:*"]
   },
   "permissions": [
     "core:event:allow-listen",
-    "core:event:allow-unlisten"
+    "core:event:allow-unlisten",
+    "studio-shell"
   ]
 }

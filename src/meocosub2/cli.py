@@ -28,7 +28,7 @@ def _log_dir() -> Path:
     return Path(appdata) / "meowcal-sub-2" / "logs"
 
 
-def _setup_logging(verbose: bool = True) -> None:
+def _setup_logging(verbose: bool = False) -> None:
     root = logging.getLogger()
     if any(isinstance(handler, TimedRotatingFileHandler) for handler in root.handlers):
         return
@@ -44,7 +44,7 @@ def _setup_logging(verbose: bool = True) -> None:
         encoding="utf-8",
     )
     file_handler.setFormatter(logging.Formatter(log_format))
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
     root.addHandler(file_handler)
 
     if _has_console():
@@ -98,10 +98,10 @@ def main(
         is_eager=True,
     ),
     verbose: bool = typer.Option(
-        True,
+        False,
         "--verbose/--quiet",
         "-v/-q",
-        help="Enable verbose console logging (on by default).",
+        help="Include detailed diagnostics in console and file logs; may contain subtitle text.",
     ),
 ) -> None:
     _setup_logging(verbose=verbose)

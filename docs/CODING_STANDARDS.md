@@ -45,9 +45,11 @@ path — including the paths where our own cleanup code does not run. See
 
 ### No private subtitle or OCR text in logs by default
 
-The log runs at DEBUG and currently records recognised dialogue, which is
-whatever the user happens to be watching. Truncate it, and never copy it into an
-issue, a PR, a screenshot or a CI artifact.
+File and console logs default to INFO. Explicit verbose mode enables DEBUG
+OCR/subtitle traces. Titles, error messages, and sensitive details can still
+appear in normal logs. Do not add raw dialogue to default logs; truncate and
+sanitize diagnostic excerpts, and never copy private viewing content into an
+issue, a PR, a screenshot, or a CI artifact.
 
 ## Python
 

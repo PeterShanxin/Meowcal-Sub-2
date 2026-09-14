@@ -21,7 +21,7 @@ export function EmptyState({
           width: 560,
         }}
       >
-        <CatMascot size={96} expression="curious" />
+        <CatMascot size={96} />
         <div
           style={{
             fontSize: 11,

@@ -103,7 +103,10 @@ source-aligned presentation behavior.
 
 ## Log Inspection
 
-- Log file: `%APPDATA%\meowcal-sub-2\logs\meowcal-sub-2.log` (always DEBUG level).
+- Log file: `%APPDATA%\meowcal-sub-2\logs\meowcal-sub-2.log` (INFO by default).
+  Explicit `python -m meocosub2.cli --verbose serve` enables DEBUG OCR/subtitle
+  traces. Normal logs can still contain titles, errors, and sensitive details;
+  use synthetic viewing content and sanitize excerpts before sharing.
 - Key patterns to grep:
   - `OCR pass=` — which pass won, score, recognized text, duration
   - `MATCH hit:` — matched subtitle index, score, source snippet

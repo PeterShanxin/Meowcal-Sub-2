@@ -1,0 +1,14 @@
+{
+  "version": "3.14.7",
+  "releasePage": "https://www.python.org/downloads/release/python-3147/",
+  "architectures": {
+    "x64": {
+      "asset": "python-3.14.7-embed-amd64.zip",
+      "sha256": "d297e5ff019966817ad8502465176139f2d3d840fa4ed84b13bed399a6ab1f15"
+    },
+    "arm64": {
+      "asset": "python-3.14.7-embed-arm64.zip",
+      "sha256": "f6773983c8959d4281e48c4540cb0bdd23e42391e4e951ce17e7ceb52658f21c"
+    }
+  }
+}

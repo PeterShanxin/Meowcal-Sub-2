@@ -89,16 +89,11 @@ mod windows_impl {
     }
 
     /// Tie `child` to this process, so it cannot outlive us.
-    ///
-    /// Best effort by design. Failure leaves the child running exactly as it did
-    /// before this module existed, and the explicit shutdown path still covers a
-    /// clean exit, so it must never stop the app from starting.
-    pub fn attach_to_app_lifetime(child: &Child) {
+    /// The caller must terminate and reap the child if attachment fails.
+    pub fn attach_to_app_lifetime(child: &Child) -> Result<(), String> {
         use std::os::windows::io::AsRawHandle;
 
-        let Some(job) = job_handle() else {
-            return;
-        };
+        let job = job_handle().ok_or("Application lifetime job is unavailable")?;
 
         // The handle `Child` already owns, rather than reopening by PID: the PID
         // could have been recycled between the spawn and this call, and
@@ -109,7 +104,9 @@ mod windows_impl {
                 "process_lifetime.attach_failed",
                 serde_json::json!({ "pid": child.id(), "error": error.to_string() }),
             );
+            return Err(format!("Backend lifetime attachment failed: {error}"));
         }
+        Ok(())
     }
 
     #[cfg(test)]
@@ -120,10 +117,6 @@ mod windows_impl {
         use windows::Win32::System::JobObjects::IsProcessInJob;
 
         /// The mechanism itself, against a real child.
-        ///
-        /// Nothing in this module reports whether enrolment worked - by design,
-        /// since a failure must not stop the app - so asking Windows is the only
-        /// way to know the engine will actually be taken down with the shell.
         #[test]
         fn a_child_joins_the_job_that_kills_on_close() {
             let mut child = std::process::Command::new("ping")
@@ -132,7 +125,7 @@ mod windows_impl {
                 .spawn()
                 .expect("the fixture process should start");
 
-            attach_to_app_lifetime(&child);
+            let attached = attach_to_app_lifetime(&child);
 
             let enrolled = job_handle().is_some_and(|job| {
                 let mut inside = BOOL(0);
@@ -145,7 +138,10 @@ mod windows_impl {
             let _ = child.kill();
             let _ = child.wait();
 
-            assert!(enrolled, "the child must join the job that kills on close");
+            assert!(
+                attached.is_ok() && enrolled,
+                "the child must join the job that kills on close"
+            );
         }
     }
 }
@@ -154,4 +150,6 @@ mod windows_impl {
 pub use windows_impl::attach_to_app_lifetime;
 
 #[cfg(not(target_os = "windows"))]
-pub fn attach_to_app_lifetime(_child: &std::process::Child) {}
+pub fn attach_to_app_lifetime(_child: &std::process::Child) -> Result<(), String> {
+    Err("Backend lifetime containment requires Windows".into())
+}

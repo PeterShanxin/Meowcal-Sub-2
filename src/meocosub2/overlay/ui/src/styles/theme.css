@@ -401,11 +401,6 @@ kbd[data-dim="true"] {
   color: var(--text-muted);
 }
 
-.source-health-button,
-.source-health-button {
-  padding: 5px 8px;
-}
-
 .work-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
@@ -658,6 +653,7 @@ kbd[data-dim="true"] {
   min-width: 0;
 }
 
+.source-health-button,
 .palette-error-action,
 .palette-error-dismiss {
   flex-shrink: 0;
@@ -668,6 +664,7 @@ kbd[data-dim="true"] {
   cursor: pointer;
 }
 
+.source-health-button,
 .palette-error-action {
   padding: 5px 12px;
   font-size: 12px;
@@ -681,6 +678,7 @@ kbd[data-dim="true"] {
   line-height: 1;
 }
 
+.source-health-button:hover,
 .palette-error-action:hover,
 .palette-error-dismiss:hover {
   background: rgba(255, 255, 255, 0.09);

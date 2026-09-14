@@ -40,6 +40,7 @@ _NEVER_OPENS_A_WORD = set("@€•_~§¤©®±¶†‡Ł|")
 
 
 class LineChange(Enum):
+    UNSTABLE = "unstable"
     REPEAT = "repeat"
     EXTENDED = "extended"
     NEW = "new"
@@ -142,10 +143,18 @@ class SubtitleGate:
     unrelated dialogue.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, require_stable_read: bool = False) -> None:
         self._entries: deque[_Remembered] = deque()
+        self._require_stable_read = require_stable_read
+        self._previous_read = ""
 
     def classify(self, text: str, now: float | None = None) -> LineChange:
+        if self._require_stable_read:
+            previous, self._previous_read = self._previous_read, normalize(text)
+            # A fade can produce plausible words that fuzzy deduplication then
+            # keeps for the entire cue. Confirm the read before remembering it.
+            if not self._previous_read or self._previous_read != previous:
+                return LineChange.UNSTABLE
         now = monotonic() if now is None else now
         self._forget_stale(now)
         if not self._entries:
@@ -172,12 +181,21 @@ class SubtitleGate:
     def remember(self, text: str, now: float | None = None) -> None:
         now = monotonic() if now is None else now
         self._forget_stale(now)
+        if self._require_stable_read:
+            # Direct translation must return to an earlier cue after a seek;
+            # only the last accepted cue can suppress a confirmed read.
+            self._entries.clear()
         self._entries.append(_Remembered(text, now))
         while len(self._entries) > REMEMBERED_LINES:
             self._entries.popleft()
 
     def clear(self) -> None:
         self._entries.clear()
+        self.interrupt_read()
+
+    def interrupt_read(self) -> None:
+        """An empty capture breaks agreement between consecutive reads."""
+        self._previous_read = ""
 
     def _forget_stale(self, now: float) -> None:
         fresh = [entry for entry in self._entries if now - entry.seen_at <= REMEMBER_WINDOW_S]

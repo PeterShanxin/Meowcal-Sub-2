@@ -555,7 +555,7 @@ async def run_session_loop(
     # Read the region every frame: the live dock can reselect it without stopping.
     read_region = region_source or (lambda: tuple(config.capture_region))
     interval_s = config.capture_interval_ms / 1000
-    gate = SubtitleGate()
+    gate = SubtitleGate(require_stable_read=isinstance(session, DirectTranslationSession))
     screen = _Screen()
     pending: asyncio.Task[None] | None = None
     empty_reads = 0
@@ -764,6 +764,7 @@ async def run_session_loop(
                 ocr_text = await ocr_image(image, config.ocr_language)
 
                 if is_untranslatable(ocr_text):
+                    gate.interrupt_read()
                     empty_reads += 1
                     if empty_reads == CLEAR_AFTER_EMPTY_READS:
                         gate.clear()
@@ -786,7 +787,7 @@ async def run_session_loop(
                         # back clean. Only worth trying while nothing has matched.
                         if not screen.confirmed:
                             detail = await handle(ocr_text, fresh=False)
-                    else:
+                    elif change is not LineChange.UNSTABLE:
                         gate.remember(ocr_text)
                         screen.seq += 1
                         if not (session.independent_target and session.anchored):

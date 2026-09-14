@@ -1,0 +1,17 @@
+name: Feature request
+description: Describe a use case the app does not support.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the workflow and where the current app falls short.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Include alternatives you have considered, if any.
+    validations:
+      required: true

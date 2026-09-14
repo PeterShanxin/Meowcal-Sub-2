@@ -61,11 +61,39 @@ def test_the_gate_treats_the_first_read_as_new() -> None:
     assert SubtitleGate().classify("Hello there", now=0.0) is LineChange.NEW
 
 
+def test_stable_reads_ignore_punctuation_but_still_deduplicate_the_cue() -> None:
+    gate = SubtitleGate(require_stable_read=True)
+    assert gate.classify("Hello, there.", now=0.0) is LineChange.UNSTABLE
+    assert gate.classify("Hello there", now=0.5) is LineChange.NEW
+    gate.remember("Hello there", now=0.5)
+    assert gate.classify("Hello there!", now=1.0) is LineChange.REPEAT
+
+
+def test_a_confirmed_second_row_still_extends_the_cue() -> None:
+    gate = SubtitleGate(require_stable_read=True)
+    gate.classify("However, isn't he", now=0.0)
+    assert gate.classify("However, isn't he", now=0.5) is LineChange.NEW
+    gate.remember("However, isn't he", now=0.5)
+    extended = "However, isn't he a hero from an era"
+    assert gate.classify(extended, now=1.0) is LineChange.UNSTABLE
+    assert gate.classify(extended, now=1.5) is LineChange.EXTENDED
+
+
 def test_the_gate_suppresses_a_row_it_saw_two_reads_ago() -> None:
     gate = SubtitleGate()
     gate.remember("Top row of the cue", now=0.0)
     gate.remember("Bottom row of the cue", now=0.5)
     assert gate.classify("Top row of the cue", now=1.0) is LineChange.REPEAT
+
+
+def test_a_stable_gate_only_suppresses_the_current_cue() -> None:
+    gate = SubtitleGate(require_stable_read=True)
+    first, following = "Let us walk home together.", "The cat is waiting by the window."
+    for cue, now in [(first, 0.0), (following, 1.0), (first, 2.0)]:
+        assert gate.classify(cue, now=now) is LineChange.UNSTABLE
+        assert gate.classify(cue, now=now + 0.25) is LineChange.NEW
+        gate.remember(cue, now=now + 0.25)
+        assert gate.classify(cue, now=now + 0.5) is LineChange.REPEAT
 
 
 def test_the_gate_lets_the_same_words_through_again_after_the_window() -> None:

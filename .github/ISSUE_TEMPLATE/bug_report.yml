@@ -1,0 +1,39 @@
+name: Bug report
+description: Report a reproducible problem with the app.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For vulnerabilities, use the security policy instead of a public issue.
+        Remove credentials, access tokens, private dialogue, viewing screenshots, and unredacted logs.
+  - type: input
+    id: version
+    attributes:
+      label: App version
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version and architecture
+      placeholder: Windows 11, ARM64
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Use synthetic subtitle text or images if a sample is needed.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Relevant error codes, timings, engine status, and sanitized log excerpts.

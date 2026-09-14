@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "subtitle-plate",
+  "description": "Allow the loopback subtitle page to resize its own plate.",
+  "windows": ["overlay"],
+  "remote": {
+    "urls": ["http://127.0.0.1:*", "http://localhost:*"]
+  },
+  "permissions": ["subtitle-plate"]
+}
