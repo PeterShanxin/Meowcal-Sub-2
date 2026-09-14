@@ -22,7 +22,9 @@ NOTICE_NAME = re.compile(r"^(?:notice|copyright)(?:[._-].*)?$", re.I)
 
 
 def command_json(arguments: list[str]) -> Any:
-    result = subprocess.run(arguments, check=True, capture_output=True, text=True, timeout=180)
+    result = subprocess.run(
+        arguments, check=True, capture_output=True, text=True, encoding="utf-8", timeout=180
+    )
     return json.loads(result.stdout)
 
 
