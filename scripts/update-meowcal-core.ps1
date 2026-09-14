@@ -63,50 +63,6 @@ function Get-PeMachine {
     } finally { $stream.Dispose() }
 }
 
-function Get-CoreVersionJson {
-    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Architecture)
-    $startInfo = [Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $Path
-    $startInfo.Arguments = "--version-json"
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $startInfo.RedirectStandardInput = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    foreach ($tokenName in @("GITHUB_TOKEN", "GH_TOKEN", "CORE_UPGRADE_TOKEN")) {
-        [void]$startInfo.Environment.Remove($tokenName)
-    }
-    $process = [Diagnostics.Process]::new()
-    $process.StartInfo = $startInfo
-    $started = $false
-    try {
-        $started = $process.Start()
-        if (-not $started) {
-            throw "Core $Architecture executable did not start for --version-json."
-        }
-        $process.StandardInput.Close()
-        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-        $stderrTask = $process.StandardError.ReadToEndAsync()
-        if (-not $process.WaitForExit(15000)) {
-            $process.Kill()
-            $process.WaitForExit()
-            throw "Core $Architecture executable timed out while answering --version-json."
-        }
-        $stdout = $stdoutTask.GetAwaiter().GetResult().Trim()
-        $stderr = $stderrTask.GetAwaiter().GetResult().Trim()
-        if ($process.ExitCode -ne 0) {
-            throw "Core $Architecture executable did not answer --version-json: $stderr"
-        }
-        return $stdout
-    } finally {
-        if ($started -and -not $process.HasExited) {
-            $process.Kill()
-            $process.WaitForExit()
-        }
-        $process.Dispose()
-    }
-}
-
 function Get-ReleaseList {
     if ($ReleaseJsonPath) {
         if (-not (Test-Path -LiteralPath $ReleaseJsonPath -PathType Leaf)) {
@@ -189,6 +145,7 @@ function Get-Checksum {
 }
 
 . (Join-Path $PSScriptRoot "lib\CoreSchemaChecks.ps1")
+. (Join-Path $PSScriptRoot "lib\CoreProcess.ps1")
 
 function Read-CurrentLock {
     if (-not (Test-Path -LiteralPath $OutputPath -PathType Leaf)) { return $null }
@@ -306,7 +263,8 @@ function Test-CoreArchive {
             throw "Core $Architecture executable PE machine does not match the package architecture."
         }
         if ($RunExecutableContract) {
-            $versionJson = Get-CoreVersionJson -Path $binaryPath -Architecture $Architecture
+            $versionJson = Invoke-CoreVersionJson -Path $binaryPath -Subject "Core $Architecture executable" `
+                -TimeoutMilliseconds 15000
             try { $versionInfo = $versionJson | ConvertFrom-Json }
             catch { throw "Core $Architecture executable returned invalid --version-json output: $_" }
             $capabilities = @($versionInfo.capabilities)

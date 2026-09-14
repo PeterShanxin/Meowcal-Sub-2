@@ -275,13 +275,11 @@ try {
         throw "Core upgrades must check out and target the repository default branch."
     }
     $updaterSource = Get-Content -LiteralPath $updater -Raw
-    if ($updaterSource -notmatch '\$startInfo\.Arguments\s*=\s*"--version-json"' -or
-        $updaterSource -match '\.ArgumentList' -or
-        $updaterSource -match '\.Kill\(\$true\)') {
-        throw "Core executable probing must use ProcessStartInfo APIs supported by Windows PowerShell 5.1."
-    }
+    $coreProcessSource = Get-Content -LiteralPath (
+        Join-Path $repositoryRoot "scripts\lib\CoreProcess.ps1"
+    ) -Raw
     if ($updaterSource -notmatch '\$headers\.Authorization\s*=\s*"Bearer \$env:GITHUB_TOKEN"' -or
-        $updaterSource -notmatch 'Environment\.Remove\(\$tokenName\)') {
+        $coreProcessSource -notmatch 'Environment\.Remove\(\$tokenName\)') {
         throw "Core release discovery must authenticate only its API request and clear tokens before probing Core."
     }
     if ((Get-Content -LiteralPath $updater).Count -gt 400) {

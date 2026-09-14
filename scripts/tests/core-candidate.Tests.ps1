@@ -7,6 +7,8 @@ Set-StrictMode -Version Latest
 $repositoryRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $candidateScript = Join-Path $repositoryRoot "scripts\prepare-core-candidate.ps1"
 $checkedInPin = Join-Path $repositoryRoot "config\meowcal-core.candidate.json"
+$coreProcessLib = Join-Path $repositoryRoot "scripts\lib\CoreProcess.ps1"
+. $coreProcessLib
 $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) (
     "meowcal-core-candidate-tests-" + [guid]::NewGuid().ToString("N")
 )
@@ -82,6 +84,8 @@ $incomingCoreSource = $env:FAKE_CORE_SOURCE
 $incomingCoreTarget = $env:FAKE_CORE_TARGET
 $incomingCoreBinary = $env:FAKE_CORE_BINARY
 $incomingCargoExit = $env:FAKE_CARGO_EXIT
+$incomingCoreProcessTestChildPid = $env:CORE_PROCESS_TEST_CHILD_PID
+$childPid = $null
 
 try {
     $checkedInCommit = & $candidateScript -ConfigPath $checkedInPin -ResolveCommit
@@ -185,11 +189,27 @@ exit /b %errorlevel%
         & $candidateScript -SourcePath $source -ConfigPath $pinPath
     } "invalid --version-json output"
 
-    $candidateSource = Get-Content -LiteralPath $candidateScript -Raw
-    if ($candidateSource -notmatch '\$startInfo\.Arguments\s*=\s*"--version-json"' -or
-        $candidateSource -match '\.ArgumentList' -or
-        $candidateSource -match '\.Kill\(\$true\)') {
-        throw "Core candidate probing must use ProcessStartInfo APIs supported by Windows PowerShell 5.1."
+    $childPidPath = Join-Path $temporaryDirectory "core-process-child.pid"
+    $env:CORE_PROCESS_TEST_CHILD_PID = $childPidPath
+    $parentCommand = @'
+$child = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\ping.exe') `
+    -ArgumentList '127.0.0.1', '-n', '30' -WindowStyle Hidden -PassThru
+[IO.File]::WriteAllText($env:CORE_PROCESS_TEST_CHILD_PID, [string]$child.Id)
+Start-Sleep -Seconds 30
+'@
+    $encodedParentCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($parentCommand))
+    $hostExecutable = (Get-Process -Id $PID).Path
+    Assert-Throws {
+        Invoke-CoreProcessText -Path $hostExecutable `
+            -Arguments "-NoProfile -EncodedCommand $encodedParentCommand" `
+            -TimeoutMilliseconds 3000 -Subject "Core process timeout fixture" | Out-Null
+    } "timed out"
+    if (-not (Test-Path -LiteralPath $childPidPath -PathType Leaf)) {
+        throw "Timed-out Core process fixture did not start its child process."
+    }
+    $childPid = [int][IO.File]::ReadAllText($childPidPath)
+    if (Get-Process -Id $childPid -ErrorAction SilentlyContinue) {
+        throw "Timed-out Core process cleanup left descendant PID $childPid running."
     }
 
     $verifySource = Get-Content -LiteralPath (Join-Path $repositoryRoot "scripts\verify.ps1") -Raw
@@ -232,5 +252,7 @@ exit /b %errorlevel%
     $env:FAKE_CORE_TARGET = $incomingCoreTarget
     $env:FAKE_CORE_BINARY = $incomingCoreBinary
     $env:FAKE_CARGO_EXIT = $incomingCargoExit
+    $env:CORE_PROCESS_TEST_CHILD_PID = $incomingCoreProcessTestChildPid
+    if ($childPid) { Stop-Process -Id $childPid -Force -ErrorAction SilentlyContinue }
     Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force -ErrorAction SilentlyContinue
 }
