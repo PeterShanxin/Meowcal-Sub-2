@@ -67,10 +67,17 @@
       <div class="sub" style="margin-top:10px;">
         Local Python backend failed to respond within the timeout.
       </div>
-      <button onclick="window.__TAURI__?.event?.emit('splash-retry')">Retry</button>
+      <button onclick="retryBackendBoot()">Retry</button>
     </div>
   </div>
   <script>
+    function retryBackendBoot() {
+      const s = document.getElementById('status');
+      if (s) s.textContent = 'Retrying...';
+      document.getElementById('error').style.display = 'none';
+      document.getElementById('loading').style.display = 'flex';
+      window.__TAURI__?.event?.emit('splash-retry');
+    }
     if (window.__TAURI__?.event?.listen) {
       window.__TAURI__.event.listen('splash-status', (e) => {
         const s = document.getElementById('status');
