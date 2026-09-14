@@ -115,7 +115,7 @@ class OverlayServer:
         async def authenticate(request: Request, call_next):
             # The bundle under /static is public code with no state in it; every
             # route that reads or changes app state is behind the run token.
-            if request.url.path.startswith("/static/"):
+            if request.scope["path"].startswith("/static/"):
                 return await call_next(request)
             origin = request.headers.get("origin")
             if origin is not None and origin not in self._allowed_origins:

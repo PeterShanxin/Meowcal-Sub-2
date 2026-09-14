@@ -1,0 +1,22 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "beforeBuildCommand": ""
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "license": "AGPL-3.0-only",
+    "licenseFile": "../LICENSE",
+    "resources": {
+      "resources/backend/": "backend/",
+      "../output/third-party-licenses/": "third-party-licenses/",
+      "../LICENSE": "LICENSE"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

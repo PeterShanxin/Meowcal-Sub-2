@@ -287,12 +287,8 @@ try {
         throw "The supported development launcher must prepare Core under the development profile."
     }
 
-    $shellSource = Get-Content -LiteralPath (Join-Path $repositoryRoot "src-tauri\src\backend_process.rs") -Raw
-    if ($shellSource -notmatch 'resource_dir\(\)' -or
-        $shellSource -notmatch 'directory\.join\("core"\)\.join\("meowcal-core\.exe"\)' -or
-        $shellSource -notmatch 'command\.env\("MEOWCAL_CORE_EXE", core_executable\)') {
-        throw "The packaged shell must pass its bundled Core resource path to the Python backend."
-    }
+    # Rust backend_process tests exercise the packaged command's Core environment
+    # and isolated Python path directly, without depending on source spellings.
 
     $verifySource = Get-Content -LiteralPath (Join-Path $repositoryRoot "scripts\verify.ps1") -Raw
     if ($verifySource -notmatch 'MEOWCAL_CORE_EXE = \$CoreResource' -or

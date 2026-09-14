@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import type { BackendResult, BackendTargetAlignment, BackendWork } from "../lib/types";
+import type {
+  BackendResult,
+  BackendSnapshot,
+  BackendTargetAlignment,
+  BackendWork,
+} from "../lib/types";
 import {
   applyLanguageChoice,
   coverageLabel,
+  derivePhase,
   mapResultsToSource,
   mapResultsToTarget,
   mapWorksToItems,
@@ -61,6 +67,27 @@ function makeResult(
 }
 
 describe("mapWorksToItems", () => {
+  it("keeps incomplete season catalogs readable without inventing episode counts", () => {
+    const item = mapWorksToItems([
+      makeWork({
+        id: "specials",
+        title: "Specials",
+        mediaType: "series",
+        expandable: true,
+        infoChips: [
+          { kind: "language", label: "English", tone: "accent" },
+          { kind: "provider", label: "New provider", tone: "unknown" },
+        ],
+        seasons: [{ seasonNumber: 0, subtitlesCount: 1, episodes: [] }],
+      }),
+    ])[0];
+    expect(item.type).toBe("Series");
+    expect(item.year).toBe("—");
+    expect(item.expandable).toBe(false);
+    expect(item.seasons[0].label).toBe("Specials");
+    expect(item.chips.map((chip) => chip.tone)).toEqual(["accent", "neutral"]);
+  });
+
   it("marks movie works as non-expandable and carries primary match id", () => {
     const items = mapWorksToItems([
       makeWork({
@@ -205,6 +232,39 @@ describe("applyLanguageChoice", () => {
 });
 
 describe("mapResultsToSource", () => {
+  it("filters other titles and unrelated languages while retaining regional and Chinese variants", () => {
+    const results = [
+      makeResult({ resultId: "traditional", matchId: "m1", language: "zht" }),
+      makeResult({ resultId: "regional", matchId: "m1", language: "zh-CN" }),
+      makeResult({ resultId: "other-title", matchId: "m2", language: "zh" }),
+      makeResult({ resultId: "english", matchId: "m1", language: "en" }),
+      makeResult({
+        resultId: "unknown",
+        matchId: "m1",
+        language: "",
+        fileName: "",
+        providerLabel: "",
+        downloadCount: Number.NaN,
+      }),
+    ];
+    const sources = mapResultsToSource(results, "m1", "ZH");
+    expect(sources.map((item) => item.id)).toEqual(["traditional", "regional", "unknown"]);
+    expect(sources[2]).toMatchObject({
+      file: "unknown",
+      provider: "opensubtitles",
+      downloads: "—",
+    });
+    expect(mapResultsToSource(results, null, "en-US").map((item) => item.id)).toEqual([
+      "english",
+      "unknown",
+    ]);
+    expect(
+      mapResultsToTarget(results, "m2", "zh")
+        .filter((item) => item.kind === "file")
+        .map((item) => item.id),
+    ).toEqual(["other-title"]);
+  });
+
   it("ranks by match score, then provider rank, then downloads", () => {
     const results = [
       makeResult({ resultId: "weak", matchId: "m1", language: "en", matchScore: 10 }),
@@ -263,6 +323,18 @@ const chosenTarget: BackendTargetAlignment = {
   unpaired_ms: 47_000,
   chosen: true,
 };
+
+describe("derivePhase", () => {
+  it("keeps live playback ahead of a retained prepared session and respects a manual view", () => {
+    const prepared = { session_id: "ready" } as NonNullable<BackendSnapshot["prepared_session"]>;
+    const running = { status: "running", prepared_session: prepared } as BackendSnapshot;
+    expect(derivePhase(running, null)).toBe("live");
+    expect(derivePhase(running, "home")).toBe("home");
+    expect(derivePhase({ ...running, status: "idle" }, null)).toBe("prep");
+    expect(derivePhase({ ...running, status: "idle", prepared_session: null }, null)).toBe("home");
+    expect(derivePhase(null, null)).toBe("home");
+  });
+});
 
 describe("coverageLabel", () => {
   it("says what the target file leaves for the model before anything is written", () => {

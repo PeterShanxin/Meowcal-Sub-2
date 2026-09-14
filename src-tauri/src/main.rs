@@ -802,7 +802,7 @@ fn navigate_main_to_backend(app: &AppHandle) {
     url.query_pairs_mut().append_pair("token", &access_token());
     log_shell_event(
         "window.main.navigate",
-        serde_json::json!({ "url": url.as_str() }),
+        serde_json::json!({ "url": api_base() }),
     );
     let _ = window.navigate(url);
     let _ = window.set_focus();

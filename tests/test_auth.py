@@ -36,6 +36,22 @@ def test_privileged_writes_reject_callers_without_the_token(tmp_path: Path) -> N
         assert client.put("/api/config", json={}).status_code == 401
 
 
+@pytest.mark.parametrize("host", ["127.0.0.1/static/?x=", "localhost/static/#"])
+def test_host_cannot_disguise_a_privileged_route_as_a_static_asset(
+    tmp_path: Path, host: str
+) -> None:
+    with TestClient(make_server(tmp_path).app) as client:
+        headers = {"host": host}
+        assert client.get("/api/config", headers=headers).status_code == 401
+        assert client.post("/api/session/stop", headers=headers).status_code == 401
+        assert (
+            client.get(
+                "/api/config", headers={**headers, "origin": "https://example.invalid"}
+            ).status_code
+            == 403
+        )
+
+
 def test_the_token_is_accepted_in_the_query_string_for_navigation(tmp_path: Path) -> None:
     with TestClient(make_server(tmp_path).app) as client:
         assert client.get(f"/?token={TEST_TOKEN}").status_code == 200

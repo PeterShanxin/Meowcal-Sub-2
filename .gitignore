@@ -2,11 +2,20 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+.venv/
+.env
+.env.*
+!.env.example
+config.toml
+runtime.json
+*.log
 .claude/
 .playwright-cli/
 output/
 src-tauri/target/
 src-tauri/resources/core/
+src-tauri/resources/backend/
+dist/
 docs/plans/
 
 # Frontend tooling artifacts (built output is committed so Python-only runs work)

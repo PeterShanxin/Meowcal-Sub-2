@@ -1,0 +1,78 @@
+name: Windows release artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['release/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Package ${{ matrix.architecture }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            architecture: x64
+          - runner: windows-11-arm
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14.7'
+          architecture: ${{ matrix.architecture }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/meocosub2/overlay/ui/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Install verification dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --require-hashes -r config/backend-requirements.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m pip install -e '.[dev]'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm --prefix src/meocosub2/overlay/ui ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m playwright install chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify source
+        shell: pwsh
+        env:
+          CARGO_BUILD_JOBS: 1
+        run: .\scripts\verify.ps1
+      - name: Build and smoke-test Windows distribution
+        shell: pwsh
+        env:
+          CARGO_BUILD_JOBS: 1
+          GH_TOKEN: ${{ github.token }}
+        run: .\scripts\build-windows-release.ps1 -Architecture ${{ matrix.architecture }}
+      - name: Upload artifacts for native acceptance
+        uses: actions/upload-artifact@v4
+        with:
+          name: meowcal-sub-2-windows-${{ matrix.architecture }}-${{ github.sha }}
+          path: |
+            dist/*-portable.zip
+            dist/*-setup.exe
+            dist/*-SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
