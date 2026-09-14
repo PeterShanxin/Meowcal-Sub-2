@@ -1,3 +1,5 @@
+import { isTauri } from "../hooks/use-tauri";
+
 /** The run token the backend injects into the served page. */
 declare global {
   interface Window {
@@ -6,12 +8,11 @@ declare global {
 }
 
 function readToken(): string {
-  // The desktop shell navigates with the token in the query string. Keep it in
-  // memory and take it back out of the address bar either way, so it does not
-  // sit in history for the lifetime of the backend.
+  // WebView2 has no address bar and needs the query token on a document reload.
+  // Browser pages remove it from the visible address and keep it only in memory.
   const url = new URL(window.location.href);
   const fromQuery = url.searchParams.get("token") ?? "";
-  if (fromQuery) {
+  if (fromQuery && !isTauri()) {
     url.searchParams.delete("token");
     window.history.replaceState(null, "", url.toString());
   }

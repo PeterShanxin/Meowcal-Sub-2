@@ -29,7 +29,8 @@
     },
     "frontend": {
       "scope": [
-        "src/state/mappers.ts"
+        "src/state/mappers.ts",
+        "src/lib/session.ts"
       ],
       "floors": {
         "statements": 89,
