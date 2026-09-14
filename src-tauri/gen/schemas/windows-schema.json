@@ -177,6 +177,24 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Read and confirm the capture region in the local selector window.",
+          "type": "string",
+          "const": "capture-selector",
+          "markdownDescription": "Read and confirm the capture region in the local selector window."
+        },
+        {
+          "description": "Studio controls for capture selection and the live subtitle session.",
+          "type": "string",
+          "const": "studio-shell",
+          "markdownDescription": "Studio controls for capture selection and the live subtitle session."
+        },
+        {
+          "description": "Fit the subtitle plate to its rendered content.",
+          "type": "string",
+          "const": "subtitle-plate",
+          "markdownDescription": "Fit the subtitle plate to its rendered content."
+        },
+        {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",
           "type": "string",
           "const": "core:default",

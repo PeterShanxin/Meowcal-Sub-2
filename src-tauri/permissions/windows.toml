@@ -1,0 +1,14 @@
+[[permission]]
+identifier = "studio-shell"
+description = "Studio controls for capture selection and the live subtitle session."
+commands.allow = ["open_area_selector", "enter_live_mode", "exit_live_mode", "stop_translation", "get_api_base"]
+
+[[permission]]
+identifier = "capture-selector"
+description = "Read and confirm the capture region in the local selector window."
+commands.allow = ["set_capture_region", "cancel_area_selector", "get_capture_region", "get_selector_backdrop"]
+
+[[permission]]
+identifier = "subtitle-plate"
+description = "Fit the subtitle plate to its rendered content."
+commands.allow = ["set_overlay_height"]
