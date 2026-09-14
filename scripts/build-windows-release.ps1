@@ -38,6 +38,9 @@ try {
     $remap = "--remap-path-prefix=$repositoryRoot=."
     $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE '.cargo' }
     $remap += [char]31 + "--remap-path-prefix=$cargoHome=/cargo"
+    $rustSysroot = rustc --print sysroot
+    if ($LASTEXITCODE -ne 0) { throw 'Could not locate the Rust toolchain for path remapping.' }
+    $remap += [char]31 + "--remap-path-prefix=$rustSysroot=/rust-toolchain"
     $env:CARGO_ENCODED_RUSTFLAGS = if ($previousRustFlags) {
         $previousRustFlags + [char]31 + $remap
     } else { $remap }
