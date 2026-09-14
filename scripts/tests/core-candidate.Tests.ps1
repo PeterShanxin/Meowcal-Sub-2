@@ -185,6 +185,13 @@ exit /b %errorlevel%
         & $candidateScript -SourcePath $source -ConfigPath $pinPath
     } "invalid --version-json output"
 
+    $candidateSource = Get-Content -LiteralPath $candidateScript -Raw
+    if ($candidateSource -notmatch '\$startInfo\.Arguments\s*=\s*"--version-json"' -or
+        $candidateSource -match '\.ArgumentList' -or
+        $candidateSource -match '\.Kill\(\$true\)') {
+        throw "Core candidate probing must use ProcessStartInfo APIs supported by Windows PowerShell 5.1."
+    }
+
     $verifySource = Get-Content -LiteralPath (Join-Path $repositoryRoot "scripts\verify.ps1") -Raw
     if ($verifySource -notmatch '(?s)if \(\$CoreCandidateSource\).*?& \$CoreCandidatePrepare' -or
         $verifySource -notmatch '(?s)else\s*\{.*?& \$CoreFetch') {

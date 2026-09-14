@@ -67,7 +67,7 @@ function Get-CoreVersionJson {
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Architecture)
     $startInfo = [Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $Path
-    $startInfo.ArgumentList.Add("--version-json")
+    $startInfo.Arguments = "--version-json"
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
     $startInfo.RedirectStandardInput = $true
@@ -88,7 +88,7 @@ function Get-CoreVersionJson {
         $stdoutTask = $process.StandardOutput.ReadToEndAsync()
         $stderrTask = $process.StandardError.ReadToEndAsync()
         if (-not $process.WaitForExit(15000)) {
-            $process.Kill($true)
+            $process.Kill()
             $process.WaitForExit()
             throw "Core $Architecture executable timed out while answering --version-json."
         }
@@ -100,7 +100,7 @@ function Get-CoreVersionJson {
         return $stdout
     } finally {
         if ($started -and -not $process.HasExited) {
-            $process.Kill($true)
+            $process.Kill()
             $process.WaitForExit()
         }
         $process.Dispose()
