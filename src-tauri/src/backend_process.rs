@@ -139,10 +139,11 @@ mod tests {
         let still_running = std::process::Command::new("tasklist")
             .args(["/FI", &format!("PID eq {pid}")])
             .output()
-            .map(|output| {
-                String::from_utf8_lossy(&output.stdout).contains(&pid.to_string())
-            })
+            .map(|output| String::from_utf8_lossy(&output.stdout).contains(&pid.to_string()))
             .unwrap_or(false);
-        assert!(!still_running, "the previous child must be killed, not orphaned");
+        assert!(
+            !still_running,
+            "the previous child must be killed, not orphaned"
+        );
     }
 }
