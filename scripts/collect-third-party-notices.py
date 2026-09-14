@@ -155,7 +155,6 @@ def rust_packages() -> list[dict[str, Any]]:
                 executable,
                 "metadata",
                 "--locked",
-                "--offline",
                 "--format-version",
                 "1",
                 "--filter-platform",

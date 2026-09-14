@@ -44,9 +44,11 @@ if ($wheel.Count -ne 1) { throw 'Expected exactly one backend wheel.' }
 if ($LASTEXITCODE -ne 0) { throw "Backend wheel installation failed: $LASTEXITCODE" }
 
 # The shell uses -m; pip's unused console launchers embed the build Python path.
-$consoleScripts = [IO.Path]::GetFullPath((Join-Path $sitePackages 'bin'))
-if ($consoleScripts -cne (Join-Path $expectedDestination 'Lib/site-packages/bin')) { throw 'Unsafe launcher destination.' }
-if (Test-Path -LiteralPath $consoleScripts) { Remove-Item -LiteralPath $consoleScripts -Recurse -Force }
+foreach ($scriptsFolder in @('bin', 'Scripts')) {
+    $consoleScripts = [IO.Path]::GetFullPath((Join-Path $sitePackages $scriptsFolder))
+    if ($consoleScripts -cne (Join-Path $expectedDestination "Lib/site-packages/$scriptsFolder")) { throw 'Unsafe launcher destination.' }
+    if (Test-Path -LiteralPath $consoleScripts) { Remove-Item -LiteralPath $consoleScripts -Recurse -Force }
+}
 
 # The embedded interpreter ignores registry, environment and user site packages.
 @('python314.zip', '.', 'Lib/site-packages') | Set-Content (Join-Path $destination 'python314._pth') -Encoding ascii

@@ -41,8 +41,9 @@ def check_package(package: Path, architecture: str) -> None:
         raise ValueError("Studio development files must not be distributed in the backend.")
     if list((package / "backend/Lib/site-packages").glob("*.dist-info/direct_url.json")):
         raise ValueError("Local wheel provenance must not expose build-machine paths.")
-    if (package / "backend/Lib/site-packages/bin").exists():
-        raise ValueError("Unused console launchers must not expose build-machine paths.")
+    for scripts_folder in ("bin", "Scripts"):
+        if (package / "backend/Lib/site-packages" / scripts_folder).exists():
+            raise ValueError("Unused console launchers must not expose build-machine paths.")
 
 
 if __name__ == "__main__":

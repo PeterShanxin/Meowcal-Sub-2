@@ -40,7 +40,8 @@ def test_rejects_non_executable_payload(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "relative", ["meowcal_sub_2-0.1.0.dist-info/direct_url.json", "bin/uvicorn.exe"]
+    "relative",
+    ["meowcal_sub_2-0.1.0.dist-info/direct_url.json", "bin/uvicorn.exe", "Scripts/uvicorn.exe"],
 )
 def test_rejects_private_build_provenance_in_an_otherwise_complete_package(
     tmp_path: Path, relative: str
