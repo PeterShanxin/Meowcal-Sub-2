@@ -86,6 +86,16 @@ def test_the_gate_suppresses_a_row_it_saw_two_reads_ago() -> None:
     assert gate.classify("Top row of the cue", now=1.0) is LineChange.REPEAT
 
 
+def test_a_stable_gate_only_suppresses_the_current_cue() -> None:
+    gate = SubtitleGate(require_stable_read=True)
+    first, following = "Let us walk home together.", "The cat is waiting by the window."
+    for cue, now in [(first, 0.0), (following, 1.0), (first, 2.0)]:
+        assert gate.classify(cue, now=now) is LineChange.UNSTABLE
+        assert gate.classify(cue, now=now + 0.25) is LineChange.NEW
+        gate.remember(cue, now=now + 0.25)
+        assert gate.classify(cue, now=now + 0.5) is LineChange.REPEAT
+
+
 def test_the_gate_lets_the_same_words_through_again_after_the_window() -> None:
     gate = SubtitleGate()
     gate.remember("Hello there", now=0.0)

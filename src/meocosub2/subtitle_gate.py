@@ -181,6 +181,10 @@ class SubtitleGate:
     def remember(self, text: str, now: float | None = None) -> None:
         now = monotonic() if now is None else now
         self._forget_stale(now)
+        if self._require_stable_read:
+            # Direct translation must return to an earlier cue after a seek;
+            # only the last accepted cue can suppress a confirmed read.
+            self._entries.clear()
         self._entries.append(_Remembered(text, now))
         while len(self._entries) > REMEMBERED_LINES:
             self._entries.popleft()

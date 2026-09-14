@@ -338,6 +338,24 @@ async def test_direct_translation_updates_after_a_paused_seek() -> None:
 
 
 @pytest.mark.asyncio
+async def test_direct_translation_returns_to_a_recent_cue_after_a_seek() -> None:
+    first, following = "Let us walk home together.", "The cat is waiting by the window."
+    translations = {first: "让我们一起回家吧。", following: "猫正在窗边等待。"}
+    client = MagicMock()
+    client.translate = AsyncMock(side_effect=lambda text, *_: translations[text])
+    session = DirectTranslationSession(
+        [], config(), translator_factory(LiveTranslator(client, "en", "zh"))
+    )
+    reads = [first] * 3 + [following] * 3 + [first] * 3
+    assert await drive(session, config(), reads) == [
+        translations[first],
+        translations[following],
+        translations[first],
+    ]
+    assert client.translate.await_count == 2
+
+
+@pytest.mark.asyncio
 async def test_direct_translation_reconfirms_a_phrase_after_silence() -> None:
     translator = MagicMock()
     translator.translate = AsyncMock(return_value="你好")
