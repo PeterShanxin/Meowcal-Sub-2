@@ -199,6 +199,34 @@ Start-Sleep -Seconds 30
 '@
     $encodedParentCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($parentCommand))
     $hostExecutable = (Get-Process -Id $PID).Path
+    $tokenNames = @("GITHUB_TOKEN", "GH_TOKEN", "CORE_UPGRADE_TOKEN")
+    $incomingTokens = @{}
+    foreach ($tokenName in $tokenNames) {
+        $incomingTokens[$tokenName] = [Environment]::GetEnvironmentVariable($tokenName)
+        [Environment]::SetEnvironmentVariable($tokenName, "must-not-leak")
+    }
+    try {
+        $environmentCommand = @'
+$leaked = foreach ($name in @("GITHUB_TOKEN", "GH_TOKEN", "CORE_UPGRADE_TOKEN")) {
+    if ([Environment]::GetEnvironmentVariable($name)) { $name }
+}
+if (@($leaked).Count -eq 0) { [Console]::Out.Write("clean") }
+else { [Console]::Out.Write(($leaked -join ",")) }
+'@
+        $encodedEnvironmentCommand = [Convert]::ToBase64String(
+            [Text.Encoding]::Unicode.GetBytes($environmentCommand)
+        )
+        $environmentResult = Invoke-CoreProcessText -Path $hostExecutable `
+            -Arguments "-NoProfile -EncodedCommand $encodedEnvironmentCommand" `
+            -TimeoutMilliseconds 5000 -Subject "Core process environment fixture"
+        if ($environmentResult.ExitCode -ne 0 -or $environmentResult.Stdout -ne "clean") {
+            throw "Core process probe leaked credentials to the child: $($environmentResult.Stdout)"
+        }
+    } finally {
+        foreach ($tokenName in $tokenNames) {
+            [Environment]::SetEnvironmentVariable($tokenName, $incomingTokens[$tokenName])
+        }
+    }
     Assert-Throws {
         Invoke-CoreProcessText -Path $hostExecutable `
             -Arguments "-NoProfile -EncodedCommand $encodedParentCommand" `

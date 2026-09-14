@@ -275,12 +275,8 @@ try {
         throw "Core upgrades must check out and target the repository default branch."
     }
     $updaterSource = Get-Content -LiteralPath $updater -Raw
-    $coreProcessSource = Get-Content -LiteralPath (
-        Join-Path $repositoryRoot "scripts\lib\CoreProcess.ps1"
-    ) -Raw
-    if ($updaterSource -notmatch '\$headers\.Authorization\s*=\s*"Bearer \$env:GITHUB_TOKEN"' -or
-        $coreProcessSource -notmatch 'Environment\.Remove\(\$tokenName\)') {
-        throw "Core release discovery must authenticate only its API request and clear tokens before probing Core."
+    if ($updaterSource -notmatch '\$headers\.Authorization\s*=\s*"Bearer \$env:GITHUB_TOKEN"') {
+        throw "Core release discovery must authenticate its GitHub API request."
     }
     if ((Get-Content -LiteralPath $updater).Count -gt 400) {
         throw "The Core updater must remain at or below 400 lines."
