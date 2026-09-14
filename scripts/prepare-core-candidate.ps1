@@ -17,6 +17,8 @@ if (-not $DestinationPath) {
     $DestinationPath = Join-Path $repositoryRoot "src-tauri\resources\core\meowcal-core.exe"
 }
 
+. (Join-Path $PSScriptRoot "lib\CoreSchemaChecks.ps1")
+
 function Invoke-GitText {
     param([Parameter(Mandatory)][string[]]$Arguments)
 
@@ -110,7 +112,7 @@ if (@($pinProperties | Where-Object { $_ -notin $expectedPinProperties }).Count 
     @($expectedPinProperties | Where-Object { $_ -notin $pinProperties }).Count -ne 0) {
     throw "Core candidate pin fields do not match schema 1."
 }
-if ($pin.schemaVersion -isnot [long] -or $pin.schemaVersion -ne 1) {
+if (-not (Test-IsIntegerValue -Value $pin.schemaVersion -Expected 1)) {
     throw "Unsupported Core candidate pin schema."
 }
 if ($pin.repository -ne "PeterShanxin/Meowcal-Sub") {
@@ -122,7 +124,7 @@ if ($pin.commit -isnot [string] -or $pin.commit -notmatch '^[0-9a-f]{40}$') {
 if ($pin.coreVersion -isnot [string] -or $pin.coreVersion -notmatch '^\d+\.\d+\.\d+$') {
     throw "Core candidate version must use major.minor.patch."
 }
-if ($pin.apiVersion -isnot [long] -or $pin.apiVersion -ne 1) {
+if (-not (Test-IsIntegerValue -Value $pin.apiVersion -Expected 1)) {
     throw "Core candidate API version must be 1."
 }
 if ($ResolveCommit) {
@@ -211,8 +213,7 @@ $requiredCapabilities = @(
 $capabilities = @($versionInfo.capabilities)
 if ($versionInfo.version -isnot [string] -or
     $versionInfo.version -ne $pin.coreVersion -or
-    $versionInfo.api -isnot [long] -or
-    $versionInfo.api -ne $pin.apiVersion -or
+    -not (Test-IsIntegerValue -Value $versionInfo.api -Expected $pin.apiVersion) -or
     @($capabilities | Where-Object { $_ -isnot [string] }).Count -ne 0 -or
     $capabilities.Count -ne $requiredCapabilities.Count -or
     (Compare-Object -ReferenceObject $requiredCapabilities -DifferenceObject $capabilities -CaseSensitive)) {
