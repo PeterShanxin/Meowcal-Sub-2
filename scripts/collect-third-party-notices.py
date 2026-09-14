@@ -13,6 +13,7 @@ from functools import cache
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import quote
+from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "output" / "third-party-licenses"
@@ -81,31 +82,26 @@ def upstream_licenses(package: dict[str, Any], directory: Path) -> list[dict[str
         )
         if tag:
             revision = tag["commit"]["sha"]
-    if (package["name"], package["version"]) in {("fxhash", "0.2.1"), ("mac", "0.1.1")}:
-        # These published packages declare Apache-2.0 but omit its standard text.
-        if "Apache-2.0" not in package["license"]:
-            raise RuntimeError(f"No Apache-2.0 grant for {package['name']}")
-        if package["name"] == "fxhash":
-            notice = re.split(rb"\r?\n\r?\n", (directory / "lib.rs").read_bytes(), maxsplit=1)[0]
-            if (
-                b"Copyright 2015 The Rust Project Developers" not in notice
-                or b"Apache License, Version 2.0" not in notice
-            ):
-                raise RuntimeError("fxhash no longer contains the verified Apache-2.0 grant.")
-            notice_source = "published fxhash 0.2.1 lib.rs header"
-        else:
-            notice = (directory / "Cargo.toml").read_bytes()
-            notice_source = "published mac 0.1.1 Cargo.toml author and license declaration"
-        package["selected_license"] = "Apache-2.0"
-        license_url = "repos/rust-lang/rust/contents/LICENSE-APACHE?ref=1.0.0"
-        license_data = github_json(license_url)
+    if package["name"] == "selectors" and package["version"] == "0.36.1":
+        notice = re.split(rb"\r?\n\r?\n", (directory / "lib.rs").read_bytes(), maxsplit=1)[0]
+        if (
+            package["license"] != "MPL-2.0"
+            or b"Mozilla Public" not in notice
+            or b"License, v. 2.0" not in notice
+        ):
+            raise RuntimeError("selectors no longer contains its verified MPL-2.0 grant.")
+        license_url = "https://www.mozilla.org/media/MPL/2.0/index.txt"
+        with urlopen(license_url, timeout=30) as response:
+            license_text = response.read()
+        if not license_text.startswith(b"Mozilla Public License Version 2.0"):
+            raise RuntimeError("Mozilla did not return the expected MPL-2.0 text.")
         return [
-            {"name": "NOTICE", "data": notice + b"\n", "source": notice_source},
             {
-                "name": "LICENSE-APACHE",
-                "data": base64.b64decode(license_data["content"]),
-                "source": "https://github.com/rust-lang/rust/blob/1.0.0/LICENSE-APACHE",
+                "name": "NOTICE",
+                "data": notice + b"\n",
+                "source": f"https://github.com/{repository_name}/blob/{revision}/selectors/lib.rs",
             },
+            {"name": "LICENSE-MPL-2.0", "data": license_text, "source": license_url},
         ]
     if not revision:
         raise RuntimeError(
@@ -132,17 +128,6 @@ def upstream_licenses(package: dict[str, Any], directory: Path) -> list[dict[str
         or "/licenses/" in "/" + entry["path"].lower()
         for entry in candidates
     ):
-        if package["name"] == "convert_case" and package["version"] == "0.4.0":
-            # Preserve the maintainer's first MIT license file and its original attribution.
-            license_revision = "f72ca63c9d579fbab22e361c76e39d31d1e86a2e"
-            data = github_json(f"repos/{repository_name}/contents/LICENSE?ref={license_revision}")
-            return [
-                {
-                    "name": "LICENSE",
-                    "data": base64.b64decode(data["content"]),
-                    "source": f"https://github.com/{repository_name}/blob/{license_revision}/LICENSE",
-                }
-            ]
         raise RuntimeError(f"No upstream license text: {repository_name}@{revision}")
     evidence = []
     for entry in candidates:
@@ -240,7 +225,6 @@ def collect() -> None:
                 "source": package["source"],
                 "repository": package.get("repository"),
                 "declaredLicense": package.get("license"),
-                "selectedLicense": package.get("selected_license"),
                 "files": [],
             }
             for item in evidence:
@@ -284,8 +268,8 @@ def collect() -> None:
         "Python and Meowcal Core license evidence is distributed in their own directories.",
         "",
         "The declared license and source of each copied text are recorded in `index.json`.",
-        "fxhash 0.2.1 and mac 0.1.1 use their published Apache-2.0 grants; their original",
-        "source notices/declarations are retained beside the Apache text from the Rust project.",
+        "selectors 0.36.1 retains its published MPL-2.0 notice beside the license text",
+        "from Mozilla, the license steward.",
         "",
         "| Package | Version | Declared license | License texts |",
         "| --- | --- | --- | --- |",
