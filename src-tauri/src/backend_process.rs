@@ -44,8 +44,8 @@ fn bundled_core_executable(app: &AppHandle) -> Result<PathBuf, String> {
 /// Retry can call `spawn_backend` while a prior child is still alive but
 /// unresponsive; without this, the old process would only be reaped when the
 /// whole app exits, leaking a resident `llama-server` per retry.
-fn kill_previous_backend(process: &BackendProcess) {
-    if let Some(mut child) = process.0.lock().expect("backend process lock").take() {
+fn kill_previous_backend(slot: &mut Option<Child>) {
+    if let Some(mut child) = slot.take() {
         if let Ok(None) = child.try_wait() {
             let _ = child.kill();
         }
@@ -54,7 +54,11 @@ fn kill_previous_backend(process: &BackendProcess) {
 }
 
 pub(crate) fn spawn_backend(app: &AppHandle, process: &BackendProcess) {
-    kill_previous_backend(process);
+    // Held for the whole kill/spawn/store sequence: two retry threads racing
+    // on a partial lock could both see an empty slot, both spawn, and the
+    // later store would silently orphan the earlier child.
+    let mut slot = process.0.lock().expect("backend process lock");
+    kill_previous_backend(&mut slot);
     let python = python_executable();
     let core_executable = match bundled_core_executable(app) {
         Ok(path) => path,
@@ -99,7 +103,7 @@ pub(crate) fn spawn_backend(app: &AppHandle, process: &BackendProcess) {
             // starts Core keeps both processes bound to the shell lifetime.
             crate::process_lifetime::attach_to_app_lifetime(&child);
             crate::log_shell_event("backend.spawn.started", serde_json::json!({ "pid": pid }));
-            *process.0.lock().expect("backend process lock") = Some(child);
+            *slot = Some(child);
         }
         Err(error) => {
             crate::log_shell_event(
@@ -128,14 +132,12 @@ mod tests {
         );
 
         let process = BackendProcess::new();
-        *process.0.lock().expect("backend process lock") = Some(child);
+        let mut slot = process.0.lock().expect("backend process lock");
+        *slot = Some(child);
 
-        kill_previous_backend(&process);
+        kill_previous_backend(&mut slot);
 
-        assert!(
-            process.0.lock().expect("backend process lock").is_none(),
-            "the slot should be cleared after reaping"
-        );
+        assert!(slot.is_none(), "the slot should be cleared after reaping");
         let still_running = std::process::Command::new("tasklist")
             .args(["/FI", &format!("PID eq {pid}")])
             .output()
