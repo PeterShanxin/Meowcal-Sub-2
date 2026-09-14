@@ -27,4 +27,12 @@ Run the deterministic updater checks locally with:
 
 ```powershell
 pwsh -NoProfile -File scripts/tests/core-upgrade.Tests.ps1
+pwsh -NoProfile -File scripts/tests/core-candidate.Tests.ps1
 ```
+
+On ARM64 Windows, run both from a native shell (`pwsh`, `cmd`, or `powershell.exe`
+launched directly) rather than an x64 Git-Bash/MSYS2 shell. `RuntimeInformation.OSArchitecture`
+reports the emulated x64 architecture when the process tree originates from an
+x64 MSYS2 `bash.exe`, which fails `core-candidate.Tests.ps1`'s PE-machine
+assertions even though the scripts under test detect architecture correctly
+when launched natively.

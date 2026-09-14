@@ -10,10 +10,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 $repository = "PeterShanxin/Meowcal-Sub"
 $apiVersion = 1
-$requiredCapabilities = @(
-    "status", "install", "ready", "complete", "shutdown", "ocrInitialize",
-    "ocrLanguages", "ocrRecognizeBgra"
-)
+$requiredCapabilities = @("status", "install", "ready", "complete", "shutdown", "ocrInitialize", "ocrLanguages", "ocrRecognizeBgra")
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 if (-not $OutputPath) {
     $OutputPath = Join-Path $repositoryRoot "config\meowcal-core.lock.json"
@@ -191,6 +188,8 @@ function Get-Checksum {
     return $match.Groups["hash"].Value
 }
 
+. (Join-Path $PSScriptRoot "lib\CoreSchemaChecks.ps1")
+
 function Read-CurrentLock {
     if (-not (Test-Path -LiteralPath $OutputPath -PathType Leaf)) { return $null }
     try { $lock = Get-Content -LiteralPath $OutputPath -Raw | ConvertFrom-Json }
@@ -198,9 +197,9 @@ function Read-CurrentLock {
     $properties = @($lock.PSObject.Properties.Name)
     $required = @("schemaVersion", "repository", "tag", "coreVersion", "apiVersion", "architectures")
     if (@($required | Where-Object { $_ -notin $properties }).Count -ne 0 -or
-        $lock.schemaVersion -isnot [long] -or $lock.schemaVersion -ne 1 -or
+        -not (Test-IsIntegerValue -Value $lock.schemaVersion -Expected 1) -or
         $lock.repository -ne $repository -or
-        $lock.apiVersion -isnot [long] -or $lock.apiVersion -ne $apiVersion -or
+        -not (Test-IsIntegerValue -Value $lock.apiVersion -Expected $apiVersion) -or
         $lock.coreVersion -notmatch '^\d+\.\d+\.\d+$' -or
         $lock.tag -ne "core-v$($lock.coreVersion)") {
         throw "Existing Core lock has an invalid canonical identity or version."
@@ -282,9 +281,9 @@ function Test-CoreArchive {
             @($expectedProperties | Where-Object { $_ -notin $actualProperties }).Count -ne 0) {
             throw "Core $Architecture metadata fields do not match schema 1."
         }
-        if ($metadata.schemaVersion -isnot [long] -or $metadata.schemaVersion -ne 1 -or
+        if (-not (Test-IsIntegerValue -Value $metadata.schemaVersion -Expected 1) -or
             $metadata.coreVersion -isnot [string] -or $metadata.coreVersion -ne $Version -or
-            $metadata.apiVersion -isnot [long] -or $metadata.apiVersion -ne $apiVersion -or
+            -not (Test-IsIntegerValue -Value $metadata.apiVersion -Expected $apiVersion) -or
             $metadata.os -isnot [string] -or $metadata.os -ne "windows" -or
             $metadata.architecture -ne $Architecture -or $metadata.executable -ne "meowcal-core.exe" -or
             $metadata.license -ne "LICENSE") {
@@ -312,7 +311,7 @@ function Test-CoreArchive {
             catch { throw "Core $Architecture executable returned invalid --version-json output: $_" }
             $capabilities = @($versionInfo.capabilities)
             if ($versionInfo.version -isnot [string] -or $versionInfo.version -ne $Version -or
-                $versionInfo.api -isnot [long] -or $versionInfo.api -ne $apiVersion -or
+                -not (Test-IsIntegerValue -Value $versionInfo.api -Expected $apiVersion) -or
                 @($capabilities | Where-Object { $_ -isnot [string] }).Count -ne 0 -or
                 $capabilities.Count -ne $requiredCapabilities.Count -or
                 (Compare-Object -ReferenceObject $requiredCapabilities -DifferenceObject $capabilities -CaseSensitive)) {
