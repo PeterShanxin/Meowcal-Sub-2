@@ -202,7 +202,13 @@ function Row({
   );
 }
 
-export function PreviewCard({ line }: { line: LiveLine | null }): JSX.Element {
+export function PreviewCard({
+  line,
+  targetLanguage,
+}: {
+  line: LiveLine | null;
+  targetLanguage: string;
+}): JSX.Element {
   return (
     <div
       className="fade-in"
@@ -229,7 +235,7 @@ export function PreviewCard({ line }: { line: LiveLine | null }): JSX.Element {
         }}
       >
         <span>Preview {line?.tc ? `· ${line.tc}` : ""}</span>
-        <span style={{ color: "var(--accent-text)" }}>zh-TW</span>
+        <span style={{ color: "var(--accent-text)" }}>{targetLanguage}</span>
       </div>
       <div style={{ flex: 1 }} />
       <div

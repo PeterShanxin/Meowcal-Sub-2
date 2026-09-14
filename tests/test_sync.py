@@ -117,7 +117,10 @@ async def test_the_next_line_is_broadcast_when_the_cue_changes() -> None:
 async def test_the_overlay_clears_after_the_region_reads_empty() -> None:
     # Nothing has matched, so a run of empty reads is all there is to go on.
     session = DirectTranslationSession([], config(), fake_translator("你好"))
-    assert await drive(session, config(), ["Hello there", "", "", ""]) == ["你好", ""]
+    assert await drive(session, config(), ["Hello there", "Hello there", "", "", ""]) == [
+        "你好",
+        "",
+    ]
 
 
 @pytest.mark.asyncio
@@ -281,14 +284,14 @@ async def test_several_candidates_need_agreement_before_text_is_shown() -> None:
 @pytest.mark.asyncio
 async def test_direct_translation_shows_the_translated_read() -> None:
     session = DirectTranslationSession([], config(), fake_translator("你好"))
-    assert await drive(session, config(), ["Hello there"]) == ["你好"]
+    assert await drive(session, config(), ["Hello there", "Hello there"]) == ["你好"]
 
 
 @pytest.mark.asyncio
 async def test_direct_translation_prefers_a_matching_target_subtitle_line() -> None:
     target = [SubtitleLine(index=7, start_ms=0, end_ms=3000, text="你好呀")]
     session = DirectTranslationSession(target, config(), fake_translator("你好呀"))
-    assert await drive(session, config(), ["Hello there"]) == ["你好呀"]
+    assert await drive(session, config(), ["Hello there", "Hello there"]) == ["你好呀"]
 
 
 @pytest.mark.asyncio
@@ -300,6 +303,48 @@ async def test_a_repeated_read_is_translated_only_once() -> None:
     )
     await drive(session, config(), ["Hello there", "Hello there", "Hello there"])
     assert client.translate.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_direct_translation_waits_for_the_fade_to_resolve() -> None:
+    clean = "The cat is waiting by the window."
+    translator = MagicMock()
+    translator.translate = AsyncMock(return_value="猫正在窗边等待。")
+    session = DirectTranslationSession([], config(), translator_factory(translator))
+    reads = ["Thexat is waiting by the window.", clean, clean, clean]
+    assert await drive(session, config(), reads) == ["猫正在窗边等待。"]
+    translator.translate.assert_awaited_once_with(clean)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reads", [["Hello there"], ["Hello there", "", "Hello there"]])
+async def test_direct_translation_does_not_send_an_unconfirmed_read(reads) -> None:
+    translator = MagicMock()
+    translator.translate = AsyncMock(return_value="你好")
+    session = DirectTranslationSession([], config(), translator_factory(translator))
+    assert await drive(session, config(), reads) == []
+    translator.translate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_direct_translation_updates_after_a_paused_seek() -> None:
+    first, following = "The cat is waiting by the window.", "Let us walk home together."
+    translator = MagicMock()
+    translator.translate = AsyncMock(side_effect=lambda text: text)
+    session = DirectTranslationSession([], config(), translator_factory(translator))
+    reads = [first] * 5 + [following] * 5
+    assert await drive(session, config(), reads) == [first, following]
+    assert [call.args[0] for call in translator.translate.await_args_list] == [first, following]
+
+
+@pytest.mark.asyncio
+async def test_direct_translation_reconfirms_a_phrase_after_silence() -> None:
+    translator = MagicMock()
+    translator.translate = AsyncMock(return_value="你好")
+    session = DirectTranslationSession([], config(), translator_factory(translator))
+    reads = ["Hello there", "Hello there", "", "", "", "Hello there", "Hello there"]
+    assert await drive(session, config(), reads) == ["你好", "", "你好"]
+    assert translator.translate.await_count == 2
 
 
 @pytest.mark.asyncio

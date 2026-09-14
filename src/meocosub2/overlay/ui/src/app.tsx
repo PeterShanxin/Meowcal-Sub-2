@@ -1336,7 +1336,10 @@ export function App(): JSX.Element {
               gapFill={snapshot?.gap_fill ?? null}
               onPickTarget={(resultId) => void onPickTarget(resultId)}
             />
-            <PreviewCard line={liveLines[liveLines.length - 1] ?? null} />
+            <PreviewCard
+              line={liveLines[liveLines.length - 1] ?? null}
+              targetLanguage={targetLang}
+            />
           </div>
         )}
 

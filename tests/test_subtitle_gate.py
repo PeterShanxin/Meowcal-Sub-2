@@ -61,6 +61,24 @@ def test_the_gate_treats_the_first_read_as_new() -> None:
     assert SubtitleGate().classify("Hello there", now=0.0) is LineChange.NEW
 
 
+def test_stable_reads_ignore_punctuation_but_still_deduplicate_the_cue() -> None:
+    gate = SubtitleGate(require_stable_read=True)
+    assert gate.classify("Hello, there.", now=0.0) is LineChange.UNSTABLE
+    assert gate.classify("Hello there", now=0.5) is LineChange.NEW
+    gate.remember("Hello there", now=0.5)
+    assert gate.classify("Hello there!", now=1.0) is LineChange.REPEAT
+
+
+def test_a_confirmed_second_row_still_extends_the_cue() -> None:
+    gate = SubtitleGate(require_stable_read=True)
+    gate.classify("However, isn't he", now=0.0)
+    assert gate.classify("However, isn't he", now=0.5) is LineChange.NEW
+    gate.remember("However, isn't he", now=0.5)
+    extended = "However, isn't he a hero from an era"
+    assert gate.classify(extended, now=1.0) is LineChange.UNSTABLE
+    assert gate.classify(extended, now=1.5) is LineChange.EXTENDED
+
+
 def test_the_gate_suppresses_a_row_it_saw_two_reads_ago() -> None:
     gate = SubtitleGate()
     gate.remember("Top row of the cue", now=0.0)
