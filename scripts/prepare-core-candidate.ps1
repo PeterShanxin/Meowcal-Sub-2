@@ -18,6 +18,7 @@ if (-not $DestinationPath) {
 }
 
 . (Join-Path $PSScriptRoot "lib\CoreSchemaChecks.ps1")
+. (Join-Path $PSScriptRoot "lib\CoreProcess.ps1")
 
 function Invoke-GitText {
     param([Parameter(Mandatory)][string[]]$Arguments)
@@ -54,51 +55,6 @@ function Get-PeMachine {
         }
     } finally {
         $stream.Dispose()
-    }
-}
-
-function Get-CoreVersionJson {
-    param([Parameter(Mandatory)][string]$Path)
-
-    $startInfo = [Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $Path
-    $startInfo.ArgumentList.Add("--version-json")
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $startInfo.RedirectStandardInput = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    foreach ($tokenName in @("GITHUB_TOKEN", "GH_TOKEN", "CORE_UPGRADE_TOKEN")) {
-        [void]$startInfo.Environment.Remove($tokenName)
-    }
-    $process = [Diagnostics.Process]::new()
-    $process.StartInfo = $startInfo
-    $started = $false
-    try {
-        $started = $process.Start()
-        if (-not $started) {
-            throw "Core candidate executable did not start."
-        }
-        $process.StandardInput.Close()
-        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-        $stderrTask = $process.StandardError.ReadToEndAsync()
-        if (-not $process.WaitForExit(10000)) {
-            $process.Kill($true)
-            $process.WaitForExit()
-            throw "Core candidate --version-json timed out after 10 seconds."
-        }
-        $stdout = $stdoutTask.GetAwaiter().GetResult().Trim()
-        $stderr = $stderrTask.GetAwaiter().GetResult().Trim()
-        if ($process.ExitCode -ne 0) {
-            throw "Core candidate --version-json failed with exit code $($process.ExitCode): $stderr"
-        }
-        return $stdout
-    } finally {
-        if ($started -and -not $process.HasExited) {
-            $process.Kill($true)
-            $process.WaitForExit()
-        }
-        $process.Dispose()
     }
 }
 
@@ -200,7 +156,8 @@ $actualMachine = Get-PeMachine -Path $binaryPath
 if ($actualMachine -ne $expectedMachine) {
     throw ("Core candidate PE machine 0x{0:X4} does not match {1}." -f $actualMachine, $architecture)
 }
-$versionJson = Get-CoreVersionJson -Path $binaryPath
+$versionJson = Invoke-CoreVersionJson -Path $binaryPath -Subject "Core candidate executable" `
+    -TimeoutMilliseconds 10000
 try {
     $versionInfo = $versionJson | ConvertFrom-Json
 } catch {

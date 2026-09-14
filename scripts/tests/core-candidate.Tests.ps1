@@ -7,6 +7,8 @@ Set-StrictMode -Version Latest
 $repositoryRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $candidateScript = Join-Path $repositoryRoot "scripts\prepare-core-candidate.ps1"
 $checkedInPin = Join-Path $repositoryRoot "config\meowcal-core.candidate.json"
+$coreProcessLib = Join-Path $repositoryRoot "scripts\lib\CoreProcess.ps1"
+. $coreProcessLib
 $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) (
     "meowcal-core-candidate-tests-" + [guid]::NewGuid().ToString("N")
 )
@@ -82,6 +84,8 @@ $incomingCoreSource = $env:FAKE_CORE_SOURCE
 $incomingCoreTarget = $env:FAKE_CORE_TARGET
 $incomingCoreBinary = $env:FAKE_CORE_BINARY
 $incomingCargoExit = $env:FAKE_CARGO_EXIT
+$incomingCoreProcessTestChildPid = $env:CORE_PROCESS_TEST_CHILD_PID
+$childPid = $null
 
 try {
     $checkedInCommit = & $candidateScript -ConfigPath $checkedInPin -ResolveCommit
@@ -185,6 +189,57 @@ exit /b %errorlevel%
         & $candidateScript -SourcePath $source -ConfigPath $pinPath
     } "invalid --version-json output"
 
+    $childPidPath = Join-Path $temporaryDirectory "core-process-child.pid"
+    $env:CORE_PROCESS_TEST_CHILD_PID = $childPidPath
+    $parentCommand = @'
+$child = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\ping.exe') `
+    -ArgumentList '127.0.0.1', '-n', '30' -WindowStyle Hidden -PassThru
+[IO.File]::WriteAllText($env:CORE_PROCESS_TEST_CHILD_PID, [string]$child.Id)
+Start-Sleep -Seconds 30
+'@
+    $encodedParentCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($parentCommand))
+    $hostExecutable = (Get-Process -Id $PID).Path
+    $tokenNames = @("GITHUB_TOKEN", "GH_TOKEN", "CORE_UPGRADE_TOKEN")
+    $incomingTokens = @{}
+    foreach ($tokenName in $tokenNames) {
+        $incomingTokens[$tokenName] = [Environment]::GetEnvironmentVariable($tokenName)
+        [Environment]::SetEnvironmentVariable($tokenName, "must-not-leak")
+    }
+    try {
+        $environmentCommand = @'
+$leaked = foreach ($name in @("GITHUB_TOKEN", "GH_TOKEN", "CORE_UPGRADE_TOKEN")) {
+    if ([Environment]::GetEnvironmentVariable($name)) { $name }
+}
+if (@($leaked).Count -eq 0) { [Console]::Out.Write("clean") }
+else { [Console]::Out.Write(($leaked -join ",")) }
+'@
+        $encodedEnvironmentCommand = [Convert]::ToBase64String(
+            [Text.Encoding]::Unicode.GetBytes($environmentCommand)
+        )
+        $environmentResult = Invoke-CoreProcessText -Path $hostExecutable `
+            -Arguments "-NoProfile -EncodedCommand $encodedEnvironmentCommand" `
+            -TimeoutMilliseconds 5000 -Subject "Core process environment fixture"
+        if ($environmentResult.ExitCode -ne 0 -or $environmentResult.Stdout -ne "clean") {
+            throw "Core process probe leaked credentials to the child: $($environmentResult.Stdout)"
+        }
+    } finally {
+        foreach ($tokenName in $tokenNames) {
+            [Environment]::SetEnvironmentVariable($tokenName, $incomingTokens[$tokenName])
+        }
+    }
+    Assert-Throws {
+        Invoke-CoreProcessText -Path $hostExecutable `
+            -Arguments "-NoProfile -EncodedCommand $encodedParentCommand" `
+            -TimeoutMilliseconds 3000 -Subject "Core process timeout fixture" | Out-Null
+    } "timed out"
+    if (-not (Test-Path -LiteralPath $childPidPath -PathType Leaf)) {
+        throw "Timed-out Core process fixture did not start its child process."
+    }
+    $childPid = [int][IO.File]::ReadAllText($childPidPath)
+    if (Get-Process -Id $childPid -ErrorAction SilentlyContinue) {
+        throw "Timed-out Core process cleanup left descendant PID $childPid running."
+    }
+
     $verifySource = Get-Content -LiteralPath (Join-Path $repositoryRoot "scripts\verify.ps1") -Raw
     if ($verifySource -notmatch '(?s)if \(\$CoreCandidateSource\).*?& \$CoreCandidatePrepare' -or
         $verifySource -notmatch '(?s)else\s*\{.*?& \$CoreFetch') {
@@ -225,5 +280,7 @@ exit /b %errorlevel%
     $env:FAKE_CORE_TARGET = $incomingCoreTarget
     $env:FAKE_CORE_BINARY = $incomingCoreBinary
     $env:FAKE_CARGO_EXIT = $incomingCargoExit
+    $env:CORE_PROCESS_TEST_CHILD_PID = $incomingCoreProcessTestChildPid
+    if ($childPid) { Stop-Process -Id $childPid -Force -ErrorAction SilentlyContinue }
     Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force -ErrorAction SilentlyContinue
 }
