@@ -233,7 +233,7 @@ RunCleanup
 
 LogEvent "launcher.core.prepare.start", """lockPath"": """ & JsonEscape(coreLockPath) & """"
 coreResult = WshShell.Run( _
-  "powershell -NoProfile -ExecutionPolicy Bypass -File """ & repoRoot & "\scripts\fetch-meowcal-core.ps1"" -UsePrepared", _
+  "pwsh -NoProfile -ExecutionPolicy Bypass -File """ & repoRoot & "\scripts\fetch-meowcal-core.ps1"" -UsePrepared", _
   0, _
   True _
 )
