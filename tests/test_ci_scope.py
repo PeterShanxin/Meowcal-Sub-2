@@ -76,7 +76,8 @@ class ProseMergeTests(unittest.TestCase):
     def write(self, path: str, content: str) -> None:
         target = self.repo / path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        # Keep fixture blobs identical on Windows and Unix; CRLF is whitespace to git diff --check.
+        target.write_text(content, encoding="utf-8", newline="\n")
 
     def commit(self) -> None:
         self.git("add", "--all")
@@ -107,6 +108,8 @@ class ProseMergeTests(unittest.TestCase):
             capture_output=True,
             timeout=30,
         )
+        if result.returncode:
+            print((result.stdout + result.stderr).decode("utf-8", errors="replace"))
         return result.returncode, output_file.read_text(encoding="utf-8")
 
     def test_prose_only_merge_and_cli(self) -> None:
@@ -114,6 +117,7 @@ class ProseMergeTests(unittest.TestCase):
         self.write("docs/新文档 with spaces.md", "New documentation.\n")
         self.commit()
         event = self.merge()
+        self.assertEqual((self.repo / "README.md").read_bytes(), b"Updated documentation.\n")
         self.assertEqual(prose_base("pull_request", event, self.repo), self.base)
         self.assertEqual(self.run_scope(event), (0, "scope=docs\n"))
 

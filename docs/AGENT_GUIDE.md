@@ -181,9 +181,9 @@ Classification compares the checked-out merge against its verified base parent,
 so a final README-only commit cannot hide an earlier code change.
 
 CI covers the minimum Python 3.11 on x64 and the packaged Python 3.14.7 on
-ARM64, with Node 22 on both. Hosted verification uses the runner's CPU count
-and installs only Playwright's headless shell. Local and release build resource
-settings are unchanged.
+ARM64, with Node 22 on both. CI installs only Playwright's headless shell.
+The existing ARM64 serial Rust build, architecture-specific cache keys, Core
+contracts, and local/release build resource settings are unchanged.
 
 Prerequisites, once per machine:
 
