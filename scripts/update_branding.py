@@ -30,9 +30,13 @@ def update_branding(root: Path, *, check: bool = False) -> bool:
     digest = hashlib.sha256(expected.encode("utf-8")).hexdigest()
     png_current = False
     if png_path.exists():
-        with Image.open(png_path) as image:
-            png_current = image.info.get("SourceSHA256") == digest
-            image.verify()
+        try:
+            with Image.open(png_path) as image:
+                image.verify()
+                png_current = image.info.get("SourceSHA256") == digest
+        except (OSError, SyntaxError):
+            # A damaged export can be regenerated from the editable SVG.
+            pass
     if source == expected and png_current:
         return False
     if check:

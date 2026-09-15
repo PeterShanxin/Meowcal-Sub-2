@@ -68,3 +68,20 @@ def test_missing_version_marker_does_not_overwrite_artwork(branding_root: Path) 
     with pytest.raises(ValueError, match="exactly one release-version"):
         update_branding(branding_root)
     assert svg.read_bytes() == original
+
+
+@pytest.mark.parametrize("damage", ["invalid", "truncated"])
+def test_unreadable_png_is_rejected_by_check_and_repaired_by_update(
+    branding_root: Path, damage: str
+) -> None:
+    png = branding_root / "docs/assets/banner.png"
+    broken = b"not a PNG" if damage == "invalid" else png.read_bytes()[:100]
+    png.write_bytes(broken)
+    with pytest.raises(ValueError, match="Banner is stale"):
+        update_branding(branding_root, check=True)
+    assert png.read_bytes() == broken
+    assert update_branding(branding_root)
+    with Image.open(png) as image:
+        assert image.size == (1280, 640)
+        image.verify()
+    assert not update_branding(branding_root, check=True)
