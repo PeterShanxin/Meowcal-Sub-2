@@ -56,16 +56,38 @@ def prose_base(event_name: str, event: dict, repo: Path) -> str | None:
             return None
         # Disabling rename detection exposes removals, including code moved into docs.
         data = git(
-            repo, "diff", "--no-ext-diff", "--no-renames", "--name-status", "-z", base, "HEAD", "--"
+            repo,
+            "diff",
+            "--no-ext-diff",
+            "--no-renames",
+            "--raw",
+            "--no-abbrev",
+            "-z",
+            base,
+            "HEAD",
+            "--",
         )
         if not data or not data.endswith(b"\0"):
             return None
         fields = data[:-1].decode("utf-8").split("\0")
         if len(fields) % 2:
             return None
-        changes = zip(fields[::2], fields[1::2], strict=True)
-        if all(status in {"A", "M"} and is_prose(path) for status, path in changes):
-            return base
+        for header, path in zip(fields[::2], fields[1::2], strict=True):
+            old_mode, new_mode, old_blob, new_blob, status = header.split()
+            if not is_prose(path) or new_mode != "100644":
+                return None
+            if (status, old_mode) not in {("A", ":000000"), ("M", ":100644")}:
+                return None
+            for blob in (old_blob, new_blob):
+                if not re.fullmatch(r"[0-9a-f]{40}", blob):
+                    return None
+                if blob == "0" * 40:
+                    continue
+                content = git(repo, "cat-file", "blob", blob)
+                if b"\0" in content:
+                    return None
+                content.decode("utf-8")
+        return base
     except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError):
         return None
     return None
