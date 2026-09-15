@@ -171,8 +171,19 @@ runtime — is your own to stop in the same session.
 
 Every gate this repository enforces: formatting, lint, types, the Python, Rust
 and studio suites, the served dashboard, and the maintainability ratchets.
-[`.github/workflows/windows-ci.yml`](../.github/workflows/windows-ci.yml) calls
-the same script, so a green local run and a green CI run mean the same thing.
+[`.github/workflows/windows-ci.yml`](../.github/workflows/windows-ci.yml) runs
+the same full script on main and on every PR that changes more than prose.
+The required `Verify x64` and `Verify ARM64` checks stay present on prose-only
+PRs, but run routing regression tests and a whole-PR whitespace check instead.
+`scripts/ci_scope.py` owns the Markdown allowlist; scripts, tests, assets,
+workflows, manifests, deletions and uncertain comparisons require full CI.
+Classification compares the checked-out merge against its verified base parent,
+so a final README-only commit cannot hide an earlier code change.
+
+CI covers the minimum Python 3.11 on x64 and the packaged Python 3.14.7 on
+ARM64, with Node 22 on both. CI installs only Playwright's headless shell.
+The existing ARM64 serial Rust build, architecture-specific cache keys, Core
+contracts, and local/release build resource settings are unchanged.
 
 Prerequisites, once per machine:
 
