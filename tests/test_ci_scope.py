@@ -57,6 +57,8 @@ class ProseMergeTests(unittest.TestCase):
         self.git("config", "user.email", "ci-scope@example.invalid")
         self.git("config", "commit.gpgsign", "false")
         self.git("config", "core.autocrlf", "false")
+        self.git("config", "core.filemode", "false")
+        self.git("config", "core.symlinks", "false")
         self.write("README.md", "Initial documentation.\n")
         self.write("src/app.py", "print('example')\n")
         self.commit()
@@ -79,8 +81,9 @@ class ProseMergeTests(unittest.TestCase):
         # Match the repository's LF policy independently of the host newline default.
         target.write_text(content, encoding="utf-8", newline="\n")
 
-    def commit(self) -> None:
-        self.git("add", "--all")
+    def commit(self, *, stage: bool = True) -> None:
+        if stage:
+            self.git("add", "--all")
         self.git("commit", "--allow-empty", "-m", "Test change")
 
     def merge(self) -> dict:
@@ -185,6 +188,38 @@ class ProseMergeTests(unittest.TestCase):
         event = {"pull_request": {"base": {"sha": self.base}, "head": {"sha": self.base}}}
         with patch("scripts.ci_scope.git", side_effect=subprocess.TimeoutExpired("git", 30)):
             self.assertIsNone(prose_base("pull_request", event, self.repo))
+
+    def test_mode_only_markdown_change_requires_full_verification(self) -> None:
+        self.git("update-index", "--chmod=+x", "README.md")
+        self.commit(stage=False)
+        self.assertIsNone(prose_base("pull_request", self.merge(), self.repo))
+
+    def test_executable_markdown_addition_requires_full_verification(self) -> None:
+        blob = self.git("hash-object", "-w", "README.md").strip()
+        self.git("update-index", "--add", "--cacheinfo", "100755", blob, "docs/tool.md")
+        self.commit(stage=False)
+        self.assertIsNone(prose_base("pull_request", self.merge(), self.repo))
+
+    def test_markdown_symlink_requires_full_verification(self) -> None:
+        blob = self.git("hash-object", "-w", "README.md").strip()
+        self.git("update-index", "--add", "--cacheinfo", "120000", blob, "docs/link.md")
+        self.commit(stage=False)
+        self.assertIsNone(prose_base("pull_request", self.merge(), self.repo))
+
+    def test_markdown_gitlink_requires_full_verification(self) -> None:
+        self.git("update-index", "--add", "--cacheinfo", "160000", self.base, "docs/module.md")
+        self.commit(stage=False)
+        self.assertIsNone(prose_base("pull_request", self.merge(), self.repo))
+
+    def test_binary_markdown_requires_full_verification(self) -> None:
+        self.write("docs/binary.md", "Not text.\0\n")
+        self.commit()
+        self.assertIsNone(prose_base("pull_request", self.merge(), self.repo))
+
+    def test_non_utf8_markdown_requires_full_verification(self) -> None:
+        (self.repo / "README.md").write_bytes(b"\xff\n")
+        self.commit()
+        self.assertIsNone(prose_base("pull_request", self.merge(), self.repo))
 
     def test_markdown_hard_line_break_is_valid(self) -> None:
         self.write("README.md", "First line.  \nSecond line.\n")
