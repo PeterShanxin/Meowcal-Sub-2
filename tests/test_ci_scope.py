@@ -76,7 +76,7 @@ class ProseMergeTests(unittest.TestCase):
     def write(self, path: str, content: str) -> None:
         target = self.repo / path
         target.parent.mkdir(parents=True, exist_ok=True)
-        # Keep fixture blobs identical on Windows and Unix; CRLF is whitespace to git diff --check.
+        # Match the repository's LF policy independently of the host newline default.
         target.write_text(content, encoding="utf-8", newline="\n")
 
     def commit(self) -> None:
@@ -186,8 +186,13 @@ class ProseMergeTests(unittest.TestCase):
         with patch("scripts.ci_scope.git", side_effect=subprocess.TimeoutExpired("git", 30)):
             self.assertIsNone(prose_base("pull_request", event, self.repo))
 
+    def test_markdown_hard_line_break_is_valid(self) -> None:
+        self.write("README.md", "First line.  \nSecond line.\n")
+        self.commit()
+        self.assertEqual(self.run_scope(self.merge()), (0, "scope=docs\n"))
+
     def test_prose_whitespace_failure_does_not_emit_green_scope(self) -> None:
-        self.write("README.md", "Trailing spaces.  \n")
+        self.write("README.md", " \tIncorrect indentation.\n")
         self.commit()
         code, output = self.run_scope(self.merge())
         self.assertNotEqual(code, 0)

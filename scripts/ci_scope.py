@@ -82,8 +82,19 @@ def main() -> int:
     base = prose_base(event_name, event, Path.cwd())
     scope = "docs" if base else "full"
     if base:
+        # .editorconfig permits Markdown hard breaks made from trailing spaces.
         check = subprocess.run(
-            ["git", "diff", "--no-ext-diff", "--check", base, "HEAD", "--"],
+            [
+                "git",
+                "-c",
+                "core.whitespace=-blank-at-eol",
+                "diff",
+                "--no-ext-diff",
+                "--check",
+                base,
+                "HEAD",
+                "--",
+            ],
             check=False,
             timeout=30,
         )
