@@ -40,6 +40,20 @@ studio, but the native capture selector and desktop strip require the shell.
 
 ## Build a Windows distribution
 
+The repository banner reads its version from `src-tauri/tauri.conf.json`, the
+same source used to name release packages. After changing the project version
+or editing the banner artwork, synchronize its SVG and PNG before committing:
+
+```powershell
+python scripts/update_branding.py
+```
+
+This uses the existing Playwright Chromium development dependency. The release
+build also runs it automatically; unchanged assets are left alone. Verification
+rejects a stale version or PNG export, so commit both banner files together.
+The README release badge reads the latest published GitHub Release independently
+and becomes available when the repository is public.
+
 Use a native x64 or ARM64 Windows environment with PowerShell 7 and the tools
 above. Install GitHub CLI and authenticate with `gh auth login`; the build reads
 upstream license files that some published crates omit. CI supplies its read-only

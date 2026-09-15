@@ -3,6 +3,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/PeterShanxin/Meowcal-Sub-2/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/PeterShanxin/Meowcal-Sub-2?label=release&amp;labelColor=25272d&amp;color=c8aa76"></a>
+  <img alt="Windows, x64 and ARM64" src="https://img.shields.io/badge/Windows-x64%20%7C%20ARM64-85838a?labelColor=25272d">
+  <a href="LICENSE"><img alt="License: AGPL-3.0-only" src="https://img.shields.io/badge/license-AGPL--3.0--only-85838a?labelColor=25272d"></a>
+</p>
+
+<p align="center">
   <a href="https://github.com/PeterShanxin/Meowcal-Sub-2/releases">Download</a> ·
   <a href="docs/user-guide.md">User guide</a> ·
   <a href="docs/developer-guide.md">Build from source</a>

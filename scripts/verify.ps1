@@ -105,6 +105,7 @@ try {
 
     if ($Wanted -contains 'python') {
         Start-Stage 'python'
+        Invoke-Check 'banner version and export' { python scripts\update_branding.py --check }
         # Ruff is gated at zero, so passing is the count the ratchet records.
         Invoke-Check 'ruff lint' { python -m ruff check src tests scripts }
         if ($Failures.Count -eq 0) { $LintCounts['ruff'] = 0 }
