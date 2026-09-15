@@ -42,6 +42,7 @@ from meocosub2.models import (
     SubtitlePair,
     TargetAlignment,
 )
+from meocosub2.overlay.subtitle_editor import SaveEdits, editor_files, rebuild_tracks
 from meocosub2.prefill import fill_before_the_session
 from meocosub2.semantic import SemanticIndex
 from meocosub2.subtitle_sources import (
@@ -1492,6 +1493,9 @@ class GuiController:
         # session's first read waits on.
         await self._stop_prefill()
         async with self._lock:
+            current = self._state.prepared_session
+            if current is None or (session_id and session_id != current.session_id):
+                raise ValueError("Subtitles changed. Start the newly prepared session.")
             self._state.status = "running"
             self._state.error_message = ""
             self._state.warning_message = resolution.warning_message
@@ -1504,6 +1508,47 @@ class GuiController:
             self._run_sync_loop(self._prepared_runtime, self.config)
         )
         return {"status": self._state.status}
+
+    def _editable_session(self, session_id: str) -> tuple[PreparedSession, PreparedRuntime]:
+        session, runtime = self._state.prepared_session, self._prepared_runtime
+        if session is None or runtime is None or session.session_id != session_id:
+            raise ValueError("The prepared session changed. Reopen the subtitle editor.")
+        if self._state.status not in {"idle", "error"} or (
+            self._sync_task and not self._sync_task.done()
+        ):
+            raise RuntimeError("Stop sync and finish preparing before editing subtitles.")
+        return session, runtime
+
+    def read_subtitle_editor(self, session_id: str) -> dict[str, object]:
+        return editor_files(*self._editable_session(session_id))
+
+    async def save_subtitle_edits(self, body: SaveEdits) -> PreparedSession:
+        from meocosub2.config import default_config_path
+
+        self._editable_session(body.sessionId)
+        await self._stop_prefill()
+        async with self._lock:
+            session, runtime = self._editable_session(body.sessionId)
+            directory = (
+                (self._config_path or default_config_path()).parent / "subtitles" / "corrected"
+            )
+            updated, rebuilt = rebuild_tracks(session, runtime, body, directory)
+            self._prepared_runtime = rebuilt
+            self._state.prepared_session = updated
+            self.config = replace(self.config, sync_bias_ms=0)
+            self._state.gap_fill = None
+            self._state.last_subtitle = ""
+            self._state.status = "idle"
+            self._state.error_message = ""
+            self._state.progress = AppProgress(
+                stage="ready",
+                message="Corrected subtitles ready. Playback offset reset.",
+                current=1,
+                total=1,
+            )
+        await self._emit_app_state()
+        await self._emit_app_event("subtitle", {"text": "", "source": MATCHED})
+        return updated
 
     async def stop_session(self) -> dict[str, object]:
         logger.info("Stop session requested")

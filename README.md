@@ -26,6 +26,8 @@ it can translate locally through [Meowcal Core](docs/MEOWCAL_CORE.md).
 - Present a target-language subtitle file with its own timings, overlaps, and
   silent gaps; use carried translations or local inference for uncovered cues.
 - Prepare translations before playback and adjust subtitle timing while watching.
+- Edit SRT/WebVTT text and timing before sync, preview drift corrections, and use
+  corrected copies directly in the prepared session.
 - Select a capture region and change subtitle appearance from the app.
 
 OCR and matching depend on the video, subtitle release, language, and selected

@@ -7,6 +7,7 @@ import type {
 } from "../lib/types";
 import { coverageLabel } from "../state/mappers";
 import { Kbd } from "./primitives";
+import { SubtitleEditor } from "./subtitle-editor/workspace";
 
 interface PrepCardProps {
   titleLabel: string | null;
@@ -130,6 +131,10 @@ export function PrepCard({
           </button>
         </div>
       )}
+      {prepared &&
+        (prepared.source_path || prepared.target_path || prepared.source_candidate_count > 0) && (
+          <SubtitleEditor sessionId={prepared.session_id} />
+        )}
       <div style={{ flex: 1 }} />
       <div
         style={{

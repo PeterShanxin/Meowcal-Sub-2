@@ -23,6 +23,7 @@ from meocosub2.event_log import log_event
 from meocosub2.languages import languages_payload
 from meocosub2.models import SearchRequest
 from meocosub2.overlay.controller import GuiController
+from meocosub2.overlay.subtitle_editor import editor_router
 
 STATIC_DIR = Path(__file__).parent / "static"
 logger = logging.getLogger(__name__)
@@ -109,6 +110,7 @@ class OverlayServer:
             await self.controller.shutdown()
 
         self.app = FastAPI(lifespan=lifespan)
+        self.app.include_router(editor_router(self.controller))
         self.app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
         @self.app.middleware("http")

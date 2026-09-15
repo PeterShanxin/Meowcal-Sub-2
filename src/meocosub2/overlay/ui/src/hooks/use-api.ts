@@ -78,7 +78,34 @@ export interface ClientLogBody {
   data?: Record<string, unknown>;
 }
 
+export interface EditorFile {
+  key: string;
+  role: "source" | "target";
+  filename: string;
+  content?: string;
+  revision?: string;
+  error?: string;
+}
+
+export interface EditorFiles {
+  sessionId: string;
+  files: EditorFile[];
+}
+
+export interface SubtitleEdits {
+  sessionId: string;
+  files: { key: string; revision: string; format: "srt" | "vtt"; content: string }[];
+}
+
 export const api = {
+  getEditorFiles: (sessionId: string) =>
+    request<EditorFiles>("GET", `/api/subtitle-editor/${encodeURIComponent(sessionId)}`),
+  saveSubtitleEdits: (body: SubtitleEdits) =>
+    request<{ session: BackendSnapshot["prepared_session"]; state: BackendSnapshot }>(
+      "POST",
+      "/api/subtitle-editor/save",
+      body,
+    ),
   getState: () => request<BackendSnapshot>("GET", "/api/state"),
   getConfig: () => request<BackendSnapshot["config"]>("GET", "/api/config"),
   // The backend merges what it is given against the config it holds, so a

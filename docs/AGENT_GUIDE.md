@@ -101,6 +101,16 @@ source-aligned and are read when their interval arrives. Without a source anchor
 live OCR translation remains the fallback. Bilingual-only sessions retain their
 source-aligned presentation behavior.
 
+## Subtitle editing
+
+The prepared-session card opens the React subtitle editor. It reads the original
+SRT/WebVTT document separately from `load_subtitle_file`, whose plain-text output
+is only for matching and presentation. Save checks the prepared session ID and
+file revisions, writes corrected copies, and rebuilds each source candidate and
+its target presentation. Previous generated answers and playback bias are cleared.
+Running or preparing sessions cannot be edited. Editor saves and starts recheck
+the session after stopping idle prefill so an old start cannot use a changed track.
+
 ## Log Inspection
 
 - Log file: `%APPDATA%\meowcal-sub-2\logs\meowcal-sub-2.log` (INFO by default).

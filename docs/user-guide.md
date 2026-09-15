@@ -78,6 +78,37 @@ until it is installed.
 Keep the Meowcal strip outside the capture region so OCR does not read the
 app's own translation.
 
+## Repair a subtitle before sync
+
+At **Session ready**, choose **Edit subtitles**. The workspace opens the prepared
+source and target files, including source candidates in automatic selection mode.
+Stop a running session before editing.
+
+- Select a track, then a subtitle. Edit its text or start/end time and choose
+  **Keep edit**. Times use whole milliseconds: 1000 ms is one second.
+- **Shift all subtitles** fixes a constant delay. A negative shift makes the file
+  earlier; a positive shift makes it later.
+- **Match two points** fixes gradual drift. Enter the subtitle and video times
+  for one early and one late cue. Both pairs must advance in time.
+- Choose **Preview timing**, inspect the before/after columns, then **Apply timing**.
+  Paging and subtitle-number jumps also work during preview. Each track retains
+  its own timing fields and up to 50 undo steps while the workspace is open.
+- **Import replacement** loads a local UTF-8 SRT or WebVTT into the selected track.
+  **Export copy** downloads the current corrected file without changing the session.
+- **Save & use** saves changed tracks as new files and rebuilds the prepared session.
+  The playback offset returns to 0 ms; start sync to use the corrected tracks.
+
+Errors such as empty bodies, invalid intervals or text that cannot be encoded
+safely block saving. Overlaps, duplicates and out-of-order cues are warnings,
+because some are intentional. Unsupported WebVTT structures, including STYLE
+and REGION blocks, are rejected instead of discarded. Supported notes, cue
+identifiers, settings and text are preserved; output uses LF line endings and
+consecutive SRT numbering. Files must be UTF-8 and at most 4 MiB.
+
+Original files stay untouched. Corrected session copies live under
+`%APPDATA%\meowcal-sub-2\subtitles\corrected`. Export a copy to keep it somewhere
+else or import it into another session.
+
 ## Adjust while watching
 
 **Region** reselects the capture box without ending the session. **Settings**

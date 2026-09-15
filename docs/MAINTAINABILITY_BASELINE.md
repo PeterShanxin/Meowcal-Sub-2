@@ -101,6 +101,8 @@ The target presentation change records these measured limits:
 | `overlay/ui/src/app.tsx` | 1581 | 1584 | pass the selected target language to the subtitle preview instead of displaying a fixed language |
 | `sync.py` | 826 | 827 | require stable direct OCR reads before translation and break confirmation across empty frames |
 
+| `overlay/controller.py` | 2060 | 2105 | own the guarded read/save boundary for prepared subtitle edits and reject stale starts; document IO and playback rebuilding live in the subtitle editor module |
+
 The four largest are the ones worth naming, because they are where the work is:
 
 | File | Lines | What it holds |
@@ -180,7 +182,8 @@ module raises the percentage without a line of new test code, which is the
 cheapest way there is to make a coverage claim mean less than it says.
 
 A repository-wide frontend floor would be about 3% and would say nothing. Every
-module that gains tests joins the scope.
+module that gains tests joins the scope. The subtitle editor adds document IO,
+diagnostics, timing transforms, history, and their shared error types to this scope.
 
 ## Proving the gates can fail
 

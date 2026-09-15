@@ -23,6 +23,7 @@ function isTypingContext(target: EventTarget | null): boolean {
 export function useKeybinds(h: KeyHandlers): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      if (e.target instanceof HTMLElement && e.target.closest("dialog[open]")) return;
       // ⌘K / Ctrl+K — always
       if (isModifierKey(e) && e.key.toLowerCase() === "k") {
         e.preventDefault();

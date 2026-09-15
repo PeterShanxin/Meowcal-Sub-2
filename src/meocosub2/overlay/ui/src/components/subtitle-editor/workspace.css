@@ -1,0 +1,271 @@
+.editor-launch {
+  align-self: flex-start;
+  border: 1px solid var(--accent-text);
+  border-radius: 8px;
+  padding: 8px 14px;
+  color: var(--accent-text);
+  background: transparent;
+  cursor: pointer;
+}
+.subtitle-editor {
+  width: min(1200px, calc(100vw - 40px));
+  max-height: calc(100dvh - 40px);
+  box-sizing: border-box;
+  overflow: auto;
+  border: 1px solid #514334;
+  border-radius: 16px;
+  padding: 24px;
+  background: #151310;
+  color: var(--text-body);
+  box-shadow: 0 24px 100px #0009;
+  font-family: inherit;
+  font-size: 13px;
+}
+.subtitle-editor::backdrop {
+  background: #050403c9;
+}
+.subtitle-editor[open] {
+  display: flex;
+  flex-direction: column;
+  height: min(960px, calc(100dvh - 40px));
+}
+.subtitle-editor header,
+.subtitle-editor footer,
+.editor-toolbar,
+.editor-actions,
+.editor-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.subtitle-editor h2 {
+  margin: 4px 0;
+  color: var(--text-heading);
+  font-size: 24px;
+  font-weight: 500;
+}
+.subtitle-editor h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: var(--text-heading);
+}
+.editor-eyebrow {
+  color: var(--accent-text);
+  font-size: 10px;
+  letter-spacing: 2px;
+}
+.editor-intro,
+.subtitle-editor p,
+.editor-meta {
+  color: var(--text-label);
+  line-height: 1.5;
+}
+.editor-body {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 0;
+  margin: 16px 0;
+  border: 0;
+}
+.subtitle-editor button,
+.subtitle-editor input,
+.subtitle-editor select,
+.subtitle-editor textarea {
+  font: inherit;
+  color: var(--text-body);
+  border: 1px solid #544737;
+  background: #211d17;
+  border-radius: 6px;
+  padding: 7px 9px;
+  box-sizing: border-box;
+}
+.subtitle-editor button {
+  cursor: pointer;
+}
+.subtitle-editor button:hover:enabled {
+  border-color: var(--accent-text);
+  background: #30271d;
+}
+.subtitle-editor :disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.subtitle-editor :focus-visible,
+.editor-launch:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 3px;
+}
+.subtitle-editor label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-label);
+  font-size: 12px;
+  min-width: 0;
+}
+.subtitle-editor input,
+.subtitle-editor textarea,
+.subtitle-editor select {
+  width: 100%;
+  min-width: 0;
+}
+.subtitle-editor textarea {
+  resize: vertical;
+  line-height: 1.6;
+}
+.editor-toolbar > label:first-child {
+  flex: 1;
+  min-width: 180px;
+}
+.editor-import {
+  max-width: 225px;
+}
+.editor-meta {
+  margin: 14px 0;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.editor-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(260px, 1fr);
+  gap: 18px;
+  margin-top: 16px;
+}
+.editor-section {
+  border: 1px solid #383025;
+  background: #1a1713;
+  padding: 14px;
+  border-radius: 9px;
+}
+.editor-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.editor-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 12px 0;
+}
+.editor-actions {
+  justify-content: flex-start;
+  margin-top: 10px;
+}
+.editor-actions span {
+  font-size: 11px;
+  color: var(--text-label);
+}
+.editor-pagination {
+  margin: 0 0 10px;
+}
+.editor-pagination form {
+  display: flex;
+  gap: 6px;
+}
+.editor-pagination input {
+  width: 78px;
+}
+.editor-table-scroll {
+  max-height: 520px;
+  overflow: auto;
+  border: 1px solid #383025;
+  border-radius: 8px;
+}
+.editor-cues {
+  min-width: 0;
+}
+.editor-cues table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 11px;
+}
+.editor-cues th {
+  text-align: left;
+  padding: 10px;
+  background: #28221a;
+  position: sticky;
+  top: 0;
+}
+.editor-cues td {
+  padding: 10px;
+  border-top: 1px solid #383025;
+  font-variant-numeric: tabular-nums;
+  vertical-align: top;
+  white-space: nowrap;
+}
+.editor-cues td:first-child {
+  white-space: normal;
+  width: 60%;
+}
+.editor-cues td button {
+  display: flex;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+.editor-cues tr[aria-selected="true"] {
+  background: #3b2c1c;
+}
+.editor-cue-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.editor-preview-time,
+.subtitle-editor .editor-preview-label {
+  color: var(--accent-text);
+}
+.editor-issues summary {
+  cursor: pointer;
+}
+.editor-issues > div {
+  padding: 8px 0;
+  line-height: 1.5;
+}
+.subtitle-editor .editor-error {
+  color: #f3a897;
+  overflow-wrap: anywhere;
+}
+.subtitle-editor footer {
+  flex-shrink: 0;
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid #383025;
+}
+.subtitle-editor footer p {
+  max-width: 60%;
+  margin: 0;
+  font-size: 12px;
+}
+.subtitle-editor .editor-primary {
+  background: var(--accent-hex);
+  color: #1b1008;
+  font-weight: 700;
+}
+.editor-saved {
+  color: var(--accent-text);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+}
+@media (max-width: 760px) {
+  .subtitle-editor {
+    padding: 16px;
+    width: calc(100vw - 20px);
+    max-height: calc(100dvh - 20px);
+  }
+  .editor-grid {
+    grid-template-columns: 1fr;
+  }
+  .editor-table-scroll {
+    max-height: 260px;
+  }
+  .subtitle-editor footer p {
+    max-width: 100%;
+  }
+}
