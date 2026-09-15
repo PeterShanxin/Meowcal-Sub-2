@@ -23,5 +23,5 @@
 <text x="451" y="340" fill="#B1AEA9" font-family="Segoe UI,Arial,sans-serif" font-size="28">Subtitles, in your language.</text>
 <text x="451" y="390" fill="#85838A" font-family="Segoe UI,Arial,sans-serif" font-size="20">Find. Sync. Translate on device.</text>
 <text x="80" y="576" fill="#85838A" font-family="Segoe UI,Arial,sans-serif" font-size="17" letter-spacing="2">WINDOWS · OPEN SOURCE · AGPL-3.0</text>
-<text x="1120" y="576" fill="#EBC58B" font-family="Segoe UI,Arial,sans-serif" font-size="17">v0.1.0</text>
+<text id="release-version" x="1200" y="576" text-anchor="end" fill="#EBC58B" font-family="Segoe UI,Arial,sans-serif" font-size="17">v0.1.0</text>
 </svg>

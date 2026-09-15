@@ -17,6 +17,8 @@ if ($Architecture -eq 'auto') {
 $target = if ($Architecture -eq 'arm64') { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
 $config = Get-Content (Join-Path $repositoryRoot 'src-tauri/tauri.conf.json') -Raw | ConvertFrom-Json
 $version = $config.version
+& $Python (Join-Path $PSScriptRoot 'update_branding.py')
+if ($LASTEXITCODE -ne 0) { throw "Banner generation failed: $LASTEXITCODE" }
 $releaseName = "meowcal-sub-2-v$version-windows-$Architecture"
 $distribution = Join-Path $repositoryRoot 'dist'
 $portable = Join-Path $distribution $releaseName
