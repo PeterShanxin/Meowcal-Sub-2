@@ -181,7 +181,7 @@ def test_storage_rejects_unusable_exports(content, format):
 def test_rebuild_failure_removes_only_new_copies(tmp_path, monkeypatch):
     server = editor_server(tmp_path)
 
-    def fail(_):
+    def fail(_, **kwargs):
         raise ValueError("Cannot read playback track")
 
     with studio_client(server) as client:

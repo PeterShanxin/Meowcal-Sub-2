@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from meocosub2.models import SubtitleLine
 from meocosub2.subtitles import (
     align_subtitles,
@@ -31,6 +33,63 @@ def test_load_subtitle_file_falls_back_to_latin1(tmp_path: Path) -> None:
     path.write_bytes(subtitle.encode("latin-1"))
     lines = load_subtitle_file(path)
     assert lines[0].text == "Olé mundo"
+
+
+def test_loading_automatically_orders_and_deduplicates_without_rewriting(tmp_path: Path) -> None:
+    path = tmp_path / "unordered.srt"
+    raw = (
+        b"1\n00:00:03,000 --> 00:00:04,000\nLater\n\n"
+        b"2\n00:00:01,000 --> 00:00:02,000\nFirst\n\n"
+        b"3\n00:00:01,000 --> 00:00:02,000\nFirst\n\n"
+        b"4\n00:00:01,500 --> 00:00:02,500\nAnother speaker\n\n"
+        b"5\n00:00:05,000 --> 00:00:06,000\nFirst\n"
+    )
+    path.write_bytes(raw)
+    checks = []
+    lines = load_subtitle_file(path, checks=checks)
+    assert [(line.index, line.start_ms, line.text) for line in lines] == [
+        (0, 1000, "First"),
+        (1, 1500, "Another speaker"),
+        (2, 3000, "Later"),
+        (3, 5000, "First"),
+    ]
+    assert checks[0].duplicates_removed == 1
+    assert checks[0].reordered
+    assert path.read_bytes() == raw
+    assert load_subtitle_file(path) == lines
+
+
+@pytest.mark.parametrize("end", ["00:00:01,000", "00:00:00,500"])
+def test_bad_timing_is_reported_instead_of_guessed(tmp_path: Path, end: str) -> None:
+    path = tmp_path / "broken.srt"
+    path.write_text(f"1\n00:00:01,000 --> {end}\nKeep this dialogue\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="broken.srt.*cue 1.*timing"):
+        load_subtitle_file(path)
+
+
+def test_empty_and_nul_text_do_not_claim_a_ready_track(tmp_path: Path) -> None:
+    path = tmp_path / "broken.srt"
+    path.write_text("1\n00:00:01,000 --> 00:00:02,000\n\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="no playable"):
+        load_subtitle_file(path)
+    path.write_text("1\n00:00:01,000 --> 00:00:02,000\nHello\0world\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="NUL"):
+        load_subtitle_file(path)
+
+
+def test_equal_start_times_keep_speaker_order_and_empty_cues_are_counted(tmp_path: Path) -> None:
+    path = tmp_path / "speakers.srt"
+    path.write_text(
+        "1\n00:00:01,000 --> 00:00:03,000\nFirst speaker\n\n"
+        "2\n00:00:01,000 --> 00:00:02,000\nSecond speaker\n\n"
+        "3\n00:00:04,000 --> 00:00:05,000\n<i></i>\n",
+        encoding="utf-8",
+    )
+    checks = []
+    lines = load_subtitle_file(path, checks=checks)
+    assert [line.text for line in lines] == ["First speaker", "Second speaker"]
+    assert checks[0].empty_removed == 1
+    assert not checks[0].reordered
 
 
 def test_align_subtitles_keeps_both_tracks() -> None:

@@ -7,12 +7,16 @@ import time
 import uvicorn
 from playwright.sync_api import expect, sync_playwright
 
+from meocosub2.subtitles import load_subtitle_file
 from tests.conftest import TEST_TOKEN
 from tests.test_subtitle_editor import SOURCE, TARGET, editor_server
 
 
 def test_subtitle_editor_workflow(tmp_path):
     app = editor_server(tmp_path)
+    checks = app.controller._state.prepared_session.subtitle_checks
+    load_subtitle_file(tmp_path / "source.srt", checks=checks)
+    load_subtitle_file(tmp_path / "target.vtt", checks=checks)
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
@@ -30,9 +34,15 @@ def test_subtitle_editor_workflow(tmp_path):
                 try:
                     page = browser.new_page(viewport={"width": 1280, "height": 900})
                     page.set_default_timeout(7000)
+                    page.route(
+                        "https://fonts.googleapis.com/**",
+                        lambda route: route.fulfill(status=200, content_type="text/css", body=""),
+                    )
                     errors = []
                     page.on("pageerror", lambda error: errors.append(str(error)))
                     page.goto(f"http://127.0.0.1:{port}/?token={TEST_TOKEN}")
+                    expect(page.get_by_text("Subtitles checked automatically")).to_be_visible()
+                    expect(page.get_by_role("dialog")).to_have_count(0)
                     page.get_by_role("button", name="Edit subtitles", exact=True).click()
                     dialog = page.get_by_role("dialog", name="Review before sync")
                     expect(dialog).to_be_visible()
@@ -83,6 +93,13 @@ def test_subtitle_editor_workflow(tmp_path):
                         encoding="utf-8"
                     )
                     dialog.get_by_role("button", name="Save & use", exact=True).click()
+                    checks = page.locator("details").filter(
+                        has_text="Subtitles checked automatically"
+                    )
+                    expect(checks).to_be_visible()
+                    checks.locator("summary").click()
+                    expect(checks).to_contain_text("ready for sync")
+                    expect(checks).to_contain_text("Original files are unchanged")
                     expect(dialog).not_to_be_visible()
                     expect(
                         page.get_by_text("Corrected copies saved and ready for sync.", exact=False)

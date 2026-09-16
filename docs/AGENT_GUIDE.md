@@ -103,6 +103,16 @@ source-aligned presentation behavior.
 
 ## Subtitle editing
 
+Every playback file is checked when loaded, including automatic candidates and
+OCR fallback targets. Empty cues are skipped, exact same-text/same-interval
+duplicates are removed, and cues are stably ordered by start time before matching,
+bilingual splitting, coverage measurement or prefill. Other overlaps and repeated
+dialogue are retained. Invalid intervals, NUL text and tracks without playable cues
+stop preparation with a file-specific error; their timing is not guessed. These
+changes affect playback data only. The prepared card reports the per-file results,
+and original documents remain available to the optional editor. Time calibration
+continues to use the corroborated human anchors described above.
+
 The prepared-session card opens the React subtitle editor. It reads the original
 SRT/WebVTT document separately from `load_subtitle_file`, whose plain-text output
 is only for matching and presentation. Save checks the prepared session ID and

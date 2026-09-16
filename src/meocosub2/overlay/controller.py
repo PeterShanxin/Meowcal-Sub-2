@@ -38,6 +38,7 @@ from meocosub2.models import (
     PreparedSession,
     SearchRequest,
     SourceSubtitleCandidate,
+    SubtitleCheck,
     SubtitleLine,
     SubtitlePair,
     TargetAlignment,
@@ -1076,8 +1077,9 @@ class GuiController:
                 target_path = await self._aggregator.download(target_entry)
             await self._set_progress("download", "Downloaded subtitle files.", 2, 2)
 
-            source_lines = load_subtitle_file(source_path)
-            target_lines = load_subtitle_file(target_path) if target_path else []
+            checks: list[SubtitleCheck] = []
+            source_lines = load_subtitle_file(source_path, checks=checks)
+            target_lines = load_subtitle_file(target_path, checks=checks) if target_path else []
 
             # Split first, whatever the viewer chose. It leaves every cue's text
             # in one language, which is what the plate draws and what the model
@@ -1157,6 +1159,7 @@ class GuiController:
             ),
             used_translation=used_translation,
             target_alignment=alignment,
+            subtitle_checks=checks,
         )
 
         async with self._lock:
@@ -1244,6 +1247,7 @@ class GuiController:
         try:
             downloaded = 0
             source_candidates: list[SourceSubtitleCandidate] = []
+            checks: list[SubtitleCheck] = []
             target_path: Path | None = None
             target_lines = []
 
@@ -1256,7 +1260,7 @@ class GuiController:
                     downloaded,
                     total_downloads,
                 )
-                source_lines = load_subtitle_file(source_path)
+                source_lines = load_subtitle_file(source_path, checks=checks)
                 # Every candidate gets the same reading a manually chosen source
                 # does: one language per cue before anything else looks at it,
                 # and its own translation kept where it carries one.
@@ -1280,7 +1284,7 @@ class GuiController:
                 await self._set_progress(
                     "download", "Downloaded target subtitles.", downloaded, total_downloads
                 )
-                target_lines = load_subtitle_file(target_path)
+                target_lines = load_subtitle_file(target_path, checks=checks)
                 for candidate in source_candidates:
                     candidate.pair = align_subtitles(candidate.pair.source_lines, target_lines)
             # A candidate that answered itself needs the model no more than a
@@ -1337,6 +1341,7 @@ class GuiController:
             used_translation=not bool(target_lines),
             source_candidate_count=len(source_candidates),
             target_candidate_count=len(target_entries),
+            subtitle_checks=checks,
         )
 
         async with self._lock:
@@ -1414,12 +1419,13 @@ class GuiController:
         try:
             await self._start_translation_engine(required=True)
 
+            checks: list[SubtitleCheck] = []
             target_path: Path | None = None
             target_lines = []
             target_entry = self._catalog_result(target_file_id) if target_file_id else None
             if target_entry is not None:
                 target_path = await self._aggregator.download(target_entry)
-                target_lines = load_subtitle_file(target_path)
+                target_lines = load_subtitle_file(target_path, checks=checks)
         except Exception as exc:
             await self._set_error(str(exc))
             raise
@@ -1449,6 +1455,7 @@ class GuiController:
             target_path=str(target_path) if target_path is not None else None,
             target_line_count=len(target_lines),
             used_translation=True,
+            subtitle_checks=checks,
         )
 
         async with self._lock:

@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from meocosub2.bilingual import split_bilingual
-from meocosub2.models import PreparedRuntime, PreparedSession
+from meocosub2.models import PreparedRuntime, PreparedSession, SubtitleCheck
 from meocosub2.subtitles import align_subtitles, load_subtitle_file
 
 if TYPE_CHECKING:
@@ -140,12 +140,13 @@ def rebuild_tracks(
                 created.append(path)
                 stream.write(raw)
             paths[key] = path
-        target = load_subtitle_file(paths["target"]) if "target" in paths else []
+        checks: list[SubtitleCheck] = []
+        target = load_subtitle_file(paths["target"], checks=checks) if "target" in paths else []
         candidates = []
         split_count = 0
         for candidate in runtime.source_candidates:
             key = f"source:{candidate.result_id}"
-            source = load_subtitle_file(paths[key])
+            source = load_subtitle_file(paths[key], checks=checks)
             bilingual = split_bilingual(source, session.source_language, session.target_language)
             split_count += bilingual.split_cues
             candidates.append(
@@ -182,6 +183,7 @@ def rebuild_tracks(
                 for line in c.pair.source_lines
             ),
             target_alignment=[],
+            subtitle_checks=checks,
         )
         if session.target_match_mode == "source_own_translation" and source_path:
             updated.target_file_name = Path(source_path).name

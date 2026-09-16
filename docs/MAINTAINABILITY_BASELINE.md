@@ -102,6 +102,7 @@ The target presentation change records these measured limits:
 | `sync.py` | 826 | 827 | require stable direct OCR reads before translation and break confirmation across empty frames |
 
 | `overlay/controller.py` | 2060 | 2105 | own the guarded read/save boundary for prepared subtitle edits and reject stale starts; document IO and playback rebuilding live in the subtitle editor module |
+| `overlay/controller.py` | 2105 | 2112 | report automatic playback checks from each preparation mode using the shared subtitle loader |
 
 The four largest are the ones worth naming, because they are where the work is:
 
