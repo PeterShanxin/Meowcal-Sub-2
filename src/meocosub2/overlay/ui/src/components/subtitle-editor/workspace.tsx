@@ -171,12 +171,12 @@ export function SubtitleEditor({ sessionId }: { sessionId: string }): JSX.Elemen
     try {
       const result = await api.saveSubtitleEdits({
         sessionId: editingSession,
+        revisions: Object.fromEntries(files.map(({ file }) => [file.key, file.revision ?? ""])),
         files: changed.map((file) => {
           if (!file.history || !file.file.revision)
             throw new Error("Reopen this file before saving.");
           return {
             key: file.file.key,
-            revision: file.file.revision,
             format: file.history.present.format,
             content: serializeSubtitle(file.history.present),
           };

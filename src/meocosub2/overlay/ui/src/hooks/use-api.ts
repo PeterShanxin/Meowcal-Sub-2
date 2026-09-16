@@ -94,7 +94,8 @@ export interface EditorFiles {
 
 export interface SubtitleEdits {
   sessionId: string;
-  files: { key: string; revision: string; format: "srt" | "vtt"; content: string }[];
+  revisions: Record<string, string>;
+  files: { key: string; format: "srt" | "vtt"; content: string }[];
 }
 
 export const api = {

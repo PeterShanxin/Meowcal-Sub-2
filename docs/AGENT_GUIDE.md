@@ -116,8 +116,10 @@ continues to use the corroborated human anchors described above.
 The prepared-session card opens the React subtitle editor. It reads the original
 SRT/WebVTT document separately from `load_subtitle_file`, whose plain-text output
 is only for matching and presentation. Save checks the prepared session ID and
-file revisions, writes corrected copies, and rebuilds each source candidate and
-its target presentation. Previous generated answers and playback bias are cleared.
+revisions of all displayed tracks, writes corrected copies, and rebuilds each source
+candidate and its target presentation. It rechecks translation engine readiness,
+persists the reset playback bias, and resumes idle gap filling on the corrected
+track. A failed save removes its new copies and keeps the previous session.
 Running or preparing sessions cannot be edited. Editor saves and starts recheck
 the session after stopping idle prefill so an old start cannot use a changed track.
 

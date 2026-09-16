@@ -2,10 +2,11 @@ import asyncio
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
-from meocosub2.config import AppConfig
+from meocosub2.config import AppConfig, load_config
 from meocosub2.models import PreparedRuntime, PreparedSession, SourceSubtitleCandidate
 from meocosub2.overlay.server import OverlayServer
 from meocosub2.overlay.subtitle_editor import MAX_BYTES, validate_content
@@ -14,6 +15,11 @@ from tests.conftest import TEST_TOKEN, studio_client
 
 SOURCE = "1\n00:00:01,000 --> 00:00:02,000\nHello world\n\n2\n00:00:03,000 --> 00:00:04,000\nAnother line\n"
 TARGET = "WEBVTT - demo\n\nNOTE retained\n猫\n\nfirst\n00:00:01.000 --> 00:00:02.000 align:start\n你好世界\n\n00:00:03.000 --> 00:00:04.000\n下一行\n"
+
+
+@pytest.fixture(autouse=True)
+def ready_engine(monkeypatch):
+    monkeypatch.setattr("meocosub2.overlay.controller.engine.ensure_ready", AsyncMock())
 
 
 def editor_server(tmp_path: Path) -> OverlayServer:
@@ -63,10 +69,10 @@ def edits(client, **contents):
     payload = client.get("/api/subtitle-editor/initial").json()
     return {
         "sessionId": payload["sessionId"],
+        "revisions": {item["key"]: item["revision"] for item in payload["files"]},
         "files": [
             dict(
                 key=item["key"],
-                revision=item["revision"],
                 format="vtt" if item["key"] == "target" else "srt",
                 content=contents.get(item["key"], item["content"].replace("\r\n", "\n")),
             )
@@ -105,6 +111,7 @@ def test_save_copies_preserves_notes_rebuilds_tracks_and_resets_bias(tmp_path):
         assert runtime.target_lines[0].end_ms == 2500
         assert runtime.source_candidates[0].pair.presentation.target_lines[0].start_ms == 1500
         assert client.get("/api/state").json()["config"]["sync"]["biasMs"] == 0
+        assert load_config(tmp_path / "config.toml").sync_bias_ms == 0
         assert client.post("/api/subtitle-editor/save", json=request).status_code == 400
         reopened = client.get(f"/api/subtitle-editor/{session['session_id']}").json()
         assert reopened["files"][1]["content"] == request["files"][1]["content"]
@@ -223,10 +230,13 @@ async def test_sync_receives_corrected_runtime(tmp_path, monkeypatch):
     updated = await controller.save_subtitle_edits(
         SaveEdits(
             sessionId="initial",
+            revisions={
+                "target": revision((tmp_path / "target.vtt").read_bytes()),
+                "source:source-1": revision((tmp_path / "source.srt").read_bytes()),
+            },
             files=[
                 EditFile(
                     key="target",
-                    revision=revision((tmp_path / "target.vtt").read_bytes()),
                     format="vtt",
                     content=TARGET.replace("01.000", "01.500"),
                 )

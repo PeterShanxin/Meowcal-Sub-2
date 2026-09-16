@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -13,6 +15,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from meocosub2.bilingual import split_bilingual
+from meocosub2.errors import TranslationError
 from meocosub2.models import PreparedRuntime, PreparedSession, SubtitleCheck
 from meocosub2.subtitles import align_subtitles, load_subtitle_file
 
@@ -24,13 +27,13 @@ MAX_BYTES = 4 * 1024 * 1024
 
 class EditFile(BaseModel):
     key: str
-    revision: str
     format: Literal["srt", "vtt"]
     content: str = Field(max_length=MAX_BYTES)
 
 
 class SaveEdits(BaseModel):
     sessionId: str
+    revisions: dict[str, str]
     files: list[EditFile] = Field(min_length=1, max_length=4)
 
 
@@ -117,16 +120,25 @@ def validate_content(content: str, format: str) -> bytes:
     return raw
 
 
-def rebuild_tracks(
+def validate_revisions(paths: dict[str, Path], expected: dict[str, str]) -> None:
+    if paths.keys() != expected.keys():
+        raise ValueError("Reopen all prepared tracks before saving.")
+    for key, path in paths.items():
+        if revision(read_track(path)) != expected[key]:
+            raise ValueError("The subtitle changed on disk. Reopen the editor before saving.")
+
+
+@contextmanager
+def stage_tracks(
     session: PreparedSession, runtime: PreparedRuntime, request: SaveEdits, directory: Path
-) -> tuple[PreparedSession, PreparedRuntime]:
+) -> Iterator[tuple[PreparedSession, PreparedRuntime]]:
+    """Keep corrected copies only if the caller commits the rebuilt session."""
     paths = track_paths(session, runtime)
+    validate_revisions(paths, request.revisions)
     edits: dict[str, tuple[Path, bytes]] = {}
     for edit in request.files:
         if edit.key not in paths or edit.key in edits:
             raise ValueError("Select each prepared track at most once.")
-        if revision(read_track(paths[edit.key])) != edit.revision:
-            raise ValueError("The subtitle changed on disk. Reopen the editor before saving.")
         raw = validate_content(edit.content, edit.format)
         stem = re.sub(r"\.corrected-[0-9a-f]{8}$", "", paths[edit.key].stem)
         name = f"{stem[:160]}.corrected-{uuid4().hex[:8]}.{edit.format}"
@@ -187,8 +199,8 @@ def rebuild_tracks(
         )
         if session.target_match_mode == "source_own_translation" and source_path:
             updated.target_file_name = Path(source_path).name
-        return updated, updated_runtime
-    except Exception:
+        yield updated, updated_runtime
+    except BaseException:
         for path in created:
             path.unlink(missing_ok=True)
         raise
@@ -215,5 +227,7 @@ def editor_router(controller: GuiController) -> APIRouter:
             raise HTTPException(400, str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(409, str(exc)) from exc
+        except TranslationError as exc:
+            raise HTTPException(502, str(exc)) from exc
 
     return router

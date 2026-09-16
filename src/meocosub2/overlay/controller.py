@@ -43,7 +43,13 @@ from meocosub2.models import (
     SubtitlePair,
     TargetAlignment,
 )
-from meocosub2.overlay.subtitle_editor import SaveEdits, editor_files, rebuild_tracks
+from meocosub2.overlay.subtitle_editor import (
+    SaveEdits,
+    editor_files,
+    stage_tracks,
+    track_paths,
+    validate_revisions,
+)
 from meocosub2.prefill import fill_before_the_session
 from meocosub2.semantic import SemanticIndex
 from meocosub2.subtitle_sources import (
@@ -1539,22 +1545,34 @@ class GuiController:
             directory = (
                 (self._config_path or default_config_path()).parent / "subtitles" / "corrected"
             )
-            updated, rebuilt = rebuild_tracks(session, runtime, body, directory)
-            self._prepared_runtime = rebuilt
-            self._state.prepared_session = updated
-            self.config = replace(self.config, sync_bias_ms=0)
-            self._state.gap_fill = None
-            self._state.last_subtitle = ""
-            self._state.status = "idle"
-            self._state.error_message = ""
-            self._state.progress = AppProgress(
-                stage="ready",
-                message="Corrected subtitles ready. Playback offset reset.",
-                current=1,
-                total=1,
-            )
+        with stage_tracks(session, runtime, body, directory) as (updated, rebuilt):
+            engine_warning = await self._start_translation_engine(required=updated.used_translation)
+            async with self._lock:
+                self._editable_session(body.sessionId)
+                validate_revisions(track_paths(session, runtime), body.revisions)
+                config = replace(self.config, sync_bias_ms=0)
+                save_config(config, self._config_path)
+                self._prepared_runtime = rebuilt
+                self._state.prepared_session = updated
+                self.config = config
+                self._state.gap_fill = None
+                self._state.last_subtitle = ""
+                self._state.status = "idle"
+                self._state.error_message = ""
+                self._state.warning_message = engine_warning
+                self._state.progress = AppProgress(
+                    stage="ready",
+                    message="Corrected subtitles ready. Playback offset reset.",
+                    current=1,
+                    total=1,
+                )
         await self._emit_app_state()
         await self._emit_app_event("subtitle", {"text": "", "source": MATCHED})
+        if not engine_warning and len(rebuilt.source_candidates) == 1:
+            pair = rebuilt.source_candidates[0].pair
+            await self._start_prefill(
+                pair.source_lines, pair.presentation.answer, expected_runtime=rebuilt
+            )
         return updated
 
     async def stop_session(self) -> dict[str, object]:
@@ -1656,7 +1674,11 @@ class GuiController:
         return ""
 
     async def _start_prefill(
-        self, lines: list[SubtitleLine], answer: Answer = own_translation
+        self,
+        lines: list[SubtitleLine],
+        answer: Answer = own_translation,
+        *,
+        expected_runtime: PreparedRuntime | None = None,
     ) -> None:
         """Answer the target file's gaps while the viewer is still setting up.
 
@@ -1672,6 +1694,10 @@ class GuiController:
         if not gaps:
             return
         async with self._lock:
+            if expected_runtime is not None and (
+                self._prepared_runtime is not expected_runtime or self._state.status != "idle"
+            ):
+                return
             self._state.gap_fill = GapFillProgress(filled=0, total=gaps, active=True)
         # Registered before the state saying it is running is published, and it
         # cancels whatever it replaces in the same step. A target chosen, or

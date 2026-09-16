@@ -3,6 +3,7 @@
 import socket
 import threading
 import time
+from unittest.mock import AsyncMock
 
 import uvicorn
 from playwright.sync_api import expect, sync_playwright
@@ -12,7 +13,8 @@ from tests.conftest import TEST_TOKEN
 from tests.test_subtitle_editor import SOURCE, TARGET, editor_server
 
 
-def test_subtitle_editor_workflow(tmp_path):
+def test_subtitle_editor_workflow(tmp_path, monkeypatch):
+    monkeypatch.setattr("meocosub2.overlay.controller.engine.ensure_ready", AsyncMock())
     app = editor_server(tmp_path)
     checks = app.controller._state.prepared_session.subtitle_checks
     load_subtitle_file(tmp_path / "source.srt", checks=checks)
@@ -60,6 +62,12 @@ def test_subtitle_editor_workflow(tmp_path):
                     expect(text).to_have_value("Hello world")
                     dialog.get_by_role("button", name="Redo", exact=True).click()
                     expect(text).to_have_value("Corrected source 🐱")
+                    untouched_target = (tmp_path / "target.vtt").read_bytes()
+                    (tmp_path / "target.vtt").write_bytes(untouched_target + b"\n")
+                    dialog.get_by_role("button", name="Save & use", exact=True).click()
+                    expect(dialog.get_by_role("alert")).to_contain_text("changed on disk")
+                    assert app.controller._state.prepared_session.session_id == "initial"
+                    (tmp_path / "target.vtt").write_bytes(untouched_target)
                     dialog.get_by_label("Shift (ms)", exact=True).fill("500")
                     dialog.get_by_role("button", name="Preview timing", exact=True).click()
                     dialog.get_by_role("button", name="Preview timing", exact=True).click()

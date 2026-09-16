@@ -103,6 +103,7 @@ The target presentation change records these measured limits:
 
 | `overlay/controller.py` | 2060 | 2105 | own the guarded read/save boundary for prepared subtitle edits and reject stale starts; document IO and playback rebuilding live in the subtitle editor module |
 | `overlay/controller.py` | 2105 | 2112 | report automatic playback checks from each preparation mode using the shared subtitle loader |
+| `overlay/controller.py` | 2112 | 2138 | recheck engine readiness and session ownership before committing subtitle edits, persist the reset bias, and resume prefill only while the corrected session is idle |
 
 The four largest are the ones worth naming, because they are where the work is:
 
