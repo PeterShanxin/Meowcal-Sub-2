@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pysubs2
 
-from meocosub2.models import SubtitleLine, SubtitlePair
+from meocosub2.models import SubtitleCheck, SubtitleLine, SubtitlePair
 from meocosub2.presentation import PresentationTrack
 
 
@@ -20,7 +20,9 @@ class AlignmentReport:
     unpaired_ms: int
 
 
-def load_subtitle_file(path: Path) -> list[SubtitleLine]:
+def load_subtitle_file(
+    path: Path, *, checks: list[SubtitleCheck] | None = None
+) -> list[SubtitleLine]:
     for encoding in ("utf-8", "utf-8-sig", "latin-1"):
         try:
             subtitles = pysubs2.load(str(path), encoding=encoding)
@@ -30,13 +32,31 @@ def load_subtitle_file(path: Path) -> list[SubtitleLine]:
     else:
         raise ValueError(f"Could not decode subtitle file: {path}")
 
+    report = SubtitleCheck(file_name=path.name)
     lines: list[SubtitleLine] = []
-    for event in subtitles:
+    seen: set[tuple[int, int, str]] = set()
+    for position, event in enumerate(subtitles, start=1):
         if getattr(event, "is_comment", False):
             continue
         text = event.plaintext.strip()
         if not text:
+            report.empty_removed += 1
             continue
+        if not 0 <= event.start < event.end <= 9007199254740991:
+            raise ValueError(
+                f"{path.name}: cue {position} has invalid timing. Choose a corrected subtitle file."
+            )
+        if "\0" in text:
+            raise ValueError(
+                f"{path.name}: cue {position} contains a NUL character. Choose a corrected subtitle file."
+            )
+        # Playback renders plain text. Only identical text on the exact same
+        # interval is redundant; overlaps and later repetitions are dialogue.
+        key = (event.start, event.end, text)
+        if key in seen:
+            report.duplicates_removed += 1
+            continue
+        seen.add(key)
         lines.append(
             SubtitleLine(
                 index=len(lines),
@@ -45,7 +65,15 @@ def load_subtitle_file(path: Path) -> list[SubtitleLine]:
                 text=text,
             )
         )
-    return lines
+    ordered = sorted(lines, key=lambda line: line.start_ms)
+    if not ordered:
+        raise ValueError(f"{path.name}: no playable subtitle cues. Choose another subtitle file.")
+    report.reordered = lines != ordered
+    for index, line in enumerate(ordered):
+        line.index = index
+    if checks is not None:
+        checks.append(report)
+    return ordered
 
 
 def alignment_report(

@@ -38,9 +38,17 @@ from meocosub2.models import (
     PreparedSession,
     SearchRequest,
     SourceSubtitleCandidate,
+    SubtitleCheck,
     SubtitleLine,
     SubtitlePair,
     TargetAlignment,
+)
+from meocosub2.overlay.subtitle_editor import (
+    SaveEdits,
+    editor_files,
+    stage_tracks,
+    track_paths,
+    validate_revisions,
 )
 from meocosub2.prefill import fill_before_the_session
 from meocosub2.semantic import SemanticIndex
@@ -1075,8 +1083,9 @@ class GuiController:
                 target_path = await self._aggregator.download(target_entry)
             await self._set_progress("download", "Downloaded subtitle files.", 2, 2)
 
-            source_lines = load_subtitle_file(source_path)
-            target_lines = load_subtitle_file(target_path) if target_path else []
+            checks: list[SubtitleCheck] = []
+            source_lines = load_subtitle_file(source_path, checks=checks)
+            target_lines = load_subtitle_file(target_path, checks=checks) if target_path else []
 
             # Split first, whatever the viewer chose. It leaves every cue's text
             # in one language, which is what the plate draws and what the model
@@ -1156,6 +1165,7 @@ class GuiController:
             ),
             used_translation=used_translation,
             target_alignment=alignment,
+            subtitle_checks=checks,
         )
 
         async with self._lock:
@@ -1243,6 +1253,7 @@ class GuiController:
         try:
             downloaded = 0
             source_candidates: list[SourceSubtitleCandidate] = []
+            checks: list[SubtitleCheck] = []
             target_path: Path | None = None
             target_lines = []
 
@@ -1255,7 +1266,7 @@ class GuiController:
                     downloaded,
                     total_downloads,
                 )
-                source_lines = load_subtitle_file(source_path)
+                source_lines = load_subtitle_file(source_path, checks=checks)
                 # Every candidate gets the same reading a manually chosen source
                 # does: one language per cue before anything else looks at it,
                 # and its own translation kept where it carries one.
@@ -1279,7 +1290,7 @@ class GuiController:
                 await self._set_progress(
                     "download", "Downloaded target subtitles.", downloaded, total_downloads
                 )
-                target_lines = load_subtitle_file(target_path)
+                target_lines = load_subtitle_file(target_path, checks=checks)
                 for candidate in source_candidates:
                     candidate.pair = align_subtitles(candidate.pair.source_lines, target_lines)
             # A candidate that answered itself needs the model no more than a
@@ -1336,6 +1347,7 @@ class GuiController:
             used_translation=not bool(target_lines),
             source_candidate_count=len(source_candidates),
             target_candidate_count=len(target_entries),
+            subtitle_checks=checks,
         )
 
         async with self._lock:
@@ -1413,12 +1425,13 @@ class GuiController:
         try:
             await self._start_translation_engine(required=True)
 
+            checks: list[SubtitleCheck] = []
             target_path: Path | None = None
             target_lines = []
             target_entry = self._catalog_result(target_file_id) if target_file_id else None
             if target_entry is not None:
                 target_path = await self._aggregator.download(target_entry)
-                target_lines = load_subtitle_file(target_path)
+                target_lines = load_subtitle_file(target_path, checks=checks)
         except Exception as exc:
             await self._set_error(str(exc))
             raise
@@ -1448,6 +1461,7 @@ class GuiController:
             target_path=str(target_path) if target_path is not None else None,
             target_line_count=len(target_lines),
             used_translation=True,
+            subtitle_checks=checks,
         )
 
         async with self._lock:
@@ -1492,6 +1506,9 @@ class GuiController:
         # session's first read waits on.
         await self._stop_prefill()
         async with self._lock:
+            current = self._state.prepared_session
+            if current is None or (session_id and session_id != current.session_id):
+                raise ValueError("Subtitles changed. Start the newly prepared session.")
             self._state.status = "running"
             self._state.error_message = ""
             self._state.warning_message = resolution.warning_message
@@ -1504,6 +1521,59 @@ class GuiController:
             self._run_sync_loop(self._prepared_runtime, self.config)
         )
         return {"status": self._state.status}
+
+    def _editable_session(self, session_id: str) -> tuple[PreparedSession, PreparedRuntime]:
+        session, runtime = self._state.prepared_session, self._prepared_runtime
+        if session is None or runtime is None or session.session_id != session_id:
+            raise ValueError("The prepared session changed. Reopen the subtitle editor.")
+        if self._state.status not in {"idle", "error"} or (
+            self._sync_task and not self._sync_task.done()
+        ):
+            raise RuntimeError("Stop sync and finish preparing before editing subtitles.")
+        return session, runtime
+
+    def read_subtitle_editor(self, session_id: str) -> dict[str, object]:
+        return editor_files(*self._editable_session(session_id))
+
+    async def save_subtitle_edits(self, body: SaveEdits) -> PreparedSession:
+        from meocosub2.config import default_config_path
+
+        self._editable_session(body.sessionId)
+        await self._stop_prefill()
+        async with self._lock:
+            session, runtime = self._editable_session(body.sessionId)
+            directory = (
+                (self._config_path or default_config_path()).parent / "subtitles" / "corrected"
+            )
+        with stage_tracks(session, runtime, body, directory) as (updated, rebuilt):
+            engine_warning = await self._start_translation_engine(required=updated.used_translation)
+            async with self._lock:
+                self._editable_session(body.sessionId)
+                validate_revisions(track_paths(session, runtime), body.revisions)
+                config = replace(self.config, sync_bias_ms=0)
+                save_config(config, self._config_path)
+                self._prepared_runtime = rebuilt
+                self._state.prepared_session = updated
+                self.config = config
+                self._state.gap_fill = None
+                self._state.last_subtitle = ""
+                self._state.status = "idle"
+                self._state.error_message = ""
+                self._state.warning_message = engine_warning
+                self._state.progress = AppProgress(
+                    stage="ready",
+                    message="Corrected subtitles ready. Playback offset reset.",
+                    current=1,
+                    total=1,
+                )
+        await self._emit_app_state()
+        await self._emit_app_event("subtitle", {"text": "", "source": MATCHED})
+        if not engine_warning and len(rebuilt.source_candidates) == 1:
+            pair = rebuilt.source_candidates[0].pair
+            await self._start_prefill(
+                pair.source_lines, pair.presentation.answer, expected_runtime=rebuilt
+            )
+        return updated
 
     async def stop_session(self) -> dict[str, object]:
         logger.info("Stop session requested")
@@ -1604,7 +1674,11 @@ class GuiController:
         return ""
 
     async def _start_prefill(
-        self, lines: list[SubtitleLine], answer: Answer = own_translation
+        self,
+        lines: list[SubtitleLine],
+        answer: Answer = own_translation,
+        *,
+        expected_runtime: PreparedRuntime | None = None,
     ) -> None:
         """Answer the target file's gaps while the viewer is still setting up.
 
@@ -1620,6 +1694,10 @@ class GuiController:
         if not gaps:
             return
         async with self._lock:
+            if expected_runtime is not None and (
+                self._prepared_runtime is not expected_runtime or self._state.status != "idle"
+            ):
+                return
             self._state.gap_fill = GapFillProgress(filled=0, total=gaps, active=True)
         # Registered before the state saying it is running is published, and it
         # cancels whatever it replaces in the same step. A target chosen, or

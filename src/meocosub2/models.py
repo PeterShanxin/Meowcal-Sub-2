@@ -100,6 +100,16 @@ class GapFillProgress:
 
 
 @dataclass
+class SubtitleCheck:
+    """Automatic preparation of a playback track; the source file is unchanged."""
+
+    file_name: str
+    duplicates_removed: int = 0
+    empty_removed: int = 0
+    reordered: bool = False
+
+
+@dataclass
 class PreparedSession:
     session_id: str
     title: str
@@ -136,6 +146,7 @@ class PreparedSession:
     # What the chosen target file leaves for the model, and how the other
     # candidates for this episode would have compared. Best first.
     target_alignment: list[TargetAlignment] = field(default_factory=list)
+    subtitle_checks: list[SubtitleCheck] = field(default_factory=list)
 
 
 @dataclass

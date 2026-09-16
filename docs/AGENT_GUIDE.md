@@ -101,6 +101,28 @@ source-aligned and are read when their interval arrives. Without a source anchor
 live OCR translation remains the fallback. Bilingual-only sessions retain their
 source-aligned presentation behavior.
 
+## Subtitle editing
+
+Every playback file is checked when loaded, including automatic candidates and
+OCR fallback targets. Empty cues are skipped, exact same-text/same-interval
+duplicates are removed, and cues are stably ordered by start time before matching,
+bilingual splitting, coverage measurement or prefill. Other overlaps and repeated
+dialogue are retained. Invalid intervals, NUL text and tracks without playable cues
+stop preparation with a file-specific error; their timing is not guessed. These
+changes affect playback data only. The prepared card reports the per-file results,
+and original documents remain available to the optional editor. Time calibration
+continues to use the corroborated human anchors described above.
+
+The prepared-session card opens the React subtitle editor. It reads the original
+SRT/WebVTT document separately from `load_subtitle_file`, whose plain-text output
+is only for matching and presentation. Save checks the prepared session ID and
+revisions of all displayed tracks, writes corrected copies, and rebuilds each source
+candidate and its target presentation. It rechecks translation engine readiness,
+persists the reset playback bias, and resumes idle gap filling on the corrected
+track. A failed save removes its new copies and keeps the previous session.
+Running or preparing sessions cannot be edited. Editor saves and starts recheck
+the session after stopping idle prefill so an old start cannot use a changed track.
+
 ## Log Inspection
 
 - Log file: `%APPDATA%\meowcal-sub-2\logs\meowcal-sub-2.log` (INFO by default).

@@ -76,6 +76,14 @@ export interface BackendPreparedSession {
   source_candidate_count: number;
   target_candidate_count: number;
   target_alignment: BackendTargetAlignment[];
+  subtitle_checks?: BackendSubtitleCheck[];
+}
+
+export interface BackendSubtitleCheck {
+  file_name: string;
+  duplicates_removed: number;
+  empty_removed: number;
+  reordered: boolean;
 }
 
 export interface BackendTargetAlignment {

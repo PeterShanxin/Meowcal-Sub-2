@@ -8,7 +8,7 @@
     "src/meocosub2/engine/runtime.py": 211,
     "src/meocosub2/matcher.py": 550,
     "src/meocosub2/opensubtitles/client.py": 885,
-    "src/meocosub2/overlay/controller.py": 2060,
+    "src/meocosub2/overlay/controller.py": 2138,
     "src/meocosub2/overlay/ui/src/app.tsx": 1584,
     "src/meocosub2/overlay/ui/src/components/palette.tsx": 1489,
     "src/meocosub2/overlay/ui/src/components/primitives.tsx": 382,
@@ -30,7 +30,12 @@
     "frontend": {
       "scope": [
         "src/state/mappers.ts",
-        "src/lib/session.ts"
+        "src/lib/session.ts",
+        "src/lib/subtitle-editor/types.ts",
+        "src/lib/subtitle-editor/document.ts",
+        "src/lib/subtitle-editor/diagnostics.ts",
+        "src/lib/subtitle-editor/timing.ts",
+        "src/lib/subtitle-editor/history.ts"
       ],
       "floors": {
         "statements": 89,

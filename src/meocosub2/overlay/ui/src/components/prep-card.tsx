@@ -7,6 +7,7 @@ import type {
 } from "../lib/types";
 import { coverageLabel } from "../state/mappers";
 import { Kbd } from "./primitives";
+import { SubtitleEditor } from "./subtitle-editor/workspace";
 
 interface PrepCardProps {
   titleLabel: string | null;
@@ -98,6 +99,29 @@ export function PrepCard({
           <Row label="Coverage" value={coverageLabel(chosenAlignment, gapFill)} />
         )}
       </div>
+      {!!prepared?.subtitle_checks?.length && (
+        <details style={{ fontSize: 12, color: "var(--text-label)" }}>
+          <summary style={{ cursor: "pointer" }}>Subtitles checked automatically</summary>
+          <p style={{ whiteSpace: "pre-line", lineHeight: 1.6 }}>
+            {prepared.subtitle_checks
+              .map((check) =>
+                [
+                  `${check.file_name}:`,
+                  check.reordered ? "sorted by time;" : "",
+                  check.duplicates_removed > 0
+                    ? `duplicates removed: ${check.duplicates_removed};`
+                    : "",
+                  check.empty_removed > 0 ? `empty cues skipped: ${check.empty_removed};` : "",
+                  "ready for sync.",
+                ]
+                  .filter(Boolean)
+                  .join(" "),
+              )
+              .join("\n")}
+          </p>
+          <p>Changes apply to playback. Original files are unchanged. Editing is optional.</p>
+        </details>
+      )}
       {better && (
         <div
           style={{
@@ -130,6 +154,10 @@ export function PrepCard({
           </button>
         </div>
       )}
+      {prepared &&
+        (prepared.source_path || prepared.target_path || prepared.source_candidate_count > 0) && (
+          <SubtitleEditor sessionId={prepared.session_id} />
+        )}
       <div style={{ flex: 1 }} />
       <div
         style={{
