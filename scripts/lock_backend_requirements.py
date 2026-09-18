@@ -15,8 +15,9 @@ one distribution and lists the SHA-256 of the wheel every architecture installs.
 
 Resolution uses pip against the package index, with the same platform, Python
 and ABI flags the release build uses, so it needs network access. pip evaluates
-environment markers against the running interpreter rather than --platform, so
-this runs on Windows and refuses dependencies selected by machine architecture.
+environment markers against the running interpreter rather than --platform or
+--python-version, so this runs on Windows under the packaged Python's minor
+version and refuses dependencies selected by machine architecture.
 """
 
 from __future__ import annotations
@@ -166,8 +167,12 @@ def main() -> int:
     mode.add_argument("--upgrade", action="store_true")
     mode.add_argument("--upgrade-package", action="append", default=[], metavar="NAME")
     args = parser.parse_args()
-    if sys.platform != "win32":
-        parser.error("resolve on Windows; pip evaluates markers against this interpreter")
+    running = f"{sys.version_info.major}.{sys.version_info.minor}"
+    if sys.platform != "win32" or running != packaged_python():
+        parser.error(
+            f"resolve with Windows Python {packaged_python()}; pip evaluates markers"
+            f" against this interpreter ({sys.platform}, Python {running})"
+        )
 
     lock = parse_lock(LOCK.read_text(encoding="utf-8"))
     released = {canonical(name) for name in args.upgrade_package}

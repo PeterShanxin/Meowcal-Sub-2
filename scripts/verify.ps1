@@ -109,7 +109,15 @@ try {
         # Ruff is gated at zero, so passing is the count the ratchet records.
         Invoke-Check 'ruff lint' { python -m ruff check src tests scripts }
         if ($Failures.Count -eq 0) { $LintCounts['ruff'] = 0 }
-        Invoke-Check 'backend release lock' { python scripts\lock_backend_requirements.py --check }
+        # Resolution evaluates markers with the running interpreter, so only the
+        # packaged Python can judge the lock; the ARM64 CI job runs that version.
+        $PackagedPython = (Get-Content config\python-runtime.lock.json -Raw | ConvertFrom-Json).version -replace '^(\d+\.\d+).*', '$1'
+        if ((python -c "import sys; print('%d.%d' % sys.version_info[:2])") -eq $PackagedPython) {
+            Invoke-Check 'backend release lock' { python scripts\lock_backend_requirements.py --check }
+        }
+        else {
+            Write-Host "-- backend release lock (skipped: needs Python $PackagedPython)" -ForegroundColor Yellow
+        }
         Invoke-Check 'pytest' {
             python -m pytest -q --cov=src/meocosub2 --cov-report=json:.coverage.json
         }

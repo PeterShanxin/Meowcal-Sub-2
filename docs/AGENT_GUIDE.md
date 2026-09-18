@@ -227,8 +227,11 @@ outputs must be regenerated on the PR branch before CI passes:
 
 - `config/backend-requirements.txt` is the hash-locked wheel set both Windows
   packages embed. `python scripts\lock_backend_requirements.py` resolves it from
-  `pyproject.toml` for win_amd64 and win_arm64 on Windows, holding current pins;
-  `--upgrade-package NAME` releases one pin, `--check` is the `verify.ps1` gate.
+  `pyproject.toml` for win_amd64 and win_arm64, holding current pins; it needs
+  Windows Python at the packaged minor version (3.14), because pip evaluates
+  markers against the running interpreter. `--upgrade-package NAME` releases
+  one pin. `--check` is the `verify.ps1` gate wherever `python` is that version,
+  including the ARM64 CI job.
   The ARM64 CI job installs this lock before the dev extras, so its tests run
   the versions that ship.
 - The studio bundle in `static/` must match a rebuild from the lockfile:
