@@ -109,6 +109,7 @@ try {
         # Ruff is gated at zero, so passing is the count the ratchet records.
         Invoke-Check 'ruff lint' { python -m ruff check src tests scripts }
         if ($Failures.Count -eq 0) { $LintCounts['ruff'] = 0 }
+        Invoke-Check 'backend release lock' { python scripts\lock_backend_requirements.py --check }
         Invoke-Check 'pytest' {
             python -m pytest -q --cov=src/meocosub2 --cov-report=json:.coverage.json
         }
