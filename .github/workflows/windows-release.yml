@@ -67,7 +67,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: .\scripts\build-windows-release.ps1 -Architecture ${{ matrix.architecture }}
       - name: Upload artifacts for native acceptance
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: meowcal-sub-2-windows-${{ matrix.architecture }}-${{ github.sha }}
           path: |
