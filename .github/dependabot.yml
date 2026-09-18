@@ -8,7 +8,10 @@ version: 2
 # config/meowcal-core.lock.json (core-upgrade.yml) and the embedded CPython in
 # config/python-runtime.lock.json.
 updates:
-  # pyproject.toml carries lower bounds only; they move when a fix needs them.
+  # Covers pyproject.toml, whose lower bounds move only when a fix needs them,
+  # and the hash-locked wheels in config/backend-requirements.txt that both
+  # Windows packages embed. A lock update that changes the dependency set fails
+  # CI until scripts/lock_backend_requirements.py is run on the branch.
   - package-ecosystem: "pip"
     directory: "/"
     versioning-strategy: "increase-if-necessary"
@@ -22,25 +25,6 @@ updates:
       include: "scope"
     groups:
       python-minor-patch:
-        applies-to: "version-updates"
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
-
-  # The hash-locked wheels both Windows packages embed. An update that changes
-  # the dependency set fails the lock check in CI until
-  # scripts/lock_backend_requirements.py is run on the branch.
-  - package-ecosystem: "pip"
-    directory: "/config"
-    schedule:
-      interval: "monthly"
-      time: "09:00"
-      timezone: "Asia/Singapore"
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "chore"
-      include: "scope"
-    groups:
-      backend-lock-minor-patch:
         applies-to: "version-updates"
         patterns: ["*"]
         update-types: ["minor", "patch"]
