@@ -1,0 +1,95 @@
+version: 2
+
+# Compatible (minor and patch) version updates arrive as one monthly PR per
+# ecosystem; each major update arrives as its own PR. Security updates are not
+# grouped and are not counted against open-pull-requests-limit.
+#
+# Pinned release inputs outside these ecosystems keep their own processes:
+# config/meowcal-core.lock.json (core-upgrade.yml) and the embedded CPython in
+# config/python-runtime.lock.json.
+updates:
+  # pyproject.toml carries lower bounds only; they move when a fix needs them.
+  - package-ecosystem: "pip"
+    directory: "/"
+    versioning-strategy: "increase-if-necessary"
+    schedule:
+      interval: "monthly"
+      time: "09:00"
+      timezone: "Asia/Singapore"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      python-minor-patch:
+        applies-to: "version-updates"
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # The hash-locked wheels both Windows packages embed. An update that changes
+  # the dependency set fails the lock check in CI until
+  # scripts/lock_backend_requirements.py is run on the branch.
+  - package-ecosystem: "pip"
+    directory: "/config"
+    schedule:
+      interval: "monthly"
+      time: "09:00"
+      timezone: "Asia/Singapore"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      backend-lock-minor-patch:
+        applies-to: "version-updates"
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # The served studio bundle is committed; CI fails until it is rebuilt.
+  - package-ecosystem: "npm"
+    directory: "/src/meocosub2/overlay/ui"
+    schedule:
+      interval: "monthly"
+      time: "09:00"
+      timezone: "Asia/Singapore"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      npm-minor-patch:
+        applies-to: "version-updates"
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "monthly"
+      time: "09:00"
+      timezone: "Asia/Singapore"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      cargo-minor-patch:
+        applies-to: "version-updates"
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      time: "09:00"
+      timezone: "Asia/Singapore"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    groups:
+      actions-minor-patch:
+        applies-to: "version-updates"
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
