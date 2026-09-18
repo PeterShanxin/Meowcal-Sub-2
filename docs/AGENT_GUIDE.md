@@ -219,6 +219,24 @@ rustup component add rustfmt clippy
 `-Stage <name>` runs part of it while iterating; `-List` names the stages. A
 full run is the authoritative result.
 
+### Dependency updates
+
+[`.github/dependabot.yml`](../.github/dependabot.yml) opens monthly grouped
+minor/patch PRs per ecosystem and a separate PR per major update. Two committed
+outputs must be regenerated on the PR branch before CI passes:
+
+- `config/backend-requirements.txt` is the hash-locked wheel set both Windows
+  packages embed. `python scripts\lock_backend_requirements.py` resolves it from
+  `pyproject.toml` for win_amd64 and win_arm64 on Windows, holding current pins;
+  `--upgrade-package NAME` releases one pin, `--check` is the `verify.ps1` gate.
+  The ARM64 CI job installs this lock before the dev extras, so its tests run
+  the versions that ship.
+- The studio bundle in `static/` must match a rebuild from the lockfile:
+  `npm --prefix src\meocosub2\overlay\ui run build`.
+
+Core and the embedded CPython are not Dependabot ecosystems; they change only
+through their own locks and reviewed upgrade flow.
+
 Until the reviewed Core release lock exists, Windows CI checks out the exact
 40-character commit in `config/meowcal-core.candidate.json` and passes that
 checkout to `verify.ps1 -CoreCandidateSource`. Once
