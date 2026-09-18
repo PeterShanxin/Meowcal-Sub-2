@@ -37,6 +37,10 @@ updates:
       time: "09:00"
       timezone: "Asia/Singapore"
     open-pull-requests-limit: 5
+    ignore:
+      # CI and the studio build run Node 22; newer types admit APIs it lacks.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     commit-message:
       prefix: "chore"
       include: "scope"
@@ -53,6 +57,11 @@ updates:
       time: "09:00"
       timezone: "Asia/Singapore"
     open-pull-requests-limit: 5
+    ignore:
+      # The shell's Win32 types must be the windows version Tauri uses; move
+      # it with a Tauri upgrade.
+      - dependency-name: "windows"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     commit-message:
       prefix: "chore"
       include: "scope"
