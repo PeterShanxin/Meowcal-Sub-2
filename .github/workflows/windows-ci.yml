@@ -67,7 +67,7 @@ jobs:
 
       - name: Set up Node
         if: steps.scope.outputs.scope != 'docs'
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           architecture: x64
@@ -158,7 +158,7 @@ jobs:
 
       - name: Set up Node
         if: steps.scope.outputs.scope != 'docs'
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           architecture: arm64
