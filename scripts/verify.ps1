@@ -125,6 +125,32 @@ try {
     if ($Wanted -contains 'typescript') {
         Start-Stage 'typescript'
         Invoke-Check 'tsc' { npx --prefix $UiDir tsc -b $UiDir }
+        # The served bundle is committed, so a source or lockfile change must ship
+        # with a rebuild. Vite output is byte-reproducible from the same inputs.
+        Invoke-Check 'served studio bundle is current' {
+            $Built = Join-Path ([IO.Path]::GetTempPath()) "meowcal-studio-$([guid]::NewGuid().ToString('N'))"
+            try {
+                npx --prefix $UiDir vite build $UiDir --outDir $Built --emptyOutDir --logLevel warn
+                if ($LASTEXITCODE -ne 0) { throw "vite build failed: $LASTEXITCODE" }
+                $Static = Join-Path $RepoRoot 'src/meocosub2/overlay/static'
+                $Expected = @(Get-ChildItem -LiteralPath $Built -File -Recurse |
+                    ForEach-Object { [IO.Path]::GetRelativePath($Built, $_.FullName) })
+                $Committed = @('index.html') + @(Get-ChildItem -LiteralPath (Join-Path $Static 'assets') -File |
+                    ForEach-Object { Join-Path 'assets' $_.Name })
+                $Stale = @(Compare-Object $Expected $Committed | ForEach-Object InputObject) + @(
+                    $Expected | Where-Object {
+                        (Test-Path -LiteralPath (Join-Path $Static $_)) -and
+                        (Get-FileHash -LiteralPath (Join-Path $Built $_)).Hash -ne
+                        (Get-FileHash -LiteralPath (Join-Path $Static $_)).Hash
+                    })
+                if ($Stale.Count -gt 0) {
+                    throw "stale: $($Stale -join ', '). Run: npm --prefix src\meocosub2\overlay\ui run build"
+                }
+            }
+            finally {
+                Remove-Item -LiteralPath $Built -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
         # Biome carries a budget of pre-existing findings rather than a zero
         # gate, so its count goes to the ratchet instead of failing here.
         $BiomeSummary = (& $Biome lint --reporter=json 2>$null | ConvertFrom-Json).summary

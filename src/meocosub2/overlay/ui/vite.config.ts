@@ -10,8 +10,8 @@ const staticDir = resolve(here, "..", "static");
 const cleanAssets = {
   name: "clean-assets",
   apply: "build" as const,
-  writeBundle(_: unknown, bundle: Record<string, { fileName: string }>) {
-    const assetsPath = resolve(staticDir, "assets");
+  writeBundle(options: { dir?: string }, bundle: Record<string, { fileName: string }>) {
+    const assetsPath = resolve(options.dir ?? staticDir, "assets");
     if (!fs.existsSync(assetsPath)) return;
     const emitted = new Set(
       Object.values(bundle)
