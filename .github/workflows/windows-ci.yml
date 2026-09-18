@@ -58,7 +58,7 @@ jobs:
 
       - name: Set up Python
         if: steps.scope.outputs.scope != 'docs'
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           architecture: x64
@@ -149,7 +149,7 @@ jobs:
 
       - name: Set up Python
         if: steps.scope.outputs.scope != 'docs'
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.14.7"
           architecture: arm64
