@@ -172,7 +172,17 @@ def main() -> int:
     lock = parse_lock(LOCK.read_text(encoding="utf-8"))
     released = {canonical(name) for name in args.upgrade_package}
     held = {} if args.upgrade else {k: pin for k, pin in lock.items() if k not in released}
-    resolved = merge_platforms({platform: resolve(platform, held) for platform in PLATFORMS})
+    try:
+        resolved = merge_platforms({platform: resolve(platform, held) for platform in PLATFORMS})
+    except subprocess.CalledProcessError:
+        # Usually a pyproject.toml floor now excludes a held pin.
+        print(
+            "Resolution failed with the current pins held (pip's reason is above). If"
+            " pyproject.toml now excludes a pin, run: python"
+            " scripts/lock_backend_requirements.py --upgrade-package NAME",
+            file=sys.stderr,
+        )
+        return 1
     if args.check:
         problems = lock_problems(lock, resolved)
         for problem in problems:
