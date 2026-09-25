@@ -1,6 +1,10 @@
+import ctypes
 import json
+import os
 import threading
 from pathlib import Path
+
+import pytest
 
 from meocosub2.event_log import MAX_EVENT_LOG_BYTES, log_event
 
@@ -92,3 +96,27 @@ def test_log_event_keeps_every_event_written_concurrently(tmp_path: Path, monkey
 
     records = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
     assert len(records) == writers * events_per_writer
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows handle ownership is platform-specific")
+def test_log_event_closes_the_file_handle_when_the_descriptor_cannot_be_made(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import msvcrt
+
+    monkeypatch.setenv("MEOCOSUB2_EVENT_LOG_PATH", str(tmp_path / "events.jsonl"))
+
+    def descriptor_table_full(handle: int, flags: int) -> int:
+        raise OSError(24, "Too many open files")
+
+    monkeypatch.setattr(msvcrt, "open_osfhandle", descriptor_table_full)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    count = ctypes.c_ulong()
+    kernel32.GetProcessHandleCount(kernel32.GetCurrentProcess(), ctypes.byref(count))
+    before = count.value
+
+    for _ in range(200):
+        log_event("descriptor.unavailable")
+
+    kernel32.GetProcessHandleCount(kernel32.GetCurrentProcess(), ctypes.byref(count))
+    assert count.value - before < 50

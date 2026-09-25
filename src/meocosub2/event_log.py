@@ -62,6 +62,8 @@ if os.name == "nt":
         wintypes.HANDLE,
     )
     _kernel32.CreateFileW.restype = wintypes.HANDLE
+    _kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    _kernel32.CloseHandle.restype = wintypes.BOOL
 
 
 def event_log_path() -> Path:
@@ -169,7 +171,12 @@ def _open_append_only(path: str, flags: int) -> int:
     )
     if handle == _INVALID_HANDLE_VALUE:
         raise ctypes.WinError(ctypes.get_last_error())
-    return msvcrt.open_osfhandle(handle, 0)
+    try:
+        return msvcrt.open_osfhandle(handle, 0)
+    except OSError:
+        # The descriptor never took ownership, so nothing else will close it.
+        _kernel32.CloseHandle(handle)
+        raise
 
 
 def _rotate_if_full(path: Path) -> None:
