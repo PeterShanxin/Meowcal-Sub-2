@@ -137,6 +137,27 @@ adds detailed OCR and subtitle traces. Even normal logs can include titles,
 errors, and sensitive details. Do not share raw logs, provider credentials,
 the token-bearing studio URL, or screenshots of private viewing content.
 
+## Uninstall
+
+Uninstall the installed app from Windows **Settings → Apps**. Check **Delete
+the application data** to also remove the folders below. Earlier versions kept
+the translation engine in `%LOCALAPPDATA%\Meowcal\Core\production`, which
+Meowcal Sub shares; the uninstaller removes it only when Meowcal Sub has never
+run on the machine.
+
+The portable package has no uninstaller. Close the app, delete the extracted
+folder, then delete these folders:
+
+| Folder | Contents |
+| --- | --- |
+| `%APPDATA%\meowcal-sub-2` | Configuration, logs, corrected subtitles |
+| `%USERPROFILE%\.cache\meowcal-sub-2` | Downloaded subtitles |
+| `%LOCALAPPDATA%\com.meowcal.sub2` | Embedding model, WebView data |
+| `%LOCALAPPDATA%\Meowcal\Core\sub2` | Translation engine |
+
+Delete `%LOCALAPPDATA%\Meowcal\Core\production` as well if you do not use
+Meowcal Sub.
+
 ## Troubleshooting
 
 ### Search is empty or a source fails

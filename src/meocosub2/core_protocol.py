@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 CORE_API_VERSION = 1
-CORE_VERSION = "0.1.0"
+CORE_VERSION = "0.1.4"
 CORE_CAPABILITIES = frozenset(
     {
         "status",

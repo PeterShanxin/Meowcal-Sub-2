@@ -36,16 +36,24 @@ Transport failures terminate the owned Core process; the next translation
 re-establishes readiness for the replacement process.
 
 Core data defaults to
-`%LOCALAPPDATA%/Meowcal/Core/<profile>/<version>/<architecture>`. The profile
-separates development from production. Custom storage retains version and
-architecture partitions. Each application owns its processes and shutdown does
-not stop another application's engine.
+`%LOCALAPPDATA%/Meowcal/Core/<client>/<profile>/<version>/<architecture>`, and
+Sub 2's client is `sub2`. The profile separates development from production.
+Custom storage keeps the same partitions below its base. Each application owns
+its processes and shutdown does not stop another application's engine.
+
+An install imports a verified runtime archive or model from another partition of
+the same profile and architecture as an NTFS hard link, including Sub 1's and
+the unpartitioned layout Core 0.1.0 to 0.1.3 wrote, and copies only where the
+volume cannot link. Once its engine is ready, Core removes Sub 2's other
+versions except the newest complete one, kept for rollback, and replaces
+matching models in the remaining partitions with links to its own.
 
 Running engines retain shared installation leases; install/repair requires an
 exclusive lease with a bounded wait. A busy installation reports that conflict
-instead of replacing files in use. Upgrading Sub 1 cannot change Sub 2's pin or
-remove the old Core version. Rollback reinstates the prior application and pin;
-older data directories are retained.
+instead of replacing files in use, and reclaim skips partitions another process
+holds. Upgrading Sub 1 cannot change Sub 2's pin or remove Sub 2's partition.
+Rollback reinstates the prior application and pin; a version whose partition
+was removed imports the model again as a link.
 
 OCR uses `ocrRecognizeBgra`: a UTF-8 JSON header ending in a newline, followed
 by exactly `payloadBytes` raw BGRA bytes without a trailing delimiter. Control
