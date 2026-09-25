@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from meocosub2.event_log import log_event
+from meocosub2.event_log import MAX_EVENT_LOG_BYTES, log_event
 
 
 def test_log_event_writes_jsonl_and_redacts_sensitive_fields(tmp_path: Path, monkeypatch) -> None:
@@ -52,3 +52,23 @@ def test_log_event_redacts_sensitive_url_query_values(tmp_path: Path, monkeypatc
     record = json.loads(log_path.read_text(encoding="utf-8"))
     assert "token=%5Bredacted%5D" in record["error"]
     assert "secret" not in record["error"]
+
+
+def test_log_event_rotates_a_full_log_into_one_previous_file(tmp_path: Path, monkeypatch) -> None:
+    log_path = tmp_path / "events.jsonl"
+    previous_path = tmp_path / "events.jsonl.1"
+    monkeypatch.setenv("MEOCOSUB2_EVENT_LOG_PATH", str(log_path))
+    previous_path.write_bytes(b"oldest\n")
+    filler = "x" * (MAX_EVENT_LOG_BYTES - 2)
+    log_path.write_bytes(filler.encode() + b"\n")
+
+    log_event("below.bound")
+    assert previous_path.read_bytes() == b"oldest\n"
+
+    log_event("above.bound")
+
+    previous_lines = previous_path.read_text(encoding="utf-8").splitlines()
+    assert previous_lines[0] == filler
+    assert [json.loads(line)["event"] for line in previous_lines[1:]] == ["below.bound"]
+    current_lines = log_path.read_text(encoding="utf-8").splitlines()
+    assert [json.loads(line)["event"] for line in current_lines] == ["above.bound"]
