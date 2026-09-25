@@ -129,6 +129,10 @@ the session after stopping idle prefill so an old start cannot use a changed tra
   Explicit `python -m meocosub2.cli --verbose serve` enables DEBUG OCR/subtitle
   traces. Normal logs can still contain titles, errors, and sensitive details;
   use synthetic viewing content and sanitize excerpts before sharing.
+- Event log: `meowcal-sub-2.events.jsonl` beside it, one JSON record per line
+  from the backend, the shell and the launcher. At 5 MiB the backend renames it
+  to `meowcal-sub-2.events.jsonl.1`, replacing the previous one, so a window
+  that spans a rotation needs both files.
 - Key patterns to grep:
   - `OCR pass=` — which pass won, score, recognized text, duration
   - `MATCH hit:` — matched subtitle index, score, source snippet

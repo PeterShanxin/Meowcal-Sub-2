@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -17,6 +18,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 logger = logging.getLogger(__name__)
 
+MAX_EVENT_LOG_BYTES = 5 * 1024 * 1024
 REDACTED = "[redacted]"
 MAX_STRING_LENGTH = 500
 SENSITIVE_KEY_PARTS = (
@@ -35,6 +37,9 @@ URL_PATTERN = re.compile(r"https?://[^\s\"'<>]+")
 CURRENT_CORRELATION_ID: ContextVar[str | None] = ContextVar(
     "meocosub2_correlation_id", default=None
 )
+# Two threads that both see a full log would otherwise both rename, and the
+# second would replace the previous file with the first line of the new one.
+_ROTATION_LOCK = threading.Lock()
 
 
 def event_log_path() -> Path:
@@ -72,6 +77,7 @@ def log_event(
     try:
         path = event_log_path()
         path.parent.mkdir(parents=True, exist_ok=True)
+        _rotate_if_full(path)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
     except Exception as exc:  # pragma: no cover - diagnostics must not break app flow
@@ -122,6 +128,21 @@ def event_correlation(correlation_id: str | None) -> Iterator[None]:
     finally:
         if token is not None:
             CURRENT_CORRELATION_ID.reset(token)
+
+
+def _rotate_if_full(path: Path) -> None:
+    # The backend is the only writer that rotates; the shell and the launcher
+    # append a few lifecycle events to whichever file is current. A rename that
+    # meets another process's open handle fails, and the next event retries it.
+    with _ROTATION_LOCK:
+        try:
+            if path.stat().st_size < MAX_EVENT_LOG_BYTES:
+                return
+            path.replace(path.with_name(path.name + ".1"))
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            logger.debug("Event log rotation deferred: %s", exc)
 
 
 def _elapsed_ms(start: float) -> int:
