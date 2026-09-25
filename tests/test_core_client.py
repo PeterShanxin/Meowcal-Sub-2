@@ -18,6 +18,7 @@ from meocosub2.core_client import (
     CoreProtocolError,
     CoreTimeoutError,
 )
+from meocosub2.core_protocol import CORE_VERSION, validate_hello
 
 
 class FakeOutput(io.RawIOBase):
@@ -545,6 +546,19 @@ def test_legacy_ocr_capability_fails_before_pixels_are_sent(pipe_client):
     with pytest.raises(CoreProtocolError, match="pinned contract"):
         client.request_sync("ocrRecognizeBgra", ocr_params(), payload=bytes(8), timeout_s=3)
     assert client.process_generation is None
+
+
+def test_hello_accepts_a_capability_added_within_api_1(tmp_path):
+    validate_hello(
+        {
+            "version": CORE_VERSION,
+            "api": 1,
+            "capabilities": [*sorted(CORE_CAPABILITIES), "recoverInference"],
+            "model": "HY-MT1.5-1.8B-Q4_K_M",
+            "storageRoot": str(tmp_path),
+        },
+        CORE_VERSION,
+    )
 
 
 @pytest.mark.asyncio

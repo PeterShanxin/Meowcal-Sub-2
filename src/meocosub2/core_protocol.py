@@ -88,7 +88,7 @@ def validate_hello(value: Any, expected_version: str) -> None:
         or value.get("api") != CORE_API_VERSION
         or not isinstance(capabilities, list)
         or not all(isinstance(capability, str) for capability in capabilities)
-        or set(capabilities) != CORE_CAPABILITIES
+        or not CORE_CAPABILITIES.issubset(capabilities)
         or not isinstance(value.get("model"), str)
         or not value["model"]
         or not isinstance(value.get("storageRoot"), str)
