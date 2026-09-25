@@ -267,12 +267,9 @@ function Test-CoreArchive {
                 -TimeoutMilliseconds 15000
             try { $versionInfo = $versionJson | ConvertFrom-Json }
             catch { throw "Core $Architecture executable returned invalid --version-json output: $_" }
-            $capabilities = @($versionInfo.capabilities)
             if ($versionInfo.version -isnot [string] -or $versionInfo.version -ne $Version -or
                 -not (Test-IsIntegerValue -Value $versionInfo.api -Expected $apiVersion) -or
-                @($capabilities | Where-Object { $_ -isnot [string] }).Count -ne 0 -or
-                $capabilities.Count -ne $requiredCapabilities.Count -or
-                (Compare-Object -ReferenceObject $requiredCapabilities -DifferenceObject $capabilities -CaseSensitive)) {
+                -not (Test-HasRequiredCapabilities -Capabilities $versionInfo.capabilities -Required $requiredCapabilities)) {
                 throw "Core $Architecture executable version, API, or capabilities do not match the v1 consumer contract."
             }
         }

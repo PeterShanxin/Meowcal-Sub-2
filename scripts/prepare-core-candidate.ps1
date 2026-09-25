@@ -167,13 +167,10 @@ $requiredCapabilities = @(
     "status", "install", "ready", "complete", "shutdown", "ocrInitialize",
     "ocrLanguages", "ocrRecognizeBgra"
 )
-$capabilities = @($versionInfo.capabilities)
 if ($versionInfo.version -isnot [string] -or
     $versionInfo.version -ne $pin.coreVersion -or
     -not (Test-IsIntegerValue -Value $versionInfo.api -Expected $pin.apiVersion) -or
-    @($capabilities | Where-Object { $_ -isnot [string] }).Count -ne 0 -or
-    $capabilities.Count -ne $requiredCapabilities.Count -or
-    (Compare-Object -ReferenceObject $requiredCapabilities -DifferenceObject $capabilities -CaseSensitive)) {
+    -not (Test-HasRequiredCapabilities -Capabilities $versionInfo.capabilities -Required $requiredCapabilities)) {
     throw "Core candidate version, API, or capabilities do not match the pinned v1 contract."
 }
 
