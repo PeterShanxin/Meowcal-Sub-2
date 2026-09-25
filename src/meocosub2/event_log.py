@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -17,6 +18,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 logger = logging.getLogger(__name__)
 
+MAX_EVENT_LOG_BYTES = 5 * 1024 * 1024
 REDACTED = "[redacted]"
 MAX_STRING_LENGTH = 500
 SENSITIVE_KEY_PARTS = (
@@ -35,6 +37,33 @@ URL_PATTERN = re.compile(r"https?://[^\s\"'<>]+")
 CURRENT_CORRELATION_ID: ContextVar[str | None] = ContextVar(
     "meocosub2_correlation_id", default=None
 )
+# Two threads that both see a full log would otherwise both rename, and the
+# second would replace the previous file with the first line of the new one.
+_ROTATION_LOCK = threading.Lock()
+
+if os.name == "nt":
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    _FILE_APPEND_DATA = 0x0004
+    _FILE_SHARE_READ_WRITE_DELETE = 0x0007
+    _OPEN_ALWAYS = 4
+    _FILE_ATTRIBUTE_NORMAL = 0x0080
+    _INVALID_HANDLE_VALUE = wintypes.HANDLE(-1).value
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _kernel32.CreateFileW.argtypes = (
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    )
+    _kernel32.CreateFileW.restype = wintypes.HANDLE
+    _kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    _kernel32.CloseHandle.restype = wintypes.BOOL
 
 
 def event_log_path() -> Path:
@@ -72,7 +101,8 @@ def log_event(
     try:
         path = event_log_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
+        _rotate_if_full(path)
+        with open(path, "a", encoding="utf-8", opener=_open_append_only) as handle:
             handle.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
     except Exception as exc:  # pragma: no cover - diagnostics must not break app flow
         logger.debug("Event log write failed: %s", exc)
@@ -122,6 +152,47 @@ def event_correlation(correlation_id: str | None) -> Iterator[None]:
     finally:
         if token is not None:
             CURRENT_CORRELATION_ID.reset(token)
+
+
+def _open_append_only(path: str, flags: int) -> int:
+    # The C runtime emulates O_APPEND by seeking to the end before each write,
+    # so two writers can land on one offset and the second line overwrites the
+    # first. With append-only access, Windows puts every write at the end.
+    if os.name != "nt":
+        return os.open(path, flags, 0o666)
+    handle = _kernel32.CreateFileW(
+        path,
+        _FILE_APPEND_DATA,
+        _FILE_SHARE_READ_WRITE_DELETE,
+        None,
+        _OPEN_ALWAYS,
+        _FILE_ATTRIBUTE_NORMAL,
+        None,
+    )
+    if handle == _INVALID_HANDLE_VALUE:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        return msvcrt.open_osfhandle(handle, 0)
+    except OSError:
+        # The descriptor never took ownership, so nothing else will close it.
+        _kernel32.CloseHandle(handle)
+        raise
+
+
+def _rotate_if_full(path: Path) -> None:
+    # The backend is the only writer that rotates; the shell and the launcher
+    # append a few lifecycle events to whichever file is current. A rename that
+    # meets a handle opened without delete sharing fails, and the next event
+    # retries it.
+    with _ROTATION_LOCK:
+        try:
+            if path.stat().st_size < MAX_EVENT_LOG_BYTES:
+                return
+            path.replace(path.with_name(path.name + ".1"))
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            logger.debug("Event log rotation deferred: %s", exc)
 
 
 def _elapsed_ms(start: float) -> int:

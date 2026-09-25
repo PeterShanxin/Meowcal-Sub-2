@@ -8,6 +8,21 @@ $temporaryDirectory = Join-Path ([IO.Path]::GetTempPath()) (
     "meowcal-core-upgrade-tests-" + [guid]::NewGuid().ToString("N")
 )
 
+. (Join-Path $repositoryRoot "scripts\lib\CoreSchemaChecks.ps1")
+$required = @("status", "ocrRecognizeBgra")
+if (-not (Test-HasRequiredCapabilities -Capabilities @("status", "ocrRecognizeBgra", "recoverInference") -Required $required)) {
+    throw "Capabilities added within API 1 must satisfy the contract."
+}
+if (Test-HasRequiredCapabilities -Capabilities @("status", "recoverInference") -Required $required) {
+    throw "A missing required capability must fail the contract."
+}
+if (Test-HasRequiredCapabilities -Capabilities @("status", "OCRRECOGNIZEBGRA") -Required $required) {
+    throw "Capability names must match case-sensitively."
+}
+if (Test-HasRequiredCapabilities -Capabilities @("status", "ocrRecognizeBgra", 7) -Required $required) {
+    throw "A non-string capability must fail the contract."
+}
+
 function Assert-Throws {
     param([scriptblock]$Action, [string]$ExpectedSubstring)
     try { & $Action }
