@@ -35,6 +35,8 @@ SectionEnd
 SUB2_DATA = (
     "Roaming/meowcal-sub-2/config.toml",
     "Profile/.cache/meowcal-sub-2/subdl/episode.srt",
+    "Local/Meowcal/Core/sub2/production/0.1.4/aarch64/model.gguf",
+    # Core releases before the per-app level stored every app's engine here.
     "Local/Meowcal/Core/production/0.1.0/aarch64/model.gguf",
 )
 
@@ -111,13 +113,17 @@ def test_removes_sub2_data_and_the_engine_when_meowcal_sub_never_ran(
 
 
 def test_keeps_development_storage(run_hook: RunHook, tmp_path: Path) -> None:
-    development = "Local/Meowcal/Core/development/0.1.0/aarch64/model.gguf"
-    _create(tmp_path, *SUB2_DATA, development)
+    development = (
+        "Local/Meowcal/Core/sub2/development/0.1.4/aarch64/model.gguf",
+        "Local/Meowcal/Core/development/0.1.0/aarch64/model.gguf",
+    )
+    _create(tmp_path, *SUB2_DATA, *development)
 
     run_hook(tmp_path, delete_app_data=True)
 
+    assert not (tmp_path / "Local/Meowcal/Core/sub2/production").exists()
     assert not (tmp_path / "Local/Meowcal/Core/production").exists()
-    assert (tmp_path / development).exists()
+    assert all((tmp_path / relative).exists() for relative in development)
 
 
 @pytest.mark.parametrize("sub1_folder", ["Roaming/com.meowcal.sub", "Local/com.meowcal.sub"])
@@ -131,6 +137,7 @@ def test_keeps_the_shared_engine_once_meowcal_sub_has_run(
 
     assert not (tmp_path / "Roaming/meowcal-sub-2").exists()
     assert not (tmp_path / "Profile/.cache/meowcal-sub-2").exists()
+    assert not (tmp_path / "Local/Meowcal/Core/sub2").exists()
     assert (tmp_path / "Local/Meowcal/Core/production/0.1.0/aarch64/model.gguf").exists()
 
 

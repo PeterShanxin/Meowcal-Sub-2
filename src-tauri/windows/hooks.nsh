@@ -7,8 +7,10 @@
     SetShellVarContext current
     RmDir /r "$APPDATA\meowcal-sub-2"
     RmDir /r "$PROFILE\.cache\meowcal-sub-2"
-    ; Core keeps every Meowcal app's production engine here. Meowcal Sub may
-    ; still run from it, so keep it once that app has run.
+    RmDir /r "$LOCALAPPDATA\Meowcal\Core\sub2\production"
+    RmDir "$LOCALAPPDATA\Meowcal\Core\sub2"
+    ; Core releases before the per-app level stored every app's engine here.
+    ; Meowcal Sub may still run from it, so keep it once that app has run.
     ${IfNot} ${FileExists} "$APPDATA\com.meowcal.sub\*.*"
     ${AndIfNot} ${FileExists} "$LOCALAPPDATA\com.meowcal.sub\*.*"
       RmDir /r "$LOCALAPPDATA\Meowcal\Core\production"
