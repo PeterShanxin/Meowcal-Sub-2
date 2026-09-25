@@ -1,4 +1,5 @@
 import json
+import threading
 from pathlib import Path
 
 from meocosub2.event_log import MAX_EVENT_LOG_BYTES, log_event
@@ -72,3 +73,22 @@ def test_log_event_rotates_a_full_log_into_one_previous_file(tmp_path: Path, mon
     assert [json.loads(line)["event"] for line in previous_lines[1:]] == ["below.bound"]
     current_lines = log_path.read_text(encoding="utf-8").splitlines()
     assert [json.loads(line)["event"] for line in current_lines] == ["above.bound"]
+
+
+def test_log_event_keeps_every_event_written_concurrently(tmp_path: Path, monkeypatch) -> None:
+    log_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("MEOCOSUB2_EVENT_LOG_PATH", str(log_path))
+    writers, events_per_writer = 8, 300
+
+    def write(worker: int) -> None:
+        for n in range(events_per_writer):
+            log_event("concurrent.write", worker=worker, n=n)
+
+    threads = [threading.Thread(target=write, args=(worker,)) for worker in range(writers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    records = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+    assert len(records) == writers * events_per_writer
