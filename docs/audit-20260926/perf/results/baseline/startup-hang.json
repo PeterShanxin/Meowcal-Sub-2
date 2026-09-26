@@ -1,12 +1,12 @@
 {
  "summary": {
   "fonts": "hang",
-  "backend_ready_ms": 479.2,
+  "backend_ready_ms": 437.7,
   "cold": {
    "palette_ready_ms": 20000.0,
    "timed_out": 2,
    "long_tasks_max_ms": 0,
-   "spawn_to_palette_ms": 20550.7
+   "spawn_to_palette_ms": 20467.3
   },
   "warm": {
    "palette_ready_ms": 20000.0,
@@ -17,11 +17,11 @@
  "runs": [
   {
    "attempt": 0,
-   "backend_ready_ms": 468.3,
+   "backend_ready_ms": 486.8,
    "cold": {
     "palette_ready_ms": 20000.0,
     "timed_out": true,
-    "spawn_to_palette_ms": 20554.0
+    "spawn_to_palette_ms": 20517.4
    },
    "warm": {
     "palette_ready_ms": 20000.0,
@@ -30,11 +30,11 @@
   },
   {
    "attempt": 1,
-   "backend_ready_ms": 490.2,
+   "backend_ready_ms": 388.6,
    "cold": {
     "palette_ready_ms": 20000.0,
     "timed_out": true,
-    "spawn_to_palette_ms": 20547.4
+    "spawn_to_palette_ms": 20417.3
    },
    "warm": {
     "palette_ready_ms": 20000.0,

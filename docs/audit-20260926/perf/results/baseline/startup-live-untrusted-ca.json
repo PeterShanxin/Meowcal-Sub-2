@@ -1,158 +1,149 @@
 {
  "summary": {
   "fonts": "live",
-  "backend_ready_ms": 464.2,
+  "backend_ready_ms": 401.6,
   "cold": {
-   "ttfb": 2.9,
-   "fcp": 260,
-   "lcp": 260,
-   "dcl": 159.5,
-   "palette_ready_ms": 199.4,
-   "fonts_loaded_ms": 329.8,
-   "transferred": 375889,
+   "ttfb": 2.8,
+   "fcp": 340,
+   "lcp": 340,
+   "dcl": 263.4,
+   "palette_ready_ms": 346.3,
+   "transferred": 274937,
    "timed_out": 0,
-   "long_tasks_max_ms": 50,
-   "spawn_to_palette_ms": 686.4
+   "long_tasks_max_ms": 0,
+   "spawn_to_palette_ms": 832.3
   },
   "warm": {
-   "ttfb": 1.2,
-   "fcp": 126.0,
-   "lcp": 126.0,
-   "dcl": 34.4,
-   "palette_ready_ms": 73.3,
-   "fonts_loaded_ms": 136.8,
+   "ttfb": 1,
+   "fcp": 332.0,
+   "lcp": 332.0,
+   "dcl": 266.2,
+   "palette_ready_ms": 340.1,
    "transferred": 3091,
    "timed_out": 0,
-   "long_tasks_max_ms": 50
+   "long_tasks_max_ms": 0
   }
  },
  "runs": [
   {
    "attempt": 0,
-   "backend_ready_ms": 485.8,
+   "backend_ready_ms": 463.2,
    "cold": {
-    "palette_ready_ms": 407.19999999995343,
-    "fonts_loaded_ms": 771.6000000000931,
-    "font_css_media": ",",
-    "ttfb": 2.800000000046566,
-    "dcl": 357.69999999995343,
-    "load": 362.30000000004657,
-    "fcp": 460,
-    "lcp": 460,
+    "ttfb": 2.5,
+    "dcl": 303.4000000000233,
+    "load": 303.9000000000233,
+    "fcp": null,
+    "lcp": null,
     "longTasks": [],
-    "transferred": 375889,
+    "transferred": 274937,
     "requests": [
      {
       "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
-      "ms": 341,
-      "bytes": 100952
+      "ms": 289,
+      "bytes": 0
      },
      {
       "name": "/static/assets/index-DWXRswIX.js",
-      "ms": 13,
+      "ms": 11,
       "bytes": 257131
      },
      {
       "name": "/static/assets/index-D216w0JH.css",
-      "ms": 12,
+      "ms": 11,
       "bytes": 14715
      },
      {
       "name": "/api/state",
-      "ms": 8,
+      "ms": 5,
       "bytes": 1546
      },
      {
       "name": "/api/languages",
-      "ms": 8,
+      "ms": 13,
       "bytes": 1090
      },
      {
       "name": "/api/engine/status",
-      "ms": 10,
+      "ms": 13,
       "bytes": 455
      }
     ],
-    "spawn_to_palette_ms": 922.5
+    "palette_ready_ms": 377.8,
+    "spawn_to_palette_ms": 920.5
    },
    "warm": {
-    "palette_ready_ms": 71.30000000004657,
-    "fonts_loaded_ms": 123.30000000004657,
-    "font_css_media": ",",
-    "ttfb": 1.1999999999534339,
-    "dcl": 33.699999999953434,
-    "load": 33.800000000046566,
-    "fcp": 124,
-    "lcp": 124,
+    "ttfb": 0.8000000000465661,
+    "dcl": 242.89999999990687,
+    "load": 243.29999999993015,
+    "fcp": 332,
+    "lcp": 332,
     "longTasks": [],
     "transferred": 3091,
     "requests": [
      {
       "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
-      "ms": 2,
+      "ms": 232,
       "bytes": 0
      },
      {
       "name": "/static/assets/index-DWXRswIX.js",
-      "ms": 4,
+      "ms": 6,
       "bytes": 0
      },
      {
       "name": "/static/assets/index-D216w0JH.css",
-      "ms": 4,
+      "ms": 5,
       "bytes": 0
      },
      {
       "name": "/api/state",
-      "ms": 7,
+      "ms": 8,
       "bytes": 1546
      },
      {
       "name": "/api/languages",
-      "ms": 7,
+      "ms": 8,
       "bytes": 1090
      },
      {
       "name": "/api/engine/status",
-      "ms": 7,
+      "ms": 9,
       "bytes": 455
      }
-    ]
+    ],
+    "palette_ready_ms": 324.1
    }
   },
   {
    "attempt": 1,
-   "backend_ready_ms": 443.9,
+   "backend_ready_ms": 464.7,
    "cold": {
-    "palette_ready_ms": 190.29999999981374,
-    "fonts_loaded_ms": 316,
-    "font_css_media": ",",
-    "ttfb": 3.199999999953434,
-    "dcl": 154.5999999998603,
-    "load": 158.0999999998603,
-    "fcp": 256,
-    "lcp": 256,
+    "ttfb": 2.400000000023283,
+    "dcl": 255.40000000002328,
+    "load": 255.90000000002328,
+    "fcp": 332,
+    "lcp": 332,
     "longTasks": [],
-    "transferred": 375895,
+    "transferred": 274937,
     "requests": [
      {
       "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
-      "ms": 137,
-      "bytes": 100958
+      "ms": 242,
+      "bytes": 0
      },
      {
       "name": "/static/assets/index-D216w0JH.css",
-      "ms": 7,
+      "ms": 8,
       "bytes": 14715
      },
      {
       "name": "/static/assets/index-DWXRswIX.js",
-      "ms": 12,
+      "ms": 9,
       "bytes": 257131
      },
      {
       "name": "/api/state",
-      "ms": 8,
+      "ms": 6,
       "bytes": 1546
      },
      {
@@ -162,27 +153,25 @@
      },
      {
       "name": "/api/engine/status",
-      "ms": 12,
+      "ms": 8,
       "bytes": 455
      }
     ],
-    "spawn_to_palette_ms": 659.1
+    "palette_ready_ms": 326.2,
+    "spawn_to_palette_ms": 857.1
    },
    "warm": {
-    "palette_ready_ms": 73.30000000004657,
-    "fonts_loaded_ms": 123.39999999990687,
-    "font_css_media": ",",
-    "ttfb": 1.2999999998137355,
-    "dcl": 34.39999999990687,
-    "load": 38.699999999953434,
-    "fcp": 128,
-    "lcp": 128,
+    "ttfb": 1,
+    "dcl": 222.79999999993015,
+    "load": 223.19999999995343,
+    "fcp": 296,
+    "lcp": 296,
     "longTasks": [],
     "transferred": 3091,
     "requests": [
      {
       "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
-      "ms": 7,
+      "ms": 212,
       "bytes": 0
      },
      {
@@ -197,46 +186,39 @@
      },
      {
       "name": "/api/state",
-      "ms": 7,
+      "ms": 8,
       "bytes": 1546
      },
      {
       "name": "/api/languages",
-      "ms": 7,
+      "ms": 8,
       "bytes": 1090
      },
      {
       "name": "/api/engine/status",
-      "ms": 7,
+      "ms": 8,
       "bytes": 455
      }
-    ]
+    ],
+    "palette_ready_ms": 319.1
    }
   },
   {
    "attempt": 2,
-   "backend_ready_ms": 484.7,
+   "backend_ready_ms": 466.3,
    "cold": {
-    "palette_ready_ms": 193.9000000001397,
-    "fonts_loaded_ms": 361.10000000009313,
-    "font_css_media": ",",
-    "ttfb": 2.3999999999068677,
-    "dcl": 155.70000000018626,
-    "load": 160,
-    "fcp": 248,
-    "lcp": 248,
+    "ttfb": 3.200000000069849,
+    "dcl": 261.9000000000233,
+    "load": 262.30000000004657,
+    "fcp": null,
+    "lcp": null,
     "longTasks": [],
-    "transferred": 375889,
+    "transferred": 274937,
     "requests": [
      {
       "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
-      "ms": 138,
-      "bytes": 100952
-     },
-     {
-      "name": "/static/assets/index-D216w0JH.css",
-      "ms": 9,
-      "bytes": 14715
+      "ms": 247,
+      "bytes": 0
      },
      {
       "name": "/static/assets/index-DWXRswIX.js",
@@ -244,48 +226,51 @@
       "bytes": 257131
      },
      {
-      "name": "/api/state",
+      "name": "/static/assets/index-D216w0JH.css",
       "ms": 10,
+      "bytes": 14715
+     },
+     {
+      "name": "/api/state",
+      "ms": 8,
       "bytes": 1546
      },
      {
       "name": "/api/languages",
-      "ms": 10,
+      "ms": 11,
       "bytes": 1090
      },
      {
       "name": "/api/engine/status",
-      "ms": 10,
+      "ms": 11,
       "bytes": 455
      }
     ],
-    "spawn_to_palette_ms": 703.3
+    "palette_ready_ms": 349.5,
+    "spawn_to_palette_ms": 895.7
    },
    "warm": {
-    "palette_ready_ms": 71.39999999990687,
-    "fonts_loaded_ms": 138.69999999995343,
-    "font_css_media": ",",
     "ttfb": 1,
-    "dcl": 35.800000000046566,
-    "load": 35.89999999990687,
-    "fcp": 124,
-    "lcp": 124,
+    "dcl": 266.20000000006985,
+    "load": 266.70000000006985,
+    "fcp": 348,
+    "lcp": 348,
     "longTasks": [],
     "transferred": 3091,
     "requests": [
      {
       "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
-      "ms": 5,
+      "ms": 255,
       "bytes": 0
      },
      {
       "name": "/static/assets/index-DWXRswIX.js",
-      "ms": 5,
+      "ms": 8,
       "bytes": 0
      },
      {
       "name": "/static/assets/index-D216w0JH.css",
-      "ms": 4,
+      "ms": 7,
       "bytes": 0
      },
      {
@@ -300,31 +285,123 @@
      },
      {
       "name": "/api/engine/status",
-      "ms": 7,
+      "ms": 9,
       "bytes": 455
      }
-    ]
+    ],
+    "palette_ready_ms": 340.4
    }
   },
   {
    "attempt": 3,
-   "backend_ready_ms": 465.2,
+   "backend_ready_ms": 401.6,
    "cold": {
-    "palette_ready_ms": 212.5,
-    "fonts_loaded_ms": 329.80000000004657,
-    "font_css_media": ",",
-    "ttfb": 2.8999999999068677,
-    "dcl": 165.5,
-    "load": 169.9000000001397,
-    "fcp": 284,
-    "lcp": 284,
+    "ttfb": 2.799999999930151,
+    "dcl": 287.9000000000233,
+    "load": 288.30000000004657,
+    "fcp": null,
+    "lcp": null,
     "longTasks": [],
-    "transferred": 375889,
+    "transferred": 274937,
     "requests": [
      {
       "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
-      "ms": 148,
-      "bytes": 100952
+      "ms": 274,
+      "bytes": 0
+     },
+     {
+      "name": "/static/assets/index-DWXRswIX.js",
+      "ms": 10,
+      "bytes": 257131
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 10,
+      "bytes": 14715
+     },
+     {
+      "name": "/api/state",
+      "ms": 8,
+      "bytes": 1546
+     },
+     {
+      "name": "/api/languages",
+      "ms": 9,
+      "bytes": 1090
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 10,
+      "bytes": 455
+     }
+    ],
+    "palette_ready_ms": 346.3,
+    "spawn_to_palette_ms": 820.2
+   },
+   "warm": {
+    "ttfb": 0.9000000000232831,
+    "dcl": 267.4000000000233,
+    "load": 268.20000000006985,
+    "fcp": null,
+    "lcp": null,
+    "longTasks": [],
+    "transferred": 3091,
+    "requests": [
+     {
+      "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
+      "ms": 256,
+      "bytes": 0
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 3,
+      "bytes": 0
+     },
+     {
+      "name": "/static/assets/index-DWXRswIX.js",
+      "ms": 3,
+      "bytes": 0
+     },
+     {
+      "name": "/api/state",
+      "ms": 8,
+      "bytes": 1546
+     },
+     {
+      "name": "/api/languages",
+      "ms": 8,
+      "bytes": 1090
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 8,
+      "bytes": 455
+     }
+    ],
+    "palette_ready_ms": 341.6
+   }
+  },
+  {
+   "attempt": 4,
+   "backend_ready_ms": 400.7,
+   "cold": {
+    "ttfb": 2.900000000023283,
+    "dcl": 263.4000000000233,
+    "load": 263.9000000000233,
+    "fcp": 348,
+    "lcp": 348,
+    "longTasks": [],
+    "transferred": 274937,
+    "requests": [
+     {
+      "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
+      "ms": 249,
+      "bytes": 0
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 11,
+      "bytes": 14715
      },
      {
       "name": "/static/assets/index-DWXRswIX.js",
@@ -332,189 +409,83 @@
       "bytes": 257131
      },
      {
-      "name": "/static/assets/index-D216w0JH.css",
-      "ms": 8,
-      "bytes": 14715
-     },
-     {
       "name": "/api/state",
-      "ms": 14,
+      "ms": 7,
       "bytes": 1546
      },
      {
       "name": "/api/languages",
-      "ms": 14,
+      "ms": 9,
       "bytes": 1090
      },
      {
       "name": "/api/engine/status",
-      "ms": 14,
+      "ms": 9,
       "bytes": 455
      }
     ],
-    "spawn_to_palette_ms": 702.9
+    "palette_ready_ms": 343.1,
+    "spawn_to_palette_ms": 819.2
    },
    "warm": {
-    "palette_ready_ms": 73.9000000001397,
-    "fonts_loaded_ms": 136.80000000004657,
-    "font_css_media": ",",
-    "ttfb": 1.3000000000465661,
-    "dcl": 37.4000000001397,
-    "load": 37.4000000001397,
-    "fcp": null,
-    "lcp": null,
+    "ttfb": 1.1999999999534339,
+    "dcl": 255.70000000006985,
+    "load": 256.20000000006985,
+    "fcp": 332,
+    "lcp": 332,
     "longTasks": [],
     "transferred": 3091,
     "requests": [
      {
       "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
-      "ms": 11,
-      "bytes": 0
-     },
-     {
-      "name": "/static/assets/index-D216w0JH.css",
-      "ms": 8,
+      "ms": 242,
       "bytes": 0
      },
      {
       "name": "/static/assets/index-DWXRswIX.js",
-      "ms": 8,
+      "ms": 6,
+      "bytes": 0
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 6,
       "bytes": 0
      },
      {
       "name": "/api/state",
-      "ms": 3,
+      "ms": 7,
       "bytes": 1546
      },
      {
       "name": "/api/languages",
-      "ms": 6,
+      "ms": 7,
       "bytes": 1090
      },
      {
       "name": "/api/engine/status",
-      "ms": 6,
-      "bytes": 455
-     }
-    ]
-   }
-  },
-  {
-   "attempt": 4,
-   "backend_ready_ms": 399.3,
-   "cold": {
-    "palette_ready_ms": 199.39999999990687,
-    "fonts_loaded_ms": 323.10000000009313,
-    "font_css_media": ",",
-    "ttfb": 3,
-    "dcl": 163,
-    "load": 166.60000000009313,
-    "fcp": 260,
-    "lcp": 260,
-    "longTasks": [],
-    "transferred": 375889,
-    "requests": [
-     {
-      "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
-      "ms": 145,
-      "bytes": 100952
-     },
-     {
-      "name": "/static/assets/index-D216w0JH.css",
       "ms": 8,
-      "bytes": 14715
-     },
-     {
-      "name": "/static/assets/index-DWXRswIX.js",
-      "ms": 8,
-      "bytes": 257131
-     },
-     {
-      "name": "/api/state",
-      "ms": 13,
-      "bytes": 1546
-     },
-     {
-      "name": "/api/languages",
-      "ms": 13,
-      "bytes": 1090
-     },
-     {
-      "name": "/api/engine/status",
-      "ms": 13,
       "bytes": 455
      }
     ],
-    "spawn_to_palette_ms": 644.1
-   },
-   "warm": {
-    "palette_ready_ms": 86.5,
-    "fonts_loaded_ms": 142.80000000004657,
-    "font_css_media": ",",
-    "ttfb": 1.0999999998603016,
-    "dcl": 31.300000000046566,
-    "load": 35.199999999953434,
-    "fcp": 148,
-    "lcp": 148,
-    "longTasks": [
-     50
-    ],
-    "transferred": 3091,
-    "requests": [
-     {
-      "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
-      "ms": 6,
-      "bytes": 0
-     },
-     {
-      "name": "/static/assets/index-DWXRswIX.js",
-      "ms": 6,
-      "bytes": 0
-     },
-     {
-      "name": "/static/assets/index-D216w0JH.css",
-      "ms": 4,
-      "bytes": 0
-     },
-     {
-      "name": "/api/state",
-      "ms": 7,
-      "bytes": 1546
-     },
-     {
-      "name": "/api/languages",
-      "ms": 7,
-      "bytes": 1090
-     },
-     {
-      "name": "/api/engine/status",
-      "ms": 7,
-      "bytes": 455
-     }
-    ]
+    "palette_ready_ms": 334.5
    }
   },
   {
    "attempt": 5,
-   "backend_ready_ms": 401.0,
+   "backend_ready_ms": 401.1,
    "cold": {
-    "palette_ready_ms": 215.69999999995343,
-    "fonts_loaded_ms": 353.89999999990687,
-    "font_css_media": ",",
-    "ttfb": 3.1000000000931323,
-    "dcl": 159.5,
-    "load": 163.0999999998603,
-    "fcp": 292,
-    "lcp": 292,
-    "longTasks": [
-     50
-    ],
-    "transferred": 375889,
+    "ttfb": 2.5,
+    "dcl": 263.4000000000233,
+    "load": 264,
+    "fcp": 340,
+    "lcp": 340,
+    "longTasks": [],
+    "transferred": 274937,
     "requests": [
      {
       "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
-      "ms": 142,
-      "bytes": 100952
+      "ms": 249,
+      "bytes": 0
      },
      {
       "name": "/static/assets/index-D216w0JH.css",
@@ -528,29 +499,27 @@
      },
      {
       "name": "/api/state",
-      "ms": 14,
+      "ms": 9,
       "bytes": 1546
      },
      {
       "name": "/api/languages",
-      "ms": 14,
+      "ms": 9,
       "bytes": 1090
      },
      {
       "name": "/api/engine/status",
-      "ms": 16,
+      "ms": 9,
       "bytes": 455
      }
     ],
-    "spawn_to_palette_ms": 662.4
+    "palette_ready_ms": 332.5,
+    "spawn_to_palette_ms": 807.1
    },
    "warm": {
-    "palette_ready_ms": 82.5,
-    "fonts_loaded_ms": 141.80000000004657,
-    "font_css_media": ",",
-    "ttfb": 1.3999999999068677,
-    "dcl": 34,
-    "load": 38.39999999990687,
+    "ttfb": 1.099999999976717,
+    "dcl": 295.5,
+    "load": 296.19999999995343,
     "fcp": null,
     "lcp": null,
     "longTasks": [],
@@ -558,56 +527,54 @@
     "requests": [
      {
       "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
-      "ms": 7,
+      "ms": 283,
       "bytes": 0
      },
      {
       "name": "/static/assets/index-DWXRswIX.js",
-      "ms": 6,
+      "ms": 3,
       "bytes": 0
      },
      {
       "name": "/static/assets/index-D216w0JH.css",
-      "ms": 5,
+      "ms": 2,
       "bytes": 0
      },
      {
       "name": "/api/state",
-      "ms": 4,
+      "ms": 10,
       "bytes": 1546
      },
      {
       "name": "/api/languages",
-      "ms": 7,
+      "ms": 10,
       "bytes": 1090
      },
      {
       "name": "/api/engine/status",
-      "ms": 6,
+      "ms": 10,
       "bytes": 455
      }
-    ]
+    ],
+    "palette_ready_ms": 369.3
    }
   },
   {
    "attempt": 6,
-   "backend_ready_ms": 464.2,
+   "backend_ready_ms": 381.1,
    "cold": {
-    "palette_ready_ms": 197.19999999995343,
-    "fonts_loaded_ms": 320.39999999990687,
-    "font_css_media": ",",
-    "ttfb": 2.8999999999068677,
-    "dcl": 158.10000000009313,
-    "load": 162.30000000004657,
-    "fcp": 256,
-    "lcp": 256,
+    "ttfb": 3.1000000000931323,
+    "dcl": 315.69999999995343,
+    "load": 316.0999999999767,
+    "fcp": null,
+    "lcp": null,
     "longTasks": [],
-    "transferred": 375889,
+    "transferred": 274937,
     "requests": [
      {
       "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
-      "ms": 141,
-      "bytes": 100952
+      "ms": 298,
+      "bytes": 0
      },
      {
       "name": "/static/assets/index-DWXRswIX.js",
@@ -616,34 +583,32 @@
      },
      {
       "name": "/static/assets/index-D216w0JH.css",
-      "ms": 9,
+      "ms": 10,
       "bytes": 14715
      },
      {
       "name": "/api/state",
-      "ms": 14,
+      "ms": 11,
       "bytes": 1546
      },
      {
       "name": "/api/languages",
-      "ms": 14,
+      "ms": 13,
       "bytes": 1090
      },
      {
       "name": "/api/engine/status",
-      "ms": 14,
+      "ms": 13,
       "bytes": 455
      }
     ],
-    "spawn_to_palette_ms": 686.4
+    "palette_ready_ms": 369.7,
+    "spawn_to_palette_ms": 832.3
    },
    "warm": {
-    "palette_ready_ms": 72,
-    "fonts_loaded_ms": 128.9000000001397,
-    "font_css_media": ",",
     "ttfb": 1.1000000000931323,
-    "dcl": 36.4000000001397,
-    "load": 36.5,
+    "dcl": 274.5,
+    "load": 275.0999999999767,
     "fcp": null,
     "lcp": null,
     "longTasks": [],
@@ -651,35 +616,36 @@
     "requests": [
      {
       "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
-      "ms": 6,
-      "bytes": 0
-     },
-     {
-      "name": "/static/assets/index-D216w0JH.css",
-      "ms": 5,
+      "ms": 261,
       "bytes": 0
      },
      {
       "name": "/static/assets/index-DWXRswIX.js",
-      "ms": 5,
+      "ms": 7,
+      "bytes": 0
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 6,
       "bytes": 0
      },
      {
       "name": "/api/state",
-      "ms": 6,
+      "ms": 9,
       "bytes": 1546
      },
      {
       "name": "/api/languages",
-      "ms": 7,
+      "ms": 9,
       "bytes": 1090
      },
      {
       "name": "/api/engine/status",
-      "ms": 7,
+      "ms": 9,
       "bytes": 455
      }
-    ]
+    ],
+    "palette_ready_ms": 340.1
    }
   }
  ]

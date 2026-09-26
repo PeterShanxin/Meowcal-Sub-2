@@ -4,11 +4,18 @@ Cold: a fresh `python -m meocosub2.cli serve` and a fresh browser context each
 run. Warm: the same backend, a new page in a context whose HTTP cache already
 holds the hashed bundle. Headless Chromium stands in for WebView2, so the
 numbers describe the served page and the backend, not native shell painting.
+
+Page timings are taken inside the page (`performance.now()`, i.e. from
+navigation start), so a slow Playwright route handler cannot inflate them.
+The font CDN is reached through the container's proxy; its CA has to be in
+Chromium's NSS store (`certutil -A -t C,, -i agent-proxy-ca.crt`) or every
+"live" font request fails TLS instead of loading.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import statistics
@@ -26,6 +33,7 @@ REPO = Path(__file__).resolve().parents[3]
 ORIGIN = "http://127.0.0.1:8765"
 READY = f"{ORIGIN}/static/selector.js"
 PALETTE_TIMEOUT_MS = 20_000
+FONT_WAIT_MS = 8_000
 
 METRICS_JS = """
 () => {
@@ -33,6 +41,9 @@ METRICS_JS = """
   const paint = Object.fromEntries(performance.getEntriesByType('paint').map(p => [p.name, p.startTime]));
   const res = performance.getEntriesByType('resource');
   return {
+    palette_ready_ms: window.__paletteAt ?? null,
+    fonts_loaded_ms: window.__fontsAt ?? null,
+    font_css_media: [...document.querySelectorAll('link[href*="fonts.googleapis"]')].map(l => l.media).join(),
     ttfb: nav.responseStart - nav.requestStart,
     dcl: nav.domContentLoadedEventEnd,
     load: nav.loadEventEnd,
@@ -48,6 +59,12 @@ OBSERVERS_JS = """
 window.__longTasks = [];
 new PerformanceObserver(l => l.getEntries().forEach(e => window.__longTasks.push(Math.round(e.duration)))).observe({type: 'longtask', buffered: true});
 new PerformanceObserver(l => { const e = l.getEntries(); window.__lcp = e[e.length - 1].startTime; }).observe({type: 'largest-contentful-paint', buffered: true});
+new MutationObserver((_, observer) => {
+  if (document.querySelector('input[data-palette="true"]')) { window.__paletteAt = performance.now(); observer.disconnect(); }
+}).observe(document, {childList: true, subtree: true});
+document.fonts.addEventListener('loadingdone', () => {
+  if (window.__fontsAt === undefined && [...document.fonts].some(f => f.family === 'Inter' && f.status === 'loaded')) window.__fontsAt = performance.now();
+});
 """
 
 
@@ -78,8 +95,9 @@ FONT_HOSTS = ("https://fonts.googleapis.com/**", "https://fonts.gstatic.com/**")
 
 
 def _route_fonts(context, mode: str) -> None:
-    """Simulate the font CDN: `live` leaves it alone, `slow` adds 1.5 s,
-    `blocked` fails it at once, `hang` never answers (a filtered network)."""
+    """Simulate the font CDN: `live` leaves it alone, `slow` holds the stylesheet
+    request 1.5 s, `blocked` fails it at once, `hang` never answers (a filtered
+    network). Font files are left alone in `slow` so the delay stays 1.5 s."""
     if mode == "live":
         return
 
@@ -91,14 +109,13 @@ def _route_fonts(context, mode: str) -> None:
             route.continue_()
         # hang: leave the request pending
 
-    for host in FONT_HOSTS:
+    for host in FONT_HOSTS if mode != "slow" else FONT_HOSTS[:1]:
         context.route(host, handler)
 
 
 def _visit(context, url: str) -> dict:
     page = context.new_page()
     page.add_init_script(OBSERVERS_JS)
-    started = time.perf_counter()
     page.goto(url, wait_until="commit")
     try:
         page.wait_for_selector('input[data-palette="true"]', timeout=PALETTE_TIMEOUT_MS)
@@ -106,10 +123,13 @@ def _visit(context, url: str) -> dict:
         # Recorded at the cap rather than dropped: "never became usable" is the result.
         page.close()
         return {"palette_ready_ms": float(PALETTE_TIMEOUT_MS), "timed_out": True}
-    interactive_ms = (time.perf_counter() - started) * 1000
-    page.wait_for_load_state("load")
+    # `load` waits on every stylesheet, so it never fires while the font CDN hangs.
+    with contextlib.suppress(PlaywrightTimeout):
+        page.wait_for_load_state("load", timeout=FONT_WAIT_MS)
+    # Give the web fonts a bounded chance to arrive, to see when the text swaps.
+    with contextlib.suppress(PlaywrightTimeout):
+        page.wait_for_function("window.__fontsAt !== undefined", timeout=FONT_WAIT_MS)
     metrics = page.evaluate(METRICS_JS)
-    metrics["palette_ready_ms"] = round(interactive_ms, 1)
     page.close()
     return metrics
 
@@ -142,8 +162,12 @@ def run(repeat: int, fonts: str) -> list[dict]:
                     url = f"{ORIGIN}/?token={_token(appdata)}"
                     context = browser.new_context()
                     _route_fonts(context, fonts)
+                    navigating = time.perf_counter()
                     cold = _visit(context, url)
-                    cold["spawn_to_palette_ms"] = round((time.perf_counter() - spawned) * 1000, 1)
+                    # Approximate: navigation starts as goto is issued.
+                    cold["spawn_to_palette_ms"] = round(
+                        (navigating - spawned) * 1000 + cold["palette_ready_ms"], 1
+                    )
                     warm = _visit(context, url)
                     context.close()
                 finally:
@@ -174,7 +198,15 @@ def summarize(results: list[dict]) -> dict:
         rows = [r[kind] for r in results]
         out[kind] = {
             key: med(values)
-            for key in ("ttfb", "fcp", "lcp", "dcl", "palette_ready_ms", "transferred")
+            for key in (
+                "ttfb",
+                "fcp",
+                "lcp",
+                "dcl",
+                "palette_ready_ms",
+                "fonts_loaded_ms",
+                "transferred",
+            )
             if (values := [row[key] for row in rows if row.get(key) is not None])
         }
         out[kind]["timed_out"] = sum(bool(row.get("timed_out")) for row in rows)
