@@ -221,14 +221,17 @@ export function SubtitleEditor({ sessionId }: { sessionId: string }): JSX.Elemen
         <header>
           <div>
             <span className="editor-eyebrow">SUBTITLE WORKSPACE</span>
-            <h2 id="subtitle-editor-title">Review before sync</h2>
+            <h2 id="subtitle-editor-title">Edit subtitles · Optional</h2>
           </div>
           <button type="button" onClick={close} disabled={busy} aria-label="Close subtitle editor">
             Close
           </button>
         </header>
         <p className="editor-intro">
-          Fix text, shift timing, or correct drift. Original files stay untouched.
+          You usually do not need to edit subtitles. Meowcal checks them automatically and syncs
+          playback using on-screen subtitles, adjusting timing offsets when reliable matches are
+          available. Use this workspace for text changes or manual timing corrections. Original
+          files stay untouched.
         </p>
         <fieldset disabled={busy} className="editor-body">
           <div className="editor-toolbar">

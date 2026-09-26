@@ -11,7 +11,7 @@ import { SubtitleEditor } from "./subtitle-editor/workspace";
 
 interface PrepCardProps {
   titleLabel: string | null;
-  runtimeLabel: string;
+  foundLabel: string;
   source: SourceItem | null;
   target: TargetItem | null;
   prepared: BackendPreparedSession | null;
@@ -21,7 +21,7 @@ interface PrepCardProps {
 
 export function PrepCard({
   titleLabel,
-  runtimeLabel,
+  foundLabel,
   source,
   target,
   prepared,
@@ -35,9 +35,9 @@ export function PrepCard({
   // pairing and hide where these translations actually come from.
   const isOwnTranslation = prepared?.target_match_mode === "source_own_translation";
   const targetLabel = isAutoTranslation
-    ? "Live translation (Foundry)"
+    ? "Live translation (on device)"
     : isLocalTranslation
-      ? "Local translation (Foundry)"
+      ? "Local translation (on device)"
       : isOwnTranslation
         ? "Translation inside the source file"
         : (prepared?.target_file_name ?? target?.title ?? target?.file ?? "—");
@@ -59,6 +59,7 @@ export function PrepCard({
     <div
       className="glass-panel fade-in"
       style={{
+        minWidth: 0,
         padding: 22,
         display: "flex",
         flexDirection: "column",
@@ -86,14 +87,16 @@ export function PrepCard({
       >
         {titleLabel ?? prepared?.title ?? "Untitled"}
       </div>
-      <div style={{ display: "grid", gap: 12, fontSize: 13 }}>
+      <div
+        style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 12, fontSize: 13 }}
+      >
         <Row label="Source" value={sourceFile} mono />
         <Row
           label="Target"
           value={targetLabel}
           tag={isAutoTranslation || isLocalTranslation ? "AUTO" : null}
         />
-        <Row label="Runtime" value={runtimeLabel} />
+        <Row label="Found" value={foundLabel} />
         <Row label="Lines" value={lines} />
         {(chosenAlignment || gapFill) && (
           <Row label="Coverage" value={coverageLabel(chosenAlignment, gapFill)} />
@@ -168,7 +171,7 @@ export function PrepCard({
           color: "var(--text-label)",
         }}
       >
-        Press <Kbd>⌘↵</Kbd> to start sync · <Kbd>,</Kbd> for settings
+        Press <Kbd>Ctrl ↵</Kbd> to start sync · <Kbd>,</Kbd> for settings
       </div>
     </div>
   );
@@ -241,6 +244,7 @@ export function PreviewCard({
     <div
       className="fade-in"
       style={{
+        minWidth: 0,
         padding: 22,
         borderRadius: 14,
         background: "linear-gradient(180deg, #1c1a16, #0a0807)",

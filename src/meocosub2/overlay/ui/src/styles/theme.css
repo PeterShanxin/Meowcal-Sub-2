@@ -371,9 +371,29 @@ kbd[data-dim="true"] {
 }
 
 /* The full-width palette starts at 56px, so sit in the free left half of the
-   top bar rather than underneath it. */
+   top bar rather than underneath it, clear of its buttons. */
 .source-health-strip[data-compact="true"] {
   top: 14px;
+  max-width: min(560px, calc(100vw - 190px));
+}
+
+.accent-button kbd {
+  background: rgba(26, 15, 8, 0.12);
+  border-color: rgba(26, 15, 8, 0.22);
+  color: #1a0f08;
+}
+
+.palette-key-hints {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+@media (max-width: 640px) {
+  .top-bar-detail,
+  .palette-key-hints {
+    display: none;
+  }
 }
 
 .source-health-dot {

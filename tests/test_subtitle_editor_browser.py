@@ -46,7 +46,7 @@ def test_subtitle_editor_workflow(tmp_path, monkeypatch):
                     expect(page.get_by_text("Subtitles checked automatically")).to_be_visible()
                     expect(page.get_by_role("dialog")).to_have_count(0)
                     page.get_by_role("button", name="Edit subtitles", exact=True).click()
-                    dialog = page.get_by_role("dialog", name="Review before sync")
+                    dialog = page.get_by_role("dialog", name="Edit subtitles · Optional")
                     expect(dialog).to_be_visible()
                     expect(dialog.locator("textarea")).to_be_visible()
                     text = dialog.get_by_label("Subtitle text", exact=True)

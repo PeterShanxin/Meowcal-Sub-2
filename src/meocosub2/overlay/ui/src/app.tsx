@@ -80,6 +80,9 @@ export function App(): JSX.Element {
   const [preparing, setPreparing] = useState(false);
   const awaitingRegion = useRef(false);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  // The first-launch screen stands in for the palette; asking for the palette
+  // is what puts it away.
+  const [firstLaunchDismissed, setFirstLaunchDismissed] = useState(false);
   // Tracks visibility through the close animation so background stays inert
   // until the modal is fully hidden (not just until showSettings goes false).
   const [settingsVisible, setSettingsVisible] = useState(false);
@@ -257,6 +260,7 @@ export function App(): JSX.Element {
   // --- Actions ---
 
   const focusPalette = useCallback(() => {
+    setFirstLaunchDismissed(true);
     inputRef.current?.focus();
   }, []);
 
@@ -496,11 +500,16 @@ export function App(): JSX.Element {
       }
       store.set((s) => {
         const nextExpanded = s.expandedWorkId === id ? null : id;
+        // The cursor stays on the row that opened, so the next arrow press walks
+        // into its seasons instead of starting over from the top of the list.
+        const cursorIndex = paletteWorksNavRows(filteredWorks, nextExpanded, null).findIndex(
+          (row) => row.kind === "work" && row.workId === id,
+        );
         return {
           selectedWorkId: id,
           expandedWorkId: nextExpanded,
           expandedSeasonNumber: null,
-          cursorIndex: -1,
+          cursorIndex,
         };
       });
     },
@@ -570,16 +579,21 @@ export function App(): JSX.Element {
       store.set((s) => {
         const sameWork = s.expandedWorkId === workId;
         const toggle = sameWork && s.expandedSeasonNumber === seasonNumber;
+        const nextSeason = toggle ? null : seasonNumber;
+        const cursorIndex = paletteWorksNavRows(filteredWorks, workId, nextSeason).findIndex(
+          (row) =>
+            row.kind === "season" && row.workId === workId && row.seasonNumber === seasonNumber,
+        );
         return {
           selectedWorkId: workId,
           expandedWorkId: workId,
-          expandedSeasonNumber: toggle ? null : seasonNumber,
-          cursorIndex: -1,
+          expandedSeasonNumber: nextSeason,
+          cursorIndex,
         };
       });
       if (opening) void hydrateSeasonIfNeeded(workId, seasonNumber);
     },
-    [hydrateSeasonIfNeeded],
+    [filteredWorks, hydrateSeasonIfNeeded],
   );
 
   const onPickWork = useCallback(
@@ -720,7 +734,7 @@ export function App(): JSX.Element {
     setPreparing(true);
     // Backend accepts only "subtitle_pair" | "ocr_fallback". Local AI
     // translation is triggered by subtitle_pair with no targetResultId —
-    // the controller falls back to Foundry via target_match_mode.
+    // the controller falls back to local translation via target_match_mode.
     const mode: "subtitle_pair" | "ocr_fallback" =
       id === "__ocr__" ? "ocr_fallback" : "subtitle_pair";
     const targetResultId = id === "__local__" || id === "__ocr__" ? null : id;
@@ -1045,9 +1059,35 @@ export function App(): JSX.Element {
         }
         const titleRow =
           s.tab === "titles" && s.cursorIndex >= 0 ? titleNavRows[s.cursorIndex] : null;
-        if (s.tab === "titles" && titleGridColumns > 1 && titleRow?.kind === "work") {
+        // An open card spans the grid, so its seasons sit directly below it, and
+        // the row before a card that follows it is that card's last nested row.
+        // Moving by grid columns there jumped over every season and episode.
+        const intoOpenCard =
+          (dir === "down" && titleRow?.workId === s.expandedWorkId) ||
+          (s.tab === "titles" &&
+            dir === "up" &&
+            s.cursorIndex > 0 &&
+            titleNavRows[s.cursorIndex - 1].kind !== "work");
+        if (
+          s.tab === "titles" &&
+          titleGridColumns > 1 &&
+          titleRow?.kind === "work" &&
+          !intoOpenCard
+        ) {
           const workPosition = titleWorkRowIndices.indexOf(s.cursorIndex);
           if (workPosition === -1) return {};
+          const openPosition = titleWorkRowIndices.findIndex(
+            (index) => titleNavRows[index].workId === s.expandedWorkId,
+          );
+          // An open card further down starts a grid row of its own, so it is the
+          // next thing below every card in the row above it.
+          if (
+            dir === "down" &&
+            openPosition > workPosition &&
+            openPosition < workPosition + titleGridColumns
+          ) {
+            return { cursorIndex: titleWorkRowIndices[openPosition] };
+          }
           const delta =
             dir === "down"
               ? titleGridColumns
@@ -1078,14 +1118,14 @@ export function App(): JSX.Element {
     ],
   );
 
+  /** Moves one step, or reports that the palette is at its first or last tab. */
   const onCycleTab = useCallback(
-    (dir: 1 | -1) => {
+    (dir: 1 | -1): boolean => {
       const order: PaletteTabId[] = ["titles", "source", "target"];
-      store.set((s) => {
-        const idx = order.indexOf(s.tab);
-        const next = order[(idx + dir + order.length) % order.length];
-        return { tab: next, cursorIndex: cursorForTab(next) };
-      });
+      const next = order[order.indexOf(store.get().tab) + dir];
+      if (!next) return false;
+      store.set({ tab: next, cursorIndex: cursorForTab(next) });
+      return true;
     },
     [cursorForTab],
   );
@@ -1094,9 +1134,7 @@ export function App(): JSX.Element {
     onFocusPalette: () => {
       if (!store.get().manualView) focusPalette();
     },
-    onCycleTab: (dir) => {
-      if (!store.get().manualView) onCycleTab(dir);
-    },
+    onCycleTab: (dir) => !store.get().manualView && onCycleTab(dir),
     onMoveCursor: (dir) => {
       if (!store.get().manualView) onMoveCursor(dir);
     },
@@ -1115,7 +1153,7 @@ export function App(): JSX.Element {
   // --- Render ---
 
   const noKey = shouldShowNoKey(config);
-  const isEmpty = isFirstLaunch(config);
+  const isEmpty = isFirstLaunch(config) && !firstLaunchDismissed;
   const sourceNotices = useMemo(
     () => buildSourceNotices(config, snapshot?.warning_message ?? ""),
     [config, snapshot?.warning_message],
@@ -1130,9 +1168,9 @@ export function App(): JSX.Element {
 
   const selectedWork = works.find((w) => w.id === selectedWorkId) ?? null;
   const prepTitleLabel = selectedWork?.title ?? null;
-  const prepRuntimeLabel = selectedWork
+  const prepFoundLabel = selectedWork
     ? selectedWork.totalSubtitles > 0
-      ? `${selectedWork.totalSubtitles.toLocaleString()} subs`
+      ? `${selectedWork.totalSubtitles.toLocaleString()} subtitles`
       : selectedWork.type
     : "—";
   const palettePhase = settingsVisible ? "settings" : phase;
@@ -1303,6 +1341,7 @@ export function App(): JSX.Element {
                 hydrating={hydrating}
                 emptyLookups={emptyLookups}
                 errorMessage={paletteError}
+                searchedQuery={lastSearchedQuery.current}
                 onRetrySearch={lastSearchedQuery.current || query.trim() ? retrySearch : null}
                 onDismissError={dismissError}
                 preparing={preparing}
@@ -1323,13 +1362,18 @@ export function App(): JSX.Element {
               right: 20,
               bottom: 20,
               display: "grid",
-              gridTemplateColumns: "1fr 1fr",
+              // Side by side while both fit, stacked in a narrow window. A short
+              // window scrolls here: the session card holds the editor and the
+              // start hint, and the page itself never scrolls.
+              gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))",
+              gridAutoRows: "minmax(min-content, 1fr)",
+              overflowY: "auto",
               gap: 16,
             }}
           >
             <PrepCard
               titleLabel={prepTitleLabel}
-              runtimeLabel={prepRuntimeLabel}
+              foundLabel={prepFoundLabel}
               source={sources.find((s) => s.id === selectedSourceId) ?? null}
               target={targets.find((t) => t.id === selectedTargetId) ?? null}
               prepared={snapshot?.prepared_session ?? null}
@@ -1405,7 +1449,9 @@ function SourceHealthStrip({
   return (
     <div className="source-health-strip" data-compact={compact} aria-live="polite">
       <span className="source-health-dot" aria-hidden />
-      <span className="source-health-text">{notices[0].detail || notices[0].label}</span>
+      <span className="source-health-text" title={notices[0].detail || notices[0].label}>
+        {notices[0].detail || notices[0].label}
+      </span>
       {notices.length > 1 && <span className="source-health-count">+{notices.length - 1}</span>}
       <button className="source-health-button" type="button" onClick={onOpenSettings}>
         Settings
