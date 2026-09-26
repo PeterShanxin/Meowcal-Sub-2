@@ -7,9 +7,15 @@
     <link rel="icon" type="image/svg+xml" href="/static/shadow-cat-mark.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Loaded without blocking render: the studio waited on this request before
+         running at all, so a slow or filtered route to Google left it blank.
+         Text paints in the fallback fonts until these arrive, as display=swap
+         already does for the font files themselves. -->
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap"
       rel="stylesheet"
+      media="print"
+      onload="this.media = 'all'"
     />
     <script type="module" crossorigin src="/static/assets/index-B7TtctYW.js"></script>
     <link rel="stylesheet" crossorigin href="/static/assets/index-DWk2fU_t.css">

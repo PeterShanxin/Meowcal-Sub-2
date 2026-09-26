@@ -1,0 +1,248 @@
+[
+ {
+  "cues": 800,
+  "bilingual": false,
+  "first_ms": 222.7,
+  "median_ms": 228.1,
+  "min_ms": 178.0,
+  "max_ms": 247.9,
+  "median_max_loop_stall_ms": 76.5,
+  "translated_line_count": 770,
+  "alignment": [
+   [
+    "rival3",
+    25,
+    61294
+   ],
+   [
+    "rival2",
+    29,
+    66198
+   ],
+   [
+    "target",
+    30,
+    72847
+   ],
+   [
+    "rival1",
+    36,
+    87350
+   ]
+  ],
+  "runs_ms": [
+   222.7,
+   238.1,
+   209.6,
+   178.0,
+   247.9,
+   234.3,
+   228.1
+  ]
+ },
+ {
+  "cues": 800,
+  "bilingual": true,
+  "first_ms": 363.3,
+  "median_ms": 352.0,
+  "min_ms": 330.7,
+  "max_ms": 372.6,
+  "median_max_loop_stall_ms": 123.5,
+  "translated_line_count": 800,
+  "alignment": [
+   [
+    "target",
+    0,
+    0
+   ],
+   [
+    "rival1",
+    0,
+    0
+   ],
+   [
+    "rival2",
+    0,
+    0
+   ],
+   [
+    "rival3",
+    0,
+    0
+   ]
+  ],
+  "runs_ms": [
+   363.3,
+   330.7,
+   339.4,
+   350.7,
+   352.0,
+   372.6,
+   368.5
+  ]
+ },
+ {
+  "cues": 1600,
+  "bilingual": false,
+  "first_ms": 700.4,
+  "median_ms": 717.0,
+  "min_ms": 614.6,
+  "max_ms": 747.9,
+  "median_max_loop_stall_ms": 250.3,
+  "translated_line_count": 1537,
+  "alignment": [
+   [
+    "rival3",
+    46,
+    108503
+   ],
+   [
+    "rival2",
+    59,
+    135647
+   ],
+   [
+    "target",
+    63,
+    152353
+   ],
+   [
+    "rival1",
+    66,
+    158940
+   ]
+  ],
+  "runs_ms": [
+   700.4,
+   729.0,
+   747.9,
+   701.2,
+   728.2,
+   717.0,
+   614.6
+  ]
+ },
+ {
+  "cues": 1600,
+  "bilingual": true,
+  "first_ms": 1185.5,
+  "median_ms": 1260.0,
+  "min_ms": 1178.0,
+  "max_ms": 1338.5,
+  "median_max_loop_stall_ms": 464.7,
+  "translated_line_count": 1600,
+  "alignment": [
+   [
+    "target",
+    0,
+    0
+   ],
+   [
+    "rival1",
+    0,
+    0
+   ],
+   [
+    "rival2",
+    0,
+    0
+   ],
+   [
+    "rival3",
+    0,
+    0
+   ]
+  ],
+  "runs_ms": [
+   1185.5,
+   1275.9,
+   1260.0,
+   1277.5,
+   1338.5,
+   1239.4,
+   1178.0
+  ]
+ },
+ {
+  "cues": 3000,
+  "bilingual": false,
+  "first_ms": 1993.5,
+  "median_ms": 2058.0,
+  "min_ms": 1993.5,
+  "max_ms": 2193.9,
+  "median_max_loop_stall_ms": 791.0,
+  "translated_line_count": 2867,
+  "alignment": [
+   [
+    "rival3",
+    102,
+    248270
+   ],
+   [
+    "rival1",
+    122,
+    293074
+   ],
+   [
+    "rival2",
+    123,
+    310969
+   ],
+   [
+    "target",
+    133,
+    312995
+   ]
+  ],
+  "runs_ms": [
+   1993.5,
+   2058.0,
+   2121.9,
+   2034.3,
+   2028.4,
+   2193.9,
+   2139.2
+  ]
+ },
+ {
+  "cues": 3000,
+  "bilingual": true,
+  "first_ms": 4272.4,
+  "median_ms": 4133.6,
+  "min_ms": 3872.0,
+  "max_ms": 4613.5,
+  "median_max_loop_stall_ms": 1552.9,
+  "translated_line_count": 3000,
+  "alignment": [
+   [
+    "target",
+    0,
+    0
+   ],
+   [
+    "rival1",
+    0,
+    0
+   ],
+   [
+    "rival2",
+    0,
+    0
+   ],
+   [
+    "rival3",
+    0,
+    0
+   ]
+  ],
+  "runs_ms": [
+   4272.4,
+   4133.6,
+   3872.0,
+   4613.5,
+   4045.5,
+   4378.9,
+   4066.3
+  ]
+ }
+]

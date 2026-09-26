@@ -1,0 +1,48 @@
+{
+  "python": "3.14.2",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "head": "d97f4a549979120f04e7c45e429729242b8b86e2",
+  "presentation_sha256": "02c86203e8e5345e6968680266a777b4cfb09065b31c645d3b9b30af090e96db",
+  "runs": [
+    {
+      "source_cues": 1000,
+      "overlap_pairs": 2000,
+      "median_ms": 2.276,
+      "runs_ms": [
+        3.336,
+        2.276,
+        2.239
+      ]
+    },
+    {
+      "source_cues": 2000,
+      "overlap_pairs": 4000,
+      "median_ms": 4.921,
+      "runs_ms": [
+        4.921,
+        4.877,
+        5.849
+      ]
+    },
+    {
+      "source_cues": 4000,
+      "overlap_pairs": 8000,
+      "median_ms": 9.264,
+      "runs_ms": [
+        9.133,
+        9.264,
+        15.589
+      ]
+    },
+    {
+      "source_cues": 8000,
+      "overlap_pairs": 16000,
+      "median_ms": 20.691,
+      "runs_ms": [
+        20.691,
+        18.213,
+        21.664
+      ]
+    }
+  ]
+}

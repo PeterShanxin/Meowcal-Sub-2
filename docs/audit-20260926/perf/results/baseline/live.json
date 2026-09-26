@@ -1,0 +1,314 @@
+[
+ {
+  "cues": 800,
+  "target_cues": 696,
+  "bilingual": false,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1366,
+   "mean_us": 210.6,
+   "p50_us": 31.5,
+   "p95_us": 1893.9,
+   "p99_us": 2574.3,
+   "max_us": 3524.4,
+   "total_ms": 287.7
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 44.3,
+   "p50_us": 33.3,
+   "p95_us": 86.0,
+   "p99_us": 130.1,
+   "max_us": 391.5,
+   "total_ms": 132.8
+  },
+  "attempt": 0
+ },
+ {
+  "cues": 800,
+  "target_cues": 696,
+  "bilingual": false,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1325,
+   "mean_us": 210.1,
+   "p50_us": 30.2,
+   "p95_us": 1862.3,
+   "p99_us": 2506.6,
+   "max_us": 4162.6,
+   "total_ms": 278.4
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 47.9,
+   "p50_us": 35.6,
+   "p95_us": 89.0,
+   "p99_us": 117.2,
+   "max_us": 2198.9,
+   "total_ms": 143.8
+  },
+  "attempt": 1
+ },
+ {
+  "cues": 800,
+  "target_cues": 696,
+  "bilingual": false,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1401,
+   "mean_us": 201.8,
+   "p50_us": 31.4,
+   "p95_us": 1774.4,
+   "p99_us": 2526.1,
+   "max_us": 2834.2,
+   "total_ms": 282.8
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 39.7,
+   "p50_us": 31.8,
+   "p95_us": 74.9,
+   "p99_us": 91.2,
+   "max_us": 210.1,
+   "total_ms": 119.2
+  },
+  "attempt": 2
+ },
+ {
+  "cues": 800,
+  "target_cues": 696,
+  "bilingual": true,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1366,
+   "mean_us": 224.2,
+   "p50_us": 33.5,
+   "p95_us": 1979.7,
+   "p99_us": 2752.4,
+   "max_us": 3559.4,
+   "total_ms": 306.2
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 49.2,
+   "p50_us": 38.7,
+   "p95_us": 94.6,
+   "p99_us": 127.3,
+   "max_us": 196.4,
+   "total_ms": 147.7
+  },
+  "attempt": 0
+ },
+ {
+  "cues": 800,
+  "target_cues": 696,
+  "bilingual": true,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1325,
+   "mean_us": 238.3,
+   "p50_us": 34.1,
+   "p95_us": 2111.1,
+   "p99_us": 2862.6,
+   "max_us": 5055.3,
+   "total_ms": 315.8
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 54.7,
+   "p50_us": 41.2,
+   "p95_us": 107.9,
+   "p99_us": 147.5,
+   "max_us": 1270.4,
+   "total_ms": 164.2
+  },
+  "attempt": 1
+ },
+ {
+  "cues": 800,
+  "target_cues": 696,
+  "bilingual": true,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1401,
+   "mean_us": 199.2,
+   "p50_us": 28.9,
+   "p95_us": 1717.7,
+   "p99_us": 2633.5,
+   "max_us": 3313.5,
+   "total_ms": 279.1
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 38.3,
+   "p50_us": 30.4,
+   "p95_us": 79.8,
+   "p99_us": 99.9,
+   "max_us": 240.3,
+   "total_ms": 114.8
+  },
+  "attempt": 2
+ },
+ {
+  "cues": 1600,
+  "target_cues": 1391,
+  "bilingual": false,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1366,
+   "mean_us": 377.2,
+   "p50_us": 32.0,
+   "p95_us": 3617.6,
+   "p99_us": 5041.0,
+   "max_us": 5590.9,
+   "total_ms": 515.2
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 77.7,
+   "p50_us": 47.6,
+   "p95_us": 168.1,
+   "p99_us": 205.8,
+   "max_us": 497.1,
+   "total_ms": 233.1
+  },
+  "attempt": 0
+ },
+ {
+  "cues": 1600,
+  "target_cues": 1391,
+  "bilingual": false,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1325,
+   "mean_us": 352.6,
+   "p50_us": 29.2,
+   "p95_us": 3312.0,
+   "p99_us": 4546.6,
+   "max_us": 7332.4,
+   "total_ms": 467.1
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 78.9,
+   "p50_us": 48.1,
+   "p95_us": 160.8,
+   "p99_us": 220.2,
+   "max_us": 2787.7,
+   "total_ms": 236.6
+  },
+  "attempt": 1
+ },
+ {
+  "cues": 1600,
+  "target_cues": 1391,
+  "bilingual": false,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1401,
+   "mean_us": 359.7,
+   "p50_us": 30.8,
+   "p95_us": 3446.4,
+   "p99_us": 4829.8,
+   "max_us": 5162.7,
+   "total_ms": 503.9
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 70.8,
+   "p50_us": 44.4,
+   "p95_us": 158.3,
+   "p99_us": 179.2,
+   "max_us": 304.3,
+   "total_ms": 212.5
+  },
+  "attempt": 2
+ },
+ {
+  "cues": 1600,
+  "target_cues": 1391,
+  "bilingual": true,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1366,
+   "mean_us": 307.7,
+   "p50_us": 26.4,
+   "p95_us": 2965.3,
+   "p99_us": 4105.6,
+   "max_us": 4525.0,
+   "total_ms": 420.3
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 59.8,
+   "p50_us": 37.9,
+   "p95_us": 126.3,
+   "p99_us": 173.8,
+   "max_us": 350.0,
+   "total_ms": 179.4
+  },
+  "attempt": 0
+ },
+ {
+  "cues": 1600,
+  "target_cues": 1391,
+  "bilingual": true,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1325,
+   "mean_us": 307.1,
+   "p50_us": 25.6,
+   "p95_us": 2947.1,
+   "p99_us": 4102.9,
+   "max_us": 4469.0,
+   "total_ms": 406.9
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 62.6,
+   "p50_us": 38.4,
+   "p95_us": 122.9,
+   "p99_us": 143.1,
+   "max_us": 185.2,
+   "total_ms": 187.7
+  },
+  "attempt": 1
+ },
+ {
+  "cues": 1600,
+  "target_cues": 1391,
+  "bilingual": true,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1401,
+   "mean_us": 320.4,
+   "p50_us": 27.3,
+   "p95_us": 3058.4,
+   "p99_us": 4248.8,
+   "max_us": 5869.0,
+   "total_ms": 448.9
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 59.9,
+   "p50_us": 37.8,
+   "p95_us": 143.8,
+   "p99_us": 201.2,
+   "max_us": 617.4,
+   "total_ms": 179.6
+  },
+  "attempt": 2
+ }
+]

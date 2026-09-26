@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import statistics
+from bisect import bisect_left
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal
@@ -53,14 +54,7 @@ class PresentationTrack:
             (line, position, line.start_ms - self.offset_ms, line.end_ms - self.offset_ms)
             for position, line in enumerate(target_lines)
         )
-        self._overlapping_targets = {
-            id(source): tuple(
-                entry
-                for entry in self._target_entries
-                if _overlaps(source.start_ms, source.end_ms, entry[2], entry[3])
-            )
-            for source in source_lines
-        }
+        self._overlapping_targets = _overlapping_entries(source_lines, self._target_entries)
         self._wholly_uncovered_ids = {
             id(source) for source in source_lines if not self._overlapping_targets[id(source)]
         }
@@ -160,22 +154,77 @@ def _corroborated_offset_ms(anchors: list[_Anchor]) -> int:
 
 
 def _longest_ordered_chain(anchors: list[_Anchor]) -> list[_Anchor]:
-    chains: list[list[_Anchor]] = []
-    for anchor in anchors:
-        choices = [chain for chain in chains if chain[-1].target_position < anchor.target_position]
-        longest = max(
-            choices, key=lambda chain: (len(chain), -chain[-1].target_position), default=[]
-        )
-        chains.append([*longest, anchor])
-    return max(chains, key=lambda chain: len(chain), default=[])
+    """The first longest chain whose target positions rise with source order.
+
+    Each anchor extends the longest earlier chain it can follow, preferring the
+    one ending at the smallest target position. `tails[n]` holds the anchor that
+    ends a chain of length n + 1 at the smallest target position seen so far,
+    which is exactly that preferred predecessor, so a binary search finds it.
+    """
+    tails: list[int] = []
+    tail_positions: list[int] = []
+    previous: list[int | None] = []
+    end: int | None = None
+    for index, anchor in enumerate(anchors):
+        length = bisect_left(tail_positions, anchor.target_position)
+        previous.append(tails[length - 1] if length else None)
+        if length == len(tails):
+            tails.append(index)
+            tail_positions.append(anchor.target_position)
+            end = index
+        else:
+            tails[length] = index
+            tail_positions[length] = anchor.target_position
+    chain: list[_Anchor] = []
+    while end is not None:
+        chain.append(anchors[end])
+        end = previous[end]
+    chain.reverse()
+    return chain
 
 
 def _anchor_text(text: str) -> str:
     return " ".join(_ANCHOR_WORDS.findall(text.casefold()))
 
 
-def _overlaps(left_start: int, left_end: int, right_start: int, right_end: int) -> bool:
-    return left_start < right_end and right_start < left_end
+def _overlapping_entries(
+    source_lines: list[SubtitleLine], entries: tuple[tuple[SubtitleLine, int, int, int], ...]
+) -> dict[int, tuple[tuple[SubtitleLine, int, int, int], ...]]:
+    """Each source cue's overlapping target entries, in target order.
+
+    Sweep both tracks' boundaries, visiting each overlapping pair once. Ends
+    precede starts at the same time to preserve half-open intervals. A long
+    target cue therefore costs only its actual overlaps, not repeated scans
+    across every shorter cue it outlives.
+    """
+    events = [
+        event
+        for index, source in enumerate(source_lines)
+        for event in ((source.start_ms, 1, False, index), (source.end_ms, 0, False, index))
+    ]
+    events.extend(
+        event
+        for index, entry in enumerate(entries)
+        for event in ((entry[2], 1, True, index), (entry[3], 0, True, index))
+    )
+    active_sources: set[int] = set()
+    active_targets: set[int] = set()
+    matches: list[list[int]] = [[] for _ in source_lines]
+    for _, starting, target, index in sorted(events):
+        active = active_targets if target else active_sources
+        if not starting:
+            active.remove(index)
+        else:
+            if target:
+                for source_index in active_sources:
+                    matches[source_index].append(index)
+            else:
+                matches[index].extend(active_targets)
+            active.add(index)
+    return {
+        id(source): tuple(entries[index] for index in sorted(matches[position]))
+        for position, source in enumerate(source_lines)
+    }
 
 
 def _join_target_text(lines: Iterable[SubtitleLine]) -> str:

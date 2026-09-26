@@ -157,7 +157,7 @@ fn wait_for_backend(timeout: Duration) -> bool {
         if backend_ready() {
             return true;
         }
-        std::thread::sleep(Duration::from_millis(400));
+        std::thread::sleep(Duration::from_millis(50));
     }
     false
 }

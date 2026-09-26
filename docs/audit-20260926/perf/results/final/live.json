@@ -1,0 +1,314 @@
+[
+ {
+  "cues": 800,
+  "target_cues": 696,
+  "bilingual": false,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1366,
+   "mean_us": 218.6,
+   "p50_us": 32.1,
+   "p95_us": 1939.0,
+   "p99_us": 2702.7,
+   "max_us": 4193.8,
+   "total_ms": 298.6
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 45.9,
+   "p50_us": 34.6,
+   "p95_us": 78.5,
+   "p99_us": 112.6,
+   "max_us": 2163.1,
+   "total_ms": 137.8
+  },
+  "attempt": 0
+ },
+ {
+  "cues": 800,
+  "target_cues": 696,
+  "bilingual": false,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1325,
+   "mean_us": 198.0,
+   "p50_us": 28.5,
+   "p95_us": 1767.5,
+   "p99_us": 2383.3,
+   "max_us": 2627.5,
+   "total_ms": 262.4
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 44.6,
+   "p50_us": 32.5,
+   "p95_us": 75.7,
+   "p99_us": 112.8,
+   "max_us": 1705.0,
+   "total_ms": 133.8
+  },
+  "attempt": 1
+ },
+ {
+  "cues": 800,
+  "target_cues": 696,
+  "bilingual": false,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1401,
+   "mean_us": 200.1,
+   "p50_us": 29.9,
+   "p95_us": 1767.1,
+   "p99_us": 2512.3,
+   "max_us": 3260.6,
+   "total_ms": 280.3
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 40.0,
+   "p50_us": 31.8,
+   "p95_us": 76.0,
+   "p99_us": 103.4,
+   "max_us": 177.8,
+   "total_ms": 120.0
+  },
+  "attempt": 2
+ },
+ {
+  "cues": 800,
+  "target_cues": 696,
+  "bilingual": true,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1366,
+   "mean_us": 213.1,
+   "p50_us": 30.4,
+   "p95_us": 1869.8,
+   "p99_us": 2588.4,
+   "max_us": 12483.6,
+   "total_ms": 291.1
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 43.6,
+   "p50_us": 33.7,
+   "p95_us": 78.5,
+   "p99_us": 95.1,
+   "max_us": 239.4,
+   "total_ms": 130.7
+  },
+  "attempt": 0
+ },
+ {
+  "cues": 800,
+  "target_cues": 696,
+  "bilingual": true,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1325,
+   "mean_us": 256.2,
+   "p50_us": 35.4,
+   "p95_us": 2162.9,
+   "p99_us": 3215.8,
+   "max_us": 4652.0,
+   "total_ms": 339.5
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 60.0,
+   "p50_us": 43.5,
+   "p95_us": 114.4,
+   "p99_us": 156.4,
+   "max_us": 2434.9,
+   "total_ms": 180.0
+  },
+  "attempt": 1
+ },
+ {
+  "cues": 800,
+  "target_cues": 696,
+  "bilingual": true,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1401,
+   "mean_us": 214.0,
+   "p50_us": 31.3,
+   "p95_us": 1919.2,
+   "p99_us": 2726.2,
+   "max_us": 4276.0,
+   "total_ms": 299.8
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 42.9,
+   "p50_us": 33.2,
+   "p95_us": 86.1,
+   "p99_us": 121.2,
+   "max_us": 622.8,
+   "total_ms": 128.6
+  },
+  "attempt": 2
+ },
+ {
+  "cues": 1600,
+  "target_cues": 1391,
+  "bilingual": false,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1366,
+   "mean_us": 373.6,
+   "p50_us": 32.2,
+   "p95_us": 3555.5,
+   "p99_us": 4910.9,
+   "max_us": 5513.5,
+   "total_ms": 510.4
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 79.1,
+   "p50_us": 48.5,
+   "p95_us": 168.5,
+   "p99_us": 195.3,
+   "max_us": 428.6,
+   "total_ms": 237.2
+  },
+  "attempt": 0
+ },
+ {
+  "cues": 1600,
+  "target_cues": 1391,
+  "bilingual": false,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1325,
+   "mean_us": 355.1,
+   "p50_us": 28.2,
+   "p95_us": 3184.7,
+   "p99_us": 4596.4,
+   "max_us": 7798.2,
+   "total_ms": 470.5
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 80.3,
+   "p50_us": 46.8,
+   "p95_us": 172.6,
+   "p99_us": 268.5,
+   "max_us": 610.9,
+   "total_ms": 240.9
+  },
+  "attempt": 1
+ },
+ {
+  "cues": 1600,
+  "target_cues": 1391,
+  "bilingual": false,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1401,
+   "mean_us": 361.4,
+   "p50_us": 30.6,
+   "p95_us": 3377.5,
+   "p99_us": 4867.1,
+   "max_us": 7856.6,
+   "total_ms": 506.4
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 74.6,
+   "p50_us": 46.7,
+   "p95_us": 164.6,
+   "p99_us": 259.4,
+   "max_us": 3320.3,
+   "total_ms": 223.7
+  },
+  "attempt": 2
+ },
+ {
+  "cues": 1600,
+  "target_cues": 1391,
+  "bilingual": true,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1366,
+   "mean_us": 345.6,
+   "p50_us": 27.3,
+   "p95_us": 3063.9,
+   "p99_us": 4872.3,
+   "max_us": 7082.2,
+   "total_ms": 472.0
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 70.1,
+   "p50_us": 43.0,
+   "p95_us": 187.8,
+   "p99_us": 276.6,
+   "max_us": 400.9,
+   "total_ms": 210.2
+  },
+  "attempt": 0
+ },
+ {
+  "cues": 1600,
+  "target_cues": 1391,
+  "bilingual": true,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1325,
+   "mean_us": 355.5,
+   "p50_us": 29.5,
+   "p95_us": 3463.8,
+   "p99_us": 4613.1,
+   "max_us": 5125.4,
+   "total_ms": 471.1
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 72.9,
+   "p50_us": 45.9,
+   "p95_us": 141.2,
+   "p99_us": 166.1,
+   "max_us": 317.5,
+   "total_ms": 218.6
+  },
+  "attempt": 1
+ },
+ {
+  "cues": 1600,
+  "target_cues": 1391,
+  "bilingual": true,
+  "simulated_minutes": 10.0,
+  "anchored_at_end": true,
+  "match": {
+   "n": 1401,
+   "mean_us": 353.3,
+   "p50_us": 31.3,
+   "p95_us": 3328.6,
+   "p99_us": 4787.3,
+   "max_us": 5183.4,
+   "total_ms": 495.0
+  },
+  "render_tick": {
+   "n": 3000,
+   "mean_us": 64.4,
+   "p50_us": 43.1,
+   "p95_us": 142.4,
+   "p99_us": 160.5,
+   "max_us": 233.9,
+   "total_ms": 193.1
+  },
+  "attempt": 2
+ }
+]

@@ -1,0 +1,215 @@
+{
+ "summary": {
+  "fonts": "hang",
+  "backend_ready_ms": 498.2,
+  "cold": {
+   "ttfb": 3.0,
+   "fcp": 142.0,
+   "lcp": 142.0,
+   "dcl": 45.8,
+   "palette_ready_ms": 78.6,
+   "transferred": 275392.0,
+   "timed_out": 0,
+   "long_tasks_max_ms": 0,
+   "spawn_to_palette_ms": 607.1
+  },
+  "warm": {
+   "ttfb": 1.5,
+   "fcp": 122.0,
+   "lcp": 122.0,
+   "dcl": 37.4,
+   "palette_ready_ms": 64.0,
+   "transferred": 275392.0,
+   "timed_out": 0,
+   "long_tasks_max_ms": 0
+  }
+ },
+ "runs": [
+  {
+   "attempt": 0,
+   "backend_ready_ms": 509.3,
+   "cold": {
+    "palette_ready_ms": 81.5,
+    "fonts_loaded_ms": null,
+    "font_css_media": ",print",
+    "ttfb": 2.6000000000931323,
+    "dcl": 45.199999999953434,
+    "load": 0,
+    "fcp": 148,
+    "lcp": 148,
+    "longTasks": [],
+    "transferred": 275392,
+    "requests": [
+     {
+      "name": "/static/assets/index-DWXRswIX.js",
+      "ms": 19,
+      "bytes": 257131
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 17,
+      "bytes": 14715
+     },
+     {
+      "name": "/api/state",
+      "ms": 10,
+      "bytes": 1546
+     },
+     {
+      "name": "/api/languages",
+      "ms": 11,
+      "bytes": 1090
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 11,
+      "bytes": 455
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 7,
+      "bytes": 455
+     }
+    ],
+    "spawn_to_palette_ms": 623.5
+   },
+   "warm": {
+    "palette_ready_ms": 61.800000000046566,
+    "fonts_loaded_ms": null,
+    "font_css_media": ",print",
+    "ttfb": 1.3000000000465661,
+    "dcl": 35.699999999953434,
+    "load": 0,
+    "fcp": 112,
+    "lcp": 112,
+    "longTasks": [],
+    "transferred": 275392,
+    "requests": [
+     {
+      "name": "/static/assets/index-DWXRswIX.js",
+      "ms": 17,
+      "bytes": 257131
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 16,
+      "bytes": 14715
+     },
+     {
+      "name": "/api/state",
+      "ms": 6,
+      "bytes": 1546
+     },
+     {
+      "name": "/api/languages",
+      "ms": 7,
+      "bytes": 1090
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 8,
+      "bytes": 455
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 6,
+      "bytes": 455
+     }
+    ]
+   }
+  },
+  {
+   "attempt": 1,
+   "backend_ready_ms": 487.2,
+   "cold": {
+    "palette_ready_ms": 75.69999999995343,
+    "fonts_loaded_ms": null,
+    "font_css_media": ",print",
+    "ttfb": 3.300000000046566,
+    "dcl": 46.300000000046566,
+    "load": 0,
+    "fcp": 136,
+    "lcp": 136,
+    "longTasks": [],
+    "transferred": 275392,
+    "requests": [
+     {
+      "name": "/static/assets/index-DWXRswIX.js",
+      "ms": 16,
+      "bytes": 257131
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 16,
+      "bytes": 14715
+     },
+     {
+      "name": "/api/state",
+      "ms": 8,
+      "bytes": 1546
+     },
+     {
+      "name": "/api/languages",
+      "ms": 11,
+      "bytes": 1090
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 11,
+      "bytes": 455
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 6,
+      "bytes": 455
+     }
+    ],
+    "spawn_to_palette_ms": 590.8
+   },
+   "warm": {
+    "palette_ready_ms": 66.29999999981374,
+    "fonts_loaded_ms": null,
+    "font_css_media": ",print",
+    "ttfb": 1.6999999999534339,
+    "dcl": 39.0999999998603,
+    "load": 0,
+    "fcp": 132,
+    "lcp": 132,
+    "longTasks": [],
+    "transferred": 275392,
+    "requests": [
+     {
+      "name": "/static/assets/index-DWXRswIX.js",
+      "ms": 17,
+      "bytes": 257131
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 16,
+      "bytes": 14715
+     },
+     {
+      "name": "/api/state",
+      "ms": 9,
+      "bytes": 1546
+     },
+     {
+      "name": "/api/languages",
+      "ms": 13,
+      "bytes": 1090
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 13,
+      "bytes": 455
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 7,
+      "bytes": 455
+     }
+    ]
+   }
+  }
+ ]
+}
