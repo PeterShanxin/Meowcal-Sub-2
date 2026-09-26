@@ -174,4 +174,7 @@ def test_tab_moves_on_from_the_palette_after_its_last_tab(tmp_path):
         search.press("Tab")
         assert page.evaluate("document.activeElement.dataset.palette") == "true"
         search.press("Tab")
+        # The palette retries its own focus for a moment after it appears; none
+        # of those retries may take focus back from where Tab moved it.
+        page.wait_for_timeout(1200)
         assert page.evaluate("document.activeElement.dataset.palette") is None

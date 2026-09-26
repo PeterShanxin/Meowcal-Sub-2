@@ -106,6 +106,7 @@ The target presentation change records these measured limits:
 | `overlay/controller.py` | 2112 | 2138 | recheck engine readiness and session ownership before committing subtitle edits, persist the reset bias, and resume prefill only while the corrected session is idle |
 | `overlay/ui/src/app.tsx` | 1584 | 1627 | a prepared session that stacks and scrolls in a small window, a title cursor that walks into an open card's seasons, and a first-launch screen that gives way to the palette it offers |
 | `overlay/ui/src/components/palette.tsx` | 1489 | 1519 | language chips reachable by keyboard, a step button that wraps rather than leaving the window, and an empty search that says it found nothing |
+| `overlay/ui/src/components/palette.tsx` | 1519 | 1525 | focus retries that leave alone a focus the viewer has already moved |
 | `overlay/ui/src/components/primitives.tsx` | 382 | 391 | top-bar details that a narrow window can drop |
 | `overlay/ui/src/styles/theme.css` | 685 | 705 | the narrow-window rules for those, and a readable shortcut hint on the accent buttons |
 

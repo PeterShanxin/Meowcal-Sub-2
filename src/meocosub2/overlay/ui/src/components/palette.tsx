@@ -172,14 +172,20 @@ export function Palette(props: PaletteProps): JSX.Element {
       inp.select();
     };
     focusNow();
+    // The retries are for a webview that is not ready to take focus yet. Once
+    // the viewer has moved focus somewhere, pulling it back would undo a Tab.
+    const retry = () => {
+      const active = document.activeElement;
+      if (!active || active === document.body || active === inp) focusNow();
+    };
     const delays = [50, 150, 400, 900];
-    const timers = delays.map((d) => window.setTimeout(focusNow, d));
-    window.addEventListener("focus", focusNow);
-    document.addEventListener("visibilitychange", focusNow);
+    const timers = delays.map((d) => window.setTimeout(retry, d));
+    window.addEventListener("focus", retry);
+    document.addEventListener("visibilitychange", retry);
     return () => {
       timers.forEach((t) => window.clearTimeout(t));
-      window.removeEventListener("focus", focusNow);
-      document.removeEventListener("visibilitychange", focusNow);
+      window.removeEventListener("focus", retry);
+      document.removeEventListener("visibilitychange", retry);
     };
   }, [inputRef, phase]);
 
