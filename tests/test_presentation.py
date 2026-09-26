@@ -225,3 +225,38 @@ def test_each_candidate_calculates_its_own_offset() -> None:
 
     assert first.offset_ms == 1000
     assert second.offset_ms == 500
+
+
+def test_a_long_target_cue_covers_source_cues_past_the_shorter_ones_after_it() -> None:
+    source = [line(0, 3500, 3600, "during b"), line(1, 6000, 7000, "after b")]
+    target = [
+        line(0, 0, 10_000, "sign"),
+        line(1, 1000, 2000, "a"),
+        line(2, 3000, 4000, "b"),
+    ]
+
+    track = PresentationTrack(source, target)
+
+    assert track.answer(source[0]) == "sign\nb"
+    assert track.answer(source[1]) == "sign"
+
+
+def test_equally_long_anchor_chains_prefer_the_earlier_target_position() -> None:
+    # "first" crosses "second" in the target file. Both one-anchor chains can
+    # lead to "third"; the one ending earlier in the target is taken, so the
+    # offset comes from "second" and "third", which agree.
+    source = [
+        line(0, 0, 1000, "s0", "first"),
+        line(1, 2000, 3000, "s1", "second"),
+        line(2, 8000, 9000, "s2", "third"),
+    ]
+    target = [
+        line(0, 3000, 4000, "second"),
+        line(1, 5000, 6000, "first"),
+        line(2, 9000, 10_000, "third"),
+    ]
+
+    track = PresentationTrack(source, target)
+
+    assert track.anchor_count == 2
+    assert track.offset_ms == 1000

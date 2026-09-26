@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import re
 import statistics
+from bisect import bisect_left
 from collections.abc import Iterable
 from dataclasses import dataclass
+from itertools import accumulate
 from typing import Literal
 
 from meocosub2.models import SubtitleLine
@@ -53,14 +55,7 @@ class PresentationTrack:
             (line, position, line.start_ms - self.offset_ms, line.end_ms - self.offset_ms)
             for position, line in enumerate(target_lines)
         )
-        self._overlapping_targets = {
-            id(source): tuple(
-                entry
-                for entry in self._target_entries
-                if _overlaps(source.start_ms, source.end_ms, entry[2], entry[3])
-            )
-            for source in source_lines
-        }
+        self._overlapping_targets = _overlapping_entries(source_lines, self._target_entries)
         self._wholly_uncovered_ids = {
             id(source) for source in source_lines if not self._overlapping_targets[id(source)]
         }
@@ -160,22 +155,62 @@ def _corroborated_offset_ms(anchors: list[_Anchor]) -> int:
 
 
 def _longest_ordered_chain(anchors: list[_Anchor]) -> list[_Anchor]:
-    chains: list[list[_Anchor]] = []
-    for anchor in anchors:
-        choices = [chain for chain in chains if chain[-1].target_position < anchor.target_position]
-        longest = max(
-            choices, key=lambda chain: (len(chain), -chain[-1].target_position), default=[]
-        )
-        chains.append([*longest, anchor])
-    return max(chains, key=lambda chain: len(chain), default=[])
+    """The first longest chain whose target positions rise with source order.
+
+    Each anchor extends the longest earlier chain it can follow, preferring the
+    one ending at the smallest target position. `tails[n]` holds the anchor that
+    ends a chain of length n + 1 at the smallest target position seen so far,
+    which is exactly that preferred predecessor, so a binary search finds it.
+    """
+    tails: list[int] = []
+    tail_positions: list[int] = []
+    previous: list[int | None] = []
+    end: int | None = None
+    for index, anchor in enumerate(anchors):
+        length = bisect_left(tail_positions, anchor.target_position)
+        previous.append(tails[length - 1] if length else None)
+        if length == len(tails):
+            tails.append(index)
+            tail_positions.append(anchor.target_position)
+            end = index
+        else:
+            tails[length] = index
+            tail_positions[length] = anchor.target_position
+    chain: list[_Anchor] = []
+    while end is not None:
+        chain.append(anchors[end])
+        end = previous[end]
+    chain.reverse()
+    return chain
 
 
 def _anchor_text(text: str) -> str:
     return " ".join(_ANCHOR_WORDS.findall(text.casefold()))
 
 
-def _overlaps(left_start: int, left_end: int, right_start: int, right_end: int) -> bool:
-    return left_start < right_end and right_start < left_end
+def _overlapping_entries(
+    source_lines: list[SubtitleLine], entries: tuple[tuple[SubtitleLine, int, int, int], ...]
+) -> dict[int, tuple[tuple[SubtitleLine, int, int, int], ...]]:
+    """Each source cue's overlapping target entries, in target order.
+
+    Entries are searched by start, and scanned back only while some entry at or
+    before the scan position still ends after the source cue starts: a long
+    target cue can outlast the ones that begin after it.
+    """
+    by_start = sorted(entries, key=lambda entry: entry[2])
+    starts = [entry[2] for entry in by_start]
+    latest_end_by = list(accumulate((entry[3] for entry in by_start), max))
+    overlapping = {}
+    for source in source_lines:
+        found = []
+        for position in range(bisect_left(starts, source.end_ms) - 1, -1, -1):
+            if latest_end_by[position] <= source.start_ms:
+                break
+            if by_start[position][3] > source.start_ms:
+                found.append(by_start[position])
+        found.sort(key=lambda entry: entry[1])
+        overlapping[id(source)] = tuple(found)
+    return overlapping
 
 
 def _join_target_text(lines: Iterable[SubtitleLine]) -> str:
