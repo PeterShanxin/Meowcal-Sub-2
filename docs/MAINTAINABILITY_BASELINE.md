@@ -115,9 +115,9 @@ The four largest are the ones worth naming, because they are where the work is:
 
 | File | Lines | What it holds |
 | --- | ---: | --- |
-| `overlay/controller.py` | 1,947 | session lifecycle, search orchestration, config, engine startup |
-| `overlay/ui/src/app.tsx` | 1,580 | the studio's whole screen state |
-| `overlay/ui/src/components/palette.tsx` | 1,489 | the search palette |
+| `overlay/controller.py` | 2,138 | session lifecycle, search orchestration, config, engine startup |
+| `overlay/ui/src/app.tsx` | 1,630 | the studio's whole screen state |
+| `overlay/ui/src/components/palette.tsx` | 1,525 | the search palette |
 | `subtitle_sources/aggregator.py` | 1,458 | provider-neutral search aggregation |
 
 No module is to be split to satisfy a number. A cohesive exception is better
