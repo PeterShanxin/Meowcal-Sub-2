@@ -260,3 +260,41 @@ def test_equally_long_anchor_chains_prefer_the_earlier_target_position() -> None
 
     assert track.anchor_count == 2
     assert track.offset_ms == 1000
+
+
+def test_long_target_overlap_work_scales_with_actual_pairs() -> None:
+    comparisons = 0
+
+    class Timestamp(int):
+        def __lt__(self, other):
+            nonlocal comparisons
+            comparisons += 1
+            return super().__lt__(other)
+
+        def __le__(self, other):
+            nonlocal comparisons
+            comparisons += 1
+            return super().__le__(other)
+
+        def __gt__(self, other):
+            nonlocal comparisons
+            comparisons += 1
+            return super().__gt__(other)
+
+        def __ge__(self, other):
+            nonlocal comparisons
+            comparisons += 1
+            return super().__ge__(other)
+
+    count = 1024
+    source = [line(i, Timestamp(i * 10), Timestamp(i * 10 + 5), "source") for i in range(count)]
+    target = [line(0, Timestamp(0), Timestamp(count * 10), "sign")]
+    target += [
+        line(i + 1, Timestamp(i * 10), Timestamp(i * 10 + 5), "dialogue") for i in range(count)
+    ]
+    track = PresentationTrack(source, target)
+
+    assert all(track.answer(cue) == "sign\ndialogue" for cue in source)
+    # Count comparisons, not wall time: one long cue must not trigger a scan
+    # across all expired dialogue for every source. This allows sorting cost.
+    assert comparisons < count * 100

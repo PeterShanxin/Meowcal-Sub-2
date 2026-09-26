@@ -39,16 +39,22 @@ def _ready(runtime: Path) -> bool:
         return False
 
 
-def _boot(interval_s: float) -> dict:
+def _boot(interval_s: float, timeout_s: float = 60) -> dict:
+    if interval_s <= 0 or timeout_s <= 0:
+        raise ValueError("interval and timeout must be positive")
     with tempfile.TemporaryDirectory(prefix="meowcal-boot-") as appdata:
         runtime = Path(appdata) / "meowcal-sub-2" / "runtime.json"
         env = {**os.environ, "APPDATA": appdata, "PYTHONUTF8": "1"}
         first_possible: list[float] = []
+        stop = threading.Event()
+        deadline = time.perf_counter() + timeout_s
 
         def probe() -> None:
-            while not _ready(runtime):
-                time.sleep(0.005)
-            first_possible.append(time.perf_counter())
+            while not stop.is_set() and time.perf_counter() < deadline:
+                if _ready(runtime):
+                    first_possible.append(time.perf_counter())
+                    return
+                stop.wait(0.005)
 
         spawned = time.perf_counter()
         process = subprocess.Popen(
@@ -61,13 +67,30 @@ def _boot(interval_s: float) -> dict:
         prober = threading.Thread(target=probe, daemon=True)
         prober.start()
         try:
-            while not _ready(runtime):
-                time.sleep(interval_s)
+            while True:
+                if process.poll() is not None:
+                    raise RuntimeError(f"backend exited before readiness: {process.returncode}")
+                remaining = deadline - time.perf_counter()
+                if remaining <= 0:
+                    raise TimeoutError("backend did not become ready before the deadline")
+                if _ready(runtime):
+                    break
+                stop.wait(min(interval_s, remaining))
             detected = time.perf_counter()
-            prober.join(timeout=5)
+            prober.join(timeout=3)
+            if not first_possible:
+                raise RuntimeError("readiness probe did not confirm backend readiness")
         finally:
-            process.terminate()
-            process.wait(timeout=10)
+            stop.set()
+            if process.poll() is None:
+                process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=10)
+            finally:
+                prober.join(timeout=3)
         return {
             "backend_ready_ms": round((first_possible[0] - spawned) * 1000, 1),
             "detected_ms": round((detected - spawned) * 1000, 1),

@@ -7,7 +7,6 @@ import statistics
 from bisect import bisect_left
 from collections.abc import Iterable
 from dataclasses import dataclass
-from itertools import accumulate
 from typing import Literal
 
 from meocosub2.models import SubtitleLine
@@ -193,24 +192,39 @@ def _overlapping_entries(
 ) -> dict[int, tuple[tuple[SubtitleLine, int, int, int], ...]]:
     """Each source cue's overlapping target entries, in target order.
 
-    Entries are searched by start, and scanned back only while some entry at or
-    before the scan position still ends after the source cue starts: a long
-    target cue can outlast the ones that begin after it.
+    Sweep both tracks' boundaries, visiting each overlapping pair once. Ends
+    precede starts at the same time to preserve half-open intervals. A long
+    target cue therefore costs only its actual overlaps, not repeated scans
+    across every shorter cue it outlives.
     """
-    by_start = sorted(entries, key=lambda entry: entry[2])
-    starts = [entry[2] for entry in by_start]
-    latest_end_by = list(accumulate((entry[3] for entry in by_start), max))
-    overlapping = {}
-    for source in source_lines:
-        found = []
-        for position in range(bisect_left(starts, source.end_ms) - 1, -1, -1):
-            if latest_end_by[position] <= source.start_ms:
-                break
-            if by_start[position][3] > source.start_ms:
-                found.append(by_start[position])
-        found.sort(key=lambda entry: entry[1])
-        overlapping[id(source)] = tuple(found)
-    return overlapping
+    events = [
+        event
+        for index, source in enumerate(source_lines)
+        for event in ((source.start_ms, 1, False, index), (source.end_ms, 0, False, index))
+    ]
+    events.extend(
+        event
+        for index, entry in enumerate(entries)
+        for event in ((entry[2], 1, True, index), (entry[3], 0, True, index))
+    )
+    active_sources: set[int] = set()
+    active_targets: set[int] = set()
+    matches: list[list[int]] = [[] for _ in source_lines]
+    for _, starting, target, index in sorted(events):
+        active = active_targets if target else active_sources
+        if not starting:
+            active.remove(index)
+        else:
+            if target:
+                for source_index in active_sources:
+                    matches[source_index].append(index)
+            else:
+                matches[index].extend(active_targets)
+            active.add(index)
+    return {
+        id(source): tuple(entries[index] for index in sorted(matches[position]))
+        for position, source in enumerate(source_lines)
+    }
 
 
 def _join_target_text(lines: Iterable[SubtitleLine]) -> str:

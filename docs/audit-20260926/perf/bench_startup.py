@@ -1,9 +1,11 @@
-"""Studio cold and warm start: backend spawn to an interactive search palette.
+"""Studio navigation: backend spawn, search input DOM insertion and first paint.
 
 Cold: a fresh `python -m meocosub2.cli serve` and a fresh browser context each
-run. Warm: the same backend, a new page in a context whose HTTP cache already
-holds the hashed bundle. Headless Chromium stands in for WebView2, so the
-numbers describe the served page and the backend, not native shell painting.
+run. Warm (live CDN only): the same backend, a new page in a context whose
+HTTP cache already holds the hashed bundle. Routed CDN modes disable Chromium
+HTTP caching; their second visit is labeled repeat_navigation, not warm.
+Headless Chromium stands in for WebView2, so the numbers describe the served
+page and the backend, not native shell painting.
 
 Page timings are taken inside the page (`performance.now()`, i.e. from
 navigation start), so a slow Playwright route handler cannot inflate them.
@@ -168,7 +170,7 @@ def run(repeat: int, fonts: str) -> list[dict]:
                     cold["spawn_to_palette_ms"] = round(
                         (navigating - spawned) * 1000 + cold["palette_ready_ms"], 1
                     )
-                    warm = _visit(context, url)
+                    second_visit = _visit(context, url)
                     context.close()
                 finally:
                     process.terminate()
@@ -178,7 +180,7 @@ def run(repeat: int, fonts: str) -> list[dict]:
                         "attempt": attempt,
                         "backend_ready_ms": round(backend_ready_ms, 1),
                         "cold": cold,
-                        "warm": warm,
+                        ("warm" if fonts == "live" else "repeat_navigation"): second_visit,
                     }
                 )
                 print(
@@ -194,7 +196,7 @@ def summarize(results: list[dict]) -> dict:
         return round(statistics.median(values), 1)
 
     out = {"backend_ready_ms": med([r["backend_ready_ms"] for r in results])}
-    for kind in ("cold", "warm"):
+    for kind in ("cold", "warm" if "warm" in results[0] else "repeat_navigation"):
         rows = [r[kind] for r in results]
         out[kind] = {
             key: med(values)
@@ -224,7 +226,11 @@ def main() -> None:
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
     results = run(args.repeat, args.fonts)
-    summary = {"fonts": args.fonts, **summarize(results)}
+    summary = {
+        "fonts": args.fonts,
+        "http_cache_enabled": args.fonts == "live",
+        **summarize(results),
+    }
     print(json.dumps(summary, indent=1))
     if args.out:
         args.out.write_text(
