@@ -1,6 +1,10 @@
 Set fso = CreateObject("Scripting.FileSystemObject")
 Set WshShell = CreateObject("WScript.Shell")
 
+' A PowerShell 7 parent can leave incompatible modules ahead of Windows PowerShell's.
+Set processEnv = WshShell.Environment("PROCESS")
+processEnv("PSModulePath") = WshShell.ExpandEnvironmentStrings("%SystemRoot%\System32\WindowsPowerShell\v1.0\Modules") & ";" & processEnv("PSModulePath")
+
 repoRoot = fso.GetParentFolderName(WScript.ScriptFullName)
 shellPath = repoRoot & "\src-tauri\target\debug\meowcal-sub-2-shell.exe"
 corePath = repoRoot & "\src-tauri\resources\core\meowcal-core.exe"

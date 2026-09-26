@@ -2,7 +2,8 @@ import { useEffect } from "react";
 
 export interface KeyHandlers {
   onFocusPalette: () => void;
-  onCycleTab: (direction: 1 | -1) => void;
+  /** False at the first or last tab, where Tab leaves the palette as usual. */
+  onCycleTab: (direction: 1 | -1) => boolean;
   onMoveCursor: (direction: "up" | "down" | "left" | "right") => void;
   onPrimaryConfirm: () => void;
   onSelect: () => void;
@@ -42,11 +43,11 @@ export function useKeybinds(h: KeyHandlers): void {
       const isPaletteInput =
         target instanceof HTMLInputElement && target.dataset.palette === "true";
 
-      // Tab / Shift+Tab — cycle palette tabs (when in palette input)
+      // Tab / Shift+Tab — step through the palette tabs from its input. Past the
+      // last one, focus moves on, so the input is never a keyboard trap.
       if (e.key === "Tab" && !e.altKey && !e.ctrlKey && !e.metaKey) {
-        if (isPaletteInput) {
+        if (isPaletteInput && h.onCycleTab(e.shiftKey ? -1 : 1)) {
           e.preventDefault();
-          h.onCycleTab(e.shiftKey ? -1 : 1);
           return;
         }
       }

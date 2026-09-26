@@ -156,7 +156,6 @@ export function mapResultsToSource(
     file: r.fileName || r.displayLabel,
     provider: r.providerLabel || r.provider,
     downloads: formatDownloads(r.downloadCount),
-    fps: "—",
     hi: false,
     trusted: r.providerRank <= 1,
     recommended: index < recommendUpTo,
@@ -183,7 +182,6 @@ export function mapResultsToTarget(
     file: r.fileName || r.displayLabel,
     provider: r.providerLabel || r.provider,
     downloads: formatDownloads(r.downloadCount),
-    fps: "—",
     recommended: index < recommendUpTo,
     raw: r,
   }));
@@ -209,7 +207,7 @@ export function mapResultsToTarget(
     id: "__local__",
     kind: "local",
     title: "Local translation",
-    note: "Foundry · batch translate source lines",
+    note: "On-device model · translates the source lines",
     recommended: false,
   };
   const ocr: TargetItem = {

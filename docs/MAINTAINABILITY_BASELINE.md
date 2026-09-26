@@ -104,14 +104,20 @@ The target presentation change records these measured limits:
 | `overlay/controller.py` | 2060 | 2105 | own the guarded read/save boundary for prepared subtitle edits and reject stale starts; document IO and playback rebuilding live in the subtitle editor module |
 | `overlay/controller.py` | 2105 | 2112 | report automatic playback checks from each preparation mode using the shared subtitle loader |
 | `overlay/controller.py` | 2112 | 2138 | recheck engine readiness and session ownership before committing subtitle edits, persist the reset bias, and resume prefill only while the corrected session is idle |
+| `overlay/ui/src/app.tsx` | 1584 | 1627 | a prepared session that stacks and scrolls in a small window, a title cursor that walks into an open card's seasons, and a first-launch screen that gives way to the palette it offers |
+| `overlay/ui/src/app.tsx` | 1627 | 1630 | keep title-grid navigation from indexing title rows while moving through subtitle candidates |
+| `overlay/ui/src/components/palette.tsx` | 1489 | 1519 | language chips reachable by keyboard, a step button that wraps rather than leaving the window, and an empty search that says it found nothing |
+| `overlay/ui/src/components/palette.tsx` | 1519 | 1525 | focus retries that leave alone a focus the viewer has already moved |
+| `overlay/ui/src/components/primitives.tsx` | 382 | 391 | top-bar details that a narrow window can drop |
+| `overlay/ui/src/styles/theme.css` | 685 | 705 | the narrow-window rules for those, and a readable shortcut hint on the accent buttons |
 
 The four largest are the ones worth naming, because they are where the work is:
 
 | File | Lines | What it holds |
 | --- | ---: | --- |
-| `overlay/controller.py` | 1,947 | session lifecycle, search orchestration, config, engine startup |
-| `overlay/ui/src/app.tsx` | 1,580 | the studio's whole screen state |
-| `overlay/ui/src/components/palette.tsx` | 1,489 | the search palette |
+| `overlay/controller.py` | 2,138 | session lifecycle, search orchestration, config, engine startup |
+| `overlay/ui/src/app.tsx` | 1,630 | the studio's whole screen state |
+| `overlay/ui/src/components/palette.tsx` | 1,525 | the search palette |
 | `subtitle_sources/aggregator.py` | 1,458 | provider-neutral search aggregation |
 
 No module is to be split to satisfy a number. A cohesive exception is better
@@ -124,19 +130,19 @@ they are scheduled.
 | --- | ---: | --- |
 | Ruff | 0 | clean |
 | Clippy (`-D warnings`) | 0 | clean |
-| Biome | 26 | debt, described below |
+| Biome | 20 | debt, described below |
 
 Ruff and Clippy are at zero and enforced at zero, so neither needs a budget so
 much as a floor under it. Budgets ratchet the same way ceilings do: beating one
 means lowering it in the same change.
 
-Biome's 26 are pre-existing findings in the studio UI, deliberately not fixed
+Biome's 20 are pre-existing findings in the studio UI, deliberately not fixed
 inside a formatting change:
 
 | Rule | Count | Why it is held rather than fixed |
 | --- | ---: | --- |
-| `a11y/noStaticElementInteractions` | 7 | the palette's rows and cards take clicks as plain elements |
-| `a11y/useKeyWithClickEvents` | 6 | the same surfaces need keyboard handling designed, not appended |
+| `a11y/noStaticElementInteractions` | 4 | the palette's rows and cards take clicks as plain elements |
+| `a11y/useKeyWithClickEvents` | 3 | the same surfaces need keyboard handling designed, not appended |
 | `correctness/useExhaustiveDependencies` | 4 | React hook dependency arrays; changing one blind risks a render loop |
 | `suspicious/useIterableCallbackReturn` | 3 | `forEach` callbacks returning values |
 | `complexity/noImportantStyles` | 3 | deliberate CSS overrides |

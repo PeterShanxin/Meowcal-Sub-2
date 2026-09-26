@@ -245,7 +245,6 @@ export interface SourceItem {
   file: string;
   provider: string;
   downloads: string;
-  fps: string;
   hi: boolean;
   trusted: boolean;
   recommended: boolean;
@@ -272,7 +271,6 @@ export interface TargetItem {
   file?: string;
   provider?: string;
   downloads?: string;
-  fps?: string;
   recommended: boolean;
   raw?: BackendResult;
 }

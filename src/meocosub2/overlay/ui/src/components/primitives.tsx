@@ -223,6 +223,7 @@ export function TopBar({
         padding: "14px 20px",
         fontSize: 12,
         color: "var(--text-label)",
+        whiteSpace: "nowrap",
         zIndex: 5,
       }}
     >
@@ -241,10 +242,18 @@ export function TopBar({
           />
           {label}
         </span>
-        <span style={{ color: "#3a3a46" }}>·</span>
-        <span title={engineStatus?.message ?? ""}>{engineLabel(engineStatus)}</span>
-        <span style={{ color: "#3a3a46" }}>·</span>
-        <span>{sourcesCount} sources</span>
+        <span className="top-bar-detail" style={{ color: "#3a3a46" }}>
+          ·
+        </span>
+        <span className="top-bar-detail" title={engineStatus?.message ?? ""}>
+          {engineLabel(engineStatus)}
+        </span>
+        <span className="top-bar-detail" style={{ color: "#3a3a46" }}>
+          ·
+        </span>
+        <span className="top-bar-detail">
+          {sourcesCount} {sourcesCount === 1 ? "source" : "sources"}
+        </span>
         <span style={{ color: "#3a3a46" }}>·</span>
         <span title={wsConnected ? "Connected" : "Reconnecting…"}>{wsConnected ? "●" : "○"}</span>
         {onClearSession && (
