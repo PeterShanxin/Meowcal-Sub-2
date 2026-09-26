@@ -55,6 +55,8 @@ interface PaletteProps {
   hydrating: string[];
   emptyLookups: string[];
   errorMessage: string | null;
+  /** The last title searched for, so an empty list can say it was searched. */
+  searchedQuery: string;
   onRetrySearch: (() => void) | null;
   onDismissError: () => void;
   preparing: boolean;
@@ -105,6 +107,7 @@ export function Palette(props: PaletteProps): JSX.Element {
     hydrating,
     emptyLookups,
     errorMessage,
+    searchedQuery,
     onRetrySearch,
     onDismissError,
     preparing,
@@ -144,8 +147,15 @@ export function Palette(props: PaletteProps): JSX.Element {
         setOpenDrop(null);
       }
     };
+    const closeOnEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpenDrop(null);
+    };
     document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
   }, [openDrop]);
 
   useEffect(() => {
@@ -287,6 +297,7 @@ export function Palette(props: PaletteProps): JSX.Element {
           placeholder={placeholder}
           style={{
             flex: 1,
+            minWidth: 0,
             border: "none",
             background: "transparent",
             outline: "none",
@@ -303,7 +314,10 @@ export function Palette(props: PaletteProps): JSX.Element {
           ref={langRef}
           style={{ position: "relative", display: "flex", gap: 6, alignItems: "center" }}
         >
-          <span
+          <button
+            type="button"
+            aria-label={`Source language: ${sourceLang}`}
+            aria-expanded={openDrop === "source"}
             onClick={() => setOpenDrop(openDrop === "source" ? null : "source")}
             style={{
               padding: "4px 8px",
@@ -319,7 +333,7 @@ export function Palette(props: PaletteProps): JSX.Element {
             }}
           >
             {sourceLang}
-          </span>
+          </button>
           <svg
             width="12"
             height="10"
@@ -331,7 +345,10 @@ export function Palette(props: PaletteProps): JSX.Element {
           >
             <path d="M1 5h8M7 1l4 4-4 4" />
           </svg>
-          <span
+          <button
+            type="button"
+            aria-label={`Target language: ${targetLang}`}
+            aria-expanded={openDrop === "target"}
             onClick={() => setOpenDrop(openDrop === "target" ? null : "target")}
             style={{
               padding: "4px 8px",
@@ -345,7 +362,7 @@ export function Palette(props: PaletteProps): JSX.Element {
             }}
           >
             {targetLang}
-          </span>
+          </button>
           {openDrop && langOptions.length > 0 && (
             <div
               style={{
@@ -378,13 +395,18 @@ export function Palette(props: PaletteProps): JSX.Element {
                     ? opt.code.toLowerCase() === sourceLang.toLowerCase()
                     : opt.code.toLowerCase() === targetLang.toLowerCase();
                 return (
-                  <div
+                  <button
+                    type="button"
                     key={opt.code}
+                    aria-pressed={active}
                     onClick={() => {
                       onChangeLang(openDrop, opt.code);
                       setOpenDrop(null);
                     }}
                     style={{
+                      width: "100%",
+                      border: "none",
+                      textAlign: "left",
                       padding: "8px 12px",
                       fontSize: 13,
                       color: active ? "var(--accent-text)" : "var(--text-body)",
@@ -396,13 +418,10 @@ export function Palette(props: PaletteProps): JSX.Element {
                       gap: 8,
                     }}
                     onMouseEnter={(e) => {
-                      if (!active)
-                        (e.currentTarget as HTMLDivElement).style.background =
-                          "rgba(255,255,255,0.04)";
+                      if (!active) e.currentTarget.style.background = "rgba(255,255,255,0.04)";
                     }}
                     onMouseLeave={(e) => {
-                      if (!active)
-                        (e.currentTarget as HTMLDivElement).style.background = "transparent";
+                      if (!active) e.currentTarget.style.background = "transparent";
                     }}
                   >
                     <span>{opt.label}</span>
@@ -415,7 +434,7 @@ export function Palette(props: PaletteProps): JSX.Element {
                     >
                       {opt.code}
                     </span>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -474,7 +493,9 @@ export function Palette(props: PaletteProps): JSX.Element {
                     ? "No titles match these filters"
                     : errorMessage
                       ? "No results — the search did not finish"
-                      : undefined
+                      : searchedQuery
+                        ? `No titles found for “${searchedQuery}”`
+                        : undefined
                 }
               />
             </div>
@@ -512,6 +533,8 @@ export function Palette(props: PaletteProps): JSX.Element {
       <div
         style={{
           display: "flex",
+          flexWrap: "wrap",
+          justifyContent: "flex-end",
           alignItems: "center",
           gap: 12,
           padding: "12px 20px",
@@ -520,10 +543,13 @@ export function Palette(props: PaletteProps): JSX.Element {
           color: "var(--text-label)",
         }}
       >
-        <Kbd dim>↑↓←→</Kbd>
-        <span>Navigate</span>
-        <Kbd dim>↵</Kbd>
-        <span>Select</span>
+        {/* The step button is the one thing here a narrow window cannot lose. */}
+        <span className="palette-key-hints">
+          <Kbd dim>↑↓←→</Kbd>
+          <span>Navigate</span>
+          <Kbd dim>↵</Kbd>
+          <span>Select</span>
+        </span>
         <div style={{ flex: 1 }} />
         {hasSelectedEpisode || canStart ? (
           <>
@@ -545,18 +571,21 @@ export function Palette(props: PaletteProps): JSX.Element {
             )}
             <button
               type="button"
+              className="accent-button"
               onClick={onPrimary}
               disabled={!primaryEnabled}
               title={startHint}
               style={{
                 ...primaryStyle,
+                flexShrink: 0,
+                whiteSpace: "nowrap",
                 opacity: primaryEnabled ? 1 : 0.45,
                 cursor: primaryEnabled ? "pointer" : "default",
               }}
             >
               {preparing && <span className="mini-spinner" aria-hidden />}
               {primaryLabel}
-              {primaryEnabled && <Kbd>⌘↵</Kbd>}
+              {primaryEnabled && <Kbd>Ctrl ↵</Kbd>}
             </button>
           </>
         ) : (
@@ -621,6 +650,7 @@ function PickedChip({
         display: "flex",
         alignItems: "center",
         gap: 6,
+        minWidth: 0,
         maxWidth: 240,
         padding: "7px 12px",
         borderRadius: 7,
@@ -1284,7 +1314,7 @@ function SubList({
                 {r.file}
               </div>
               <div style={{ fontSize: 12, color: "var(--text-label)", marginTop: 3 }}>
-                {r.provider} · {r.downloads} downloads · {r.fps} fps
+                {r.provider} · {r.downloads} downloads
                 {r.trusted && (
                   <span style={{ color: "var(--accent-text)", marginLeft: 8 }}>✓ Trusted</span>
                 )}
@@ -1393,7 +1423,7 @@ function TargetList({
                 {r.title ?? r.file}
               </div>
               <div style={{ fontSize: 12, color: "var(--text-label)", marginTop: 3 }}>
-                {r.note ?? `${r.provider} · ${r.downloads} downloads · ${r.fps} fps`}
+                {r.note ?? `${r.provider} · ${r.downloads} downloads`}
               </div>
             </div>
             {r.recommended && <RecommendedBadge />}

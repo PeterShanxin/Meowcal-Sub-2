@@ -18,7 +18,7 @@ export function EmptyState({
           left: "50%",
           transform: "translateX(-50%)",
           textAlign: "center",
-          width: 560,
+          width: "min(560px, calc(100vw - 32px))",
         }}
       >
         <CatMascot size={96} />
@@ -64,7 +64,7 @@ export function EmptyState({
           bottom: 120,
           left: "50%",
           transform: "translateX(-50%)",
-          width: 560,
+          width: "min(560px, calc(100vw - 32px))",
           display: "flex",
           flexDirection: "column",
           gap: 10,
@@ -139,6 +139,7 @@ export function EmptyState({
         </div>
         <button
           type="button"
+          className="accent-button"
           onClick={onOpenPalette}
           style={{
             padding: "14px",
@@ -155,7 +156,7 @@ export function EmptyState({
             gap: 8,
           }}
         >
-          Open command palette <Kbd>⌘K</Kbd>
+          Open command palette <Kbd>Ctrl K</Kbd>
         </button>
       </div>
     </>
