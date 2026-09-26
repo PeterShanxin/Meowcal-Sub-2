@@ -1064,7 +1064,10 @@ export function App(): JSX.Element {
         // Moving by grid columns there jumped over every season and episode.
         const intoOpenCard =
           (dir === "down" && titleRow?.workId === s.expandedWorkId) ||
-          (dir === "up" && s.cursorIndex > 0 && titleNavRows[s.cursorIndex - 1].kind !== "work");
+          (s.tab === "titles" &&
+            dir === "up" &&
+            s.cursorIndex > 0 &&
+            titleNavRows[s.cursorIndex - 1].kind !== "work");
         if (
           s.tab === "titles" &&
           titleGridColumns > 1 &&

@@ -1,6 +1,6 @@
 """Walk the studio's core journeys against `demo_server.py` and screenshot them.
 
-    python docs/audit-20260926/ui/journeys.py <journey> <viewport> <out-dir> <token>
+    python docs/audit-20260926/ui/journeys.py <journey> <viewport> <out-dir> <token> [--port 8765]
 
 Journeys: pick (title, source and target to a prepared session), series (the
 same by keyboard through a series), empty (a search that finds nothing and one
@@ -12,7 +12,7 @@ page.
 
 from __future__ import annotations
 
-import sys
+import argparse
 from pathlib import Path
 
 from playwright.sync_api import Page, sync_playwright
@@ -116,7 +116,14 @@ JOURNEYS["first-launch"] = first_launch
 
 
 def main() -> None:
-    journey, viewport, out, token = sys.argv[1:5]
+    parser = argparse.ArgumentParser(description="Capture a Studio demo journey.")
+    parser.add_argument("journey", choices=JOURNEYS)
+    parser.add_argument("viewport", choices=VIEWPORTS)
+    parser.add_argument("out")
+    parser.add_argument("token")
+    parser.add_argument("--port", type=int, default=8765)
+    args = parser.parse_args()
+    journey, viewport, out, token = args.journey, args.viewport, args.out, args.token
     Path(out).mkdir(parents=True, exist_ok=True)
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
@@ -127,7 +134,7 @@ def main() -> None:
         )
         errors: list[str] = []
         page.on("pageerror", lambda error: errors.append(str(error)))
-        page.goto(f"http://127.0.0.1:8765/?token={token}")
+        page.goto(f"http://127.0.0.1:{args.port}/?token={token}")
         page.wait_for_timeout(1500)
 
         def shot(step: str) -> None:

@@ -4,6 +4,7 @@ import contextlib
 import socket
 import threading
 import time
+from dataclasses import replace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -152,6 +153,42 @@ def test_a_search_that_finds_nothing_says_so(search_server):
         expect(page.get_by_text("No titles found for “nothing”")).to_be_visible()
 
 
+@pytest.mark.parametrize("tab", ["source", "target"])
+def test_up_arrow_with_more_subtitles_than_titles(search_server, monkeypatch, tab):
+    async def catalog(self, query, languages):
+        movie = _match("movie", "Paper Lanterns", "movie")
+        return ProviderSearchCatalog(
+            matches=[movie],
+            results=[
+                replace(
+                    _result(movie, f"Paper.{n}.{language}.srt", language),
+                    id=f"movie-{language}-{n}",
+                )
+                for language in ("en", "zh")
+                for n in range(5)
+            ],
+        )
+
+    monkeypatch.setattr(SubdlProvider, "search_catalog", catalog)
+    with _studio(search_server, 1280, 900) as page:
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        search = _search(page, "Paper")
+        page.get_by_text("Paper Lanterns", exact=True).click()
+        language = "en"
+        if tab == "target":
+            page.get_by_text("Paper.0.en.srt", exact=True).click()
+            language = "zh"
+        page.get_by_text(f"Paper.4.{language}.srt", exact=True).wait_for()
+        search.focus()
+        for _ in range(4):
+            search.press("ArrowDown")
+        search.press("ArrowUp")
+        focused = page.locator('[data-cursor-row="2"]')
+        expect(focused).to_have_css("background-color", "rgba(242, 199, 143, 0.12)")
+        assert errors == []
+
+
 def test_a_narrow_window_keeps_the_prepared_session_usable(search_server):
     with _studio(search_server, 390, 844) as page:
         _search(page, "Paper")
@@ -163,7 +200,7 @@ def test_a_narrow_window_keeps_the_prepared_session_usable(search_server):
         box = start.bounding_box()
         assert box is not None and box["x"] + box["width"] <= 390
         page.get_by_role("button", name="Edit subtitles", exact=True).click()
-        expect(page.get_by_role("dialog", name="Review before sync")).to_be_visible()
+        expect(page.get_by_role("dialog", name="Edit subtitles · Optional")).to_be_visible()
 
 
 def test_tab_moves_on_from_the_palette_after_its_last_tab(tmp_path):

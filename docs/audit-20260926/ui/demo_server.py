@@ -7,23 +7,28 @@ that it still needs its one-time setup, which is what a fresh install shows.
 Everything else - the FastAPI server, controller, aggregator and React bundle -
 is the code under test.
 
-    APPDATA=<empty dir> python docs/audit-20260926/ui/demo_server.py
+    python docs/audit-20260926/ui/demo_server.py [--port 8765]
+        [--scenario normal|setup|first-launch]
 
-Runs on 127.0.0.1:8765 and publishes its token to APPDATA's runtime.json like
-`meocosub2.cli serve`. Stop it with Ctrl+C; it starts no engine processes.
+Prints its temporary APPDATA and token URL. Normal and first-launch use a
+synthetic SubDL key; setup has no source credentials. No installed config or
+provider credentials are read. Stop it with Ctrl+C to remove its files.
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import os
+import signal
 import sys
 import tempfile
+from contextlib import suppress
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
-from meocosub2 import cli, engine  # noqa: E402
+from meocosub2 import cli, config, engine  # noqa: E402
 from meocosub2.subtitle_sources import subdl  # noqa: E402
 from meocosub2.subtitle_sources.types import (  # noqa: E402
     ProviderSearchCatalog,
@@ -32,8 +37,6 @@ from meocosub2.subtitle_sources.types import (  # noqa: E402
 )
 
 SEARCH_DELAY_S = float(os.environ.get("DEMO_SEARCH_DELAY_S", "0.8"))
-FILES = Path(tempfile.mkdtemp(prefix="meowcal-demo-subs-"))
-
 EN_LINES = [
     "Where did you put the lantern?",
     "It was on the table a minute ago.",
@@ -135,7 +138,9 @@ async def _search_catalog(self, query: str, languages: str) -> ProviderSearchCat
 
 async def _download(self, result: ProviderSubtitleResult) -> Path:
     await asyncio.sleep(0.3)
-    path = FILES / result.file_name
+    files = config.default_config_path().parent / "demo-subs"
+    files.mkdir(parents=True, exist_ok=True)
+    path = files / result.file_name
     path.write_text(_srt(ZH_LINES if result.language == "zh" else EN_LINES), encoding="utf-8")
     return path
 
@@ -157,4 +162,41 @@ engine.ensure_ready = _not_installed
 engine.ensure_embedding_ready = _not_installed
 
 if __name__ == "__main__":
-    cli.serve()
+    if hasattr(signal, "SIGBREAK"):
+        signal.signal(signal.SIGBREAK, signal.default_int_handler)
+    parser = argparse.ArgumentParser(description="Serve the Studio with synthetic subtitle data.")
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--scenario", choices=("normal", "setup", "first-launch"), default="normal")
+    args = parser.parse_args()
+    if not 1 <= args.port <= 65535:
+        parser.error("--port must be between 1 and 65535")
+
+    with tempfile.TemporaryDirectory(prefix="meowcal-studio-demo-") as appdata:
+        previous_appdata = os.environ.get("APPDATA")
+        previous_event_log = os.environ.get("MEOCOSUB2_EVENT_LOG_PATH")
+        os.environ["APPDATA"] = appdata
+        os.environ.pop("MEOCOSUB2_EVENT_LOG_PATH", None)
+        try:
+            print(f"Demo APPDATA: {appdata}", flush=True)
+            config.save_config(
+                config.AppConfig(
+                    opensubtitles_enabled=False,
+                    subdl_enabled=args.scenario != "setup",
+                    subdl_api_key="synthetic-demo-key" if args.scenario != "setup" else "",
+                    assrt_enabled=False,
+                    tmdb_merge_enabled=False,
+                    capture_region=[0, 0, 0, 0]
+                    if args.scenario == "first-launch"
+                    else [0, 0, 100, 100],
+                    overlay_port=args.port,
+                )
+            )
+            with suppress(KeyboardInterrupt):
+                cli.serve()
+        finally:
+            if previous_appdata is None:
+                os.environ.pop("APPDATA", None)
+            else:
+                os.environ["APPDATA"] = previous_appdata
+            if previous_event_log is not None:
+                os.environ["MEOCOSUB2_EVENT_LOG_PATH"] = previous_event_log

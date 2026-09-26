@@ -9,7 +9,7 @@
     "src/meocosub2/matcher.py": 550,
     "src/meocosub2/opensubtitles/client.py": 885,
     "src/meocosub2/overlay/controller.py": 2138,
-    "src/meocosub2/overlay/ui/src/app.tsx": 1627,
+    "src/meocosub2/overlay/ui/src/app.tsx": 1630,
     "src/meocosub2/overlay/ui/src/components/palette.tsx": 1525,
     "src/meocosub2/overlay/ui/src/components/primitives.tsx": 391,
     "src/meocosub2/overlay/ui/src/components/variants/settings.tsx": 1229,
