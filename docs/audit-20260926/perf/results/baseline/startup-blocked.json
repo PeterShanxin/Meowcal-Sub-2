@@ -1,0 +1,642 @@
+{
+ "summary": {
+  "fonts": "blocked",
+  "backend_ready_ms": 453.6,
+  "cold": {
+   "ttfb": 3.1,
+   "fcp": 120,
+   "lcp": 120,
+   "dcl": 41.3,
+   "palette_ready_ms": 95.9,
+   "transferred": 274937,
+   "timed_out": 0,
+   "long_tasks_max_ms": 0,
+   "spawn_to_palette_ms": 625.8
+  },
+  "warm": {
+   "ttfb": 1.1,
+   "fcp": 126.0,
+   "lcp": 126.0,
+   "dcl": 34,
+   "palette_ready_ms": 88.8,
+   "transferred": 274937,
+   "timed_out": 0,
+   "long_tasks_max_ms": 0
+  }
+ },
+ "runs": [
+  {
+   "attempt": 0,
+   "backend_ready_ms": 547.4,
+   "cold": {
+    "ttfb": 2.599999999976717,
+    "dcl": 44.09999999997672,
+    "load": 44.199999999953434,
+    "fcp": null,
+    "lcp": null,
+    "longTasks": [],
+    "transferred": 274937,
+    "requests": [
+     {
+      "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
+      "ms": 10,
+      "bytes": 0
+     },
+     {
+      "name": "/static/assets/index-DWXRswIX.js",
+      "ms": 17,
+      "bytes": 257131
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 15,
+      "bytes": 14715
+     },
+     {
+      "name": "/api/state",
+      "ms": 12,
+      "bytes": 1546
+     },
+     {
+      "name": "/api/languages",
+      "ms": 16,
+      "bytes": 1090
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 15,
+      "bytes": 455
+     }
+    ],
+    "palette_ready_ms": 105.7,
+    "spawn_to_palette_ms": 730.0
+   },
+   "warm": {
+    "ttfb": 0.8999999999068677,
+    "dcl": 31,
+    "load": 31.300000000046566,
+    "fcp": null,
+    "lcp": null,
+    "longTasks": [],
+    "transferred": 274937,
+    "requests": [
+     {
+      "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
+      "ms": 8,
+      "bytes": 0
+     },
+     {
+      "name": "/static/assets/index-DWXRswIX.js",
+      "ms": 9,
+      "bytes": 257131
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 8,
+      "bytes": 14715
+     },
+     {
+      "name": "/api/state",
+      "ms": 8,
+      "bytes": 1546
+     },
+     {
+      "name": "/api/languages",
+      "ms": 8,
+      "bytes": 1090
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 12,
+      "bytes": 455
+     }
+    ],
+    "palette_ready_ms": 84.4
+   }
+  },
+  {
+   "attempt": 1,
+   "backend_ready_ms": 505.8,
+   "cold": {
+    "ttfb": 3.599999999976717,
+    "dcl": 41.300000000046566,
+    "load": 41.800000000046566,
+    "fcp": null,
+    "lcp": null,
+    "longTasks": [],
+    "transferred": 274937,
+    "requests": [
+     {
+      "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
+      "ms": 9,
+      "bytes": 0
+     },
+     {
+      "name": "/static/assets/index-DWXRswIX.js",
+      "ms": 12,
+      "bytes": 257131
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 10,
+      "bytes": 14715
+     },
+     {
+      "name": "/api/state",
+      "ms": 9,
+      "bytes": 1546
+     },
+     {
+      "name": "/api/languages",
+      "ms": 9,
+      "bytes": 1090
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 12,
+      "bytes": 455
+     }
+    ],
+    "palette_ready_ms": 95.9,
+    "spawn_to_palette_ms": 688.9
+   },
+   "warm": {
+    "ttfb": 1,
+    "dcl": 30,
+    "load": 30.400000000023283,
+    "fcp": null,
+    "lcp": null,
+    "longTasks": [],
+    "transferred": 274937,
+    "requests": [
+     {
+      "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
+      "ms": 7,
+      "bytes": 0
+     },
+     {
+      "name": "/static/assets/index-DWXRswIX.js",
+      "ms": 9,
+      "bytes": 257131
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 8,
+      "bytes": 14715
+     },
+     {
+      "name": "/api/state",
+      "ms": 6,
+      "bytes": 1546
+     },
+     {
+      "name": "/api/languages",
+      "ms": 12,
+      "bytes": 1090
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 12,
+      "bytes": 455
+     }
+    ],
+    "palette_ready_ms": 80.9
+   }
+  },
+  {
+   "attempt": 2,
+   "backend_ready_ms": 453.6,
+   "cold": {
+    "ttfb": 3.1000000000931323,
+    "dcl": 43.300000000046566,
+    "load": 43.5,
+    "fcp": null,
+    "lcp": null,
+    "longTasks": [],
+    "transferred": 273392,
+    "requests": [
+     {
+      "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
+      "ms": 15,
+      "bytes": 0
+     },
+     {
+      "name": "/static/assets/index-DWXRswIX.js",
+      "ms": 13,
+      "bytes": 257131
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 11,
+      "bytes": 14715
+     },
+     {
+      "name": "/api/state",
+      "ms": 11,
+      "bytes": 1546
+     }
+    ],
+    "palette_ready_ms": 84.4,
+    "spawn_to_palette_ms": 625.8
+   },
+   "warm": {
+    "ttfb": 1.099999999976717,
+    "dcl": 34,
+    "load": 34.40000000002328,
+    "fcp": 112,
+    "lcp": 112,
+    "longTasks": [],
+    "transferred": 274937,
+    "requests": [
+     {
+      "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
+      "ms": 9,
+      "bytes": 0
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 13,
+      "bytes": 14715
+     },
+     {
+      "name": "/static/assets/index-DWXRswIX.js",
+      "ms": 14,
+      "bytes": 257131
+     },
+     {
+      "name": "/api/state",
+      "ms": 8,
+      "bytes": 1546
+     },
+     {
+      "name": "/api/languages",
+      "ms": 11,
+      "bytes": 1090
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 11,
+      "bytes": 455
+     }
+    ],
+    "palette_ready_ms": 103.4
+   }
+  },
+  {
+   "attempt": 3,
+   "backend_ready_ms": 424.3,
+   "cold": {
+    "ttfb": 2.699999999953434,
+    "dcl": 41.40000000002328,
+    "load": 41.90000000002328,
+    "fcp": null,
+    "lcp": null,
+    "longTasks": [],
+    "transferred": 274937,
+    "requests": [
+     {
+      "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
+      "ms": 8,
+      "bytes": 0
+     },
+     {
+      "name": "/static/assets/index-DWXRswIX.js",
+      "ms": 13,
+      "bytes": 257131
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 11,
+      "bytes": 14715
+     },
+     {
+      "name": "/api/state",
+      "ms": 14,
+      "bytes": 1546
+     },
+     {
+      "name": "/api/languages",
+      "ms": 15,
+      "bytes": 1090
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 15,
+      "bytes": 455
+     }
+    ],
+    "palette_ready_ms": 93.2,
+    "spawn_to_palette_ms": 605.7
+   },
+   "warm": {
+    "ttfb": 1.3000000000465661,
+    "dcl": 36.5,
+    "load": 36.89999999990687,
+    "fcp": null,
+    "lcp": null,
+    "longTasks": [],
+    "transferred": 274937,
+    "requests": [
+     {
+      "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
+      "ms": 9,
+      "bytes": 0
+     },
+     {
+      "name": "/static/assets/index-DWXRswIX.js",
+      "ms": 11,
+      "bytes": 257131
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 9,
+      "bytes": 14715
+     },
+     {
+      "name": "/api/state",
+      "ms": 19,
+      "bytes": 1546
+     },
+     {
+      "name": "/api/languages",
+      "ms": 20,
+      "bytes": 1090
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 22,
+      "bytes": 455
+     }
+    ],
+    "palette_ready_ms": 91.8
+   }
+  },
+  {
+   "attempt": 4,
+   "backend_ready_ms": 467.5,
+   "cold": {
+    "ttfb": 3.5,
+    "dcl": 38.39999999990687,
+    "load": 38.89999999990687,
+    "fcp": null,
+    "lcp": null,
+    "longTasks": [],
+    "transferred": 274937,
+    "requests": [
+     {
+      "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
+      "ms": 9,
+      "bytes": 0
+     },
+     {
+      "name": "/static/assets/index-DWXRswIX.js",
+      "ms": 7,
+      "bytes": 257131
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 12,
+      "bytes": 14715
+     },
+     {
+      "name": "/api/state",
+      "ms": 14,
+      "bytes": 1546
+     },
+     {
+      "name": "/api/languages",
+      "ms": 14,
+      "bytes": 1090
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 14,
+      "bytes": 455
+     }
+    ],
+    "palette_ready_ms": 87.9,
+    "spawn_to_palette_ms": 637.8
+   },
+   "warm": {
+    "ttfb": 1.3000000000465661,
+    "dcl": 33.199999999953434,
+    "load": 33.5,
+    "fcp": null,
+    "lcp": null,
+    "longTasks": [],
+    "transferred": 274937,
+    "requests": [
+     {
+      "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
+      "ms": 8,
+      "bytes": 0
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 9,
+      "bytes": 14715
+     },
+     {
+      "name": "/static/assets/index-DWXRswIX.js",
+      "ms": 10,
+      "bytes": 257131
+     },
+     {
+      "name": "/api/state",
+      "ms": 6,
+      "bytes": 1546
+     },
+     {
+      "name": "/api/languages",
+      "ms": 9,
+      "bytes": 1090
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 9,
+      "bytes": 455
+     }
+    ],
+    "palette_ready_ms": 88.8
+   }
+  },
+  {
+   "attempt": 5,
+   "backend_ready_ms": 427.7,
+   "cold": {
+    "ttfb": 3.700000000069849,
+    "dcl": 39.29999999993015,
+    "load": 39.79999999993015,
+    "fcp": 120,
+    "lcp": 120,
+    "longTasks": [],
+    "transferred": 274937,
+    "requests": [
+     {
+      "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
+      "ms": 10,
+      "bytes": 0
+     },
+     {
+      "name": "/static/assets/index-DWXRswIX.js",
+      "ms": 12,
+      "bytes": 257131
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 9,
+      "bytes": 14715
+     },
+     {
+      "name": "/api/state",
+      "ms": 11,
+      "bytes": 1546
+     },
+     {
+      "name": "/api/languages",
+      "ms": 11,
+      "bytes": 1090
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 11,
+      "bytes": 455
+     }
+    ],
+    "palette_ready_ms": 107.7,
+    "spawn_to_palette_ms": 616.4
+   },
+   "warm": {
+    "ttfb": 1,
+    "dcl": 37.59999999997672,
+    "load": 37.90000000002328,
+    "fcp": null,
+    "lcp": null,
+    "longTasks": [],
+    "transferred": 274937,
+    "requests": [
+     {
+      "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
+      "ms": 8,
+      "bytes": 0
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 14,
+      "bytes": 14715
+     },
+     {
+      "name": "/static/assets/index-DWXRswIX.js",
+      "ms": 15,
+      "bytes": 257131
+     },
+     {
+      "name": "/api/state",
+      "ms": 7,
+      "bytes": 1546
+     },
+     {
+      "name": "/api/languages",
+      "ms": 13,
+      "bytes": 1090
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 13,
+      "bytes": 455
+     }
+    ],
+    "palette_ready_ms": 85.8
+   }
+  },
+  {
+   "attempt": 6,
+   "backend_ready_ms": 425.1,
+   "cold": {
+    "ttfb": 2.5,
+    "dcl": 34.90000000002328,
+    "load": 35.20000000006985,
+    "fcp": null,
+    "lcp": null,
+    "longTasks": [],
+    "transferred": 274937,
+    "requests": [
+     {
+      "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
+      "ms": 8,
+      "bytes": 0
+     },
+     {
+      "name": "/static/assets/index-DWXRswIX.js",
+      "ms": 12,
+      "bytes": 257131
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 10,
+      "bytes": 14715
+     },
+     {
+      "name": "/api/state",
+      "ms": 9,
+      "bytes": 1546
+     },
+     {
+      "name": "/api/languages",
+      "ms": 11,
+      "bytes": 1090
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 12,
+      "bytes": 455
+     }
+    ],
+    "palette_ready_ms": 112.4,
+    "spawn_to_palette_ms": 616.0
+   },
+   "warm": {
+    "ttfb": 1.400000000023283,
+    "dcl": 44.5,
+    "load": 44.59999999997672,
+    "fcp": 140,
+    "lcp": 140,
+    "longTasks": [],
+    "transferred": 274937,
+    "requests": [
+     {
+      "name": "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@1&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+TC:wght@400;500;700&display=swap",
+      "ms": 10,
+      "bytes": 0
+     },
+     {
+      "name": "/static/assets/index-DWXRswIX.js",
+      "ms": 19,
+      "bytes": 257131
+     },
+     {
+      "name": "/static/assets/index-D216w0JH.css",
+      "ms": 18,
+      "bytes": 14715
+     },
+     {
+      "name": "/api/state",
+      "ms": 9,
+      "bytes": 1546
+     },
+     {
+      "name": "/api/languages",
+      "ms": 11,
+      "bytes": 1090
+     },
+     {
+      "name": "/api/engine/status",
+      "ms": 11,
+      "bytes": 455
+     }
+    ],
+    "palette_ready_ms": 126.7
+   }
+  }
+ ]
+}
