@@ -109,6 +109,7 @@ The target presentation change records these measured limits:
 | `overlay/ui/src/app.tsx` | 1584 | 1627 | a prepared session that stacks and scrolls in a small window, a title cursor that walks into an open card's seasons, and a first-launch screen that gives way to the palette it offers |
 | `overlay/ui/src/app.tsx` | 1627 | 1630 | keep title-grid navigation from indexing title rows while moving through subtitle candidates |
 | `overlay/ui/src/app.tsx` | 1630 | 1660 | look up an episode precisely when title search lacks either selected subtitle language |
+| `overlay/ui/src/app.tsx` | 1660 | 1703 | queue exact lookup behind season hydration and ignore stale completions after a newer selection or search |
 | `overlay/ui/src/components/palette.tsx` | 1489 | 1519 | language chips reachable by keyboard, a step button that wraps rather than leaving the window, and an empty search that says it found nothing |
 | `overlay/ui/src/components/palette.tsx` | 1519 | 1525 | focus retries that leave alone a focus the viewer has already moved |
 | `overlay/ui/src/components/palette.tsx` | 1525 | 1543 | send season and episode identity from an existing row and show its lookup progress |
@@ -120,7 +121,7 @@ The four largest are the ones worth naming, because they are where the work is:
 | File | Lines | What it holds |
 | --- | ---: | --- |
 | `overlay/controller.py` | 2,138 | session lifecycle, search orchestration, config, engine startup |
-| `overlay/ui/src/app.tsx` | 1,660 | the studio's whole screen state |
+| `overlay/ui/src/app.tsx` | 1,703 | the studio's whole screen state |
 | `overlay/ui/src/components/palette.tsx` | 1,543 | the search palette |
 | `subtitle_sources/aggregator.py` | 1,458 | provider-neutral search aggregation |
 

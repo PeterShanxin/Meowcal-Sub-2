@@ -96,7 +96,10 @@ export function App(): JSX.Element {
   const searchAbort = useRef<AbortController | null>(null);
   const lastSearchedQuery = useRef<string>("");
   const hydrateInFlight = useRef<Set<string>>(new Set());
+  const seasonHydrationPromises = useRef<Map<string, Promise<void>>>(new Map());
   const lookedUpEpisodes = useRef<Set<string>>(new Set());
+  const selectionIntent = useRef(0);
+  const searchEpoch = useRef(0);
   const backgroundSearchCount = useRef(0);
 
   // Bootstrap: initial state + config + translation engine status
@@ -272,6 +275,8 @@ export function App(): JSX.Element {
       const trimmedTitle = title.trim();
       const correlationId = clientEventId("search");
       lastSearchedQuery.current = trimmedTitle;
+      selectionIntent.current += 1;
+      searchEpoch.current += 1;
       searchAbort.current?.abort();
       const ctrl = new AbortController();
       searchAbort.current = ctrl;
@@ -289,6 +294,7 @@ export function App(): JSX.Element {
       // are content-derived, so a re-search of the same title mints the same keys
       // and a leftover one would leave a row of the new catalog marked busy.
       hydrateInFlight.current.clear();
+      seasonHydrationPromises.current.clear();
       lookedUpEpisodes.current.clear();
       store.set({
         error: null,
@@ -446,6 +452,7 @@ export function App(): JSX.Element {
   // Selecting is not committing: preparing downloads subtitle files and rebuilds
   // the screen, so it waits for the source and target the user picks next.
   const selectTitle = useCallback((workId: string, matchId: string) => {
+    selectionIntent.current += 1;
     logClientEvent("ui.title.selected", { workId, matchId });
     store.set({
       selectedWorkId: workId,
@@ -530,6 +537,7 @@ export function App(): JSX.Element {
       if (!hasSkeleton) return;
       const key = seasonHydrateKey(workId, seasonNumber);
       if (!beginHydrate(key)) return;
+      const requestEpoch = searchEpoch.current;
       const correlationId = clientEventId("season-hydrate");
       logClientEvent(
         "ui.season.hydrate_requested",
@@ -544,6 +552,7 @@ export function App(): JSX.Element {
           correlationId,
         );
         const fresh = await api.getState();
+        if (searchEpoch.current !== requestEpoch) return;
         store.set({ snapshot: fresh, config: fresh.config });
         logClientEvent(
           "ui.season.hydrate_completed",
@@ -556,7 +565,9 @@ export function App(): JSX.Element {
           correlationId,
         );
       } catch (err) {
-        store.set({ error: err instanceof Error ? err.message : String(err) });
+        if (searchEpoch.current === requestEpoch) {
+          store.set({ error: err instanceof Error ? err.message : String(err) });
+        }
         logClientEvent(
           "ui.season.hydrate_failed",
           {
@@ -567,7 +578,7 @@ export function App(): JSX.Element {
           correlationId,
         );
       } finally {
-        endHydrate(key);
+        if (searchEpoch.current === requestEpoch) endHydrate(key);
       }
     },
     [beginHydrate, endHydrate, works],
@@ -594,7 +605,19 @@ export function App(): JSX.Element {
           cursorIndex,
         };
       });
-      if (opening) void hydrateSeasonIfNeeded(workId, seasonNumber);
+      if (opening) {
+        const key = seasonHydrateKey(workId, seasonNumber);
+        const pending = hydrateSeasonIfNeeded(workId, seasonNumber);
+        if (hydrateInFlight.current.has(key)) {
+          seasonHydrationPromises.current.set(key, pending);
+          const forget = (): void => {
+            if (seasonHydrationPromises.current.get(key) === pending) {
+              seasonHydrationPromises.current.delete(key);
+            }
+          };
+          void pending.then(forget, forget);
+        }
+      }
     },
     [filteredWorks, hydrateSeasonIfNeeded],
   );
@@ -641,7 +664,13 @@ export function App(): JSX.Element {
   }, []);
 
   const onHydrateEpisode = useCallback(
-    async (workId: string, season: number, episode: number, fallbackMatchId?: string) => {
+    async (
+      workId: string,
+      season: number,
+      episode: number,
+      fallbackMatchId?: string,
+      intent?: number,
+    ) => {
       const work = works.find((item) => item.id === workId);
       if (!work) return;
       const key = episodeHydrateKey(workId, season, episode);
@@ -651,6 +680,8 @@ export function App(): JSX.Element {
       // a row that is about to fill itself in.
       if (hydrateInFlight.current.has(seasonHydrateKey(workId, season))) return;
       if (!beginHydrate(key)) return;
+      const requestIntent = intent ?? ++selectionIntent.current;
+      const requestEpoch = searchEpoch.current;
       const correlationId = clientEventId("hydrate");
       logClientEvent("ui.episode.hydrate_requested", { workId, season, episode }, correlationId);
       store.set({
@@ -668,12 +699,13 @@ export function App(): JSX.Element {
           correlationId,
         );
         const fresh = await api.getState();
+        if (searchEpoch.current !== requestEpoch) return;
         store.set({ snapshot: fresh, config: fresh.config });
         lookedUpEpisodes.current.add(key);
         const selectedMatchId = hydrated.matchId ?? fallbackMatchId;
-        if (selectedMatchId) {
+        if (selectedMatchId && selectionIntent.current === requestIntent) {
           selectTitle(workId, selectedMatchId);
-        } else {
+        } else if (!selectedMatchId) {
           store.set((s) => ({ emptyLookups: [...s.emptyLookups, key] }));
         }
         logClientEvent(
@@ -688,8 +720,10 @@ export function App(): JSX.Element {
           correlationId,
         );
       } catch (err) {
-        store.set({ error: err instanceof Error ? err.message : String(err) });
-        if (fallbackMatchId) selectTitle(workId, fallbackMatchId);
+        if (searchEpoch.current === requestEpoch && selectionIntent.current === requestIntent) {
+          store.set({ error: err instanceof Error ? err.message : String(err) });
+          if (fallbackMatchId) selectTitle(workId, fallbackMatchId);
+        }
         logClientEvent(
           "ui.episode.hydrate_failed",
           {
@@ -701,7 +735,7 @@ export function App(): JSX.Element {
           correlationId,
         );
       } finally {
-        endHydrate(key);
+        if (searchEpoch.current === requestEpoch) endHydrate(key);
       }
     },
     [beginHydrate, selectTitle, endHydrate, works],
@@ -709,24 +743,33 @@ export function App(): JSX.Element {
 
   const onPickEpisode = useCallback(
     (workId: string, matchId: string, season: number | null, episode: number | null) => {
-      const current = store.get().snapshot;
-      if (
-        season === null ||
-        episode === null ||
-        !current ||
-        lookedUpEpisodes.current.has(episodeHydrateKey(workId, season, episode)) ||
-        hydrateInFlight.current.has(seasonHydrateKey(workId, season)) ||
-        !episodeNeedsLanguageLookup(
-          current.search_results,
-          matchId,
-          current.source_language,
-          current.target_language,
-        )
-      ) {
-        selectTitle(workId, matchId);
-        return;
-      }
-      void onHydrateEpisode(workId, season, episode, matchId);
+      const intent = ++selectionIntent.current;
+      const pick = (): void => {
+        if (selectionIntent.current !== intent) return;
+        const current = store.get().snapshot;
+        if (
+          season === null ||
+          episode === null ||
+          !current ||
+          lookedUpEpisodes.current.has(episodeHydrateKey(workId, season, episode)) ||
+          !episodeNeedsLanguageLookup(
+            current.search_results,
+            matchId,
+            current.source_language,
+            current.target_language,
+          )
+        ) {
+          selectTitle(workId, matchId);
+          return;
+        }
+        void onHydrateEpisode(workId, season, episode, matchId, intent);
+      };
+      const pending =
+        season === null
+          ? null
+          : seasonHydrationPromises.current.get(seasonHydrateKey(workId, season));
+      if (pending) void pending.then(pick, pick);
+      else pick();
     },
     [onHydrateEpisode, selectTitle],
   );
