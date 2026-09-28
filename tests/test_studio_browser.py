@@ -1,5 +1,6 @@
 """Drive the built studio through the paths a viewer takes, with synthetic providers."""
 
+import asyncio
 import contextlib
 import socket
 import threading
@@ -16,6 +17,7 @@ from meocosub2.config import AppConfig
 from meocosub2.overlay.server import OverlayServer
 from meocosub2.subtitle_sources.subdl import SubdlProvider
 from meocosub2.subtitle_sources.types import (
+    AggregatedEpisode,
     ProviderSearchCatalog,
     ProviderSubtitleMatch,
     ProviderSubtitleResult,
@@ -145,6 +147,271 @@ def test_keyboard_reaches_an_episode_in_the_wide_title_grid(search_server):
         for key in ("ArrowDown", "Enter", "ArrowDown", "Enter", "ArrowDown", "Enter"):
             search.press(key)
         expect(page.get_by_text("Harbor.S01E01.en.srt")).to_be_visible()
+
+
+def test_populated_episode_waits_for_season_sweep_before_exact_language_lookup(
+    search_server, monkeypatch
+):
+    search_server.controller._state.source_language = "zh"
+    search_server.controller._state.target_language = "en"
+    search_server.controller.config.source_language = "zh"
+    search_server.controller.config.target_language = "en"
+    season_started = threading.Event()
+    release_season = threading.Event()
+    exact_queries = []
+    queries = []
+
+    async def catalog(self, query, languages):
+        queries.append(query)
+        if query == "Harbor S01":
+            season_started.set()
+            assert await asyncio.to_thread(release_season.wait, 10)
+            return await _catalog(self, query, languages)
+        if query == "Harbor S01E01":
+            exact_queries.append(query)
+            episode = _match(
+                "ep-1", "Episode 1", "episode", season=1, episode=1, parent_title="Harbor"
+            )
+            return ProviderSearchCatalog(
+                matches=[episode], results=[_result(episode, "Harbor.S01E01.zh.srt", "zh")]
+            )
+        return await _catalog(self, query, languages)
+
+    aggregate = search_server.controller._aggregator.search_catalog
+
+    async def add_skeleton(query, languages, **kwargs):
+        result = await aggregate(query, languages, **kwargs)
+        if query == "Harbor":
+            for work in result.works:
+                if work.title == "Harbor":
+                    work.seasons[0].episodes.append(
+                        AggregatedEpisode(1, 3, "Episode 3", "skeleton:1:3")
+                    )
+        return result
+
+    monkeypatch.setattr(SubdlProvider, "search_catalog", catalog)
+    monkeypatch.setattr(search_server.controller._aggregator, "search_catalog", add_skeleton)
+    try:
+        with _studio(search_server, 1280, 900) as page:
+            _search(page, "Harbor")
+            page.get_by_text("Harbor", exact=True).click()
+            card = page.locator(".work-card").filter(has_text="Harbor")
+            card.locator(".work-nested").get_by_text("Season 1", exact=True).click()
+            assert season_started.wait(5), queries
+            card.locator(".work-nested").get_by_text("Season 1", exact=True).click()
+            card.locator(".work-nested").get_by_text("Season 1", exact=True).click()
+            card.locator(".work-nested").get_by_text("S01E01", exact=False).click()
+            assert exact_queries == []
+            release_season.set()
+            expect(page.get_by_text("Harbor.S01E01.zh.srt")).to_be_visible()
+            assert exact_queries == ["Harbor S01E01"]
+    finally:
+        release_season.set()
+
+
+def test_older_episode_lookup_does_not_replace_newer_selection(search_server, monkeypatch):
+    search_server.controller._state.source_language = "zh"
+    search_server.controller._state.target_language = "en"
+    search_server.controller.config.source_language = "zh"
+    search_server.controller.config.target_language = "en"
+    first_started = threading.Event()
+    release_first = threading.Event()
+    queries = []
+
+    async def catalog(self, query, languages):
+        queries.append(query)
+        if query == "Harbor S01E01":
+            first_started.set()
+            assert await asyncio.to_thread(release_first.wait, 10)
+        if query in {"Harbor S01E01", "Harbor S01E02"}:
+            episode_no = int(query[-2:])
+            episode = _match(
+                f"ep-{episode_no}",
+                f"Episode {episode_no}",
+                "episode",
+                season=1,
+                episode=episode_no,
+                parent_title="Harbor",
+            )
+            return ProviderSearchCatalog(
+                matches=[episode],
+                results=[_result(episode, f"Harbor.S01E{episode_no:02d}.zh.srt", "zh")],
+            )
+        return await _catalog(self, query, languages)
+
+    monkeypatch.setattr(SubdlProvider, "search_catalog", catalog)
+    try:
+        with _studio(search_server, 1280, 900) as page:
+            _search(page, "Harbor")
+            page.get_by_text("Harbor", exact=True).click()
+            card = page.locator(".work-card").filter(has_text="Harbor")
+            card.locator(".work-nested").get_by_text("Season 1", exact=True).click()
+            card.locator(".work-nested").get_by_text("S01E01", exact=False).click()
+            assert first_started.wait(5), queries
+            card.locator(".work-nested").get_by_text("S01E02", exact=False).click()
+            expect(page.get_by_text("Harbor.S01E02.zh.srt")).to_be_visible()
+            with page.expect_response(
+                lambda response: (
+                    response.url.endswith("/api/search/episode")
+                    and response.request.post_data_json["episode"] == 1
+                )
+            ):
+                release_first.set()
+            page.wait_for_timeout(200)
+            expect(page.get_by_text("Harbor.S01E02.zh.srt")).to_be_visible()
+            expect(page.get_by_text("Harbor.S01E01.zh.srt")).to_have_count(0)
+    finally:
+        release_first.set()
+
+
+def test_reselecting_busy_episode_uses_its_pending_lookup(search_server, monkeypatch):
+    search_server.controller._state.source_language = "zh"
+    search_server.controller._state.target_language = "en"
+    search_server.controller.config.source_language = "zh"
+    search_server.controller.config.target_language = "en"
+    started = threading.Event()
+    release = threading.Event()
+    exact_queries = []
+
+    async def catalog(self, query, languages):
+        if query == "Harbor S01E01":
+            exact_queries.append(query)
+            started.set()
+            assert await asyncio.to_thread(release.wait, 10)
+            episode = _match(
+                "ep-1", "Episode 1", "episode", season=1, episode=1, parent_title="Harbor"
+            )
+            return ProviderSearchCatalog(
+                matches=[episode], results=[_result(episode, "Harbor.S01E01.zh.srt", "zh")]
+            )
+        return await _catalog(self, query, languages)
+
+    monkeypatch.setattr(SubdlProvider, "search_catalog", catalog)
+    try:
+        with _studio(search_server, 1280, 900) as page:
+            search = _search(page, "Harbor")
+            page.get_by_text("Harbor", exact=True).click()
+            card = page.locator(".work-card").filter(has_text="Harbor")
+            card.locator(".work-nested").get_by_text("Season 1", exact=True).click()
+            card.locator(".work-nested").get_by_text("S01E01", exact=False).click()
+            assert started.wait(5)
+            search.focus()
+            for _ in range(3):
+                search.press("ArrowDown")
+            search.press("Enter")
+            release.set()
+            expect(page.get_by_text("Harbor.S01E01.zh.srt")).to_be_visible()
+            assert exact_queries == ["Harbor S01E01"]
+    finally:
+        release.set()
+
+
+@pytest.mark.parametrize("lookup", ["episode", "season"])
+def test_old_lookup_does_not_keep_new_search_shimmering(search_server, monkeypatch, lookup):
+    started = threading.Event()
+    release = threading.Event()
+    held_query = "Harbor S01" if lookup == "season" else "Harbor S01E01"
+
+    async def catalog(self, query, languages):
+        if query == held_query:
+            started.set()
+            assert await asyncio.to_thread(release.wait, 10)
+        return await _catalog(self, query, languages)
+
+    monkeypatch.setattr(SubdlProvider, "search_catalog", catalog)
+    if lookup == "season":
+        aggregate = search_server.controller._aggregator.search_catalog
+
+        async def add_skeleton(query, languages, **kwargs):
+            result = await aggregate(query, languages, **kwargs)
+            if query == "Harbor":
+                for work in result.works:
+                    if work.title == "Harbor":
+                        work.seasons[0].episodes.append(
+                            AggregatedEpisode(1, 3, "Episode 3", "skeleton:1:3")
+                        )
+            return result
+
+        monkeypatch.setattr(search_server.controller._aggregator, "search_catalog", add_skeleton)
+    try:
+        with _studio(search_server, 1280, 900) as page:
+            _search(page, "Harbor")
+            page.get_by_text("Harbor", exact=True).click()
+            card = page.locator(".work-card").filter(has_text="Harbor")
+            card.locator(".work-nested").get_by_text("Season 1", exact=True).click()
+            if lookup == "episode":
+                card.locator(".work-nested").get_by_text("S01E01", exact=False).click()
+            assert started.wait(5)
+            with page.expect_response(
+                lambda response: (
+                    response.url.endswith("/api/search")
+                    and response.request.post_data_json["title"] == "nothing"
+                )
+            ):
+                _search(page, "nothing")
+            with page.expect_response(
+                lambda response: (
+                    response.url.endswith(f"/api/search/{lookup}")
+                    and response.request.post_data_json["season"] == 1
+                )
+            ):
+                release.set()
+            expect(page.locator(".search-shimmer")).to_have_count(0)
+            expect(page.get_by_text("No titles found for “nothing”")).to_be_visible()
+            assert search_server.controller._state.search_results == []
+    finally:
+        release.set()
+
+
+def test_episode_lookup_waits_for_progressive_title_search(search_server, monkeypatch):
+    search_server.controller._state.source_language = "zh"
+    search_server.controller._state.target_language = "en"
+    search_server.controller.config.source_language = "zh"
+    search_server.controller.config.target_language = "en"
+    slow_started = threading.Event()
+    release_slow = threading.Event()
+    exact_queries = []
+
+    class SlowProvider:
+        provider_code = "slow"
+        provider_label = "Slow"
+
+        async def search_catalog(self, query, languages):
+            if query == "Harbor":
+                slow_started.set()
+                assert await asyncio.to_thread(release_slow.wait, 10)
+            return ProviderSearchCatalog(matches=[], results=[])
+
+    async def catalog(self, query, languages):
+        if query == "Harbor S01E01":
+            exact_queries.append(query)
+            episode = _match(
+                "ep-1", "Episode 1", "episode", season=1, episode=1, parent_title="Harbor"
+            )
+            return ProviderSearchCatalog(
+                matches=[episode], results=[_result(episode, "Harbor.S01E01.zh.srt", "zh")]
+            )
+        return await _catalog(self, query, languages)
+
+    search_server.controller._aggregator.providers = (
+        *search_server.controller._aggregator.providers,
+        SlowProvider(),
+    )
+    monkeypatch.setattr(SubdlProvider, "search_catalog", catalog)
+    try:
+        with _studio(search_server, 1280, 900) as page:
+            _search(page, "Harbor")
+            assert slow_started.wait(5)
+            page.get_by_text("Harbor", exact=True).click()
+            card = page.locator(".work-card").filter(has_text="Harbor")
+            card.locator(".work-nested").get_by_text("Season 1", exact=True).click()
+            card.locator(".work-nested").get_by_text("S01E01", exact=False).click()
+            assert exact_queries == []
+            release_slow.set()
+            expect(page.get_by_text("Harbor.S01E01.zh.srt")).to_be_visible()
+            assert exact_queries == ["Harbor S01E01"]
+    finally:
+        release_slow.set()
 
 
 def test_a_search_that_finds_nothing_says_so(search_server):

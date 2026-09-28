@@ -40,7 +40,12 @@ interface PaletteProps {
   onToggleExpandWork: (id: string) => void;
   onToggleExpandSeason: (workId: string, seasonNumber: number) => void;
   onPickWork: (id: string) => void;
-  onPickEpisode: (workId: string, matchId: string) => void;
+  onPickEpisode: (
+    workId: string,
+    matchId: string,
+    season: number | null,
+    episode: number | null,
+  ) => void;
   onHydrateEpisode: (workId: string, season: number, episode: number) => void;
   onPickSource: (id: string) => void;
   onPickTarget: (id: string) => void;
@@ -915,7 +920,12 @@ function WorkList({
   onToggleExpandWork: (id: string) => void;
   onToggleExpandSeason: (workId: string, seasonNumber: number) => void;
   onPickWork: (id: string) => void;
-  onPickEpisode: (workId: string, matchId: string) => void;
+  onPickEpisode: (
+    workId: string,
+    matchId: string,
+    season: number | null,
+    episode: number | null,
+  ) => void;
   onHydrateEpisode: (workId: string, season: number, episode: number) => void;
   searching: boolean;
   searchStatusMessage: string | null;
@@ -1045,8 +1055,16 @@ function WorkList({
                               subtitles={ep.subtitlesCount}
                               picked={picked}
                               focused={cursorIndex === epRowIndex}
+                              busy={
+                                ep.episode != null &&
+                                busy.has(
+                                  episodeHydrateKey(work.id, season.seasonNumber, ep.episode),
+                                )
+                              }
                               rowIndex={epRowIndex}
-                              onClick={() => onPickEpisode(work.id, ep.matchId)}
+                              onClick={() =>
+                                onPickEpisode(work.id, ep.matchId, season.seasonNumber, ep.episode)
+                              }
                             />
                           );
                         })}

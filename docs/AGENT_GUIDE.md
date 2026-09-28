@@ -308,6 +308,7 @@ overlay plate. Those need a real Windows run of the app.
 - `SubDL` is integrated from public structured page data, while `ASSRT` is more reliable through its token-based API than raw page scraping.
 - `SubDL` language buckets can arrive as encoding-style keys like `big_5_code` or `gb_code`; normalize separator variants before mapping them to `zht` / `zh` or Chinese results may disappear from the studio search UI.
 - SubDL episode searches use the series title with `season_number` and `episode_number`; putting `S01E04` in `film_name` can return no titles. Unpacked files can report season zero even when their season pack identifies season one; keep explicit `S00` filenames as specials.
+- A title search can leave an episode with subtitles in only one requested language. Selecting that episode runs an exact lookup for the missing language before the source or target list is shown.
 - This machine runs Windows at 125% scale. Anything reading window bounds must set per-monitor DPI awareness first, or coordinates are scaled and captures come back cropped and offset.
 - The selector reports CSS pixels inside its own fullscreen window; the shell converts them with the monitor's scale factor and origin. Compare a stored `capture.region` against a real drag before trusting a coordinate change.
 - Driving the real desktop through `SendInput` and `ImageGrab` is the way to verify Tauri-only behavior end to end; browser automation cannot reach the selector, the HUD, or the live strip.
