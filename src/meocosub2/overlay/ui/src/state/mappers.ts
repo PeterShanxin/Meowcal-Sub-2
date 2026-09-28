@@ -236,6 +236,21 @@ function languageMatches(resultLang: string, wanted: string): boolean {
   return CHINESE_FAMILY.has(baseA) && CHINESE_FAMILY.has(baseB);
 }
 
+export function episodeNeedsLanguageLookup(
+  results: BackendResult[],
+  matchId: string,
+  sourceLanguage: string,
+  targetLanguage: string,
+): boolean {
+  return [sourceLanguage, targetLanguage].some(
+    (wanted) =>
+      !results.some(
+        (result) =>
+          result.matchId === matchId && result.language && languageMatches(result.language, wanted),
+      ),
+  );
+}
+
 /**
  * The language pair after choosing `code` for `side`. Choosing the language
  * already on the other side reverses the pair rather than pointing a language

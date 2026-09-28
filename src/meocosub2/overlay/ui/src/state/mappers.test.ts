@@ -10,6 +10,7 @@ import {
   applyLanguageChoice,
   coverageLabel,
   derivePhase,
+  episodeNeedsLanguageLookup,
   mapResultsToSource,
   mapResultsToTarget,
   mapWorksToItems,
@@ -313,6 +314,27 @@ describe("mapResultsToSource", () => {
   it("does not recommend a lone result", () => {
     const results = [makeResult({ resultId: "r1", matchId: "m1", language: "en" })];
     expect(mapResultsToSource(results, "m1", "en")[0].recommended).toBe(false);
+  });
+});
+
+describe("episodeNeedsLanguageLookup", () => {
+  it("looks up an episode when a title search only found English, in either translation direction", () => {
+    const partial = [
+      makeResult({ resultId: "en-1", matchId: "silo-ep4", language: "en" }),
+      makeResult({ resultId: "en-2", matchId: "silo-ep4", language: "en" }),
+      makeResult({ resultId: "unlabelled", matchId: "silo-ep4", language: "" }),
+      makeResult({ resultId: "other-zh", matchId: "other-episode", language: "zh" }),
+    ];
+
+    expect(episodeNeedsLanguageLookup(partial, "silo-ep4", "zh", "en")).toBe(true);
+    expect(episodeNeedsLanguageLookup(partial, "silo-ep4", "en", "zh")).toBe(true);
+
+    const complete = [
+      ...partial,
+      makeResult({ resultId: "zh-1", matchId: "silo-ep4", language: "zht" }),
+    ];
+    expect(episodeNeedsLanguageLookup(complete, "silo-ep4", "zh", "en")).toBe(false);
+    expect(episodeNeedsLanguageLookup(complete, "silo-ep4", "en", "zh")).toBe(false);
   });
 });
 

@@ -108,8 +108,10 @@ The target presentation change records these measured limits:
 | `overlay/controller.py` | 2112 | 2138 | recheck engine readiness and session ownership before committing subtitle edits, persist the reset bias, and resume prefill only while the corrected session is idle |
 | `overlay/ui/src/app.tsx` | 1584 | 1627 | a prepared session that stacks and scrolls in a small window, a title cursor that walks into an open card's seasons, and a first-launch screen that gives way to the palette it offers |
 | `overlay/ui/src/app.tsx` | 1627 | 1630 | keep title-grid navigation from indexing title rows while moving through subtitle candidates |
+| `overlay/ui/src/app.tsx` | 1630 | 1660 | look up an episode precisely when title search lacks either selected subtitle language |
 | `overlay/ui/src/components/palette.tsx` | 1489 | 1519 | language chips reachable by keyboard, a step button that wraps rather than leaving the window, and an empty search that says it found nothing |
 | `overlay/ui/src/components/palette.tsx` | 1519 | 1525 | focus retries that leave alone a focus the viewer has already moved |
+| `overlay/ui/src/components/palette.tsx` | 1525 | 1543 | send season and episode identity from an existing row and show its lookup progress |
 | `overlay/ui/src/components/primitives.tsx` | 382 | 391 | top-bar details that a narrow window can drop |
 | `overlay/ui/src/styles/theme.css` | 685 | 705 | the narrow-window rules for those, and a readable shortcut hint on the accent buttons |
 
@@ -118,8 +120,8 @@ The four largest are the ones worth naming, because they are where the work is:
 | File | Lines | What it holds |
 | --- | ---: | --- |
 | `overlay/controller.py` | 2,138 | session lifecycle, search orchestration, config, engine startup |
-| `overlay/ui/src/app.tsx` | 1,630 | the studio's whole screen state |
-| `overlay/ui/src/components/palette.tsx` | 1,525 | the search palette |
+| `overlay/ui/src/app.tsx` | 1,660 | the studio's whole screen state |
+| `overlay/ui/src/components/palette.tsx` | 1,543 | the search palette |
 | `subtitle_sources/aggregator.py` | 1,458 | provider-neutral search aggregation |
 
 No module is to be split to satisfy a number. A cohesive exception is better

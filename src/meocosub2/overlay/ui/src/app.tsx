@@ -15,6 +15,7 @@ import {
   applyLanguageChoice,
   derivePhase,
   episodeHydrateKey,
+  episodeNeedsLanguageLookup,
   mapResultsToSource,
   mapResultsToTarget,
   mapWorksToItems,
@@ -95,6 +96,7 @@ export function App(): JSX.Element {
   const searchAbort = useRef<AbortController | null>(null);
   const lastSearchedQuery = useRef<string>("");
   const hydrateInFlight = useRef<Set<string>>(new Set());
+  const lookedUpEpisodes = useRef<Set<string>>(new Set());
   const backgroundSearchCount = useRef(0);
 
   // Bootstrap: initial state + config + translation engine status
@@ -287,6 +289,7 @@ export function App(): JSX.Element {
       // are content-derived, so a re-search of the same title mints the same keys
       // and a leftover one would leave a row of the new catalog marked busy.
       hydrateInFlight.current.clear();
+      lookedUpEpisodes.current.clear();
       store.set({
         error: null,
         cursorIndex: -1,
@@ -637,17 +640,12 @@ export function App(): JSX.Element {
     store.set({ selectedSeasonFilters: [], cursorIndex: -1, expandedSeasonNumber: null });
   }, []);
 
-  const onPickEpisode = useCallback(
-    (workId: string, matchId: string) => selectTitle(workId, matchId),
-    [selectTitle],
-  );
-
   const onHydrateEpisode = useCallback(
-    async (workId: string, season: number, episode: number) => {
+    async (workId: string, season: number, episode: number, fallbackMatchId?: string) => {
       const work = works.find((item) => item.id === workId);
       if (!work) return;
       const key = episodeHydrateKey(workId, season, episode);
-      if (store.get().emptyLookups.includes(key)) return;
+      if (store.get().emptyLookups.includes(key) || lookedUpEpisodes.current.has(key)) return;
       // The season sweep running above this row is already asking after it. A
       // second request would spend another slot of the provider quota to fill in
       // a row that is about to fill itself in.
@@ -671,8 +669,10 @@ export function App(): JSX.Element {
         );
         const fresh = await api.getState();
         store.set({ snapshot: fresh, config: fresh.config });
-        if (hydrated.matchId) {
-          selectTitle(workId, hydrated.matchId);
+        lookedUpEpisodes.current.add(key);
+        const selectedMatchId = hydrated.matchId ?? fallbackMatchId;
+        if (selectedMatchId) {
+          selectTitle(workId, selectedMatchId);
         } else {
           store.set((s) => ({ emptyLookups: [...s.emptyLookups, key] }));
         }
@@ -689,6 +689,7 @@ export function App(): JSX.Element {
         );
       } catch (err) {
         store.set({ error: err instanceof Error ? err.message : String(err) });
+        if (fallbackMatchId) selectTitle(workId, fallbackMatchId);
         logClientEvent(
           "ui.episode.hydrate_failed",
           {
@@ -704,6 +705,30 @@ export function App(): JSX.Element {
       }
     },
     [beginHydrate, selectTitle, endHydrate, works],
+  );
+
+  const onPickEpisode = useCallback(
+    (workId: string, matchId: string, season: number | null, episode: number | null) => {
+      const current = store.get().snapshot;
+      if (
+        season === null ||
+        episode === null ||
+        !current ||
+        lookedUpEpisodes.current.has(episodeHydrateKey(workId, season, episode)) ||
+        hydrateInFlight.current.has(seasonHydrateKey(workId, season)) ||
+        !episodeNeedsLanguageLookup(
+          current.search_results,
+          matchId,
+          current.source_language,
+          current.target_language,
+        )
+      ) {
+        selectTitle(workId, matchId);
+        return;
+      }
+      void onHydrateEpisode(workId, season, episode, matchId);
+    },
+    [onHydrateEpisode, selectTitle],
   );
 
   const onPickSource = useCallback(
@@ -966,7 +991,12 @@ export function App(): JSX.Element {
       else if (row.kind === "season" && row.seasonNumber != null) {
         onToggleExpandSeason(row.workId, row.seasonNumber);
       } else if (row.kind === "episode" && row.episodeMatchId) {
-        onPickEpisode(row.workId, row.episodeMatchId);
+        onPickEpisode(
+          row.workId,
+          row.episodeMatchId,
+          row.seasonNumber ?? null,
+          row.episodeNumber ?? null,
+        );
       } else if (
         row.kind === "skeleton_episode" &&
         row.seasonNumber != null &&
