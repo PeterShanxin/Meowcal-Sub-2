@@ -94,10 +94,12 @@ export function App(): JSX.Element {
   const paletteBoxRef = useRef<HTMLDivElement>(null);
   const [paletteHeight, setPaletteHeight] = useState(0);
   const searchAbort = useRef<AbortController | null>(null);
+  const titleSearchCompletion = useRef<Promise<void> | null>(null);
   const lastSearchedQuery = useRef<string>("");
   const hydrateInFlight = useRef<Set<string>>(new Set());
   const seasonHydrationPromises = useRef<Map<string, Promise<void>>>(new Map());
   const lookedUpEpisodes = useRef<Set<string>>(new Set());
+  const episodeLookupIntents = useRef<Map<string, number>>(new Map());
   const selectionIntent = useRef(0);
   const searchEpoch = useRef(0);
   const backgroundSearchCount = useRef(0);
@@ -276,10 +278,15 @@ export function App(): JSX.Element {
       const correlationId = clientEventId("search");
       lastSearchedQuery.current = trimmedTitle;
       selectionIntent.current += 1;
-      searchEpoch.current += 1;
+      const requestEpoch = ++searchEpoch.current;
       searchAbort.current?.abort();
       const ctrl = new AbortController();
       searchAbort.current = ctrl;
+      let completeSearch!: () => void;
+      const completion = new Promise<void>((resolve) => {
+        completeSearch = resolve;
+      });
+      titleSearchCompletion.current = completion;
       setSearching(true);
       logClientEvent(
         "ui.search.submitted",
@@ -296,6 +303,7 @@ export function App(): JSX.Element {
       hydrateInFlight.current.clear();
       seasonHydrationPromises.current.clear();
       lookedUpEpisodes.current.clear();
+      episodeLookupIntents.current.clear();
       store.set({
         error: null,
         cursorIndex: -1,
@@ -316,6 +324,7 @@ export function App(): JSX.Element {
           correlationId,
         );
         const fresh = await api.getState();
+        if (searchEpoch.current !== requestEpoch) return;
         store.set({ snapshot: fresh, config: fresh.config });
         logClientEvent(
           "ui.search.completed",
@@ -328,7 +337,9 @@ export function App(): JSX.Element {
           correlationId,
         );
       } catch (err) {
-        store.set({ error: err instanceof Error ? err.message : String(err) });
+        if (searchEpoch.current === requestEpoch) {
+          store.set({ error: err instanceof Error ? err.message : String(err) });
+        }
         logClientEvent(
           "ui.search.failed",
           {
@@ -337,6 +348,8 @@ export function App(): JSX.Element {
           correlationId,
         );
       } finally {
+        completeSearch();
+        if (titleSearchCompletion.current === completion) titleSearchCompletion.current = null;
         if (searchAbort.current === ctrl) {
           searchAbort.current = null;
           if (backgroundSearchCount.current === 0) {
@@ -492,9 +505,11 @@ export function App(): JSX.Element {
   );
 
   const endHydrate = useCallback(
-    (key: string): void => {
-      hydrateInFlight.current.delete(key);
-      store.set({ hydrating: [...hydrateInFlight.current] });
+    (key: string, requestEpoch: number): void => {
+      if (searchEpoch.current === requestEpoch) {
+        hydrateInFlight.current.delete(key);
+        store.set({ hydrating: [...hydrateInFlight.current] });
+      }
       endBackgroundSearch();
     },
     [endBackgroundSearch],
@@ -545,6 +560,8 @@ export function App(): JSX.Element {
         correlationId,
       );
       try {
+        await titleSearchCompletion.current;
+        if (searchEpoch.current !== requestEpoch) return;
         const hydrated = await api.hydrateSeason(
           workId,
           viewWork.title,
@@ -578,7 +595,7 @@ export function App(): JSX.Element {
           correlationId,
         );
       } finally {
-        if (searchEpoch.current === requestEpoch) endHydrate(key);
+        endHydrate(key, requestEpoch);
       }
     },
     [beginHydrate, endHydrate, works],
@@ -607,6 +624,7 @@ export function App(): JSX.Element {
       });
       if (opening) {
         const key = seasonHydrateKey(workId, seasonNumber);
+        if (seasonHydrationPromises.current.has(key)) return;
         const pending = hydrateSeasonIfNeeded(workId, seasonNumber);
         if (hydrateInFlight.current.has(key)) {
           seasonHydrationPromises.current.set(key, pending);
@@ -681,6 +699,7 @@ export function App(): JSX.Element {
       if (hydrateInFlight.current.has(seasonHydrateKey(workId, season))) return;
       if (!beginHydrate(key)) return;
       const requestIntent = intent ?? ++selectionIntent.current;
+      episodeLookupIntents.current.set(key, requestIntent);
       const requestEpoch = searchEpoch.current;
       const correlationId = clientEventId("hydrate");
       logClientEvent("ui.episode.hydrate_requested", { workId, season, episode }, correlationId);
@@ -691,6 +710,8 @@ export function App(): JSX.Element {
         cursorIndex: -1,
       });
       try {
+        await titleSearchCompletion.current;
+        if (searchEpoch.current !== requestEpoch) return;
         const hydrated = await api.hydrateEpisode(
           workId,
           work.title,
@@ -703,7 +724,7 @@ export function App(): JSX.Element {
         store.set({ snapshot: fresh, config: fresh.config });
         lookedUpEpisodes.current.add(key);
         const selectedMatchId = hydrated.matchId ?? fallbackMatchId;
-        if (selectedMatchId && selectionIntent.current === requestIntent) {
+        if (selectedMatchId && selectionIntent.current === episodeLookupIntents.current.get(key)) {
           selectTitle(workId, selectedMatchId);
         } else if (!selectedMatchId) {
           store.set((s) => ({ emptyLookups: [...s.emptyLookups, key] }));
@@ -720,7 +741,10 @@ export function App(): JSX.Element {
           correlationId,
         );
       } catch (err) {
-        if (searchEpoch.current === requestEpoch && selectionIntent.current === requestIntent) {
+        if (
+          searchEpoch.current === requestEpoch &&
+          selectionIntent.current === episodeLookupIntents.current.get(key)
+        ) {
           store.set({ error: err instanceof Error ? err.message : String(err) });
           if (fallbackMatchId) selectTitle(workId, fallbackMatchId);
         }
@@ -735,7 +759,8 @@ export function App(): JSX.Element {
           correlationId,
         );
       } finally {
-        if (searchEpoch.current === requestEpoch) endHydrate(key);
+        if (searchEpoch.current === requestEpoch) episodeLookupIntents.current.delete(key);
+        endHydrate(key, requestEpoch);
       }
     },
     [beginHydrate, selectTitle, endHydrate, works],
@@ -744,6 +769,13 @@ export function App(): JSX.Element {
   const onPickEpisode = useCallback(
     (workId: string, matchId: string, season: number | null, episode: number | null) => {
       const intent = ++selectionIntent.current;
+      if (season !== null && episode !== null) {
+        const key = episodeHydrateKey(workId, season, episode);
+        if (hydrateInFlight.current.has(key)) {
+          episodeLookupIntents.current.set(key, intent);
+          return;
+        }
+      }
       const pick = (): void => {
         if (selectionIntent.current !== intent) return;
         const current = store.get().snapshot;

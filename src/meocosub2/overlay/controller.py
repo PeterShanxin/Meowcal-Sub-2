@@ -542,6 +542,8 @@ class GuiController:
     ) -> dict[str, object]:
         if self._search_catalog is None:
             raise ValueError("Search before hydrating an episode.")
+        search_id = self._active_search_id
+        search_catalog = self._search_catalog
         if season < 0 or episode < 1:
             raise ValueError("Episode hydration needs a valid season and episode.")
 
@@ -576,6 +578,15 @@ class GuiController:
                 correlation_id=correlation_id,
             )
             catalogs.append(season_catalog)
+
+        if self._active_search_id != search_id or self._search_catalog is not search_catalog:
+            return {
+                "hydrated": False,
+                "matchId": None,
+                "results": self._state.search_results,
+                "matches": self._state.search_matches,
+                "works": self._state.search_works,
+            }
 
         results_by_episode = _collect_hydratable_episode_results(
             catalogs, work, query_title, season
@@ -616,6 +627,14 @@ class GuiController:
         if match_id is not None:
             await self._stop_prefill()
         async with self._lock:
+            if self._active_search_id != search_id or self._search_catalog is not search_catalog:
+                return {
+                    "hydrated": False,
+                    "matchId": None,
+                    "results": self._state.search_results,
+                    "matches": self._state.search_matches,
+                    "works": self._state.search_works,
+                }
             self._state.search_results = [
                 search_result_payload(result) for result in self._search_catalog.results
             ]
@@ -662,6 +681,8 @@ class GuiController:
     ) -> dict[str, object]:
         if self._search_catalog is None:
             raise ValueError("Search before hydrating a season.")
+        search_id = self._active_search_id
+        search_catalog = self._search_catalog
         if season < 0:
             raise ValueError("Season hydration needs a valid season.")
 
@@ -686,6 +707,14 @@ class GuiController:
         catalog = await self._aggregator.search_catalog(
             query, languages, correlation_id=correlation_id
         )
+        if self._active_search_id != search_id or self._search_catalog is not search_catalog:
+            return {
+                "hydrated": False,
+                "hydratedEpisodes": 0,
+                "results": self._state.search_results,
+                "matches": self._state.search_matches,
+                "works": self._state.search_works,
+            }
         results_by_episode = _collect_hydratable_episode_results(
             [catalog], work, query_title, season
         )
@@ -718,6 +747,14 @@ class GuiController:
             )
 
         async with self._lock:
+            if self._active_search_id != search_id or self._search_catalog is not search_catalog:
+                return {
+                    "hydrated": False,
+                    "hydratedEpisodes": 0,
+                    "results": self._state.search_results,
+                    "matches": self._state.search_matches,
+                    "works": self._state.search_works,
+                }
             self._state.search_results = [
                 search_result_payload(result) for result in self._search_catalog.results
             ]
