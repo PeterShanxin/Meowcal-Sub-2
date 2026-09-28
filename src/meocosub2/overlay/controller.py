@@ -806,7 +806,7 @@ class GuiController:
                     match.media_type == "episode"
                     and match.season == season
                     and match.episode == episode
-                    and _episode_match_belongs_to_work(match, target_work, title)
+                    and _episode_match_belongs_to_work(match, target_work)
                 )
             ),
             None,
@@ -868,7 +868,7 @@ class GuiController:
                     match.media_type == "episode"
                     and match.season == season
                     and match.episode == episode
-                    and _episode_match_belongs_to_work(match, target_work, title)
+                    and _episode_match_belongs_to_work(match, target_work)
                 )
             ),
             None,
@@ -2106,19 +2106,19 @@ def _collect_hydratable_episode_results(
 def _episode_match_belongs_to_work(
     match: AggregatedTitleMatch,
     work: AggregatedWork | None,
-    title: str,
 ) -> bool:
-    if work is not None and match.id.startswith(f"hydrated:{work.id}:"):
-        return True
     if work is None:
         return False
-    if work is not None:
-        if work.tmdb_id and match.tmdb_id == work.tmdb_id:
-            return True
-        if _same_imdb_id(work.imdb_id, match.imdb_id):
-            return True
-        if (work.imdb_id and match.imdb_id) or (work.tmdb_id and match.tmdb_id):
-            return False
+    if any(ep.match_id == match.id for season in work.seasons for ep in season.episodes):
+        return True
+    if match.id.startswith(f"hydrated:{work.id}:"):
+        return True
+    if work.tmdb_id and match.tmdb_id == work.tmdb_id:
+        return True
+    if _same_imdb_id(work.imdb_id, match.imdb_id):
+        return True
+    if (work.imdb_id and match.imdb_id) or (work.tmdb_id and match.tmdb_id):
+        return False
     return False
 
 

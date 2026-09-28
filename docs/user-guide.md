@@ -64,6 +64,8 @@ until it is installed.
 
 1. Start your video in its player and open Meowcal Sub 2.
 2. Search for the title. Choose the correct movie, series, season, or episode.
+   Choosing an episode searches that episode once for more subtitle versions;
+   the results from the title search stay available.
 3. Choose a source subtitle and a target subtitle or local translation. Check
    the prepared-session summary; a different release may use different timings.
 4. Choose **Select capture region**, drag a box around the player's subtitle

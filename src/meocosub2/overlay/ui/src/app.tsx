@@ -15,7 +15,6 @@ import {
   applyLanguageChoice,
   derivePhase,
   episodeHydrateKey,
-  episodeNeedsLanguageLookup,
   mapResultsToSource,
   mapResultsToTarget,
   mapWorksToItems,
@@ -783,13 +782,7 @@ export function App(): JSX.Element {
           season === null ||
           episode === null ||
           !current ||
-          lookedUpEpisodes.current.has(episodeHydrateKey(workId, season, episode)) ||
-          !episodeNeedsLanguageLookup(
-            current.search_results,
-            matchId,
-            current.source_language,
-            current.target_language,
-          )
+          lookedUpEpisodes.current.has(episodeHydrateKey(workId, season, episode))
         ) {
           selectTitle(workId, matchId);
           return;

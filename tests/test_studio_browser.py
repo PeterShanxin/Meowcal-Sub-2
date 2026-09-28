@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import re
 import socket
 import threading
 import time
@@ -147,6 +148,47 @@ def test_keyboard_reaches_an_episode_in_the_wide_title_grid(search_server):
         for key in ("ArrowDown", "Enter", "ArrowDown", "Enter", "ArrowDown", "Enter"):
             search.press(key)
         expect(page.get_by_text("Harbor.S01E01.en.srt")).to_be_visible()
+
+
+def test_episode_finds_more_files_when_title_search_has_both_languages(search_server, monkeypatch):
+    search_server.controller._state.source_language = "zh"
+    search_server.controller._state.target_language = "en"
+    search_server.controller.config.source_language = "zh"
+    search_server.controller.config.target_language = "en"
+    exact_queries = []
+
+    async def catalog(self, query, languages):
+        episode = _match("ep-1", "Episode 1", "episode", season=1, episode=1, parent_title="Harbor")
+        if query == "Harbor S01E01":
+            exact_queries.append(query)
+            return ProviderSearchCatalog(
+                matches=[episode],
+                results=[
+                    replace(_result(episode, "Harbor.S01E01.other-release.en.srt"), id="en-other")
+                ],
+            )
+        return ProviderSearchCatalog(
+            matches=[episode],
+            results=[
+                _result(episode, "Harbor.S01E01.en.srt"),
+                _result(episode, "Harbor.S01E01.zh.srt", "zh"),
+            ],
+        )
+
+    monkeypatch.setattr(SubdlProvider, "search_catalog", catalog)
+    with _studio(search_server, 1280, 900) as page:
+        _search(page, "Harbor")
+        page.get_by_text("Harbor", exact=True).click()
+        card = page.locator(".work-card").filter(has_text="Harbor")
+        card.locator(".work-nested").get_by_text("Season 1", exact=True).click()
+        card.locator(".work-nested").get_by_text("S01E01", exact=False).click()
+        expect(page.get_by_text("Harbor.S01E01.zh.srt")).to_be_visible()
+        page.get_by_role("button", name=re.compile(r"^Target \d+$")).click()
+        expect(page.get_by_text("Harbor.S01E01.en.srt")).to_be_visible()
+        expect(page.get_by_text("Harbor.S01E01.other-release.en.srt")).to_be_visible()
+        page.get_by_role("button", name=re.compile(r"^Titles \d+$")).click()
+        card.locator(".work-nested").get_by_text("S01E01", exact=False).click()
+        assert exact_queries == ["Harbor S01E01"]
 
 
 def test_populated_episode_waits_for_season_sweep_before_exact_language_lookup(
