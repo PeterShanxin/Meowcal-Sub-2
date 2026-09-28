@@ -93,7 +93,7 @@ class OpenSubtitlesProvider:
             )
             for item in catalog.results
         ]
-        return ProviderSearchCatalog(matches=matches, results=results)
+        return ProviderSearchCatalog(matches=matches, results=results, warnings=catalog.warnings)
 
     async def download(self, result: ProviderSubtitleResult) -> Path:
         file_id = int(result.raw.get("file_id") or result.download_ref or "0")

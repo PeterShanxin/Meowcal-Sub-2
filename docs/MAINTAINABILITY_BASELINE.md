@@ -85,6 +85,8 @@ Raised so far, all of them by live testing against a real player:
 | `overlay/ui/src/app.tsx` | 1566 | 1580 | keeping the target list unreachable by keyboard while that read is in flight |
 | `sync.py` | 737 | 742 | judging a session by what has been answered rather than by whether a target file exists |
 | `src-tauri/src/overlay_window.rs` | 467 | 469 | a dock wide enough for the timing control |
+| `opensubtitles/client.py` | 885 | 932 | retry transient server failures and keep successful episode results when another feature lookup fails |
+| `subtitle_sources/subdl.py` | 623 | 651 | search episodes with API season filters and inherit a season pack's number for unpacked files marked zero |
 
 The target presentation change records these measured limits:
 

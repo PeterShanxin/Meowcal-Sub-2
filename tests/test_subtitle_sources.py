@@ -561,6 +561,51 @@ async def test_subdl_search_uses_api_results_and_subtitles(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("query", "episode"), [("Silo S01E04", 4), ("Silo S01", None)])
+async def test_subdl_search_uses_title_and_episode_filters(monkeypatch, query, episode) -> None:
+    provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
+    calls: list[dict[str, object]] = []
+
+    async def fake_fetch_api(client, params: dict[str, object]) -> dict[str, object]:
+        calls.append(dict(params))
+        if "film_name" in params:
+            if params["film_name"] != "Silo":
+                return {"status": True, "results": []}
+            return {
+                "status": True,
+                "results": [{"sd_id": 1664003, "name": "Silo", "type": "tv", "year": 2023}],
+            }
+        return {
+            "status": True,
+            "subtitles": [
+                {
+                    "id": 10,
+                    "language": "English",
+                    "name": "Silo.S01E04.Truth.srt",
+                    "season": 1,
+                    "episode": 4,
+                    "url": "/subtitle/10.zip",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(provider, "_fetch_api", fake_fetch_api)
+
+    catalog = await provider.search_catalog(query, "en")
+
+    assert calls[0]["film_name"] == "Silo"
+    assert calls[1]["sd_id"] == "1664003"
+    assert calls[1]["season_number"] == "1"
+    if episode is None:
+        assert "episode_number" not in calls[1]
+        assert calls[1]["full_season"] == "1"
+    else:
+        assert calls[1]["episode_number"] == str(episode)
+        assert "full_season" not in calls[1]
+    assert [(result.season, result.episode) for result in catalog.results] == [(1, 4)]
+
+
+@pytest.mark.asyncio
 async def test_subdl_movie_search_omits_full_season(monkeypatch) -> None:
     provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
     calls: list[dict[str, object]] = []
@@ -797,6 +842,45 @@ def test_subdl_api_parser_expands_unpacked_season_files() -> None:
     assert results[0].download_ref == "3576745/s04e01"
     assert results[0].raw["pack_link"] == "/subtitle/3576745-8495217.zip"
     assert results[1].file_name == "From.S04E02.srt"
+
+
+def test_subdl_unpack_uses_pack_season_when_file_season_is_zero() -> None:
+    provider = SubdlProvider(AppConfig(subdl_api_key="subdl-key"))
+    results = provider._parse_api_subtitles(
+        title="Silo",
+        year=2023,
+        match_id="subdl-match-1664003",
+        requested_languages={"en"},
+        item={"sd_id": 1664003, "type": "tv", "name": "Silo"},
+        subtitles=[
+            {
+                "id": 10,
+                "name": "Silo Season 1 Pack.zip",
+                "season": 1,
+                "unpack_files": [
+                    {
+                        "file_n_id": "truth",
+                        "name": "04 Truth.en.srt",
+                        "season": 0,
+                        "episode": 4,
+                        "language": "EN",
+                    },
+                    {
+                        "file_n_id": "special",
+                        "name": "Silo.S00E04.en.srt",
+                        "season": 0,
+                        "episode": 4,
+                        "language": "EN",
+                    },
+                ],
+            }
+        ],
+    )
+
+    assert [(result.file_name, result.season, result.episode) for result in results] == [
+        ("04 Truth.en.srt", 1, 4),
+        ("Silo.S00E04.en.srt", 0, 4),
+    ]
 
 
 def test_subdl_api_parser_scopes_unpacked_ids_by_pack() -> None:
