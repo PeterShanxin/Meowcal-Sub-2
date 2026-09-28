@@ -1,6 +1,6 @@
 """Types for the OpenSubtitles client."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -75,3 +75,4 @@ class SearchResult:
 class SearchCatalog:
     results: list[SearchResult]
     matches: list[FeatureCandidate]
+    warnings: list[str] = field(default_factory=list)

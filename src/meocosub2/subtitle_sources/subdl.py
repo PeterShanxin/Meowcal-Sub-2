@@ -37,6 +37,9 @@ from meocosub2.subtitle_sources.utils import (
 )
 
 NEXT_DATA_PATTERN = re.compile(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>')
+EPISODE_QUERY_PATTERN = re.compile(
+    r"^(?P<title>.+?)\s+S(?P<season>\d{1,2})(?:E(?P<episode>\d{1,3}))?$", re.IGNORECASE
+)
 BASE_URL = "https://subdl.com"
 API_URL = "https://api.subdl.com/api/v1/subtitles"
 DOWNLOAD_URL = "https://dl.subdl.com/subtitle/{link}"
@@ -69,6 +72,14 @@ class SubdlProvider:
             )
 
         requested_languages = {code.strip() for code in languages.split(",") if code.strip()}
+        episode_query = EPISODE_QUERY_PATTERN.match(query.strip())
+        title_query = episode_query.group("title") if episode_query else query
+        season = int(episode_query.group("season")) if episode_query else None
+        episode = (
+            int(episode_query.group("episode"))
+            if episode_query and episode_query.group("episode")
+            else None
+        )
         warnings: list[str] = []
         async with httpx.AsyncClient(
             timeout=provider_timeout(30.0),
@@ -79,7 +90,7 @@ class SubdlProvider:
                 page = await self._fetch_api(
                     client,
                     {
-                        "film_name": query,
+                        "film_name": title_query,
                         "languages": self._to_api_languages(requested_languages),
                         "subs_per_page": "30",
                         "comment": "1",
@@ -118,7 +129,9 @@ class SubdlProvider:
                 )
 
             async def collect(item: dict[str, object]) -> list[ProviderSubtitleResult]:
-                return await self._collect_api_title_results(item, requested_languages, client)
+                return await self._collect_api_title_results(
+                    item, requested_languages, client, season=season, episode=episode
+                )
 
             collected = await asyncio.gather(
                 *(collect(item) for item in selected_items), return_exceptions=True
@@ -225,6 +238,9 @@ class SubdlProvider:
         item: dict[str, object],
         requested_languages: set[str],
         client: httpx.AsyncClient,
+        *,
+        season: int | None = None,
+        episode: int | None = None,
     ) -> list[ProviderSubtitleResult]:
         sd_id = str(item.get("sd_id") or "")
         if not sd_id:
@@ -239,8 +255,12 @@ class SubdlProvider:
             "unpack": "1",
         }
         # SubDL answers with zero subtitles when full_season accompanies a movie sd_id.
-        if str(item.get("type")) == "tv":
+        if str(item.get("type")) == "tv" and episode is None:
             params["full_season"] = "1"
+        if str(item.get("type")) == "tv" and season is not None:
+            params["season_number"] = str(season)
+        if str(item.get("type")) == "tv" and episode is not None:
+            params["episode_number"] = str(episode)
         payload = await self._fetch_api(client, params)
         return self._limit_subtitles(
             self._parse_api_subtitles(
@@ -369,6 +389,14 @@ class SubdlProvider:
             if not isinstance(file_entry, dict):
                 continue
             merged = {**entry, **file_entry}
+            pack_season = self._coerce_positive_int(entry.get("season"))
+            if (
+                pack_season is not None
+                and self._coerce_non_negative_int(file_entry.get("season")) == 0
+                and self._coerce_positive_int(file_entry.get("episode")) is not None
+            ):
+                named_season, _ = extract_episode_info(*self._episode_text_values(file_entry))
+                merged["season"] = named_season if named_season is not None else pack_season
             merged["pack_id"] = entry.get("id")
             merged["pack_url"] = entry.get("url") or entry.get("link")
             if not merged.get("id") and file_entry.get("file_n_id"):

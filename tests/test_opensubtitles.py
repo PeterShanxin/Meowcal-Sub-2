@@ -1,3 +1,4 @@
+from copy import deepcopy
 from pathlib import Path
 
 import httpx
@@ -469,6 +470,84 @@ async def test_search_skips_direct_fallback_after_strong_feature_results(
 
     assert results
     assert not any(call.request.url.params.get("query") for call in subtitle_route.calls)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_episode_search_keeps_silo_result_when_another_feature_returns_500() -> None:
+    good_feature = deepcopy(FEATURE_TVSHOW_RESPONSE["data"][0])
+    good_feature["id"] = "100"
+    good_feature["attributes"].update(
+        {
+            "title": "Silo",
+            "original_title": "Silo",
+            "year": "2023",
+            "imdb_id": 14688458,
+            "tmdb_id": 125988,
+        }
+    )
+    bad_feature = deepcopy(good_feature)
+    bad_feature["id"] = "101"
+    respx.get(f"{BASE_URL}/features").mock(
+        return_value=httpx.Response(200, json={"data": [good_feature, bad_feature]})
+    )
+    episode = deepcopy(TVSHOW_SUBTITLE_RESPONSE)
+    episode["data"][0]["attributes"]["feature_details"].update(
+        {
+            "parent_title": "Silo",
+            "parent_feature_id": 100,
+            "parent_imdb_id": 14688458,
+            "parent_tmdb_id": 125988,
+            "episode_number": 4,
+            "title": "Truth",
+        }
+    )
+    subtitle_route = respx.get(f"{BASE_URL}/subtitles").mock(
+        side_effect=lambda request: httpx.Response(
+            500 if request.url.params.get("parent_feature_id") == "101" else 200,
+            json=EMPTY_RESPONSE
+            if request.url.params.get("parent_feature_id") == "101"
+            else episode,
+        )
+    )
+
+    provider = OpenSubtitlesProvider(AppConfig(opensubtitles_api_key="test-key"))
+    catalog = await provider.search_catalog("Silo S01E04", languages="en")
+
+    assert any(result.parent_title == "Silo" and result.episode == 4 for result in catalog.results)
+    assert catalog.results[0].imdb_id == "14688458"
+    assert catalog.warnings
+    assert any(
+        call.request.url.params.get("parent_feature_id") == "101" for call in subtitle_route.calls
+    )
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_feature_search_retries_transient_502(client: OpenSubtitlesClient) -> None:
+    route = respx.get(f"{BASE_URL}/features").mock(
+        side_effect=[httpx.Response(502), httpx.Response(200, json=EMPTY_RESPONSE)]
+    )
+    respx.get(f"{BASE_URL}/subtitles").mock(return_value=httpx.Response(200, json=EMPTY_RESPONSE))
+
+    await client.search_catalog("Silo S01E04", languages="en")
+
+    assert route.call_count == 2
+
+
+@respx.mock
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [401, 500])
+async def test_episode_search_reports_failure_when_no_lookup_succeeds(
+    client: OpenSubtitlesClient, status: int
+) -> None:
+    respx.get(f"{BASE_URL}/features").mock(
+        return_value=httpx.Response(200, json=FEATURE_TVSHOW_RESPONSE)
+    )
+    respx.get(f"{BASE_URL}/subtitles").mock(return_value=httpx.Response(status))
+
+    with pytest.raises(OpenSubtitlesError, match=str(status)):
+        await client.search_catalog("Fate/Fake S01E01", languages="en")
 
 
 @respx.mock
