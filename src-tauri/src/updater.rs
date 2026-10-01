@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use tauri_plugin_updater::{Updater, UpdaterExt};
 use url::Url;
 
