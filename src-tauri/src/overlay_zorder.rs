@@ -32,6 +32,7 @@ pub(crate) fn queue_dock_refresh(
     at: PhysicalPosition<i32>,
     size: PhysicalSize<u32>,
     scale: f64,
+    open: bool,
 ) -> Result<(), String> {
     let app_for_main = app.clone();
     let generation = Arc::clone(generation);
@@ -46,7 +47,7 @@ pub(crate) fn queue_dock_refresh(
         let Some(window) = app_for_main.get_webview_window("main") else {
             return;
         };
-        if let Err(error) = keep_dock_visible(&window, at, size, scale) {
+        if let Err(error) = keep_dock_visible(&window, at, size, scale, open) {
             crate::log_shell_event("dock.raise.failed", serde_json::json!({ "error": error }));
         }
     })
@@ -60,35 +61,72 @@ pub(crate) fn queue_dock_refresh(
     })
 }
 
-/// The watcher calls this only while a live session owns the dock. The center
-/// of its clipped bead is always an actual clickable part of the main window.
-/// Check the window that would receive a click there, and reorder only if that
-/// point is covered by another topmost window.
+/// The watcher calls this only while a live session owns the dock. Check the
+/// bead and, when open, points across the controls. A windowed player can cover
+/// the controls without covering the bead at the right edge.
 fn keep_dock_visible(
     window: &WebviewWindow,
     at: PhysicalPosition<i32>,
     size: PhysicalSize<u32>,
     scale: f64,
+    open: bool,
 ) -> Result<(), String> {
     #[cfg(windows)]
     {
         use windows::Win32::Foundation::POINT;
         use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, WindowFromPoint, GA_ROOT};
 
-        let bead = super::pill_rect(at, size, (DOCK_COLLAPSED_CSS * scale).round() as i32);
-        let center = POINT {
-            x: bead.0 + bead.2 / 2,
-            y: bead.1 + bead.3 / 2,
-        };
         let hwnd = window.hwnd().map_err(|error| error.to_string())?;
-        let top_root = unsafe { GetAncestor(WindowFromPoint(center), GA_ROOT) };
-        if top_root != hwnd {
-            raise_topmost(window)?;
+        for (x, y) in dock_probe_points(at, size, scale, open) {
+            let top_root = unsafe { GetAncestor(WindowFromPoint(POINT { x, y }), GA_ROOT) };
+            if top_root != hwnd {
+                raise_topmost(window)?;
+                break;
+            }
         }
     }
     #[cfg(not(windows))]
-    let _ = (window, at, size, scale);
+    let _ = (window, at, size, scale, open);
     Ok(())
+}
+
+/// Screen points that must stay clickable as the dock grows from the bead.
+fn dock_probe_points(
+    at: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+    scale: f64,
+    open: bool,
+) -> Vec<(i32, i32)> {
+    let bead = super::pill_rect(at, size, (DOCK_COLLAPSED_CSS * scale).round() as i32);
+    let mut points = vec![(bead.0 + bead.2 / 2, bead.1 + bead.3 / 2)];
+    if open {
+        let full = super::pill_rect(at, size, size.width as i32);
+        for quarter in 1..=3 {
+            points.push((full.0 + full.2 * quarter / 4, full.1 + full.3 / 2));
+        }
+    }
+    points
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expanded_dock_detects_a_window_covering_controls_but_not_bead() {
+        let at = PhysicalPosition { x: 1500, y: 20 };
+        let size = PhysicalSize {
+            width: 380,
+            height: 44,
+        };
+        let covered_controls = (1700, 20, 100, 44);
+        assert!(dock_probe_points(at, size, 1.0, false)
+            .iter()
+            .all(|&point| !super::super::rect_holds(covered_controls, point)));
+        assert!(dock_probe_points(at, size, 1.0, true)
+            .iter()
+            .any(|&point| super::super::rect_holds(covered_controls, point)));
+    }
 }
 
 /// Put the plate on screen beside `region`, returning the anchor it was placed on.

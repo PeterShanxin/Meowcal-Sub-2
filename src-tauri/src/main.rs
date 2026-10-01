@@ -676,7 +676,7 @@ fn watch_dock(
             let Some(window) = app.get_webview_window("main") else {
                 return;
             };
-            if overlay_window::queue_dock_refresh(&app, &generation, ticket, at, size, scale)
+            if overlay_window::queue_dock_refresh(&app, &generation, ticket, at, size, scale, open)
                 .is_err()
             {
                 return;
