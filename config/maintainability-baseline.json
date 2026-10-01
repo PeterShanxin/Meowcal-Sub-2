@@ -3,7 +3,7 @@
   "newFileMaxLines": 400,
   "legacyFileCeilings": {
     "src-tauri/src/main.rs": 1175,
-    "src-tauri/src/overlay_window.rs": 464,
+    "src-tauri/src/overlay_window.rs": 455,
     "src/meocosub2/config.py": 535,
     "src/meocosub2/engine/runtime.py": 211,
     "src/meocosub2/matcher.py": 550,
