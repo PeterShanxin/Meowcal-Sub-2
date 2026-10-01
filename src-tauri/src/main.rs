@@ -1,6 +1,7 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod backend_process;
+mod config_port;
 mod overlay_window;
 mod process_lifetime;
 mod updater;
@@ -97,16 +98,7 @@ fn overlay_port() -> u16 {
     let Ok(raw) = fs::read_to_string(config_path()) else {
         return 8765;
     };
-    parse_overlay_port(&raw).unwrap_or(8765)
-}
-
-fn parse_overlay_port(raw: &str) -> Option<u16> {
-    let value: toml::Value = toml::from_str(raw).ok()?;
-    value
-        .get("overlay")
-        .and_then(|overlay| overlay.get("port"))
-        .and_then(|port| port.as_integer())
-        .and_then(|port| u16::try_from(port).ok())
+    config_port::parse_overlay_port(&raw).unwrap_or(8765)
 }
 
 fn api_base() -> String {
@@ -1165,13 +1157,6 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn overlay_port_reads_a_complete_config_document() {
-        assert_eq!(parse_overlay_port("[overlay]\nport = 18765\n"), Some(18765));
-        assert_eq!(parse_overlay_port("[overlay]\nport = 70000\n"), None);
-        assert_eq!(parse_overlay_port("[overlay\nport = 18765\n"), None);
-    }
 
     #[test]
     fn saved_region_selects_only_the_display_that_fully_contains_it() {
