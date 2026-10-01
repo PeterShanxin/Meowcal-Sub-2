@@ -641,11 +641,7 @@ async fn animate_dock(
     }
 }
 
-/// Watch the pointer for as long as the session runs, and let it open the dock.
-///
-/// The desktop cursor position is the authority rather than the page's own
-/// enter and leave events. Those are what left the dock stuck open: they arrive
-/// only when the webview is told about them, and it is not always told.
+/// Poll the pointer while live; webview leave events can be missed.
 fn watch_dock(
     app: &AppHandle,
     shell: &ShellState,
@@ -680,6 +676,11 @@ fn watch_dock(
             let Some(window) = app.get_webview_window("main") else {
                 return;
             };
+            if overlay_window::queue_dock_refresh(&app, &generation, ticket, at, size, scale)
+                .is_err()
+            {
+                return;
+            }
             let Some(point) = overlay_window::cursor_position() else {
                 continue;
             };
@@ -692,8 +693,7 @@ fn watch_dock(
                 continue;
             }
             open = inside;
-            // The page is told first, so the controls are already fading in as
-            // the pill uncovers them rather than appearing after it stops.
+            // Start fading in controls before the pill uncovers them.
             let _ = app.emit("dock-open", open);
             let (from, to) = if open {
                 (collapsed, expanded)

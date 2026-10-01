@@ -10,7 +10,8 @@ use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 
 #[path = "overlay_zorder.rs"]
 mod overlay_zorder;
-pub use overlay_zorder::show;
+pub(crate) use overlay_zorder::queue_dock_refresh;
+pub use overlay_zorder::{place_dock, show};
 
 /// Distance between the capture region and the plate, in CSS pixels.
 const GAP_CSS: f64 = 12.0;
@@ -233,19 +234,6 @@ pub fn cursor_position() -> Option<(i32, i32)> {
     None
 }
 
-/// Put the dock in its corner at full size, showing only the bead.
-pub fn place_dock(
-    window: &WebviewWindow,
-    anchor: OverlayAnchor,
-    scale: f64,
-) -> Result<(PhysicalPosition<i32>, PhysicalSize<u32>, f64), String> {
-    let (at, extent) = dock_bounds(anchor.monitor_position, anchor.monitor_size, scale);
-    window.set_size(extent).map_err(|error| error.to_string())?;
-    window.set_position(at).map_err(|error| error.to_string())?;
-    clip_pill(window, (DOCK_COLLAPSED_CSS * scale).round() as i32)?;
-    Ok((at, extent, scale))
-}
-
 /// How far along an ease-out curve the dock is, `t` running 0 to 1.
 ///
 /// Quintic: almost all of the travel happens immediately and the last few pixels
@@ -304,7 +292,7 @@ pub fn place(
         .map_err(|error| error.to_string())?;
     // The player may have moved itself to the front since the previous line.
     // The overlay page calls this again when its visible text changes.
-    overlay_zorder::raise_plate(&window)?;
+    overlay_zorder::raise_topmost(&window)?;
     Ok(())
 }
 
