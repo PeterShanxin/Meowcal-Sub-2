@@ -24,9 +24,9 @@
   // The shell sizes the window for two lines at the default font. Only the page
   // knows what this line, at this font size, actually came to.
   let reportedHeight = 0;
-  function reportHeight() {
+  function reportHeight(force = false) {
     const needed = Math.ceil(plate.getBoundingClientRect().height);
-    if (!needed || Math.abs(needed - reportedHeight) < 3) return;
+    if (!needed || (!force && Math.abs(needed - reportedHeight) < 3)) return;
     reportedHeight = needed;
     const invoke = window.__TAURI__?.core?.invoke ?? window.__TAURI__?.invoke;
     if (invoke) void invoke("set_overlay_height", { heightCss: needed });
@@ -39,7 +39,9 @@
     mark.classList.toggle("is-provisional", provisional);
     markLabel.textContent = provisional ? "AI" : "SUB";
     plate.classList.toggle("is-empty", !text);
-    if (text) requestAnimationFrame(reportHeight);
+    // Reaffirm the plate's Z order on each line. Some fullscreen players put
+    // themselves ahead of other topmost windows after playback starts.
+    if (text) requestAnimationFrame(() => reportHeight(true));
   }
 
   function connect() {

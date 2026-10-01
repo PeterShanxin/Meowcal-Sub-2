@@ -261,6 +261,38 @@ fn overlay_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         .ok_or_else(|| "Overlay window not found".to_string())
 }
 
+/// Reinsert the plate at the front of the topmost band without taking focus.
+///
+/// `set_always_on_top(true)` sets the topmost style, but a fullscreen player can
+/// already be ahead of another topmost window. Reapplying that style does not
+/// reliably move the plate ahead of the player; an explicit Z-order operation
+/// does. The player remains active so playback and keyboard controls keep working.
+#[cfg(windows)]
+fn raise_plate(window: &WebviewWindow) -> Result<(), String> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    };
+
+    let hwnd = window.hwnd().map_err(|error| error.to_string())?;
+    unsafe {
+        SetWindowPos(
+            hwnd,
+            Some(HWND_TOPMOST),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        )
+        .map_err(|error| error.to_string())
+    }
+}
+
+#[cfg(not(windows))]
+fn raise_plate(_window: &WebviewWindow) -> Result<(), String> {
+    Ok(())
+}
+
 /// The monitor holding the middle of the capture region, so a region on a second
 /// screen puts its plate on that screen too.
 pub fn anchor_for(app: &AppHandle, region: [i32; 4]) -> Result<(OverlayAnchor, f64), String> {
@@ -298,6 +330,9 @@ pub fn place(
     window
         .set_position(position)
         .map_err(|error| error.to_string())?;
+    // The player may have moved itself to the front since the previous line.
+    // The overlay page calls this again when its visible text changes.
+    raise_plate(&window)?;
     Ok(())
 }
 
@@ -314,6 +349,7 @@ pub fn show(app: &AppHandle, region: [i32; 4]) -> Result<(OverlayAnchor, f64), S
     window
         .set_always_on_top(true)
         .map_err(|error| error.to_string())?;
+    raise_plate(&window)?;
     Ok((anchor, scale))
 }
 
