@@ -23,10 +23,13 @@ $versionCheck = @((Join-Path $PSScriptRoot 'check_app_version.py'))
 if ($Tag) { $versionCheck += @('--tag', $Tag, '--require-head-tag') }
 & $Python @versionCheck
 if ($LASTEXITCODE -ne 0) { throw 'App manifests or release tag do not match.' }
+# Record the checkout supplied to the build, before generators can change tracked files.
+$workingChanges = git -C $repositoryRoot status --porcelain
+if ($LASTEXITCODE -ne 0) { throw 'Could not inspect release source state.' }
+$sourceDirty = [bool]$workingChanges
 if ($SignedUpdater) {
     if (-not $Tag) { throw 'Signed updater builds require a release tag at HEAD.' }
-    $workingChanges = git -C $repositoryRoot status --porcelain
-    if ($LASTEXITCODE -ne 0 -or $workingChanges) {
+    if ($sourceDirty) {
         throw 'Signed updater builds require a clean tagged checkout.'
     }
     if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY) -or
@@ -93,9 +96,7 @@ Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') -Destination $porta
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'output/third-party-licenses') -Destination $portable -Recurse
 $commit = git -C $repositoryRoot rev-parse HEAD
 if ($LASTEXITCODE -ne 0) { throw 'Could not resolve release source commit.' }
-$workingChanges = git -C $repositoryRoot status --porcelain
-if ($LASTEXITCODE -ne 0) { throw 'Could not inspect release source state.' }
-@{ version = $version; architecture = $Architecture; sourceCommit = $commit; sourceDirty = [bool]$workingChanges } |
+@{ version = $version; architecture = $Architecture; sourceCommit = $commit; sourceDirty = $sourceDirty } |
     ConvertTo-Json | Set-Content (Join-Path $portable 'release.json') -Encoding utf8
 & $Python (Join-Path $PSScriptRoot 'check_windows_package.py') $portable $Architecture
 if ($LASTEXITCODE -ne 0) { throw "Windows package validation failed: $LASTEXITCODE" }

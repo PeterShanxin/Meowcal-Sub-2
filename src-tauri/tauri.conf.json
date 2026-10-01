@@ -72,6 +72,11 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": ""
+    }
+  },
   "bundle": {
     "active": false,
     "resources": {

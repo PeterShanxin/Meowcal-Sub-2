@@ -83,3 +83,8 @@ def test_window_can_perform_its_actions_without_granting_other_windows_or_origin
 def test_api_token_is_not_exposed_to_any_frontend() -> None:
     _, permissions = shell_permissions()
     assert all("get_api_token" not in rules.get("allow", []) for rules in permissions.values())
+
+
+def test_updater_plugin_can_initialize_in_unsigned_build() -> None:
+    config = json.loads((SHELL / "tauri.conf.json").read_text())
+    assert isinstance(config["plugins"]["updater"]["pubkey"], str)
