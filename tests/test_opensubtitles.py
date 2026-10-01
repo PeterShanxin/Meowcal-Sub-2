@@ -1171,6 +1171,53 @@ async def test_download_uses_cache(client: OpenSubtitlesClient) -> None:
     assert downloaded == path
 
 
+@respx.mock
+@pytest.mark.asyncio
+async def test_download_writes_a_named_subtitle_inside_cache(client: OpenSubtitlesClient) -> None:
+    lookup = respx.post(f"{BASE_URL}/download").mock(
+        return_value=httpx.Response(200, json=DOWNLOAD_RESPONSE)
+    )
+    transfer = respx.get(DOWNLOAD_RESPONSE["link"]).mock(
+        return_value=httpx.Response(200, content=b"normal subtitle")
+    )
+
+    path = await client.download(9001, "Inception.srt")
+
+    assert path.parent == client.cache_dir
+    assert path.name.endswith("Inception.srt")
+    assert path.read_bytes() == b"normal subtitle"
+    assert client.downloads_remaining == 19
+    assert lookup.call_count == transfer.call_count == 1
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_download_keeps_same_named_files_with_different_ids_separate(
+    client: OpenSubtitlesClient,
+) -> None:
+    lookup = respx.post(f"{BASE_URL}/download").mock(
+        side_effect=[
+            httpx.Response(200, json={"link": "https://dl.opensubtitles.com/one.srt"}),
+            httpx.Response(200, json={"link": "https://dl.opensubtitles.com/two.srt"}),
+        ]
+    )
+    respx.get("https://dl.opensubtitles.com/one.srt").mock(
+        return_value=httpx.Response(200, content=b"first subtitle")
+    )
+    respx.get("https://dl.opensubtitles.com/two.srt").mock(
+        return_value=httpx.Response(200, content=b"second subtitle")
+    )
+
+    first = await client.download(9001, "English.srt")
+    second = await client.download(9002, "English.srt")
+
+    assert first != second
+    assert first.parent == second.parent == client.cache_dir
+    assert first.read_bytes() == b"first subtitle"
+    assert second.read_bytes() == b"second subtitle"
+    assert lookup.call_count == 2
+
+
 def test_org_alias_parser_extracts_titles() -> None:
     parser = _OpenSubtitlesOrgAliasParser()
     parser.feed(
