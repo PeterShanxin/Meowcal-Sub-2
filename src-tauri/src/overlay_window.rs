@@ -232,15 +232,10 @@ pub fn cursor_position() -> Option<(i32, i32)> {
 /// Put the dock in its corner at full size, showing only the bead.
 pub fn place_dock(
     window: &WebviewWindow,
+    anchor: OverlayAnchor,
+    scale: f64,
 ) -> Result<(PhysicalPosition<i32>, PhysicalSize<u32>, f64), String> {
-    let monitor = window
-        .current_monitor()
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "no monitor".to_string())?;
-    let position = *monitor.position();
-    let size = *monitor.size();
-    let scale = monitor.scale_factor();
-    let (at, extent) = dock_bounds((position.x, position.y), (size.width, size.height), scale);
+    let (at, extent) = dock_bounds(anchor.monitor_position, anchor.monitor_size, scale);
     window.set_size(extent).map_err(|error| error.to_string())?;
     window.set_position(at).map_err(|error| error.to_string())?;
     clip_pill(window, (DOCK_COLLAPSED_CSS * scale).round() as i32)?;
@@ -268,7 +263,7 @@ fn overlay_window(app: &AppHandle) -> Result<WebviewWindow, String> {
 
 /// The monitor holding the middle of the capture region, so a region on a second
 /// screen puts its plate on that screen too.
-fn anchor_for(app: &AppHandle, region: [i32; 4]) -> Result<(OverlayAnchor, f64), String> {
+pub fn anchor_for(app: &AppHandle, region: [i32; 4]) -> Result<(OverlayAnchor, f64), String> {
     let window = overlay_window(app)?;
     let center_x = region[0] + region[2] / 2;
     let center_y = region[1] + region[3] / 2;

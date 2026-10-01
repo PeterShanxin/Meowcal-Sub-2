@@ -7,6 +7,7 @@ const confirmButton = document.getElementById("selector-confirm");
 const cancelButton = document.getElementById("selector-cancel");
 const instructions = document.getElementById("selector-instructions");
 const backdrop = document.getElementById("selector-backdrop");
+const nextDisplayButton = document.getElementById("selector-next-display");
 
 const MIN_SIDE = 8;
 
@@ -56,7 +57,11 @@ function renderSelection() {
 // and starting a fresh drag there cleared the selection before the button's own
 // handler could read it - so Confirm could never save a region.
 function startsADrag(event) {
-  return event.button === 0 && !toolbar.contains(event.target);
+  return (
+    event.button === 0 &&
+    !toolbar.contains(event.target) &&
+    !nextDisplayButton.contains(event.target)
+  );
 }
 
 root.addEventListener("pointerdown", (event) => {
@@ -120,6 +125,17 @@ async function cancelSelection() {
 
 confirmButton.addEventListener("click", () => void confirmSelection());
 cancelButton.addEventListener("click", () => void cancelSelection());
+nextDisplayButton.addEventListener("click", async () => {
+  nextDisplayButton.disabled = true;
+  try {
+    await TAURI.core.invoke("switch_area_selector");
+    onOpened();
+  } catch (error) {
+    instructions.textContent = `Could not switch display: ${error}`;
+  } finally {
+    nextDisplayButton.disabled = false;
+  }
+});
 
 window.addEventListener("keydown", async (event) => {
   if (event.key === "Escape") {
@@ -172,7 +188,11 @@ async function paintBackdrop() {
 function onOpened() {
   void paintBackdrop();
   void restoreLastSelection();
+  void TAURI.core
+    .invoke("selector_display_count")
+    .then((count) => nextDisplayButton.classList.toggle("hidden", count < 2))
+    .catch(() => nextDisplayButton.classList.add("hidden"));
 }
 
 onOpened();
-void TAURI.event.listen("tauri://focus", () => onOpened());
+void TAURI.event.listen("selector-opened", () => onOpened());

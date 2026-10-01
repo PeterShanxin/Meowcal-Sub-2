@@ -1,4 +1,5 @@
 import json
+import logging
 
 import pytest
 
@@ -24,6 +25,12 @@ def test_sanitize_output_removes_labels_and_quotes() -> None:
 
 def test_sanitize_output_joins_wrapped_lines_into_one_subtitle() -> None:
     assert sanitize_output("I don't know\nwhat to say.") == "I don't know what to say."
+
+
+def test_sanitize_output_keeps_a_subtitle_that_starts_with_here() -> None:
+    assert sanitize_output("Here we go.") == "Here we go."
+    assert sanitize_output('Here is the translation: "Let\'s go."') == "Let's go."
+    assert sanitize_output("Note what she said.") == "Note what she said."
 
 
 @pytest.mark.parametrize("text", ["", "  ", "-", "1", "//"])
@@ -116,6 +123,37 @@ async def test_unusable_output_is_not_shown(monkeypatch) -> None:
 
     client = _client(monkeypatch, handler)
     assert await client.translate("请给我们五分钟", "zh", "en") == ""
+    await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raw", ["", "Here is the translation:"])
+async def test_discarded_output_debug_log_distinguishes_raw_from_cleaned(
+    monkeypatch, caplog, raw: str
+) -> None:
+    def handler(request: dict) -> dict:
+        return {"choices": [{"message": {"content": raw}}]}
+
+    client = _client(monkeypatch, handler)
+    with caplog.at_level(logging.DEBUG, logger="meocosub2.translator"):
+        assert await client.translate("我们走吧", "zh", "en") == ""
+    assert f"raw_len={len(raw)}" in caplog.text
+    assert "cleaned=''" in caplog.text
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_discarded_output_debug_log_bounds_private_dialogue(monkeypatch, caplog) -> None:
+    raw = "a" * 80 + "private text" + "b" * 200
+
+    def handler(request: dict) -> dict:
+        return {"choices": [{"message": {"content": raw}}]}
+
+    client = _client(monkeypatch, handler)
+    with caplog.at_level(logging.DEBUG, logger="meocosub2.translator"):
+        assert await client.translate("我们走吧", "zh", "en") == ""
+    assert f"raw_len={len(raw)}" in caplog.text
+    assert "private text" not in caplog.text
     await client.close()
 
 

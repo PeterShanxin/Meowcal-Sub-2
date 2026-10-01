@@ -5,6 +5,7 @@ from meocosub2.timeline import (
     ANCHOR_ABANDON_MISSES,
     ANCHOR_MAX_AGE_S,
     CUE_HOLD_S,
+    PlaybackState,
     PlaybackTimeline,
 )
 
@@ -57,6 +58,72 @@ def test_a_near_exact_first_match_anchors_on_its_own() -> None:
 def test_the_prediction_advances_with_the_wall_clock() -> None:
     timeline = anchored_at(600_000)
     assert timeline.predicted_ms(now=4.0) == 604_000
+
+
+def test_motion_keeps_an_unchanged_cue_from_freezing_the_clock() -> None:
+    timeline = anchored_at(600_000)
+    for second in range(1, 31):
+        timeline.observe_playback(PlaybackState.ADVANCING, now=float(second))
+        timeline.saw_same_cue(now=float(second))
+    assert timeline.position_ms(now=30) == 630_000
+
+
+def test_motion_does_not_rewrite_when_an_ocr_cue_first_appeared() -> None:
+    timeline = anchored_at(600_000)
+    timeline.saw_new_cue(now=3)
+    timeline.observe_playback(PlaybackState.ADVANCING, now=4)
+    assert timeline.cue_position_ms == 603_000
+    assert timeline.accepts(603_000, 11, 100, now=4)
+    assert timeline.predicted_ms(now=4) == 604_000
+
+
+def test_motion_cannot_extend_a_silent_scene_past_anchor_expiry() -> None:
+    timeline = anchored_at(600_000)
+    timeline.clear_cue()
+    for second in range(1, 121):
+        timeline.observe_playback(PlaybackState.ADVANCING, now=float(second))
+    assert timeline.position_ms(now=120) is None
+
+
+def test_lost_motion_evidence_allows_stale_anchor_to_expire() -> None:
+    timeline = anchored_at(600_000)
+    timeline.observe_playback(PlaybackState.ADVANCING, now=30)
+    timeline.observe_playback(PlaybackState.UNCERTAIN, now=31)
+    assert timeline.position_ms(now=31 + ANCHOR_MAX_AGE_S) is None
+
+
+def test_confirmed_stop_holds_clock_without_visible_subtitles() -> None:
+    timeline = anchored_at(600_000)
+    timeline.clear_cue()
+    timeline.observe_playback(PlaybackState.STOPPED, now=10)
+    timeline.observe_playback(PlaybackState.UNCERTAIN, now=20)
+    assert timeline.position_ms(now=30) == 610_000
+    timeline.observe_playback(PlaybackState.ADVANCING, now=30)
+    assert timeline.position_ms(now=35) == 615_000
+
+
+def test_confirmed_match_releases_a_stopped_clock() -> None:
+    timeline = anchored_at(600_000)
+    timeline.observe_playback(PlaybackState.STOPPED, now=10)
+    assert read(timeline, 610_000, 11, 100, now=20)
+    assert timeline.position_ms(now=25) == 615_000
+
+
+def test_uncertain_image_does_not_prove_a_pause_without_a_cue() -> None:
+    timeline = anchored_at(600_000)
+    timeline.clear_cue()
+    timeline.observe_playback(PlaybackState.UNCERTAIN, now=10)
+    assert timeline.position_ms(now=30) == 630_000
+
+
+def test_motion_does_not_restore_an_anchor_dropped_by_conflicting_matches() -> None:
+    timeline = anchored_at(600_000)
+    for attempt in range(ANCHOR_ABANDON_MISSES):
+        timeline.observe_playback(PlaybackState.ADVANCING, now=float(attempt + 1))
+        assert not read(timeline, 1_200_000, 400, 70, float(attempt + 1))
+    assert not timeline.anchored
+    timeline.observe_playback(PlaybackState.ADVANCING, now=30)
+    assert timeline.position_ms(now=30) is None
 
 
 def test_a_line_near_the_prediction_is_accepted() -> None:

@@ -87,8 +87,10 @@ matching human translations carried by the source and the target file. Model
 translations never calibrate it. Calibration requires at least two anchors and
 a nearest-rank P90 absolute residual of at most 200 ms around the median. With
 insufficient or inconsistent evidence, the files are assumed to use the same
-clock (zero offset); mismatched releases without corroboration still need
-independently established alignment. For the measured
+clock (zero offset), and the prepared card marks target timing unverified. This
+also applies when multiple automatic source candidates include an uncorroborated
+pair. Mismatched releases without corroboration still need independently
+established alignment. For the measured
 S04E08 pair, 384 shared anchors support -902 ms with 190 ms p90 absolute residual;
 affine fitting does not improve the median residual, so no rate parameter is used.
 

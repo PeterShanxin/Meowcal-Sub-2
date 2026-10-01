@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from unittest.mock import AsyncMock
 
 import pytest
@@ -36,7 +37,7 @@ def open_returning(translator, mocker) -> AsyncMock:
     return client
 
 
-async def test_the_unpaired_cues_are_answered_and_each_one_reported(mocker) -> None:
+async def test_the_unpaired_cues_are_answered_and_each_one_reported(mocker, caplog) -> None:
     episode = lines(("s0", "t0"), ("s1", ""), ("s2", "t2"), ("s3", ""))
     client = open_returning(Answering(), mocker)
     reported: list[int] = []
@@ -44,12 +45,22 @@ async def test_the_unpaired_cues_are_answered_and_each_one_reported(mocker) -> N
     async def progress(filled: int) -> None:
         reported.append(filled)
 
-    outcome = await fill_before_the_session(episode, AppConfig(), progress)
+    with caplog.at_level(logging.DEBUG, logger="meocosub2.gapfill"):
+        outcome = await fill_before_the_session(episode, AppConfig(), progress)
 
     assert outcome.filled == 2
     assert [line.translated for line in episode] == ["t0", "answered s1", "t2", "answered s3"]
     assert reported == [1, 2]
     client.close.assert_awaited_once()
+    selections = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "meocosub2.gapfill" and " selected cue=" in record.getMessage()
+    ]
+    assert selections == [
+        "Gap fill preparation selected cue=1 reached=None",
+        "Gap fill preparation selected cue=3 reached=None",
+    ]
 
 
 async def test_the_engine_client_is_let_go_when_the_session_starts(mocker) -> None:

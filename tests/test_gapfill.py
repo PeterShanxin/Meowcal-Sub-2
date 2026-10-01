@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from meocosub2.gapfill import MAX_FILLED_LINES, context_pairs, fill_gaps
 from meocosub2.models import SubtitleLine
@@ -250,6 +251,39 @@ async def test_a_match_landing_mid_pass_moves_the_fill_to_the_cues_ahead() -> No
     # was chosen against the position the match established.
     assert asked == ["s0", "s3", "s4", "s1"]
     assert outcome.completed is True
+
+
+async def test_log_shows_cue_order_and_the_position_that_selected_each_cue(caplog) -> None:
+    episode = lines(
+        ("private opening", ""), ("private behind", ""), ("s2", "t2"), ("private ahead", "")
+    )
+    placed: list[int | None] = [None]
+
+    async def translate(text: str, pairs: list[tuple[str, str]]) -> str:
+        placed[0] = 3
+        return "answer"
+
+    with caplog.at_level(logging.DEBUG, logger="meocosub2.gapfill"):
+        await fill_gaps(
+            lambda: episode,
+            translate,
+            lambda: False,
+            unchanged,
+            lambda: placed[0],
+            phase="session",
+        )
+
+    messages = [
+        record.getMessage() for record in caplog.records if record.name == "meocosub2.gapfill"
+    ]
+    selections = [message for message in messages if " selected cue=" in message]
+    assert selections == [
+        "Gap fill session selected cue=0 reached=None",
+        "Gap fill session selected cue=3 reached=3",
+        "Gap fill session selected cue=1 reached=3",
+    ]
+    assert "Gap fill session followed position changed None -> 3" in messages
+    assert "private" not in " ".join(messages)
 
 
 async def test_a_seek_moves_the_fill_to_where_the_viewer_went() -> None:

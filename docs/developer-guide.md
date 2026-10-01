@@ -41,8 +41,12 @@ studio, but the native capture selector and desktop strip require the shell.
 ## Build a Windows distribution
 
 The repository banner reads its version from `src-tauri/tauri.conf.json`, the
-same source used to name release packages. After changing the project version
-or editing the banner artwork, synchronize its SVG and PNG before committing:
+same source used to name release packages. Set the same `X.Y.Z` version in
+`tauri.conf.json`, `Cargo.toml`, `Cargo.lock`, `pyproject.toml`, and the studio's
+`package.json` and `package-lock.json`. `scripts/check_app_version.py` checks
+these files in CI and requires a matching `vX.Y.Z` tag for signed release builds.
+After changing the version or editing the banner artwork, synchronize its SVG
+and PNG before committing:
 
 ```powershell
 python scripts/update_branding.py
@@ -70,6 +74,21 @@ portable ZIP, and SHA-256 list in `dist/`. Models are not bundled. Use a clean
 commit for release artifacts; the portable package records its source commit
 and whether the checkout had changes. Move any previous staging directory out
 of `dist/` before rebuilding. Native acceptance must pass before publishing.
+
+For an updater-capable release, configure the repository secret
+`TAURI_SIGNING_PRIVATE_KEY`, optional secret
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, and variable
+`MEOWCAL_UPDATER_PUBLIC_KEY` containing the matching generated `.pub` value.
+The public key is compiled into the installed shell; keep the private key out of
+the repository. Push an exact `vX.Y.Z` tag after branch-build acceptance. The
+tag build requires both keys, signs each architecture's NSIS installer,
+verifies each signature against the public key embedded in the shell, and
+produces a separate `latest.json` workflow artifact. The workflow does not
+publish a GitHub Release. Upload both installers, their `.sig` files, and
+`latest.json` to a draft release; publish it only after native acceptance of
+the final signed installers. The JSON contains both architecture URLs and signatures.
+An unsigned branch build has no in-app updater. Portable packages always
+require manual replacement.
 
 ## Runtime map
 

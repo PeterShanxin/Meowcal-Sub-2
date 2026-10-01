@@ -56,6 +56,7 @@ async def fill_before_the_session(
             lambda: False,
             one_more,
             answer=answer,
+            phase="preparation",
         )
     finally:
         await client.close()

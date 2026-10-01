@@ -17,6 +17,15 @@ impl BackendProcess {
     pub(crate) fn new() -> Self {
         Self(Arc::new(Mutex::new(None)))
     }
+
+    pub(crate) fn stop(&self) -> Result<(), String> {
+        let mut slot = self
+            .0
+            .lock()
+            .map_err(|_| "backend process lock poisoned".to_string())?;
+        kill_previous_backend(&mut slot);
+        Ok(())
+    }
 }
 
 #[cfg(debug_assertions)]
@@ -95,7 +104,7 @@ fn contain_backend(
 /// whole app exits, leaking a resident `llama-server` per retry.
 fn kill_previous_backend(slot: &mut Option<Child>) {
     if let Some(mut child) = slot.take() {
-        if let Ok(None) = child.try_wait() {
+        if !matches!(child.try_wait(), Ok(Some(_))) {
             let _ = child.kill();
         }
         let _ = child.wait();

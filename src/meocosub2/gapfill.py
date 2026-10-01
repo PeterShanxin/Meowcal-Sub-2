@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 from meocosub2.models import SubtitleLine
 
@@ -123,6 +123,8 @@ async def fill_gaps(
     on_filled: Callable[[], Awaitable[None]],
     from_index: FromIndex | None = None,
     answer: Answer = own_translation,
+    *,
+    phase: Literal["preparation", "session"] = "session",
 ) -> FillOutcome:
     """Answer the unpaired cues of the file being followed, and say how it ended.
 
@@ -141,30 +143,38 @@ async def fill_gaps(
     that. Choosing the next cue against the position as it is now covers both,
     and covers a session that never places the video at all - there the file's
     own order is the only order there is.
+
+    `phase` identifies preparation and playback passes in numeric DEBUG traces.
     """
     lines = followed_lines()
     if not unanswered(lines, answer):
         return FillOutcome(0, True)
 
-    logger.debug(
-        "Filling the %d cue(s) the target file left unpaired", len(unanswered(lines, answer))
-    )
+    logger.debug("Gap fill %s starting: %d unpaired cue(s)", phase, len(unanswered(lines, answer)))
     attempted: set[int] = set()
     filled = 0
     completed = False
     engine_failed = False
+    last_reached: int | None = None
     for _ in range(MAX_FILLED_LINES):
         # The viewer is waiting on live reads; filling ahead is not urgent and
         # the engine answers one at a time.
         while busy():
             await asyncio.sleep(YIELD_POLL_S)
         if followed_lines() is not lines:
-            logger.debug("Stopped filling: the session is following a different subtitle file")
+            logger.debug("Gap fill %s stopped: following a different subtitle file", phase)
             break
-        index = next_gap(lines, attempted, from_index() if from_index is not None else None, answer)
+        reached = from_index() if from_index is not None else None
+        if reached != last_reached:
+            logger.debug(
+                "Gap fill %s followed position changed %s -> %s", phase, last_reached, reached
+            )
+            last_reached = reached
+        index = next_gap(lines, attempted, reached, answer)
         if index is None:
             completed = True
             break
+        logger.debug("Gap fill %s selected cue=%d reached=%s", phase, index, reached)
         attempted.add(index)
         line = lines[index]
         try:
@@ -174,7 +184,7 @@ async def fill_gaps(
         except Exception:
             # An engine that has stopped answering will not answer the next one
             # either, and retrying every remaining gap only fills the log.
-            logger.exception("Filling the unpaired cue at index %d failed; stopping", index)
+            logger.exception("Gap fill %s cue=%d failed; stopping", phase, index)
             engine_failed = True
             break
         if not translation:
@@ -183,5 +193,12 @@ async def fill_gaps(
         line.translation_source = "model"
         filled += 1
         await on_filled()
-    logger.debug("Filled %d cue(s); %d attempted", filled, len(attempted))
+    logger.debug(
+        "Gap fill %s finished: filled=%d attempted=%d completed=%s engine_failed=%s",
+        phase,
+        filled,
+        len(attempted),
+        completed,
+        engine_failed,
+    )
     return FillOutcome(filled, completed, engine_failed)

@@ -48,7 +48,7 @@ satisfy a number, and a module split for arithmetic is harder to maintain than
 the long one it replaced. What the ratchet buys is that the raise is visible in
 the diff and has to be argued for, not that it can never happen.
 
-Raised so far, all of them by live testing against a real player:
+Recorded ceiling changes and their reasons:
 
 | File | From | To | Why |
 | --- | ---: | ---: | --- |
@@ -85,10 +85,12 @@ Raised so far, all of them by live testing against a real player:
 | `overlay/ui/src/app.tsx` | 1566 | 1580 | keeping the target list unreachable by keyboard while that read is in flight |
 | `sync.py` | 737 | 742 | judging a session by what has been answered rather than by whether a target file exists |
 | `src-tauri/src/overlay_window.rs` | 467 | 469 | a dock wide enough for the timing control |
+| `src-tauri/src/main.rs` | 964 | 1182 | let the selector switch displays, cancel on window close, keep the live dock on the capture display, and stop owned processes when closing or installing an update |
+| `src-tauri/src/overlay_window.rs` | 469 | 464 | place the dock using the capture display anchor already used by the subtitle plate |
 | `opensubtitles/client.py` | 885 | 932 | retry transient server failures and keep successful episode results when another feature lookup fails |
 | `subtitle_sources/subdl.py` | 623 | 651 | search episodes with API season filters and inherit a season pack's number for unpacked files marked zero |
 
-The target presentation change records these measured limits:
+Later changes record these measured limits:
 
 | File | From | To | Why |
 | --- | ---: | ---: | --- |
@@ -102,6 +104,7 @@ The target presentation change records these measured limits:
 | `sync.py` | 824 | 826 | pass the captured position to matching and clear direct-translation target cue memory |
 | `overlay/ui/src/app.tsx` | 1581 | 1584 | pass the selected target language to the subtitle preview instead of displaying a fixed language |
 | `sync.py` | 826 | 827 | require stable direct OCR reads before translation and break confirmation across empty frames |
+| `sync.py` | 827 | 909 | clear a prior cue as soon as an unanswered one begins, translate it once, ignore stale answers, release confirmed spans after their last cue, and pass frame motion evidence to the playback clock |
 
 | `overlay/controller.py` | 2060 | 2105 | own the guarded read/save boundary for prepared subtitle edits and reject stale starts; document IO and playback rebuilding live in the subtitle editor module |
 | `overlay/controller.py` | 2105 | 2112 | report automatic playback checks from each preparation mode using the shared subtitle loader |
@@ -111,7 +114,10 @@ The target presentation change records these measured limits:
 | `overlay/ui/src/app.tsx` | 1630 | 1660 | look up an episode precisely when title search lacks either selected subtitle language |
 | `overlay/ui/src/app.tsx` | 1660 | 1735 | queue exact lookup behind active title and season searches, keep the latest episode selection, and settle stale requests |
 | `overlay/ui/src/app.tsx` | 1735 | 1728 | select each episode with one precise lookup instead of stopping when both subtitle languages already have a result |
+| `overlay/ui/src/app.tsx` | 1728 | 1731 | mount the startup check for signed app updates |
+| `overlay/ui/src/components/variants/settings.tsx` | 1229 | 1301 | show the installed app version and let viewers check and install a signed update |
 | `overlay/controller.py` | 2138 | 2175 | keep late episode and season lookups from changing a newer search catalog |
+| `overlay/controller.py` | 2175 | 2182 | report when source and target file clocks lack corroborating human subtitle anchors |
 | `overlay/ui/src/components/palette.tsx` | 1489 | 1519 | language chips reachable by keyboard, a step button that wraps rather than leaving the window, and an empty search that says it found nothing |
 | `overlay/ui/src/components/palette.tsx` | 1519 | 1525 | focus retries that leave alone a focus the viewer has already moved |
 | `overlay/ui/src/components/palette.tsx` | 1525 | 1543 | send season and episode identity from an existing row and show its lookup progress |
@@ -122,7 +128,7 @@ The four largest are the ones worth naming, because they are where the work is:
 
 | File | Lines | What it holds |
 | --- | ---: | --- |
-| `overlay/controller.py` | 2,175 | session lifecycle, search orchestration, config, engine startup |
+| `overlay/controller.py` | 2,182 | session lifecycle, search orchestration, config, engine startup |
 | `overlay/ui/src/app.tsx` | 1,728 | the studio's whole screen state |
 | `overlay/ui/src/components/palette.tsx` | 1,543 | the search palette |
 | `subtitle_sources/aggregator.py` | 1,458 | provider-neutral search aggregation |

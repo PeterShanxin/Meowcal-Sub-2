@@ -21,6 +21,11 @@ installation. Alternatively, extract the complete
 folders beside the executable. Both packages include Python and the Core
 executable; translation models are installed separately through Settings.
 
+The published v0.1.0 cannot check for app updates. Install a newer release
+manually when one becomes available. Later signed installer releases check for
+updates when the app opens and offer an install button in the app and under
+**Settings → Updates**. Portable copies must be replaced manually.
+
 Each architecture has a `meowcal-sub-2-v0.1.0-windows-{arm64,x64}-SHA256SUMS.txt`
 file; the release also provides an aggregate checksum list. To check a downloaded
 package in PowerShell, compare its result with the matching entry:
@@ -70,12 +75,16 @@ until it is installed.
    the prepared-session summary; a different release may use different timings.
 4. Choose **Select capture region**, drag a box around the player's subtitle
    area, and confirm. Include the complete visible lines and exclude unrelated
-   interface text. The region is remembered.
+   interface text. Use **Switch display** if the player is on another screen.
+   The region is remembered.
 5. Choose **Start sync**. The studio becomes the subtitle strip with a live dock.
 6. Play the video. OCR matches establish playback position; target-file cues
    then appear according to their own intervals, including silent gaps.
 7. Use **Stop** in the dock when finished. The studio returns with the prepared
    session available to start again.
+
+Closing the studio window stops the session and exits the app. The tray's
+**Exit** action does the same.
 
 Keep the Meowcal strip outside the capture region so OCR does not read the
 app's own translation.

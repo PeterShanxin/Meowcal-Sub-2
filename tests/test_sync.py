@@ -338,6 +338,58 @@ async def test_direct_translation_updates_after_a_paused_seek() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("fail", ["", RuntimeError("engine failed")], ids=["empty", "error"])
+async def test_direct_translation_clears_an_old_line_after_a_failed_new_answer(fail) -> None:
+    first, following = "The cat is waiting by the window.", "Let us walk home together."
+    translator = MagicMock()
+
+    async def translate(text: str) -> str:
+        if text == first:
+            return "猫正在窗边等待。"
+        if isinstance(fail, Exception):
+            raise fail
+        return fail
+
+    translator.translate = AsyncMock(side_effect=translate)
+    session = DirectTranslationSession([], config(), translator_factory(translator))
+
+    assert await drive(session, config(), [first] * 3 + [following] * 3) == [
+        "猫正在窗边等待。",
+        "",
+    ]
+
+
+async def test_a_stale_failed_translation_cannot_clear_a_newer_line() -> None:
+    first = "The cat is waiting by the window."
+    stale = "Let us walk home together."
+    current = "The train has left the station."
+    release = asyncio.Event()
+    stale_started = asyncio.Event()
+    translator = MagicMock()
+
+    async def translate(text: str) -> str:
+        if text == stale:
+            stale_started.set()
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                await release.wait()
+            return ""
+        if text == current:
+            release.set()
+            return "火车已经离站。"
+        return "猫正在窗边等待。"
+
+    translator.translate = AsyncMock(side_effect=translate)
+    session = DirectTranslationSession([], config(), translator_factory(translator))
+
+    shown = await drive(session, config(), [first] * 3 + [stale] * 3 + [current] * 3)
+
+    assert stale_started.is_set()
+    assert shown == ["猫正在窗边等待。", "火车已经离站。"]
+
+
+@pytest.mark.asyncio
 async def test_direct_translation_returns_to_a_recent_cue_after_a_seek() -> None:
     first, following = "Let us walk home together.", "The cat is waiting by the window."
     translations = {first: "让我们一起回家吧。", following: "猫正在窗边等待。"}
@@ -562,6 +614,156 @@ async def test_the_clock_plays_the_next_line_without_waiting_for_a_read() -> Non
 
     assert broadcasts[0] == "你好"
     assert "再见" in broadcasts
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "reply", ["再见", "", RuntimeError("engine failed")], ids=["translated", "empty", "error"]
+)
+async def test_the_clock_resolves_an_unpaired_cue_without_an_ocr_read(monkeypatch, reply) -> None:
+    import meocosub2.sync as sync
+
+    monkeypatch.setattr(sync, "DISPLAY_LEAD_MS", 0)
+    lines = [
+        SubtitleLine(index=0, start_ms=0, end_ms=200, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=250, end_ms=1_000, text="Goodbye now"),
+    ]
+    translating = asyncio.Event()
+    release = asyncio.Event()
+    translator = MagicMock()
+
+    async def translate(text: str) -> str:
+        translating.set()
+        await release.wait()
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+    translator.translate = AsyncMock(side_effect=translate)
+    translator.translate_from_file = AsyncMock(return_value="")
+    session = CandidateSession(
+        [make_candidate("a", lines)],
+        config(),
+        translator_factory(translator),
+    )
+    shown: list[str] = []
+    resolved = asyncio.Event()
+    expected = reply if isinstance(reply, str) else ""
+
+    async def broadcast(text: str, source: str) -> None:
+        shown.append(text)
+        if text == expected:
+            resolved.set()
+
+    first = True
+
+    async def ocr(_image, _language) -> str:
+        nonlocal first
+        if first:
+            first = False
+            return "Hello there"
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(sync, "ocr_image", ocr)
+    monkeypatch.setattr(sync, "capture_region", lambda region: MagicMock())
+    task = asyncio.create_task(run_session_loop(session, config(), broadcast))
+    try:
+        await asyncio.wait_for(translating.wait(), 2)
+        assert shown == ["你好", ""]
+        release.set()
+        if expected:
+            await asyncio.wait_for(resolved.wait(), 2)
+        await asyncio.sleep(0.25)
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    assert shown == ["你好", ""] + ([expected] if expected else [])
+    translator.translate.assert_awaited_once_with("Goodbye now")
+
+
+async def test_an_ocr_confirmed_unpaired_cue_clears_the_prior_plate() -> None:
+    lines = [
+        SubtitleLine(index=0, start_ms=0, end_ms=3_000, text="Hello there", translated="你好"),
+        SubtitleLine(index=1, start_ms=3_000, end_ms=6_000, text="Goodbye now"),
+    ]
+    translator = MagicMock()
+
+    async def translate(text: str) -> str:
+        await asyncio.Event().wait()
+        return "再见"
+
+    translator.translate = AsyncMock(side_effect=translate)
+    translator.translate_from_file = AsyncMock(return_value="")
+    session = CandidateSession(
+        [make_candidate("a", lines)], config(), translator_factory(translator)
+    )
+
+    assert await drive(session, config(), ["Hello there", "Goodbye now"]) == ["你好", ""]
+
+
+@pytest.mark.asyncio
+async def test_a_confirmed_pair_clears_after_its_last_cue_expires(monkeypatch) -> None:
+    import meocosub2.matcher as matcher
+    import meocosub2.sync as sync
+
+    monkeypatch.setattr(sync, "DISPLAY_LEAD_MS", 0)
+    monkeypatch.setattr(sync, "FOLLOW_GRACE_MS", 0, raising=False)
+    monkeypatch.setattr(matcher, "FOLLOW_GRACE_MS", 0)
+    lines = [
+        SubtitleLine(index=0, start_ms=0, end_ms=120, text="We should go", translated="我们该走了"),
+        SubtitleLine(
+            index=1, start_ms=260, end_ms=390, text="before it gets dark", translated="趁天还没黑"
+        ),
+    ]
+    session = CandidateSession([make_candidate("a", lines)], config(), never_translates())
+    shown: list[str] = []
+    cleared = asyncio.Event()
+
+    async def broadcast(text: str, source: str) -> None:
+        shown.append(text)
+        if text == "":
+            cleared.set()
+
+    first = True
+
+    async def ocr(_image, _language) -> str:
+        nonlocal first
+        if first:
+            first = False
+            return "We should go before it gets dark"
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(sync, "ocr_image", ocr)
+    monkeypatch.setattr(sync, "capture_region", lambda region: MagicMock())
+    task = asyncio.create_task(run_session_loop(session, config(), broadcast))
+    try:
+        await asyncio.wait_for(cleared.wait(), 2)
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    assert shown == ["我们该走了 趁天还没黑", ""]
+
+
+async def test_captured_motion_reaches_the_playback_timeline(monkeypatch) -> None:
+    import meocosub2.sync as sync
+    from meocosub2.timeline import PlaybackState
+
+    session = CandidateSession([make_candidate("a", paired_lines())], config(), never_translates())
+    observer = MagicMock()
+    observer.observe.return_value = PlaybackState.ADVANCING
+    monkeypatch.setattr(sync, "PlaybackObserver", lambda: observer)
+    observe_playback = MagicMock(wraps=session.observe_playback)
+    session.observe_playback = observe_playback
+
+    await drive(session, config(), ["Hello there"])
+
+    observer.observe.assert_called()
+    assert all(call.args[0] is PlaybackState.ADVANCING for call in observe_playback.call_args_list)
+    assert observe_playback.call_count == observer.observe.call_count
 
 
 async def test_the_plate_holds_back_by_the_display_lag() -> None:

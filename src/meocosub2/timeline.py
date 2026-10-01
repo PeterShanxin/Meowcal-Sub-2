@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from enum import Enum
 from time import monotonic
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,12 @@ ANCHOR_MAX_AGE_S = 90.0
 CUE_HOLD_S = 6.0
 
 
+class PlaybackState(Enum):
+    ADVANCING = "advancing"
+    STOPPED = "stopped"
+    UNCERTAIN = "uncertain"
+
+
 @dataclass
 class TimelineStatus:
     """What the clock believes, for the debug panel and the event log."""
@@ -58,16 +65,19 @@ class TimelineStatus:
 class PlaybackTimeline:
     """The playback position implied by the subtitle lines that have matched.
 
-    Anchored by every accepted match, advanced by the wall clock, and held still
-    while one subtitle stays on screen longer than a subtitle plausibly lasts.
+    Anchored by every accepted match and advanced by the wall clock. A long OCR
+    cue can hold the clock unless observed video motion refreshes its hold time.
     """
 
     def __init__(self) -> None:
         self._anchor_ms: int | None = None
         self._anchor_at = 0.0
         self._paused_s = 0.0
+        self._stopped_since: float | None = None
         self._cue_since: float | None = None
         self._cue_started_ms: int | None = None
+        self._hold_since: float | None = None
+        self._hold_started_ms: int | None = None
         self._cue_credited_s = 0.0
         self._misses = 0
         self._drift_ms: int | None = None
@@ -102,24 +112,29 @@ class PlaybackTimeline:
         """Where the wall clock alone says the video is."""
         if self._anchor_ms is None:
             return None
-        return int(self._anchor_ms + (now - self._anchor_at - self._paused_s) * 1000)
+        stopped_s = 0.0 if self._stopped_since is None else max(0.0, now - self._stopped_since)
+        return int(self._anchor_ms + (now - self._anchor_at - self._paused_s - stopped_s) * 1000)
 
     def _held_ms(self, now: float) -> int | None:
-        """Where the clock stood when the cue now frozen on screen appeared.
+        """Where the clock stood when this cue, or its last motion, appeared.
 
-        A cue that has outlasted any subtitle is a paused frame, and the line
-        the viewer is looking at is the one that was on screen when it went up -
+        A cue held without observed motion may be a paused frame. The line the
+        viewer is looking at is the one on screen at the latest observed motion,
         not the two or three the clock ran on through before it stopped.
-        `saw_same_cue` freezes the clock; this walks it back to the pause.
+        `saw_same_cue` freezes the clock; this walks it back to that position.
 
         Provisional on purpose: the moment a different cue is read the video is
         moving again, and the clock carries on from where it actually was.
         """
-        if self._cue_since is None or self._cue_started_ms is None:
+        if (
+            self._stopped_since is not None
+            or self._hold_since is None
+            or self._hold_started_ms is None
+        ):
             return None
-        if now - self._cue_since <= CUE_HOLD_S:
+        if now - self._hold_since <= CUE_HOLD_S:
             return None
-        return self._cue_started_ms
+        return self._hold_started_ms
 
     def predicted_ms(self, now: float | None = None) -> int | None:
         now = monotonic() if now is None else now
@@ -146,6 +161,25 @@ class PlaybackTimeline:
             return None
         return predicted - WINDOW_BACK_MS, predicted + WINDOW_FORWARD_MS
 
+    def observe_playback(self, state: PlaybackState, now: float | None = None) -> None:
+        """Apply playback evidence without treating image activity as a subtitle match."""
+        now = monotonic() if now is None else now
+        if state is PlaybackState.STOPPED:
+            if self._stopped_since is None:
+                self._stopped_since = now
+            return
+        if state is PlaybackState.UNCERTAIN:
+            return
+        if self._stopped_since is not None:
+            self._paused_s += max(0.0, now - self._stopped_since)
+            self._stopped_since = None
+        # Keep the OCR cue's first-seen time for matching. Only its pause hold
+        # moves forward, so a later stop does not walk back through motion.
+        if self._hold_since is not None:
+            self._hold_since = now
+            self._hold_started_ms = self._running_ms(now)
+            self._cue_credited_s = 0.0
+
     def saw_new_cue(self, now: float | None = None) -> None:
         """A different subtitle is on screen, so the clock is running normally."""
         now = monotonic() if now is None else now
@@ -153,25 +187,28 @@ class PlaybackTimeline:
         # Taken from the running clock rather than the reported one, so that
         # walking back to a pause does not leave the clock walked back forever.
         self._cue_started_ms = self._running_ms(now)
+        self._hold_since = now
+        self._hold_started_ms = self._cue_started_ms
         self._cue_credited_s = 0.0
 
     def clear_cue(self) -> None:
         """A blank region ends the cue hold without discarding playback timing."""
         self._cue_since = None
         self._cue_started_ms = None
+        self._hold_since = None
+        self._hold_started_ms = None
         self._cue_credited_s = 0.0
 
     def saw_same_cue(self, now: float | None = None) -> None:
         """The same subtitle is still on screen.
 
-        Past the length a subtitle plausibly runs, the extra seconds are the
-        viewer sitting on a paused frame rather than dialogue holding, so they
-        are taken back out of the clock.
+        Past the length a subtitle plausibly runs without observed motion, the
+        extra seconds may be a pause, so they are taken back out of the clock.
         """
-        if self._cue_since is None:
+        if self._hold_since is None or self._stopped_since is not None:
             return
         now = monotonic() if now is None else now
-        overrun = (now - self._cue_since) - CUE_HOLD_S
+        overrun = (now - self._hold_since) - CUE_HOLD_S
         if overrun > self._cue_credited_s:
             self._paused_s += overrun - self._cue_credited_s
             self._cue_credited_s = overrun
@@ -271,11 +308,14 @@ class PlaybackTimeline:
         self._anchor_ms = line_start_ms
         self._anchor_at = at
         self._paused_s = 0.0
+        self._stopped_since = None
         # The cue this line was matched from went up at the same moment the
         # clock is being anchored to, so the hold that catches a paused video
         # measures from there too.
         self._cue_since = at
         self._cue_started_ms = line_start_ms
+        self._hold_since = at
+        self._hold_started_ms = line_start_ms
         self._cue_credited_s = 0.0
         self._drift_ms = drift
         self._misses = 0
@@ -305,8 +345,11 @@ class PlaybackTimeline:
         self._anchor_ms = None
         self._anchor_at = 0.0
         self._paused_s = 0.0
+        self._stopped_since = None
         self._cue_since = None
         self._cue_started_ms = None
+        self._hold_since = None
+        self._hold_started_ms = None
         self._cue_credited_s = 0.0
         self._misses = 0
         self._drift_ms = None

@@ -71,6 +71,26 @@ body,
   text-transform: uppercase;
 }
 
+.selector-next-display {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 3;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  background: rgba(12, 11, 11, 0.9);
+  color: #f5f0e6;
+  font: inherit;
+  cursor: pointer;
+}
+
+.selector-next-display:focus-visible {
+  outline: 2px solid #ffb747;
+  outline-offset: 3px;
+}
+
 .selection-box {
   position: absolute;
   border: 2px solid rgba(255, 183, 67, 0.98);

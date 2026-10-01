@@ -217,7 +217,30 @@ async def test_prepare_session_downloads_non_opensubtitles_result(tmp_path: Path
     assert payload["target_provider"] == "OpenSubtitles"
     assert payload["source_file_id"] == "result-1"
     assert payload["target_file_id"] == "result-2"
+    assert payload["target_clock_unverified"] is True
     assert download.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_prepared_pair_with_corroborated_zero_offset_has_no_clock_warning(
+    tmp_path: Path, mocker
+) -> None:
+    controller, _, _ = _pair_controller(
+        tmp_path,
+        mocker,
+        source_srt=_srt("你好\nHello", "再见\nGoodbye"),
+        target_srt=_srt("Hello", "Goodbye"),
+    )
+
+    payload = await controller.prepare_session(
+        mode="subtitle_pair",
+        feature_id="match-1",
+        source_file_id="result-1",
+        target_file_id="result-2",
+    )
+
+    assert payload["target_clock_unverified"] is False
+    assert controller._prepared_runtime.source_candidates[0].pair.presentation.offset_ms == 0
 
 
 @pytest.mark.asyncio
@@ -393,6 +416,7 @@ async def test_prepare_auto_candidate_session_downloads_top_sources_and_best_tar
     assert payload["source_file_name"] is None
     assert payload["source_summary"] == "2 source candidates"
     assert payload["target_file_id"] == "target"
+    assert payload["target_clock_unverified"] is True
     assert controller._prepared_runtime is not None
     assert len(controller._prepared_runtime.source_candidates) == 2
     assert download.await_count == 3

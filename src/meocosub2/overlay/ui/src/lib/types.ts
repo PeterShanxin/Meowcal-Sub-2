@@ -76,6 +76,7 @@ export interface BackendPreparedSession {
   source_candidate_count: number;
   target_candidate_count: number;
   target_alignment: BackendTargetAlignment[];
+  target_clock_unverified: boolean;
   subtitle_checks?: BackendSubtitleCheck[];
 }
 
