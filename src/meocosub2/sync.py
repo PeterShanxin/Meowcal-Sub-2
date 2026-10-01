@@ -352,13 +352,13 @@ class CandidateSession:
         )
         return None if change is None else max(0.0, (change - position) / 1000)
 
-    def line_now(self) -> Resolution | None:
+    def line_now(self, position_ms: int | None = None) -> Resolution | None:
         """Resolve the current source clock through the chosen presentation owner.
 
         Independent target intervals also answer with explicit silence. Sessions
         using only source-aligned translations retain their source cue behavior.
         """
-        position = self.clock_ms()
+        position = self.clock_ms() if position_ms is None else position_ms
         if self._locked is None or position is None:
             return None
         track = self.presentation
@@ -506,7 +506,7 @@ class DirectTranslationSession:
     def anchored(self) -> bool:
         return False
 
-    def line_now(self) -> Resolution | None:
+    def line_now(self, position_ms: int | None = None) -> Resolution | None:
         return None
 
     def seconds_to_next_line(self) -> float | None:
@@ -632,7 +632,8 @@ async def run_session_loop(
                 if screen.matched:
                     await clear_plate()
                 continue
-            line = session.line_now()
+            position = session.clock_ms() if isinstance(session, CandidateSession) else None
+            line = session.line_now(position) if position is not None else None
             if line is None:
                 if not session.anchored:
                     await clear_plate()
@@ -641,8 +642,7 @@ async def run_session_loop(
             if (
                 covered is not None
                 and (reached is None or reached <= covered)
-                and isinstance(session, CandidateSession)
-                and (position := session.clock_ms()) is not None
+                and position is not None
                 and screen.covers_until_ms is not None
                 and position <= screen.covers_until_ms
             ):

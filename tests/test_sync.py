@@ -720,6 +720,24 @@ async def test_a_confirmed_pair_clears_after_its_last_cue_expires(monkeypatch) -
     session = CandidateSession([make_candidate("a", lines)], config(), never_translates())
     shown: list[str] = []
     cleared = asyncio.Event()
+    expired = False
+    original_clock_ms = session.clock_ms
+    original_line_now = session.line_now
+
+    def clock_ms(now: float | None = None) -> int | None:
+        if shown:
+            return 391 if expired else 260
+        return original_clock_ms(now)
+
+    def line_now(position_ms: int | None = None):
+        nonlocal expired
+        line = original_line_now() if position_ms is None else original_line_now(position_ms)
+        if line is not None and line.text == "趁天还没黑":
+            expired = True
+        return line
+
+    monkeypatch.setattr(session, "clock_ms", clock_ms)
+    monkeypatch.setattr(session, "line_now", line_now)
 
     async def broadcast(text: str, source: str) -> None:
         shown.append(text)
