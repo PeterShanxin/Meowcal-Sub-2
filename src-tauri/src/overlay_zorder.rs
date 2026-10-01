@@ -108,27 +108,6 @@ fn dock_probe_points(
     points
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn expanded_dock_detects_a_window_covering_controls_but_not_bead() {
-        let at = PhysicalPosition { x: 1500, y: 20 };
-        let size = PhysicalSize {
-            width: 380,
-            height: 44,
-        };
-        let covered_controls = (1700, 20, 100, 44);
-        assert!(dock_probe_points(at, size, 1.0, false)
-            .iter()
-            .all(|&point| !super::super::rect_holds(covered_controls, point)));
-        assert!(dock_probe_points(at, size, 1.0, true)
-            .iter()
-            .any(|&point| super::super::rect_holds(covered_controls, point)));
-    }
-}
-
 /// Put the plate on screen beside `region`, returning the anchor it was placed on.
 pub fn show(app: &AppHandle, region: [i32; 4]) -> Result<(OverlayAnchor, f64), String> {
     let (anchor, scale) = anchor_for(app, region)?;
@@ -176,4 +155,25 @@ pub(super) fn raise_topmost(window: &WebviewWindow) -> Result<(), String> {
 #[cfg(not(windows))]
 pub(super) fn raise_topmost(_window: &WebviewWindow) -> Result<(), String> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expanded_dock_detects_a_window_covering_controls_but_not_bead() {
+        let at = PhysicalPosition { x: 1500, y: 20 };
+        let size = PhysicalSize {
+            width: 380,
+            height: 44,
+        };
+        let covered_controls = (1700, 20, 100, 44);
+        assert!(dock_probe_points(at, size, 1.0, false)
+            .iter()
+            .all(|&point| !super::super::rect_holds(covered_controls, point)));
+        assert!(dock_probe_points(at, size, 1.0, true)
+            .iter()
+            .any(|&point| super::super::rect_holds(covered_controls, point)));
+    }
 }
