@@ -30,12 +30,14 @@ class PlaybackCapture:
         self._sampled_at = -float("inf")
         self._owner: PlayerWindow | None = None
         self._audio: AudioObservation | None = None
+        self._selected_region: tuple[int, ...] | None = None
 
     def reset(self) -> None:
         self._observer.reset()
         self._owner = None
         self._audio = None
         self._sampled_at = -float("inf")
+        self._selected_region = None
 
     def _sample_audio(self, process_id: int) -> AudioObservation | None:
         # A device RPC that outlives the caller's deadline must not accumulate
@@ -77,6 +79,10 @@ class PlaybackCapture:
     async def _capture(
         self, grab: Callable, region: tuple[int, ...], at: float
     ) -> tuple[Image.Image, PlaybackState]:
+        changed_selection = self._selected_region is not None and region != self._selected_region
+        if changed_selection:
+            self.reset()
+        self._selected_region = region
         owner = await asyncio.to_thread(find_player_window, region)
         observed_region = owner.region if owner is not None else region
         image = await asyncio.to_thread(grab, observed_region)
@@ -88,4 +94,4 @@ class PlaybackCapture:
             x, y, width, height = region
             left, top, _, _ = observed_region
             image = image.crop((x - left, y - top, x - left + width, y - top + height))
-        return image, state
+        return image, PlaybackState.INVALIDATED if changed_selection else state

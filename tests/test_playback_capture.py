@@ -12,6 +12,25 @@ from meocosub2.timeline import PlaybackState
 
 
 @pytest.mark.asyncio
+async def test_reselecting_ocr_inside_the_same_player_invalidates_projection(monkeypatch):
+    player = PlayerWindow(11, (0, 0, 640, 480))
+    monkeypatch.setattr(capture, "find_player_window", lambda _: player)
+    monkeypatch.setattr(capture, "read_audio_sessions", lambda: [AudioSession(11, 1, 0.5)])
+    probe = capture.PlaybackCapture()
+
+    def grab(_):
+        return Image.new("RGB", (640, 480), "blue")
+
+    _, first = await probe.capture(grab, (50, 400, 400, 60), 0)
+    assert first is PlaybackState.ADVANCING
+    frame, changed = await probe.capture(grab, (100, 400, 400, 60), 0.4)
+    assert frame.size == (400, 60)
+    assert changed is PlaybackState.INVALIDATED
+    _, resumed = await probe.capture(grab, (100, 400, 400, 60), 0.8)
+    assert resumed is PlaybackState.ADVANCING
+
+
+@pytest.mark.asyncio
 async def test_one_player_capture_supplies_motion_and_the_unchanged_ocr_rectangle(monkeypatch):
     player = PlayerWindow(11, (-640, 0, 640, 480))
     region = (-600, 400, 400, 60)
