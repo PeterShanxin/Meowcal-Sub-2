@@ -99,33 +99,48 @@ async def test_audio_cache_is_bounded_and_cannot_follow_an_old_player(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_audio_timeout_is_unknown_and_does_not_accumulate_reader_workers(monkeypatch):
-    release, finished = threading.Event(), threading.Event()
+async def test_audio_deadline_returns_unknown_for_a_reader_that_does_not_complete(monkeypatch):
+    async def hung_reader(*_):
+        await asyncio.Future()
+
+    monkeypatch.setattr(capture.asyncio, "to_thread", hung_reader)
+    monkeypatch.setattr(capture, "AUDIO_TIMEOUT_S", 0.01)
+    probe = capture.PlaybackCapture()
+    assert await probe._read_audio(PlayerWindow(11, (0, 0, 640, 480)), 0) is None
+
+
+@pytest.mark.asyncio
+async def test_an_outstanding_audio_reader_prevents_more_workers(monkeypatch):
+    started, release, finished = threading.Event(), threading.Event(), threading.Event()
     count = 0
     now = 0.0
 
     def read():
         nonlocal count
         count += 1
-        release.wait(timeout=1)
+        started.set()
+        release.wait()
         finished.set()
         return []
 
     player = PlayerWindow(11, (0, 0, 640, 480))
-    monkeypatch.setattr(capture, "AUDIO_TIMEOUT_S", 0.01)
     monkeypatch.setattr(capture, "monotonic", lambda: now)
     monkeypatch.setattr(capture, "find_player_window", lambda _: player)
     monkeypatch.setattr(capture, "read_audio_sessions", read)
     observer = MagicMock()
     probe = capture.PlaybackCapture(observer)
+    worker = threading.Thread(target=probe._sample_audio, args=(player.process_id,))
+    worker.start()
     try:
+        assert await asyncio.to_thread(started.wait, 2)
         for now in (0.0, 0.6, 1.2):
             await probe.capture(lambda _: Image.new("RGB", (640, 480)), player.region, now)
             assert observer.observe.call_args.args[3] is None
         assert count == 1
     finally:
         release.set()
-        assert await asyncio.to_thread(finished.wait, 1)
+        await asyncio.to_thread(worker.join, 2)
+        assert finished.is_set() and not worker.is_alive()
 
 
 @pytest.mark.asyncio
