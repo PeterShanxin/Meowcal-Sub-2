@@ -49,6 +49,8 @@ def test_a_scene_cut_does_not_provide_continuous_motion_evidence() -> None:
     cut = ImageChops.invert(frame)
     observer.observe(frame, REGION, 0)
     assert observer.observe(cut, REGION, 0.25) is PlaybackState.UNCERTAIN
+    assert observer.observe(cut, REGION, 0.5) is PlaybackState.UNCERTAIN
+    assert observer.observe(cut, REGION, 0.75) is PlaybackState.UNCERTAIN
 
 
 def test_capture_region_change_or_long_gap_discards_old_sample() -> None:
@@ -56,7 +58,7 @@ def test_capture_region_change_or_long_gap_discards_old_sample() -> None:
     frame = video_frame()
     moving = ImageChops.offset(frame, 5, 0)
     observer.observe(frame, REGION, 0)
-    assert observer.observe(moving, (10, 0, 640, 240), 0.25) is PlaybackState.UNCERTAIN
+    assert observer.observe(moving, (10, 0, 640, 240), 0.25) is PlaybackState.INVALIDATED
     assert observer.observe(frame, (10, 0, 640, 240), 10) is PlaybackState.UNCERTAIN
     observer.reset()
     assert observer.observe(moving, (10, 0, 640, 240), 10.25) is PlaybackState.UNCERTAIN

@@ -77,12 +77,65 @@ def test_motion_does_not_rewrite_when_an_ocr_cue_first_appeared() -> None:
     assert timeline.predicted_ms(now=4) == 604_000
 
 
-def test_motion_cannot_extend_a_silent_scene_past_anchor_expiry() -> None:
+def test_continuous_motion_supports_a_long_dialogue_free_scene() -> None:
     timeline = anchored_at(600_000)
     timeline.clear_cue()
     for second in range(1, 121):
         timeline.observe_playback(PlaybackState.ADVANCING, now=float(second))
-    assert timeline.position_ms(now=120) is None
+    assert timeline.position_ms(now=120) == 720_000
+
+
+def test_motion_does_not_certify_a_subtitle_identity_forever() -> None:
+    timeline = anchored_at(600_000)
+    timeline.clear_cue()
+    for second in range(1, 302):
+        timeline.observe_playback(PlaybackState.ADVANCING, now=float(second))
+        timeline.position_ms(now=float(second))
+    assert timeline.position_ms(now=302) is None
+    assert not read(timeline, 900_000, 40, 100, now=302)
+    assert read(timeline, 903_000, 41, 100, now=305)
+
+
+def test_a_late_activity_sample_cannot_revive_an_expired_anchor() -> None:
+    timeline = anchored_at(600_000)
+    timeline.clear_cue()
+    timeline.observe_playback(PlaybackState.ADVANCING, now=100)
+    assert timeline.position_ms(now=100) is None
+
+
+def test_uncertainty_after_motion_withholds_timed_cues_without_claiming_pause() -> None:
+    timeline = anchored_at(600_000)
+    timeline.clear_cue()
+    timeline.observe_playback(PlaybackState.ADVANCING, now=10)
+    timeline.observe_playback(PlaybackState.UNCERTAIN, now=11)
+    assert timeline.position_ms(now=11.5) == 611_500
+    assert timeline.position_ms(now=15) is None
+    # Stillness cannot tell a paused frame from a silent static playing shot.
+    # Returning activity therefore cannot safely count or subtract this gap.
+    timeline.observe_playback(PlaybackState.ADVANCING, now=30)
+    assert timeline.position_ms(now=30) is None
+    assert not read(timeline, 612_000, 11, 100, now=30)
+    assert read(timeline, 615_000, 12, 100, now=33)
+
+
+def test_confirmed_stop_does_not_spend_the_activity_identity_budget() -> None:
+    timeline = anchored_at(600_000)
+    timeline.clear_cue()
+    timeline.observe_playback(PlaybackState.STOPPED, now=10)
+    for second in range(11, 501):
+        timeline.observe_playback(PlaybackState.STOPPED, now=float(second))
+    assert timeline.position_ms(now=500) == 610_000
+    timeline.observe_playback(PlaybackState.ADVANCING, now=501)
+    assert timeline.position_ms(now=502) == 611_000
+
+
+def test_invalidated_capture_or_source_requires_progressing_identity_evidence():
+    timeline = anchored_at(600_000)
+    timeline.observe_playback(PlaybackState.INVALIDATED, now=10)
+    timeline.observe_playback(PlaybackState.ADVANCING, now=11)
+    assert timeline.position_ms(now=11) is None
+    assert not read(timeline, 610_000, 11, 100, now=12)
+    assert read(timeline, 613_000, 12, 100, now=15)
 
 
 def test_lost_motion_evidence_allows_stale_anchor_to_expire() -> None:
@@ -113,7 +166,8 @@ def test_uncertain_image_does_not_prove_a_pause_without_a_cue() -> None:
     timeline = anchored_at(600_000)
     timeline.clear_cue()
     timeline.observe_playback(PlaybackState.UNCERTAIN, now=10)
-    assert timeline.position_ms(now=30) == 630_000
+    assert timeline.predicted_ms(now=12) == 612_000
+    assert timeline.position_ms(now=30) is None
 
 
 def test_motion_does_not_restore_an_anchor_dropped_by_conflicting_matches() -> None:

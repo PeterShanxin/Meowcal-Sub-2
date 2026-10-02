@@ -104,7 +104,8 @@ Later changes record these measured limits:
 | `sync.py` | 824 | 826 | pass the captured position to matching and clear direct-translation target cue memory |
 | `overlay/ui/src/app.tsx` | 1581 | 1584 | pass the selected target language to the subtitle preview instead of displaying a fixed language |
 | `sync.py` | 826 | 827 | require stable direct OCR reads before translation and break confirmation across empty frames |
-| `sync.py` | 827 | 909 | clear a prior cue as soon as an unanswered one begins, translate it once, ignore stale answers, release confirmed spans after their last cue, and pass frame motion evidence to the playback clock |
+  | `sync.py` | 827 | 909 | clear a prior cue as soon as an unanswered one begins, translate it once, ignore stale answers, release confirmed spans after their last cue, and pass frame motion evidence to the playback clock |
+  | `sync.py` | 909 | 907 | keep player capture/audio ownership in the playback adapter and invalidate timing on capture failure |
 
 | `overlay/controller.py` | 2060 | 2105 | own the guarded read/save boundary for prepared subtitle edits and reject stale starts; document IO and playback rebuilding live in the subtitle editor module |
 | `overlay/controller.py` | 2105 | 2112 | report automatic playback checks from each preparation mode using the shared subtitle loader |

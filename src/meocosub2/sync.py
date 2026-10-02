@@ -21,6 +21,7 @@ from meocosub2.engine import EngineInstallError, EngineStartError
 from meocosub2.gapfill import fill_gaps
 from meocosub2.matcher import BOTH, FOLLOW_GRACE_MS, SubtitleMatcher
 from meocosub2.models import MatchResult, SourceSubtitleCandidate, SubtitleLine
+from meocosub2.playback_capture import PlaybackCapture, PlaybackCaptureError
 from meocosub2.playback_observation import PlaybackObserver
 from meocosub2.presentation import PresentationTrack
 from meocosub2.semantic import SemanticError, SemanticIndex
@@ -566,7 +567,7 @@ async def run_session_loop(
     read_region = region_source or (lambda: tuple(config.capture_region))
     interval_s = config.capture_interval_ms / 1000
     gate = SubtitleGate(require_stable_read=isinstance(session, DirectTranslationSession))
-    playback_observer = PlaybackObserver()
+    playback_capture = PlaybackCapture(PlaybackObserver())
     screen = _Screen()
     pending: asyncio.Task[None] | None = None
     pending_cue: tuple[str, int, int] | None = None
@@ -834,13 +835,8 @@ async def run_session_loop(
             detail: dict[str, object] = {}
             try:
                 region = read_region()
-                try:
-                    image = await asyncio.to_thread(capture_region, region)
-                except Exception:
-                    playback_observer.reset()
-                    session.observe_playback(PlaybackState.UNCERTAIN, started)
-                    raise
-                session.observe_playback(playback_observer.observe(image, region, started), started)
+                image, playback = await playback_capture.capture(capture_region, region, started)
+                session.observe_playback(playback, started)
                 ocr_text = await ocr_image(image, config.ocr_language)
 
                 if is_untranslatable(ocr_text):
@@ -883,7 +879,9 @@ async def run_session_loop(
                         detail = await handle(ocr_text, fresh=True)
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as error:
+                if isinstance(error, PlaybackCaptureError):
+                    session.observe_playback(PlaybackState.INVALIDATED, started)
                 logger.exception("Capture loop #%d failed (ocr=%r)", iteration, ocr_text[:60])
 
             nudge.set()

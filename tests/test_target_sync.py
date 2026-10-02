@@ -194,6 +194,16 @@ async def test_all_rapid_targets_play_while_ocr_stalls(monkeypatch):
     clock_asyncio.to_thread = inline_to_thread
     monkeypatch.setattr(sync, "asyncio", clock_asyncio)
 
+    # The scheduler owns virtual time here; real player lookup/worker scheduling
+    # must not spend that time before the first captured cue is recognized.
+    from meocosub2.timeline import PlaybackState
+
+    class Capture:
+        async def capture(self, grab, region, at):
+            return grab(region), PlaybackState.ADVANCING
+
+    monkeypatch.setattr(sync, "PlaybackCapture", lambda _: Capture())
+
     session = make_session(
         [cue(0, 0, 1500, "A single long source sentence")],
         # Shorter than the 200 ms fallback poll.

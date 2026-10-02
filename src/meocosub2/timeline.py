@@ -39,8 +39,14 @@ CONFIRMATION_MAX_AGE_S = 15.0
 # Consecutive rejected matches before the anchor is treated as wrong rather than
 # the reads as unlucky. Without this a bad anchor can never be escaped.
 ANCHOR_ABANDON_MISSES = 8
-# An anchor nothing has agreed with for this long is not describing this video.
+# Without recent matching or playback evidence, the clock is no longer usable.
 ANCHOR_MAX_AGE_S = 90.0
+# Activity establishes progression, not subtitle identity. Even uninterrupted
+# activity must eventually corroborate the selected file with new dialogue.
+ACTIVITY_IDENTITY_MAX_S = 300.0
+# A brief ambiguous frame can be a cut. Beyond this, neither advancing through
+# a pause nor subtracting a silent static shot is a defensible clock estimate.
+UNCERTAIN_GRACE_S = 3.0
 # The longest a single subtitle is assumed to genuinely stay on screen. Past
 # this the viewer has paused, and the clock should not run on without them.
 CUE_HOLD_S = 6.0
@@ -50,6 +56,7 @@ class PlaybackState(Enum):
     ADVANCING = "advancing"
     STOPPED = "stopped"
     UNCERTAIN = "uncertain"
+    INVALIDATED = "invalidated"
 
 
 @dataclass
@@ -72,6 +79,9 @@ class PlaybackTimeline:
     def __init__(self) -> None:
         self._anchor_ms: int | None = None
         self._anchor_at = 0.0
+        self._supported_at = 0.0
+        self._has_activity_evidence = False
+        self._uncertain_since: float | None = None
         self._paused_s = 0.0
         self._stopped_since: float | None = None
         self._cue_since: float | None = None
@@ -164,11 +174,22 @@ class PlaybackTimeline:
     def observe_playback(self, state: PlaybackState, now: float | None = None) -> None:
         """Apply playback evidence without treating image activity as a subtitle match."""
         now = monotonic() if now is None else now
+        # Check before refreshing: a late sample cannot revive an expired or
+        # ambiguous position. Only progressing subtitle evidence can replace it.
+        self._expire_stale_anchor(now)
+        if state is PlaybackState.INVALIDATED:
+            self.invalidate()
+            return
+        if state is PlaybackState.UNCERTAIN:
+            if self._uncertain_since is None:
+                self._uncertain_since = now
+            return
+        self._supported_at = now
+        self._has_activity_evidence = True
+        self._uncertain_since = None
         if state is PlaybackState.STOPPED:
             if self._stopped_since is None:
                 self._stopped_since = now
-            return
-        if state is PlaybackState.UNCERTAIN:
             return
         if self._stopped_since is not None:
             self._paused_s += max(0.0, now - self._stopped_since)
@@ -307,6 +328,8 @@ class PlaybackTimeline:
     def _anchor(self, line_start_ms: int, at: float, drift: int | None) -> None:
         self._anchor_ms = line_start_ms
         self._anchor_at = at
+        self._supported_at = at
+        self._uncertain_since = None
         self._paused_s = 0.0
         self._stopped_since = None
         # The cue this line was matched from went up at the same moment the
@@ -325,25 +348,44 @@ class PlaybackTimeline:
     def _forget_anchor_if_hopeless(self) -> None:
         if self._misses >= ANCHOR_ABANDON_MISSES:
             logger.debug("Timeline dropped its anchor after %d rejected matches", self._misses)
-            cue_since = self._cue_since
-            self.reset()
-            self._cue_since = cue_since
-            self._recovering = True
+            self.invalidate()
+
+    def invalidate(self) -> None:
+        """Drop projection while retaining an in-flight cue's capture time."""
+        cue_since = self._cue_since
+        self.reset()
+        self._cue_since = cue_since
+        self._recovering = True
 
     def _expire_stale_anchor(self, now: float) -> None:
-        if self._anchor_ms is not None and now - self._anchor_at > ANCHOR_MAX_AGE_S:
+        if self._anchor_ms is None:
+            return
+        running = self._running_ms(now)
+        ambiguous = (
+            self._uncertain_since is not None
+            and self._stopped_since is None
+            and now - self._uncertain_since > UNCERTAIN_GRACE_S
+        )
+        identity_overdue = (
+            self._has_activity_evidence
+            and running is not None
+            and running - self._anchor_ms > ACTIVITY_IDENTITY_MAX_S * 1000
+        )
+        if ambiguous or identity_overdue or now - self._supported_at > ANCHOR_MAX_AGE_S:
             logger.debug(
-                "Timeline dropped an anchor nothing agreed with for %.0fs", ANCHOR_MAX_AGE_S
+                "Timeline invalidated projection (ambiguous=%s, identity_overdue=%s)",
+                ambiguous,
+                identity_overdue,
             )
             # Expiry can run between a frame's capture and its OCR result.
-            cue_since = self._cue_since
-            self.reset()
-            self._cue_since = cue_since
-            self._recovering = True
+            self.invalidate()
 
     def reset(self) -> None:
         self._anchor_ms = None
         self._anchor_at = 0.0
+        self._supported_at = 0.0
+        self._has_activity_evidence = False
+        self._uncertain_since = None
         self._paused_s = 0.0
         self._stopped_since = None
         self._cue_since = None

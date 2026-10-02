@@ -138,6 +138,9 @@ async def test_silence_releases_the_clock_and_same_phrase_can_match_again(monkey
     import meocosub2.sync as sync
     import meocosub2.timeline as timeline
 
+    observer = MagicMock()
+    observer.observe.return_value = timeline.PlaybackState.ADVANCING
+    monkeypatch.setattr(sync, "PlaybackObserver", lambda: observer)
     clock = 0.0
     monkeypatch.setattr(timeline, "monotonic", lambda: clock)
     monkeypatch.setattr(sync, "monotonic", lambda: clock)
