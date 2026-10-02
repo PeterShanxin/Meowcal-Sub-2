@@ -866,7 +866,7 @@ async def test_the_lag_never_reads_behind_the_line_that_anchored_the_clock() -> 
 
 
 @pytest.mark.asyncio
-async def test_cues_changing_faster_than_a_poll_are_all_drawn(monkeypatch) -> None:
+async def test_cues_changing_faster_than_a_poll_are_all_drawn(monkeypatch, scheduler_clock) -> None:
     """Fast dialogue changes cue faster than any poll worth running notices.
 
     Each line is scheduled at the timestamp the file gives it, so a cue that is
@@ -884,9 +884,12 @@ async def test_cues_changing_faster_than_a_poll_are_all_drawn(monkeypatch) -> No
     ]
     session = CandidateSession([make_candidate("a", lines)], config(), never_translates())
     broadcasts: list[str] = []
+    completed = asyncio.Event()
 
     async def broadcast(text: str, source: str) -> None:
         broadcasts.append(text)
+        if len([value for value in broadcasts if value]) == 3:
+            completed.set()
 
     reads = ["Hello there"]
 
@@ -894,28 +897,18 @@ async def test_cues_changing_faster_than_a_poll_are_all_drawn(monkeypatch) -> No
         if reads:
             return reads.pop(0)
         # OCR stalls, which is the case this whole mechanism exists for.
-        await asyncio.sleep(10)
-        return ""
+        await asyncio.Event().wait()
 
-    original_ocr, original_capture = sync_module.ocr_image, sync_module.capture_region
-    sync_module.ocr_image = ocr
-    sync_module.capture_region = lambda region: MagicMock()
+    monkeypatch.setattr(sync_module, "ocr_image", ocr)
+    monkeypatch.setattr(sync_module, "capture_region", lambda region: MagicMock())
+    loop = asyncio.create_task(run_session_loop(session, config(), broadcast))
     try:
-        loop = asyncio.create_task(run_session_loop(session, config(), broadcast))
-        # Waited for rather than timed. A fixed window measures how quickly the
-        # runner gets the first match anchored as much as it measures the
-        # scheduling, and the last cue is drawn 60ms after the one before it.
-        # An implementation that polls still never produces the middle cue,
-        # however long this waits.
-        deadline = monotonic() + 5.0
-        while len([text for text in broadcasts if text]) < 3 and monotonic() < deadline:
-            await asyncio.sleep(0.01)
+        # Virtual deadlines keep the 40ms cue measurable under a busy CI host.
+        await asyncio.wait_for(completed.wait(), 5)
+    finally:
         loop.cancel()
         with pytest.raises(asyncio.CancelledError):
             await loop
-    finally:
-        sync_module.ocr_image = original_ocr
-        sync_module.capture_region = original_capture
 
     assert [text for text in broadcasts if text] == ["你好", "再见", "回见"]
 
