@@ -199,6 +199,11 @@ async def test_all_rapid_targets_play_while_ocr_stalls(monkeypatch):
     from meocosub2.timeline import PlaybackState
 
     class Capture:
+        confidence = 1.0
+
+        def observe_text(self, text, at, captured):
+            return captured
+
         async def capture(self, grab, region, at):
             return grab(region), PlaybackState.ADVANCING
 

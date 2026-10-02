@@ -30,7 +30,9 @@ def test_slow_motion_survives_half_second_capture_jitter_and_stillness_does_not(
     ]
     assert states[-3:] == [PlaybackState.ADVANCING] * 3
     paused = ImageChops.offset(frame, int(2.55 * 32), 0)
-    for now in (3.06, 3.57, 4.08):
+    # Hysteresis retains a brief motion observation, then releases it.
+    observer.observe(paused, REGION, 3.06)
+    for now in (3.57, 4.08):
         assert observer.observe(paused, REGION, now) is PlaybackState.UNCERTAIN
 
 

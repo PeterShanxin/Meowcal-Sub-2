@@ -1,0 +1,1367 @@
+{
+  "scope": "Authored physical Windows ARM64 FFplay and Edge screenshots, native pause/resume input, Core OCR and read-only WASAPI levels. Not a population probability or proof of media time.",
+  "featureOrder": [
+    "motion",
+    "ocrChange",
+    "audible",
+    "silent",
+    "ocrStable",
+    "still"
+  ],
+  "sources": [
+    {
+      "name": "hybrid-calibration-valid",
+      "samples": 154,
+      "sha256": "20fdd5460701bc8900233cef4e03f4d6d349ed3afdd2dcb661598a4b2fa65212"
+    },
+    {
+      "name": "hybrid-calibration-text",
+      "samples": 44,
+      "sha256": "bc95ef215c373f82afe8137d087384f91955926708074667f5f79d2b9afd1d83"
+    },
+    {
+      "name": "hybrid-browser-calibration-physical",
+      "samples": 68,
+      "sha256": "a9460e9dfe7f5cb84fdc6461130a4217a08a3a5ba9666d6969d108c923dbca77"
+    },
+    {
+      "name": "hybrid-browser-overlay-negative",
+      "samples": 22,
+      "sha256": "99a92f1966ab326fdc9b88649660e9860852bfbab52b8832a17c56ece94101dd"
+    }
+  ],
+  "ambiguity": "Static silent playing and paused pixels overlap. Unknown browser audio and changed overlays overlap. Ambiguous static observations receive paired opposite labels; no elapsed pause is inferred.",
+  "fit": {
+    "iterations": 2500,
+    "learningRate": 0.2,
+    "ridge": 0.005
+  },
+  "rows": [
+    {
+      "case": "moving-audio",
+      "features": [
+        false,
+        false,
+        true,
+        false,
+        false,
+        false
+      ],
+      "label": 1,
+      "count": 1
+    },
+    {
+      "case": "moving-audio",
+      "features": [
+        false,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 9
+    },
+    {
+      "case": "moving-audio",
+      "features": [
+        true,
+        false,
+        true,
+        false,
+        false,
+        false
+      ],
+      "label": 1,
+      "count": 1
+    },
+    {
+      "case": "moving-audio",
+      "features": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 8
+    },
+    {
+      "case": "moving-audio",
+      "features": [
+        true,
+        true,
+        true,
+        false,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 3
+    },
+    {
+      "case": "moving-audio-pause",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true
+      ],
+      "label": 0,
+      "count": 3
+    },
+    {
+      "case": "moving-audio-pause",
+      "features": [
+        false,
+        false,
+        true,
+        false,
+        false,
+        false
+      ],
+      "label": 1,
+      "count": 1
+    },
+    {
+      "case": "moving-audio-pause",
+      "features": [
+        false,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 8
+    },
+    {
+      "case": "moving-audio-pause",
+      "features": [
+        false,
+        true,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 0,
+      "count": 2
+    },
+    {
+      "case": "moving-audio-pause",
+      "features": [
+        false,
+        true,
+        false,
+        true,
+        true,
+        true
+      ],
+      "label": 0,
+      "count": 1
+    },
+    {
+      "case": "moving-audio-pause",
+      "features": [
+        true,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "label": 0,
+      "count": 1
+    },
+    {
+      "case": "moving-audio-pause",
+      "features": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 6
+    },
+    {
+      "case": "moving-audio-pause-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true
+      ],
+      "label": 1,
+      "count": 3
+    },
+    {
+      "case": "moving-silent",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "label": 1,
+      "count": 1
+    },
+    {
+      "case": "moving-silent",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 11
+    },
+    {
+      "case": "moving-silent",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "label": 1,
+      "count": 2
+    },
+    {
+      "case": "moving-silent",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 4
+    },
+    {
+      "case": "moving-silent",
+      "features": [
+        true,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "label": 1,
+      "count": 1
+    },
+    {
+      "case": "moving-silent",
+      "features": [
+        true,
+        false,
+        false,
+        false,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 6
+    },
+    {
+      "case": "moving-silent",
+      "features": [
+        true,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 3
+    },
+    {
+      "case": "moving-silent",
+      "features": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 3
+    },
+    {
+      "case": "moving-silent",
+      "features": [
+        true,
+        true,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 3
+    },
+    {
+      "case": "moving-silent-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "label": 0,
+      "count": 1
+    },
+    {
+      "case": "moving-silent-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        false
+      ],
+      "label": 0,
+      "count": 11
+    },
+    {
+      "case": "moving-silent-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "label": 0,
+      "count": 2
+    },
+    {
+      "case": "moving-silent-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 0,
+      "count": 4
+    },
+    {
+      "case": "paused",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "label": 0,
+      "count": 1
+    },
+    {
+      "case": "paused",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 0,
+      "count": 2
+    },
+    {
+      "case": "paused",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true
+      ],
+      "label": 0,
+      "count": 5
+    },
+    {
+      "case": "paused-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "label": 1,
+      "count": 1
+    },
+    {
+      "case": "paused-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 2
+    },
+    {
+      "case": "paused-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true
+      ],
+      "label": 1,
+      "count": 5
+    },
+    {
+      "case": "paused-overlay",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "label": 0,
+      "count": 2
+    },
+    {
+      "case": "paused-overlay",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        true
+      ],
+      "label": 0,
+      "count": 3
+    },
+    {
+      "case": "paused-overlay",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 0,
+      "count": 2
+    },
+    {
+      "case": "paused-overlay",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true
+      ],
+      "label": 0,
+      "count": 5
+    },
+    {
+      "case": "paused-overlay",
+      "features": [
+        false,
+        true,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 0,
+      "count": 1
+    },
+    {
+      "case": "paused-overlay",
+      "features": [
+        false,
+        true,
+        false,
+        true,
+        true,
+        true
+      ],
+      "label": 0,
+      "count": 9
+    },
+    {
+      "case": "paused-overlay-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "label": 1,
+      "count": 2
+    },
+    {
+      "case": "paused-overlay-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        true
+      ],
+      "label": 1,
+      "count": 3
+    },
+    {
+      "case": "paused-overlay-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 2
+    },
+    {
+      "case": "paused-overlay-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true
+      ],
+      "label": 1,
+      "count": 5
+    },
+    {
+      "case": "resumed",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "label": 1,
+      "count": 1
+    },
+    {
+      "case": "resumed",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 6
+    },
+    {
+      "case": "resumed",
+      "features": [
+        true,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 5
+    },
+    {
+      "case": "resumed-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "label": 0,
+      "count": 1
+    },
+    {
+      "case": "resumed-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 0,
+      "count": 6
+    },
+    {
+      "case": "static-audio",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 3
+    },
+    {
+      "case": "static-audio",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true
+      ],
+      "label": 1,
+      "count": 7
+    },
+    {
+      "case": "static-audio",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "label": 1,
+      "count": 1
+    },
+    {
+      "case": "static-audio",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 1
+    },
+    {
+      "case": "static-audio",
+      "features": [
+        false,
+        false,
+        true,
+        false,
+        false,
+        false
+      ],
+      "label": 1,
+      "count": 1
+    },
+    {
+      "case": "static-audio",
+      "features": [
+        false,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 3
+    },
+    {
+      "case": "static-audio",
+      "features": [
+        false,
+        false,
+        true,
+        false,
+        true,
+        true
+      ],
+      "label": 1,
+      "count": 18
+    },
+    {
+      "case": "static-audio-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        false
+      ],
+      "label": 0,
+      "count": 3
+    },
+    {
+      "case": "static-audio-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true
+      ],
+      "label": 0,
+      "count": 7
+    },
+    {
+      "case": "static-audio-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "label": 0,
+      "count": 1
+    },
+    {
+      "case": "static-audio-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 0,
+      "count": 1
+    },
+    {
+      "case": "static-changing-audio",
+      "features": [
+        false,
+        false,
+        true,
+        false,
+        false,
+        false
+      ],
+      "label": 1,
+      "count": 1
+    },
+    {
+      "case": "static-changing-audio",
+      "features": [
+        false,
+        false,
+        true,
+        false,
+        false,
+        true
+      ],
+      "label": 1,
+      "count": 4
+    },
+    {
+      "case": "static-changing-audio",
+      "features": [
+        false,
+        false,
+        true,
+        false,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 3
+    },
+    {
+      "case": "static-changing-audio",
+      "features": [
+        false,
+        false,
+        true,
+        false,
+        true,
+        true
+      ],
+      "label": 1,
+      "count": 4
+    },
+    {
+      "case": "static-changing-audio",
+      "features": [
+        false,
+        true,
+        true,
+        false,
+        true,
+        true
+      ],
+      "label": 1,
+      "count": 10
+    },
+    {
+      "case": "static-changing-silent",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "label": 1,
+      "count": 1
+    },
+    {
+      "case": "static-changing-silent",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "label": 1,
+      "count": 4
+    },
+    {
+      "case": "static-changing-silent",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 3
+    },
+    {
+      "case": "static-changing-silent",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true
+      ],
+      "label": 1,
+      "count": 4
+    },
+    {
+      "case": "static-changing-silent",
+      "features": [
+        false,
+        true,
+        false,
+        false,
+        true,
+        true
+      ],
+      "label": 1,
+      "count": 10
+    },
+    {
+      "case": "static-changing-silent-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "label": 0,
+      "count": 1
+    },
+    {
+      "case": "static-changing-silent-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "label": 0,
+      "count": 4
+    },
+    {
+      "case": "static-changing-silent-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        false
+      ],
+      "label": 0,
+      "count": 3
+    },
+    {
+      "case": "static-changing-silent-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true
+      ],
+      "label": 0,
+      "count": 4
+    },
+    {
+      "case": "static-silent",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "label": 1,
+      "count": 1
+    },
+    {
+      "case": "static-silent",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 3
+    },
+    {
+      "case": "static-silent",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true
+      ],
+      "label": 1,
+      "count": 18
+    },
+    {
+      "case": "static-silent",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "label": 1,
+      "count": 1
+    },
+    {
+      "case": "static-silent",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 3
+    },
+    {
+      "case": "static-silent",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true
+      ],
+      "label": 1,
+      "count": 8
+    },
+    {
+      "case": "static-silent-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "label": 0,
+      "count": 1
+    },
+    {
+      "case": "static-silent-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        false
+      ],
+      "label": 0,
+      "count": 3
+    },
+    {
+      "case": "static-silent-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true
+      ],
+      "label": 0,
+      "count": 18
+    },
+    {
+      "case": "static-silent-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "label": 0,
+      "count": 1
+    },
+    {
+      "case": "static-silent-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 0,
+      "count": 3
+    },
+    {
+      "case": "static-silent-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true
+      ],
+      "label": 0,
+      "count": 8
+    },
+    {
+      "case": "static-zero-audio",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "label": 1,
+      "count": 1
+    },
+    {
+      "case": "static-zero-audio",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 3
+    },
+    {
+      "case": "static-zero-audio",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true
+      ],
+      "label": 1,
+      "count": 18
+    },
+    {
+      "case": "static-zero-audio-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "label": 0,
+      "count": 1
+    },
+    {
+      "case": "static-zero-audio-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 0,
+      "count": 3
+    },
+    {
+      "case": "static-zero-audio-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true
+      ],
+      "label": 0,
+      "count": 18
+    },
+    {
+      "case": "unrelated-audio",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "label": 1,
+      "count": 1
+    },
+    {
+      "case": "unrelated-audio",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 3
+    },
+    {
+      "case": "unrelated-audio",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true
+      ],
+      "label": 1,
+      "count": 25
+    },
+    {
+      "case": "unrelated-audio",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "label": 1,
+      "count": 1
+    },
+    {
+      "case": "unrelated-audio",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 1,
+      "count": 2
+    },
+    {
+      "case": "unrelated-audio",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true
+      ],
+      "label": 1,
+      "count": 2
+    },
+    {
+      "case": "unrelated-audio-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "label": 0,
+      "count": 1
+    },
+    {
+      "case": "unrelated-audio-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        false
+      ],
+      "label": 0,
+      "count": 3
+    },
+    {
+      "case": "unrelated-audio-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true
+      ],
+      "label": 0,
+      "count": 25
+    },
+    {
+      "case": "unrelated-audio-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ],
+      "label": 0,
+      "count": 1
+    },
+    {
+      "case": "unrelated-audio-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        false
+      ],
+      "label": 0,
+      "count": 2
+    },
+    {
+      "case": "unrelated-audio-ambiguous-counterfactual",
+      "features": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true
+      ],
+      "label": 0,
+      "count": 2
+    }
+  ]
+}

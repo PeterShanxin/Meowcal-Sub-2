@@ -31,6 +31,12 @@ class PlayerWindow:
     region: tuple[int, int, int, int]
 
 
+@dataclass(frozen=True)
+class VisualContext:
+    process_id: int
+    region: tuple[int, int, int, int]
+
+
 def contains(outer: tuple[int, ...], inner: tuple[int, ...]) -> bool:
     if len(outer) != 4 or len(inner) != 4 or min(*outer[2:], *inner[2:]) <= 0:
         return False
@@ -154,3 +160,57 @@ def _find_player_window(user, region: tuple[int, ...]) -> PlayerWindow | None:
     ):
         return None
     return PlayerWindow(pid.value, client)
+
+
+def context_region(client: tuple[int, ...], selected: tuple[int, ...]) -> tuple[int, ...] | None:
+    """Keep a subtitle crop and its nearby image inside the selected window."""
+    if not contains(client, selected):
+        return None
+    x, y, width, height = selected
+    bottom = y + height
+    top = max(client[1], bottom - max(height, width * 9 // 16))
+    return (x, top, width, bottom - top) if width >= 320 and bottom - top >= 180 else None
+
+
+def find_visual_context(region: tuple[int, ...]) -> VisualContext | None:
+    """Window geometry supplies nearby pixels, never browser transport state."""
+    if os.name != "nt" or len(region) != 4 or min(region[2:]) <= 0:
+        return None
+    user = _api()
+    previous = user.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
+    if not previous:
+        return None
+    try:
+        x, y, width, height = region
+        roots = [
+            user.GetAncestor(
+                user.WindowFromPoint(wintypes.POINT(x + width * part // 4, y + height // 2)), 2
+            )
+            for part in (1, 2, 3)
+        ]
+        if not roots[0] or any(window != roots[0] for window in roots):
+            return None
+        window = roots[0]
+        name = ctypes.create_unicode_buffer(256)
+        user.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+        user.GetClassNameW(window, name, 256)
+        if name.value in ("Progman", "WorkerW", "LockScreenBackstopFrame"):
+            return None
+        client = _client_region(user, window)
+        observed = context_region(client, region) if client else None
+        if observed is None:
+            return None
+        x, y, width, height = observed
+        if any(
+            user.GetAncestor(
+                user.WindowFromPoint(wintypes.POINT(x + width * part // 4, y + height // 4)), 2
+            )
+            != window
+            for part in (1, 2, 3)
+        ):
+            return None
+        pid = wintypes.DWORD()
+        user.GetWindowThreadProcessId(window, ctypes.byref(pid))
+        return VisualContext(pid.value, observed)
+    finally:
+        user.SetThreadDpiAwarenessContext(previous)

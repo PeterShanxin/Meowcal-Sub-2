@@ -7,7 +7,7 @@ from PIL import Image
 
 import meocosub2.playback_capture as capture
 from meocosub2.audio_observation import AudioObservation, AudioSession
-from meocosub2.player_window import PlayerWindow
+from meocosub2.player_window import PlayerWindow, VisualContext
 from meocosub2.timeline import PlaybackState
 
 
@@ -58,6 +58,7 @@ async def test_unattributed_capture_keeps_the_selected_rectangle_and_does_not_re
     monkeypatch,
 ):
     monkeypatch.setattr(capture, "find_player_window", lambda _: None)
+    monkeypatch.setattr(capture, "find_visual_context", lambda _: None)
     reader = MagicMock(side_effect=AssertionError("must not read system audio"))
     monkeypatch.setattr(capture, "read_audio_sessions", reader)
     image = Image.new("RGB", (400, 60))
@@ -96,6 +97,21 @@ async def test_audio_cache_is_bounded_and_cannot_follow_an_old_player(monkeypatc
     reader.return_value = None
     await probe.capture(grab, player.region, now)
     assert observer.observe.call_args.args[3] is None
+
+
+@pytest.mark.asyncio
+async def test_browser_geometry_supplies_nearby_pixels_and_weak_audio_only(monkeypatch):
+    context = VisualContext(11, (-600, 100, 640, 360))
+    monkeypatch.setattr(capture, "find_player_window", lambda _: None)
+    monkeypatch.setattr(capture, "find_visual_context", lambda _: context)
+    monkeypatch.setattr(capture, "read_audio_sessions", lambda: [AudioSession(12, 1, 0.5)])
+    observer = MagicMock()
+    image = Image.new("RGB", (640, 360), "blue")
+    grab = MagicMock(return_value=image)
+    frame, _ = await capture.PlaybackCapture(observer).capture(grab, (-600, 400, 640, 60), 0)
+    grab.assert_called_once_with(context.region)
+    assert frame.size == (640, 60)
+    assert observer.observe.call_args.args[3:] == (AudioObservation(0, True, 0.5, False), 11)
 
 
 @pytest.mark.asyncio

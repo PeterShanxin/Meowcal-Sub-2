@@ -45,20 +45,20 @@ def test_static_video_with_associated_running_audio_advances():
         )
 
 
-def test_stillness_and_a_previously_running_stream_stop_can_confirm_stop():
+def test_stream_stopping_is_ambiguous_and_never_supplies_pause_duration():
     observer = PlaybackObserver()
     frame = video_frame()
     observer.observe(frame, REGION, 0, AudioObservation(11, True, 0.5), 11)
     assert (
         observer.observe(frame, REGION, 0.25, AudioObservation(11, False, 0), 11)
+        is PlaybackState.ADVANCING
+    )
+    assert (
+        observer.observe(frame, REGION, 1, AudioObservation(11, False, 0), 11)
         is PlaybackState.UNCERTAIN
     )
     assert (
-        observer.observe(frame, REGION, 0.75, AudioObservation(11, False, 0), 11)
-        is PlaybackState.STOPPED
-    )
-    assert (
-        observer.observe(frame, REGION, 1, AudioObservation(11, True, 0.5), 11)
+        observer.observe(frame, REGION, 1.25, AudioObservation(11, True, 0.5), 11)
         is PlaybackState.ADVANCING
     )
 
@@ -83,7 +83,7 @@ def test_unrelated_audio_cannot_keep_a_paused_player_advancing():
     observer = PlaybackObserver()
     frame = video_frame()
     observer.observe(frame, REGION, 0, AudioObservation(11, True, 0.5), 11)
-    for now in (0.25, 0.75, 1):
+    for now in (1, 1.25, 1.5):
         assert (
             observer.observe(frame, REGION, now, AudioObservation(12, True, 1), 11)
             is PlaybackState.UNCERTAIN

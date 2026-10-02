@@ -52,6 +52,7 @@ Recorded ceiling changes and their reasons:
 
 | File | From | To | Why |
 | --- | ---: | ---: | --- |
+| `sync.py` | 907 | 917 | combining confirmed OCR changes with captured progression evidence, reporting its score, and clearing stale plates and cue deduplication when a lost clock falls back to visible text |
 | `matcher.py` | 405 | 492 | drawing the cues that genuinely run at once, and only those |
 | `matcher.py` | 492 | 516 | flattening a cue the file wrapped, so a row on the plate means a second voice |
 | `sync.py` | 614 | 634 | holding the plate behind the dialogue, and keeping stale answers off it |

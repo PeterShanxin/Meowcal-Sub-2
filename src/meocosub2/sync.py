@@ -594,6 +594,10 @@ async def run_session_loop(
 
     async def clear_plate() -> None:
         nonlocal pending, pending_cue
+        # A lost clock cannot keep the old cue's deduplication cache: the same
+        # visible words must be allowed onto the live translation path again.
+        gate.clear()
+        session.clear_cue()
         if pending is not None:
             pending.cancel()
             pending = None
@@ -838,6 +842,11 @@ async def run_session_loop(
                 image, playback = await playback_capture.capture(capture_region, region, started)
                 session.observe_playback(playback, started)
                 ocr_text = await ocr_image(image, config.ocr_language)
+                combined = playback_capture.observe_text(ocr_text, started, playback)
+                if combined is not playback:
+                    session.observe_playback(combined, started)
+                if screen.matched and not session.anchored:
+                    await clear_plate()
 
                 if is_untranslatable(ocr_text):
                     gate.interrupt_read()
@@ -895,6 +904,7 @@ async def run_session_loop(
                         "displayed": screen.text[:60],
                         "source": MATCHED if screen.matched else TRANSLATED,
                         "elapsedMs": int((monotonic() - started) * 1000),
+                        "playingConfidence": round(playback_capture.confidence, 3),
                         **detail,
                     }
                 )

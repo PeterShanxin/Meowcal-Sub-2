@@ -776,6 +776,7 @@ async def test_captured_motion_reaches_the_playback_timeline(monkeypatch) -> Non
     session = CandidateSession([make_candidate("a", paired_lines())], config(), never_translates())
     observer = MagicMock()
     observer.observe.return_value = PlaybackState.ADVANCING
+    observer.observe_text.return_value = PlaybackState.ADVANCING
     monkeypatch.setattr(sync, "PlaybackObserver", lambda: observer)
     observe_playback = MagicMock(wraps=session.observe_playback)
     session.observe_playback = observe_playback
@@ -785,6 +786,47 @@ async def test_captured_motion_reaches_the_playback_timeline(monkeypatch) -> Non
     observer.observe.assert_called()
     assert all(call.args[0] is PlaybackState.ADVANCING for call in observe_playback.call_args_list)
     assert observe_playback.call_count == observer.observe.call_count
+
+
+async def test_lost_clock_translates_same_visible_text_without_reanchoring(monkeypatch):
+    import meocosub2.sync as sync
+    from meocosub2.timeline import PlaybackState
+
+    client = MagicMock()
+    client.translate = AsyncMock(return_value="Current visible translation")
+    source = [SubtitleLine(0, 0, 10000, "Hello there")]
+    target = [SubtitleLine(0, 0, 10000, "File presentation")]
+    candidate = make_candidate("a", source)
+    candidate.pair.target_lines = target
+    session = CandidateSession(
+        [candidate], config(), translator_factory(LiveTranslator(client, "en", "zh"))
+    )
+
+    class Capture:
+        confidence = 0.5
+        count = 0
+
+        async def capture(self, grab, region, at):
+            # Give the renderer time to clear the stale file plate.
+            await asyncio.sleep(0.02)
+            self.count += 1
+            state = (
+                PlaybackState.ADVANCING
+                if self.count == 1
+                else PlaybackState.INVALIDATED
+                if self.count == 2
+                else PlaybackState.UNCERTAIN
+            )
+            return grab(region), state
+
+        def observe_text(self, text, at, captured):
+            return captured
+
+    monkeypatch.setattr(sync, "PlaybackCapture", lambda _: Capture())
+    shown = await drive(session, config(), ["Hello there"] * 8)
+    assert shown == ["File presentation", "", "Current visible translation"]
+    client.translate.assert_awaited_once()
+    assert not session.anchored
 
 
 async def test_the_plate_holds_back_by_the_display_lag() -> None:

@@ -7,6 +7,7 @@ from collections import deque
 from PIL import Image, ImageChops, ImageStat
 
 from meocosub2.audio_observation import AudioObservation
+from meocosub2.playing_confidence import PlayingConfidence
 from meocosub2.timeline import PlaybackState
 
 # Work on a small central area above most subtitles and player controls. A
@@ -20,7 +21,6 @@ MIN_PATCH_DIFFERENCE = 6.0
 MAX_FRAME_DIFFERENCE = 45.0
 MOTION_WINDOW_S = 1.0
 STILL_CONFIRM_S = 0.5
-AUDIO_ACTIVE_PEAK = 0.001
 
 
 class PlaybackObserver:
@@ -39,7 +39,15 @@ class PlaybackObserver:
         self._history: deque[tuple[float, Image.Image]] = deque(maxlen=8)
         self._still_since: float | None = None
         self._source_id: int | None = None
-        self._audio_was_running = False
+        self._confidence = PlayingConfidence()
+        self.motion = False
+
+    @property
+    def confidence(self) -> float:
+        return self._confidence.confidence
+
+    def observe_text(self, text: str, at: float) -> PlaybackState:
+        return self._confidence.observe_text(text, at)
 
     def observe(
         self,
@@ -53,7 +61,7 @@ class PlaybackObserver:
             self.reset()
             return PlaybackState.INVALIDATED
         self._source_id = source_id
-        if audio is not None and audio.process_id != source_id:
+        if audio is not None and audio.attributed and audio.process_id != source_id:
             audio = None
         if not isinstance(image, Image.Image) or len(region) != 4:
             self.reset()
@@ -96,27 +104,9 @@ class PlaybackObserver:
             self._history.popleft()
         motion = self._motion(sample, prior, adjacent, now)
         self._history.append((now, sample))
-        # Some players keep a running stream filled with zeros while paused.
-        # A running stream alone is therefore not video progression telemetry.
-        if (
-            audio is not None
-            and audio.running
-            and audio.peak is not None
-            and audio.peak > AUDIO_ACTIVE_PEAK
-        ):
-            self._audio_was_running = True
-            return PlaybackState.ADVANCING
-        if motion is PlaybackState.ADVANCING:
-            return motion  # Silent/muted moving video overrides absent audio activity.
-        if (
-            audio is not None
-            and not audio.running
-            and self._audio_was_running
-            and self._still_since is not None
-            and now - self._still_since >= STILL_CONFIRM_S
-        ):
-            return PlaybackState.STOPPED
-        return PlaybackState.UNCERTAIN
+        self.motion = motion is PlaybackState.ADVANCING
+        still = self._still_since is not None and now - self._still_since >= STILL_CONFIRM_S
+        return self._confidence.observe(self.motion, still, audio, now)
 
     def _motion(self, sample, prior, adjacent: bool, now: float) -> PlaybackState:
         midtones = sum(sample.histogram()[32:224])
@@ -176,4 +166,5 @@ class PlaybackObserver:
         self._history.clear()
         self._still_since = None
         self._source_id = None
-        self._audio_was_running = False
+        self._confidence.reset()
+        self.motion = False
