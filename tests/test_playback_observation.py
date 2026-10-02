@@ -19,6 +19,42 @@ def test_distributed_motion_needs_consecutive_frames() -> None:
     assert observer.observe(ImageChops.offset(frame, 10, 0), REGION, 0.5) is PlaybackState.ADVANCING
 
 
+def test_slow_motion_survives_half_second_capture_jitter_and_stillness_does_not() -> None:
+    observer = PlaybackObserver()
+    frame = Image.frombytes(
+        "L", (640, 240), bytes(64 + x // 4 for _ in range(240) for x in range(640))
+    )
+    states = [
+        observer.observe(ImageChops.offset(frame, int(now * 32), 0), REGION, now)
+        for now in (0, 0.51, 1.02, 1.53, 2.04, 2.55)
+    ]
+    assert states[-3:] == [PlaybackState.ADVANCING] * 3
+    paused = ImageChops.offset(frame, int(2.55 * 32), 0)
+    for now in (3.06, 3.57, 4.08):
+        assert observer.observe(paused, REGION, now) is PlaybackState.UNCERTAIN
+
+
+def test_motion_window_does_not_bridge_a_capture_outage() -> None:
+    observer = PlaybackObserver()
+    frame = video_frame()
+    observer.observe(frame, REGION, 0)
+    observer.observe(ImageChops.offset(frame, 5, 0), REGION, 0.25)
+    assert observer.observe(ImageChops.offset(frame, 10, 0), REGION, 10) is PlaybackState.UNCERTAIN
+    assert (
+        observer.observe(ImageChops.offset(frame, 15, 0), REGION, 10.25) is PlaybackState.UNCERTAIN
+    )
+
+
+def test_periodic_motion_does_not_alias_the_one_second_baseline() -> None:
+    observer = PlaybackObserver()
+    frame = video_frame()
+    states = [
+        observer.observe(ImageChops.offset(frame, (index % 4) * 5, 0), REGION, index * 0.25)
+        for index in range(12)
+    ]
+    assert states[-4:] == [PlaybackState.ADVANCING] * 4
+
+
 def test_stillness_black_frames_and_local_cursor_changes_do_not_claim_motion() -> None:
     observer = PlaybackObserver()
     frame = video_frame()

@@ -11,8 +11,10 @@ For recognized players, a single client capture supplies a reduced motion crop
 and the original OCR rectangle. Otherwise the existing OCR capture is used.
 
 Motion uses at most eight 96×48 grayscale thumbnails (36 KiB of pixel storage)
-over one second. Changes must exceed six grayscale levels in three content
-patches spanning both rows and three columns, on consecutive samples. Controls,
+covering a one-second window plus the preceding sample when capture scheduling
+slips. Comparisons with retained samples avoid aliasing periodic motion. Changes
+must exceed six grayscale levels in three content patches spanning both rows and
+three columns, on consecutive samples. Controls,
 subtitle rows and cursor-sized changes do not establish motion. The one-second
 comparison captures slower distributed motion than adjacent-frame differences.
 The thresholds were checked against the authored FFplay reproduction and the

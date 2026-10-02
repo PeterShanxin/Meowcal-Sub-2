@@ -87,11 +87,15 @@ class PlaybackObserver:
         self._previous = sample
         self._region = region
         self._sampled_at = now
-        while self._history and now - self._history[0][0] > MOTION_WINDOW_S:
+        if not adjacent:
+            self._history.clear()
+        # Keep the sample bracketing the window boundary. Dropping every older
+        # sample reduces a one-second baseline to half a second at 2 Hz plus
+        # scheduling jitter, losing evidence of slow continuous motion.
+        while len(self._history) > 1 and now - self._history[1][0] >= MOTION_WINDOW_S:
             self._history.popleft()
-        baseline = self._history[0][1] if self._history else prior
+        motion = self._motion(sample, prior, adjacent, now)
         self._history.append((now, sample))
-        motion = self._motion(sample, prior, baseline, adjacent, now)
         # Some players keep a running stream filled with zeros while paused.
         # A running stream alone is therefore not video progression telemetry.
         if (
@@ -114,7 +118,7 @@ class PlaybackObserver:
             return PlaybackState.STOPPED
         return PlaybackState.UNCERTAIN
 
-    def _motion(self, sample, prior, baseline, adjacent: bool, now: float) -> PlaybackState:
+    def _motion(self, sample, prior, adjacent: bool, now: float) -> PlaybackState:
         midtones = sum(sample.histogram()[32:224])
         if (
             not adjacent
@@ -132,10 +136,19 @@ class PlaybackObserver:
                 self._still_since = now
             return PlaybackState.UNCERTAIN
         self._still_since = None
-        difference = ImageChops.difference(baseline, sample)
-        if ImageStat.Stat(difference).mean[0] > MAX_FRAME_DIFFERENCE:
+        # Periodic motion can return to its oldest thumbnail while still moving
+        # between captures. Other retained samples avoid that coincident baseline.
+        if not any(self._distributed_change(baseline, sample) for _, baseline in self._history):
             self._moving_pairs = 0
             return PlaybackState.UNCERTAIN
+        self._moving_pairs += 1
+        return PlaybackState.ADVANCING if self._moving_pairs >= 2 else PlaybackState.UNCERTAIN
+
+    @staticmethod
+    def _distributed_change(baseline: Image.Image, sample: Image.Image) -> bool:
+        difference = ImageChops.difference(baseline, sample)
+        if ImageStat.Stat(difference).mean[0] > MAX_FRAME_DIFFERENCE:
+            return False
         changed: list[tuple[int, int]] = []
         patch_width, patch_height = SAMPLE_SIZE[0] // 4, SAMPLE_SIZE[1] // 2
         for row in range(2):
@@ -151,13 +164,8 @@ class PlaybackObserver:
                 if ImageStat.Stat(patch).mean[0] >= MIN_PATCH_DIFFERENCE:
                     changed.append((row, column))
         if len(changed) < 3 or len({row for row, _ in changed}) < 2:
-            self._moving_pairs = 0
-            return PlaybackState.UNCERTAIN
-        if len({column for _, column in changed}) < 3:
-            self._moving_pairs = 0
-            return PlaybackState.UNCERTAIN
-        self._moving_pairs += 1
-        return PlaybackState.ADVANCING if self._moving_pairs >= 2 else PlaybackState.UNCERTAIN
+            return False
+        return len({column for _, column in changed}) >= 3
 
     def reset(self) -> None:
         """Discard a sample after capture loss or a selected-region change."""
