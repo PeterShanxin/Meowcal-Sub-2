@@ -30,7 +30,7 @@ levels can only add bounded support to visible progression. No audio is recorded
 
 Actual selected-player audio energy above 0.001 supports playback even over a
 static shot. Silence, mute, missing meters, device loss, or a stream simply
-remaining active do not establish either progression or pause. FFplay, for
+remaining active do not establish progression or pause by themselves. FFplay, for
 example, can keep rendering zeros through its audio stream while paused. A
 stream becoming stopped is also ambiguous. It never supplies a video pause
 duration. Video motion can continue over silence or an inactive stream.
@@ -39,7 +39,7 @@ Independent motion and confirmed OCR changes join sound/silence and repeated
 text/stillness in a temporal playing-confidence index. A first confirmed cue is
 not a text-change event. Strong evidence decays over one second, with separate
 entry/exit thresholds. Still, unchanged text without attributable sound
-withdraws projection; changing overlays plus unrelated sound cannot certify
+withdraws progression evidence; changing overlays plus unrelated sound cannot certify
 browser progression. See [the measured calibration](PLAYING_CONFIDENCE_CALIBRATION.md).
 
 Activity renews the existing clock's 90-second freshness lease, but does not
@@ -50,18 +50,30 @@ Conflicting matches still invalidate the clock through the existing miss/seek
 rules. Capture failure, region changes and recognized-player changes invalidate
 projection immediately. A late activity sample cannot resurrect an old anchor.
 
-Uncertain observations receive a three-second transition grace period. Sustained
-uncertainty invalidates projection instead of calling a static shot a pause or
-charging an unobserved gap to playback. The plate then uses live OCR/fallback
-until progressing subtitle evidence reacquires timing. On clock loss, the stale
-file plate and cue-deduplication cache are cleared, allowing the same visible OCR
-to receive live translation while timing remains unanchored. This is conservative:
-silent static content, video with no audio stream, unsupported player windows and
-ambiguous browser attribution can interrupt the scheduled target track. Identical
-silent static-playing and paused frames cannot reveal elapsed media time.
-Target-only cues with no observable source cannot be timed exactly through such
-intervals. Observable-text fallback must not be reported as seamless target
-timing or fully accepted #70 behavior.
+A separate practical pause policy confirms two seconds of reliable near-frozen
+video without distributed motion, confirmed text progression or attributable
+audible energy. It holds the existing source clock at the first unchanged sample
+after progression stopped; the confirmation interval is not charged to playback.
+The target scheduler keeps the cue or blank interval at that position. Naturally
+static silent content can trigger the same heuristic. This accepted tradeoff is
+not a calibrated pause probability or proof of media transport state.
+
+Two consecutive distributed image changes or attributable audible energy resume
+the clock. Image resume credits the first qualifying change rather than the later
+confirmation frame, so repeated pauses do not accumulate confirmation latency.
+Unrelated sound and OCR changes cannot release a confirmed stop. Existing source
+matches still correct a paused seek while keeping its new position frozen; normal
+seeks and a constant video/source head offset continue to use existing reanchors.
+Target-file scheduling and source/target mapping are unchanged.
+
+Black or unreliable crops cannot establish a pause. Capture/source loss, a black
+frame during a confirmed stop or a sampling outage longer than five seconds
+invalidates it rather than charging an unobserved gap to paused time. Other
+uncertain observations retain their three-second transition grace period before
+projection is invalidated. On clock loss, the stale file plate and deduplication
+cache are cleared; live OCR/fallback remains available until source evidence
+reacquires timing. Target-only cues during unavailable captures cannot be timed
+exactly. Do not report fallback as seamless target timing or full #70 acceptance.
 
 Native validation still needs pause/resume, long dialogue-free playback, muted
 moving video, static content with audio, other-app sound, source changes and

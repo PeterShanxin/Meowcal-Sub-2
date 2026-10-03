@@ -242,8 +242,10 @@ class CandidateSession:
     def saw_same_cue(self, at: float | None = None) -> None:
         self._timeline.saw_same_cue(at)
 
-    def observe_playback(self, state: PlaybackState, at: float) -> None:
-        self._timeline.observe_playback(state, at)
+    def observe_playback(
+        self, state: PlaybackState, at: float, state_since: float | None = None
+    ) -> None:
+        self._timeline.observe_playback(state, at, state_since)
 
     def clear_cue(self) -> None:
         self._timeline.clear_cue()
@@ -493,7 +495,9 @@ class DirectTranslationSession:
     def saw_same_cue(self, at: float | None = None) -> None:
         return None
 
-    def observe_playback(self, state: PlaybackState, at: float) -> None:
+    def observe_playback(
+        self, state: PlaybackState, at: float, state_since: float | None = None
+    ) -> None:
         return None
 
     def clear_cue(self) -> None:
@@ -840,11 +844,11 @@ async def run_session_loop(
             try:
                 region = read_region()
                 image, playback = await playback_capture.capture(capture_region, region, started)
-                session.observe_playback(playback, started)
+                session.observe_playback(playback, started, playback_capture.state_since)
                 ocr_text = await ocr_image(image, config.ocr_language)
                 combined = playback_capture.observe_text(ocr_text, started, playback)
                 if combined is not playback:
-                    session.observe_playback(combined, started)
+                    session.observe_playback(combined, started, playback_capture.state_since)
                 if screen.matched and not session.anchored:
                     await clear_plate()
 

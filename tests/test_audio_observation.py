@@ -63,7 +63,7 @@ def test_stream_stopping_is_ambiguous_and_never_supplies_pause_duration():
     )
 
 
-def test_absent_or_unattributed_audio_never_turns_stillness_into_stop():
+def test_sustained_reliable_stillness_stops_without_attributable_audible_progress():
     frame = video_frame()
     for audio in (
         None,
@@ -75,8 +75,9 @@ def test_absent_or_unattributed_audio_never_turns_stillness_into_stop():
         AudioObservation(11, True, 0.001),
     ):
         observer = PlaybackObserver()
-        for now in range(4):
+        for now in range(3):
             assert observer.observe(frame, REGION, now, audio, 11) is PlaybackState.UNCERTAIN
+        assert observer.observe(frame, REGION, 3, audio, 11) is PlaybackState.STOPPED
 
 
 def test_unrelated_audio_cannot_keep_a_paused_player_advancing():

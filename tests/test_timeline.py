@@ -155,11 +155,13 @@ def test_confirmed_stop_holds_clock_without_visible_subtitles() -> None:
     assert timeline.position_ms(now=35) == 615_000
 
 
-def test_confirmed_match_releases_a_stopped_clock() -> None:
+def test_confirmed_match_reanchors_but_independent_playback_releases_a_stopped_clock() -> None:
     timeline = anchored_at(600_000)
     timeline.observe_playback(PlaybackState.STOPPED, now=10)
     assert read(timeline, 610_000, 11, 100, now=20)
-    assert timeline.position_ms(now=25) == 615_000
+    assert timeline.position_ms(now=25) == 610_000
+    timeline.observe_playback(PlaybackState.ADVANCING, now=26, state_since=25)
+    assert timeline.position_ms(now=26) == 611_000
 
 
 def test_uncertain_image_does_not_prove_a_pause_without_a_cue() -> None:

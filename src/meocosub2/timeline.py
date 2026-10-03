@@ -44,8 +44,8 @@ ANCHOR_MAX_AGE_S = 90.0
 # Activity establishes progression, not subtitle identity. Even uninterrupted
 # activity must eventually corroborate the selected file with new dialogue.
 ACTIVITY_IDENTITY_MAX_S = 300.0
-# A brief ambiguous frame can be a cut. Beyond this, neither advancing through
-# a pause nor subtracting a silent static shot is a defensible clock estimate.
+# A brief ambiguous frame can be a cut. Reliable frozen images use STOPPED;
+# unsupported observations beyond this grace period must reacquire a clock.
 UNCERTAIN_GRACE_S = 3.0
 # The longest a single subtitle is assumed to genuinely stay on screen. Past
 # this the viewer has paused, and the clock should not run on without them.
@@ -171,7 +171,9 @@ class PlaybackTimeline:
             return None
         return predicted - WINDOW_BACK_MS, predicted + WINDOW_FORWARD_MS
 
-    def observe_playback(self, state: PlaybackState, now: float | None = None) -> None:
+    def observe_playback(
+        self, state: PlaybackState, now: float | None = None, state_since: float | None = None
+    ) -> None:
         """Apply playback evidence without treating image activity as a subtitle match."""
         now = monotonic() if now is None else now
         # Check before refreshing: a late sample cannot revive an expired or
@@ -187,12 +189,15 @@ class PlaybackTimeline:
         self._supported_at = now
         self._has_activity_evidence = True
         self._uncertain_since = None
+        # Confirmation samples arrive after the observed transition. Clamp to
+        # this anchor so an earlier pause cannot subtract a fresh OCR reanchor.
+        transition = now if state_since is None else min(now, max(self._anchor_at, state_since))
         if state is PlaybackState.STOPPED:
             if self._stopped_since is None:
-                self._stopped_since = now
+                self._stopped_since = transition
             return
         if self._stopped_since is not None:
-            self._paused_s += max(0.0, now - self._stopped_since)
+            self._paused_s += max(0.0, transition - self._stopped_since)
             self._stopped_since = None
         # Keep the OCR cue's first-seen time for matching. Only its pause hold
         # moves forward, so a later stop does not walk back through motion.
@@ -331,7 +336,10 @@ class PlaybackTimeline:
         self._supported_at = at
         self._uncertain_since = None
         self._paused_s = 0.0
-        self._stopped_since = None
+        # A source match can describe a seek on a still-paused frame. Preserve
+        # that stop until independent player progression releases the clock.
+        if self._stopped_since is not None:
+            self._stopped_since = max(at, self._stopped_since)
         # The cue this line was matched from went up at the same moment the
         # clock is being anchored to, so the hold that catches a paused video
         # measures from there too.
