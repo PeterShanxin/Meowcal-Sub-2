@@ -6,6 +6,7 @@ import { LiveView } from "./components/live-dock";
 import { EmptyState } from "./components/variants/empty";
 import { NoApiKey } from "./components/variants/no-key";
 import { SettingsView } from "./components/variants/settings";
+import { UpdatePrompt } from "./components/update-prompt";
 import { api } from "./hooks/use-api";
 import { useAppWebSocket } from "./hooks/use-ws";
 import { useKeybinds } from "./hooks/use-keybinds";
@@ -1505,6 +1506,8 @@ export function App(): JSX.Element {
           onInstallEngine={() => void installEngine()}
         />
       )}
+
+      <UpdatePrompt visible={phase !== "live" && !settingsVisible} />
 
       {bootstrapError && (
         <div

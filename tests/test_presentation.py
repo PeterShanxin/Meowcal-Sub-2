@@ -1,5 +1,7 @@
 from dataclasses import asdict
 
+import pytest
+
 from meocosub2.models import SubtitleLine
 from meocosub2.presentation import PresentationTrack
 
@@ -143,6 +145,47 @@ def test_model_translation_does_not_anchor_and_no_anchors_defaults_to_zero() -> 
 
     assert track.anchor_count == 0
     assert track.offset_ms == 0
+    assert track.offset_corroborated is False
+
+
+@pytest.mark.parametrize(
+    "target_starts",
+    [
+        (10_000, 30_000, 50_000),  # Same-release clocks.
+        (12_000, 32_000, 52_000),  # A constant two-second delay.
+        (10_100, 30_300, 50_500),  # A one-percent rate difference.
+        (10_000, 30_000, 65_000),  # An edit before the last cue.
+    ],
+)
+def test_monolingual_tracks_without_shared_text_leave_offset_uncorroborated(
+    target_starts: tuple[int, int, int],
+) -> None:
+    source = [
+        line(index, start, start + 1000, f"源字幕{index}")
+        for index, start in enumerate((10_000, 30_000, 50_000))
+    ]
+    target = [
+        line(index, start, start + 1000, f"English {index}")
+        for index, start in enumerate(target_starts)
+    ]
+
+    track = PresentationTrack(source, target)
+
+    assert track.anchor_count == 0
+    assert track.offset_corroborated is False
+
+
+def test_shared_human_cues_can_corroborate_zero_offset() -> None:
+    source = [
+        line(0, 0, 1000, "source one", "first"),
+        line(1, 2000, 3000, "source two", "second"),
+    ]
+    target = [line(0, 0, 1000, "first"), line(1, 2000, 3000, "second")]
+
+    track = PresentationTrack(source, target)
+
+    assert track.offset_ms == 0
+    assert track.offset_corroborated is True
 
 
 def test_single_unique_phrase_does_not_set_global_offset() -> None:
@@ -153,6 +196,7 @@ def test_single_unique_phrase_does_not_set_global_offset() -> None:
 
     assert track.anchor_count == 1
     assert track.offset_ms == 0
+    assert track.offset_corroborated is False
 
 
 def test_two_inconsistent_anchors_default_to_zero_offset() -> None:
@@ -169,6 +213,7 @@ def test_two_inconsistent_anchors_default_to_zero_offset() -> None:
 
     assert track.anchor_count == 2
     assert track.offset_ms == 0
+    assert track.offset_corroborated is False
 
 
 def test_agreeing_anchors_at_200_ms_p90_residual_set_global_offset() -> None:

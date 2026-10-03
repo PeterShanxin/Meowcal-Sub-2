@@ -195,6 +195,10 @@ def stage_tracks(
                 for line in c.pair.source_lines
             ),
             target_alignment=[],
+            target_clock_unverified=bool(target)
+            and any(
+                not candidate.pair.presentation.offset_corroborated for candidate in candidates
+            ),
             subtitle_checks=checks,
         )
         if session.target_match_mode == "source_own_translation" and source_path:

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { BackendConfig, EngineStatus } from "../../lib/types";
 import { api } from "../../hooks/use-api";
-import { tauri } from "../../hooks/use-tauri";
+import { isTauri, tauri, type AppUpdateCheck } from "../../hooks/use-tauri";
 import {
   FONT_PRESETS,
   loadFontScale,
@@ -18,6 +18,7 @@ type SectionId =
   | "overlay"
   | "translate"
   | "matching"
+  | "updates"
   | "debug";
 
 interface Section {
@@ -32,6 +33,7 @@ const SECTIONS: Section[] = [
   { id: "overlay", label: "Overlay style" },
   { id: "translate", label: "Translation" },
   { id: "matching", label: "Matching" },
+  { id: "updates", label: "Updates" },
   { id: "debug", label: "Debug" },
 ];
 
@@ -290,7 +292,7 @@ export function SettingsView({
           >
             Settings
           </div>
-          {SECTIONS.map((s) => {
+          {SECTIONS.filter((s) => s.id !== "updates" || isTauri()).map((s) => {
             const active = s.id === section;
             return (
               <button
@@ -366,6 +368,7 @@ export function SettingsView({
               />
             )}
             {section === "matching" && <MatchingSection draft={draft} update={update} />}
+            {section === "updates" && <UpdatesSection />}
             {section === "debug" && <DebugSection draft={draft} update={update} />}
           </div>
 
@@ -1118,6 +1121,75 @@ function MatchingSection({ draft, update }: SectionProps): JSX.Element {
         </Field>
       </div>
     </>
+  );
+}
+
+function UpdatesSection(): JSX.Element {
+  const [status, setStatus] = useState<AppUpdateCheck | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const check = async (): Promise<void> => {
+    setChecking(true);
+    setError(null);
+    try {
+      const result = await tauri.checkAppUpdate();
+      if (result) setStatus(result);
+    } catch (caught: unknown) {
+      setError(String(caught));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const install = async (version: string): Promise<void> => {
+    setInstalling(true);
+    setError(null);
+    try {
+      await tauri.installAppUpdate(version);
+    } catch (caught: unknown) {
+      setError(String(caught));
+    } finally {
+      setInstalling(false);
+    }
+  };
+  const available = status?.availableVersion;
+
+  return (
+    <section style={{ display: "grid", gap: 16 }}>
+      <div>
+        <h2 style={{ margin: "0 0 6px" }}>App updates</h2>
+        <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
+          Signed installer releases check for updates when the app opens.
+        </p>
+      </div>
+      {status && (
+        <p style={{ margin: 0, fontSize: 13 }}>
+          Version {status.currentVersion}.{" "}
+          {status.availableVersion
+            ? `Version ${status.availableVersion} is ready to install.`
+            : status.enabled
+              ? "You are up to date."
+              : status.reason}
+        </p>
+      )}
+      {error && <p style={{ margin: 0, color: "var(--danger-text)" }}>{error}</p>}
+      <div style={{ display: "flex", gap: 10 }}>
+        <button type="button" disabled={checking || installing} onClick={() => void check()}>
+          {checking ? "Checking…" : "Check for updates"}
+        </button>
+        {available && (
+          <button
+            type="button"
+            disabled={checking || installing}
+            onClick={() => void install(available)}
+          >
+            {installing ? "Installing…" : "Install update"}
+          </button>
+        )}
+      </div>
+    </section>
   );
 }
 

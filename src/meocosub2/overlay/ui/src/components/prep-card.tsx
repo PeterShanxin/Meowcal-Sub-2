@@ -102,6 +102,13 @@ export function PrepCard({
           <Row label="Coverage" value={coverageLabel(chosenAlignment, gapFill)} />
         )}
       </div>
+      {prepared?.target_clock_unverified && (
+        <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: "var(--text-label)" }}>
+          Target timing is unverified. No consistent shared human subtitle text confirmed the file
+          clocks, so matching timestamps are assumed. Check synchronization during playback and
+          correct the target file in the editor if needed.
+        </p>
+      )}
       {!!prepared?.subtitle_checks?.length && (
         <details style={{ fontSize: 12, color: "var(--text-label)" }}>
           <summary style={{ cursor: "pointer" }}>Subtitles checked automatically</summary>

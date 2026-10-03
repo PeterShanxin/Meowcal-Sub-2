@@ -1,12 +1,12 @@
 [[permission]]
 identifier = "studio-shell"
 description = "Studio controls for capture selection and the live subtitle session."
-commands.allow = ["open_area_selector", "enter_live_mode", "exit_live_mode", "stop_translation", "get_api_base"]
+commands.allow = ["open_area_selector", "enter_live_mode", "exit_live_mode", "stop_translation", "get_api_base", "check_app_update", "install_app_update"]
 
 [[permission]]
 identifier = "capture-selector"
 description = "Read and confirm the capture region in the local selector window."
-commands.allow = ["set_capture_region", "cancel_area_selector", "get_capture_region", "get_selector_backdrop"]
+commands.allow = ["set_capture_region", "cancel_area_selector", "get_capture_region", "get_selector_backdrop", "selector_display_count", "switch_area_selector"]
 
 [[permission]]
 identifier = "subtitle-plate"

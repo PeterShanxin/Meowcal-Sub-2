@@ -56,6 +56,7 @@ Download a package from
 
 Both packages include the Python backend and Meowcal Core executable. Models
 are installed through Settings. SHA-256 checksums accompany the release.
+The published v0.1.0 needs a manual install to upgrade to a newer version.
 See the [user guide](docs/user-guide.md) for first-launch setup.
 
 You need Windows, Microsoft WebView2, and an OCR language pack for the language

@@ -2,21 +2,21 @@
   "measuredOn": "2026-09-06",
   "newFileMaxLines": 400,
   "legacyFileCeilings": {
-    "src-tauri/src/main.rs": 964,
-    "src-tauri/src/overlay_window.rs": 469,
+    "src-tauri/src/main.rs": 1175,
+    "src-tauri/src/overlay_window.rs": 443,
     "src/meocosub2/config.py": 535,
     "src/meocosub2/engine/runtime.py": 211,
     "src/meocosub2/matcher.py": 550,
     "src/meocosub2/opensubtitles/client.py": 932,
-    "src/meocosub2/overlay/controller.py": 2175,
-    "src/meocosub2/overlay/ui/src/app.tsx": 1728,
+    "src/meocosub2/overlay/controller.py": 2182,
+    "src/meocosub2/overlay/ui/src/app.tsx": 1731,
     "src/meocosub2/overlay/ui/src/components/palette.tsx": 1543,
     "src/meocosub2/overlay/ui/src/components/primitives.tsx": 391,
-    "src/meocosub2/overlay/ui/src/components/variants/settings.tsx": 1229,
+    "src/meocosub2/overlay/ui/src/components/variants/settings.tsx": 1301,
     "src/meocosub2/overlay/ui/src/styles/theme.css": 705,
     "src/meocosub2/subtitle_sources/aggregator.py": 1458,
     "src/meocosub2/subtitle_sources/subdl.py": 651,
-    "src/meocosub2/sync.py": 827
+    "src/meocosub2/sync.py": 917
   },
   "lintBudgets": {
     "ruff": 0,

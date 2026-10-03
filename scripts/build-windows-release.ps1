@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [ValidateSet('auto', 'x64', 'arm64')][string]$Architecture = 'auto',
-    [string]$Python = 'python'
+    [string]$Python = 'python',
+    [string]$Tag,
+    [switch]$SignedUpdater
 )
 
 $ErrorActionPreference = 'Stop'
@@ -17,6 +19,24 @@ if ($Architecture -eq 'auto') {
 $target = if ($Architecture -eq 'arm64') { 'aarch64-pc-windows-msvc' } else { 'x86_64-pc-windows-msvc' }
 $config = Get-Content (Join-Path $repositoryRoot 'src-tauri/tauri.conf.json') -Raw | ConvertFrom-Json
 $version = $config.version
+$versionCheck = @((Join-Path $PSScriptRoot 'check_app_version.py'))
+if ($Tag) { $versionCheck += @('--tag', $Tag, '--require-head-tag') }
+& $Python @versionCheck
+if ($LASTEXITCODE -ne 0) { throw 'App manifests or release tag do not match.' }
+# Record the checkout supplied to the build, before generators can change tracked files.
+$workingChanges = git -C $repositoryRoot status --porcelain
+if ($LASTEXITCODE -ne 0) { throw 'Could not inspect release source state.' }
+$sourceDirty = [bool]$workingChanges
+if ($SignedUpdater) {
+    if (-not $Tag) { throw 'Signed updater builds require a release tag at HEAD.' }
+    if ($sourceDirty) {
+        throw 'Signed updater builds require a clean tagged checkout.'
+    }
+    if ([string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY) -or
+        [string]::IsNullOrWhiteSpace($env:MEOWCAL_UPDATER_PUBLIC_KEY)) {
+        throw 'Signed updater builds require TAURI_SIGNING_PRIVATE_KEY and MEOWCAL_UPDATER_PUBLIC_KEY.'
+    }
+}
 & $Python (Join-Path $PSScriptRoot 'update_branding.py')
 if ($LASTEXITCODE -ne 0) { throw "Banner generation failed: $LASTEXITCODE" }
 $releaseName = "meowcal-sub-2-v$version-windows-$Architecture"
@@ -35,7 +55,9 @@ if ($LASTEXITCODE -ne 0) { throw "Third-party notice collection failed: $LASTEXI
 Push-Location (Join-Path $repositoryRoot 'src-tauri')
 $previousRustFlags = $env:CARGO_ENCODED_RUSTFLAGS
 $previousBuildJobs = $env:CARGO_BUILD_JOBS
+$previousUpdaterPublicKey = $env:MEOWCAL_UPDATER_PUBLIC_KEY
 try {
+    if (-not $SignedUpdater) { Remove-Item Env:MEOWCAL_UPDATER_PUBLIC_KEY -ErrorAction SilentlyContinue }
     if (-not $env:CARGO_BUILD_JOBS) { $env:CARGO_BUILD_JOBS = '1' }
     $remap = "--remap-path-prefix=$repositoryRoot=."
     $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE '.cargo' }
@@ -46,11 +68,18 @@ try {
     $env:CARGO_ENCODED_RUSTFLAGS = if ($previousRustFlags) {
         $previousRustFlags + [char]31 + $remap
     } else { $remap }
-    npx --yes @tauri-apps/cli@2.11.4 build --target $target --features custom-protocol --config tauri.release.conf.json
+    $tauriConfigs = @('--config', 'tauri.release.conf.json')
+    if ($SignedUpdater) {
+        $updaterKeyConfig = @{ plugins = @{ updater = @{ pubkey = $env:MEOWCAL_UPDATER_PUBLIC_KEY } } } |
+            ConvertTo-Json -Compress -Depth 4
+        $tauriConfigs += @('--config', 'tauri.updater.conf.json', '--config', $updaterKeyConfig)
+    }
+    npx --yes @tauri-apps/cli@2.11.4 build --target $target --features custom-protocol @tauriConfigs
     if ($LASTEXITCODE -ne 0) { throw "Tauri release build failed: $LASTEXITCODE" }
 } finally {
     $env:CARGO_ENCODED_RUSTFLAGS = $previousRustFlags
     $env:CARGO_BUILD_JOBS = $previousBuildJobs
+    $env:MEOWCAL_UPDATER_PUBLIC_KEY = $previousUpdaterPublicKey
     Pop-Location
 }
 
@@ -67,9 +96,7 @@ Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') -Destination $porta
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'output/third-party-licenses') -Destination $portable -Recurse
 $commit = git -C $repositoryRoot rev-parse HEAD
 if ($LASTEXITCODE -ne 0) { throw 'Could not resolve release source commit.' }
-$workingChanges = git -C $repositoryRoot status --porcelain
-if ($LASTEXITCODE -ne 0) { throw 'Could not inspect release source state.' }
-@{ version = $version; architecture = $Architecture; sourceCommit = $commit; sourceDirty = [bool]$workingChanges } |
+@{ version = $version; architecture = $Architecture; sourceCommit = $commit; sourceDirty = $sourceDirty } |
     ConvertTo-Json | Set-Content (Join-Path $portable 'release.json') -Encoding utf8
 & $Python (Join-Path $PSScriptRoot 'check_windows_package.py') $portable $Architecture
 if ($LASTEXITCODE -ne 0) { throw "Windows package validation failed: $LASTEXITCODE" }
@@ -80,6 +107,19 @@ $installers = @(Get-ChildItem -Path (Join-Path $releaseDirectory 'bundle/nsis') 
 if ($installers.Count -ne 1) { throw 'Expected exactly one NSIS installer.' }
 Copy-Item -LiteralPath $installers[0].FullName -Destination (Join-Path $distribution "$releaseName-setup.exe")
 $artifacts = @("$releaseName-portable.zip", "$releaseName-setup.exe")
+if ($SignedUpdater) {
+    $signature = "$($installers[0].FullName).sig"
+    if (-not (Test-Path -LiteralPath $signature -PathType Leaf) -or
+        [string]::IsNullOrWhiteSpace((Get-Content -LiteralPath $signature -Raw))) {
+        throw 'Signed NSIS installer is missing its updater signature.'
+    }
+    cargo run --quiet --locked --manifest-path (Join-Path $repositoryRoot 'src-tauri/Cargo.toml') `
+        --example verify_update_signature -- $installers[0].FullName $signature
+    if ($LASTEXITCODE -ne 0) { throw 'Updater signature does not match the embedded public key.' }
+    $signatureName = "$releaseName-setup.exe.sig"
+    Copy-Item -LiteralPath $signature -Destination (Join-Path $distribution $signatureName)
+    $artifacts += $signatureName
+}
 $checksums = foreach ($artifact in $artifacts) {
     $hash = (Get-FileHash -LiteralPath (Join-Path $distribution $artifact) -Algorithm SHA256).Hash.ToLowerInvariant()
     "$hash  $artifact"

@@ -1,0 +1,152 @@
+"""Fuse observable progression without reconstructing an unknowable pause clock."""
+
+from __future__ import annotations
+
+import math
+
+from meocosub2.audio_observation import AudioObservation
+from meocosub2.subtitle_gate import normalize
+from meocosub2.timeline import PlaybackState
+
+# Reproduced by scripts/fit_playing_confidence.py from 288 authored physical
+# FFplay/Edge samples and balanced indistinguishable static observations.
+# These are an evidence index, not a probability calibrated on arbitrary media.
+# The still/silent pause and static-playing pair deliberately share observations.
+COEFFICIENTS = (0.311437, 1.422677, 0.029923, 2.251407, -0.356064, 0.0, -0.103645)
+ENTER_SCORE = 0.704544
+LEAVE_SCORE = 0.628153
+AMBIGUOUS_SCORE = 0.551762
+SUPPORTING_SCORE = 0.559150
+EVIDENCE_WINDOW_S = 1.0
+
+
+class PlayingConfidence:
+    """Keep image motion, confirmed text changes and audio as separate features.
+
+    Image motion has already required distributed consecutive changes. Text
+    changes require consecutive matching reads. Recent strong evidence decays
+    over the measured image window; separate entry/exit scores resist flicker.
+    No observation here supplies elapsed media time or proves a silent stop.
+    """
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        self._at: float | None = None
+        self._features = [False] * 6
+        self._previous_text: str | None = None
+        self._stable_text: str | None = None
+        self._text_at = -float("inf")
+        self._changed_at = -float("inf")
+        self._supported_at = -float("inf")
+        self._supported_score = 0.0
+        self._advancing = False
+        self._lost_progress_at: float | None = None
+        self._audio: AudioObservation | None = None
+        self._visual_at = -float("inf")
+        self.confidence = 0.5
+
+    def observe(
+        self, motion: bool, still: bool, audio: AudioObservation | None, at: float
+    ) -> PlaybackState:
+        if self._at is not None and (at <= self._at or at - self._at > 5.0):
+            self.reset()
+        self._at = at
+        self._audio = audio
+        audible = (
+            audio is not None and audio.running and audio.peak is not None and audio.peak > 0.001
+        )
+        silent = audio is not None and audio.peak is not None and audio.peak <= 0.001
+        fresh_text = at - self._text_at <= EVIDENCE_WINDOW_S
+        changed = at - self._changed_at <= EVIDENCE_WINDOW_S
+        self._features = [
+            motion,
+            changed,
+            audible and (motion or changed or (audio is not None and audio.attributed)),
+            silent,
+            fresh_text and self._stable_text is not None,
+            still,
+        ]
+        return self._judge(at, invalidate_still=False)
+
+    def observe_text(self, text: str, at: float) -> PlaybackState:
+        if self._at != at:
+            return PlaybackState.UNCERTAIN
+        current = normalize(text)
+        stable = current == self._previous_text and at - self._text_at <= EVIDENCE_WINDOW_S
+        if stable:
+            if current and self._stable_text is not None and current != self._stable_text:
+                self._changed_at = at
+            self._stable_text = current
+        self._previous_text, self._text_at = current, at
+        self._features[1] = at - self._changed_at <= EVIDENCE_WINDOW_S
+        self._features[4] = stable
+        if self._audio is not None and not self._audio.attributed:
+            self._features[2] = (
+                self._audio.peak is not None
+                and self._audio.running
+                and self._audio.peak > 0.001
+                and (self._features[0] or self._features[1])
+            )
+        return self._judge(at, invalidate_still=True)
+
+    def _judge(self, at: float, *, invalidate_still: bool) -> PlaybackState:
+        logit = COEFFICIENTS[0] + sum(
+            weight * value for weight, value in zip(COEFFICIENTS[1:], self._features, strict=True)
+        )
+        score = 1 / (1 + math.exp(-logit))
+        weak_sound = (
+            self._audio is not None
+            and not self._audio.attributed
+            and self._audio.running
+            and self._audio.peak is not None
+            and self._audio.peak > 0.001
+        )
+        if weak_sound and not self._features[0]:
+            # A changing overlay and unrelated sound can coincide on a paused
+            # web video. They add support, but cannot certify image progression.
+            score = min(max(score, SUPPORTING_SCORE), (SUPPORTING_SCORE + ENTER_SCORE) / 2)
+        if self._features[0] or self._features[1]:
+            self._visual_at = at
+        if score >= ENTER_SCORE:
+            self._supported_at, self._supported_score = at, score
+        retained = max(0.0, 1 - (at - self._supported_at) / EVIDENCE_WINDOW_S)
+        self.confidence = score + max(0.0, self._supported_score - score) * retained
+        trusted_sound = self._audio is not None and self._audio.attributed and self._features[2]
+        ambiguous = (
+            self._features[5]
+            and self._features[4]
+            and not self._features[0]
+            and not self._features[1]
+            and not trusted_sound
+        )
+        if ambiguous:
+            # These observations are shared by a real pause and a naturally
+            # static silent scene. The model's class proportions cannot resolve
+            # that ambiguity, including with unrelated sound or a recent cue.
+            self.confidence = min(self.confidence, AMBIGUOUS_SCORE)
+        expired_context = weak_sound and at - self._visual_at > EVIDENCE_WINDOW_S
+        previously_advancing = self._advancing
+        if ambiguous or expired_context or self.confidence < LEAVE_SCORE:
+            self._advancing = False
+            if previously_advancing:
+                self._lost_progress_at = at
+        elif self.confidence >= ENTER_SCORE:
+            self._advancing = True
+            self._lost_progress_at = None
+        if self._advancing:
+            return PlaybackState.ADVANCING
+        # A sustained still/text-stable frame with no attributable sound may be
+        # paused or naturally static. Withhold projection rather than subtract
+        # an estimated stop duration. A returning image cannot revive the clock.
+        if (
+            invalidate_still
+            and self._lost_progress_at == at
+            and self._features[5]
+            and self._features[4]
+            and not trusted_sound
+        ):
+            self._lost_progress_at = None
+            return PlaybackState.INVALIDATED
+        return PlaybackState.UNCERTAIN

@@ -69,10 +69,13 @@ def sanitize_output(text: str) -> str:
     for raw_line in text.splitlines():
         line = raw_line.strip()
         line = re.sub(r"^\s*(translation|output|译文)\s*[:：]\s*", "", line, flags=re.IGNORECASE)
+        line = re.sub(
+            r"^here(?: is|'s) (?:the )?translation\s*[:：]\s*", "", line, flags=re.IGNORECASE
+        )
         line = line.strip().strip("\"'")
         if not line:
             continue
-        if re.match(r"^(here|note|explanation)\b", line, flags=re.IGNORECASE):
+        if re.match(r"^(note|explanation)\s*[:：]", line, flags=re.IGNORECASE):
             continue
         cleaned_lines.append(line)
     return " ".join(cleaned_lines).strip()
@@ -317,7 +320,8 @@ class TranslationClient:
             if pairs
             else build_prompt(text, source_language, target_language, context)
         )
-        translated = drop_restated_context(sanitize_output(await self._complete(prompt)), context)
+        raw_completion = await self._complete(prompt)
+        translated = drop_restated_context(sanitize_output(raw_completion), context)
 
         if context and echoes_context(translated, context):
             # Handing back the context is what this model does when the read is
@@ -327,15 +331,22 @@ class TranslationClient:
             # either beats a plate that stays blank for the rest of the session,
             # because the context only advances when a line gets through.
             logger.debug("Echoed context for %r, retrying without it", text[:40])
-            translated = sanitize_output(
-                await self._complete(build_prompt(text, source_language, target_language, None))
+            raw_completion = await self._complete(
+                build_prompt(text, source_language, target_language, None)
             )
+            translated = sanitize_output(raw_completion)
             if echoes_context(translated, context):
                 logger.debug("Discarded echoed context for %r: %r", text[:40], translated[:80])
                 return ""
 
         if not is_usable_translation(text, translated, target_language):
-            logger.debug("Discarded unusable translation for %r: %r", text[:40], translated[:80])
+            logger.debug(
+                "Discarded unusable translation for %r: raw_len=%d raw=%r cleaned=%r",
+                text[:40],
+                len(raw_completion),
+                raw_completion[:80],
+                translated[:80],
+            )
             return ""
         return translated
 

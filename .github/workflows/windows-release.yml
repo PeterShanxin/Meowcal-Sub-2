@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['release/**']
+    tags: ['v*']
 
 permissions:
   contents: read
@@ -33,6 +34,15 @@ jobs:
         with:
           python-version: '3.14.7'
           architecture: ${{ matrix.architecture }}
+      - name: Check app version and release tag
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            python scripts/check_app_version.py --tag $env:GITHUB_REF_NAME --require-head-tag
+          } else {
+            python scripts/check_app_version.py
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
@@ -65,7 +75,16 @@ jobs:
         env:
           CARGO_BUILD_JOBS: 1
           GH_TOKEN: ${{ github.token }}
-        run: .\scripts\build-windows-release.ps1 -Architecture ${{ matrix.architecture }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ github.ref_type == 'tag' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ github.ref_type == 'tag' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+          MEOWCAL_UPDATER_PUBLIC_KEY: ${{ github.ref_type == 'tag' && vars.MEOWCAL_UPDATER_PUBLIC_KEY || '' }}
+        run: |
+          $arguments = @{ Architecture = '${{ matrix.architecture }}' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $arguments.Tag = $env:GITHUB_REF_NAME
+            $arguments.SignedUpdater = $true
+          }
+          .\scripts\build-windows-release.ps1 @arguments
       - name: Upload artifacts for native acceptance
         uses: actions/upload-artifact@v4
         with:
@@ -73,6 +92,37 @@ jobs:
           path: |
             dist/*-portable.zip
             dist/*-setup.exe
+            dist/*-setup.exe.sig
             dist/*-SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  manifest:
+    name: Assemble signed update manifest
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: meowcal-sub-2-windows-*-${{ github.sha }}
+          path: dist
+          merge-multiple: true
+      - name: Assemble latest.json
+        run: |
+          python scripts/check_app_version.py --tag "$GITHUB_REF_NAME" --require-head-tag
+          python scripts/write_update_manifest.py --dist dist --tag "$GITHUB_REF_NAME" --output dist/latest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meowcal-sub-2-update-manifest-${{ github.sha }}
+          path: dist/latest.json
           if-no-files-found: error
           retention-days: 14

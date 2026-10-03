@@ -8,6 +8,11 @@
 
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 
+#[path = "overlay_zorder.rs"]
+mod overlay_zorder;
+pub(crate) use overlay_zorder::queue_dock_refresh;
+pub use overlay_zorder::{place_dock, show};
+
 /// Distance between the capture region and the plate, in CSS pixels.
 const GAP_CSS: f64 = 12.0;
 /// Space kept between the plate and the edge of the monitor, in CSS pixels.
@@ -229,24 +234,6 @@ pub fn cursor_position() -> Option<(i32, i32)> {
     None
 }
 
-/// Put the dock in its corner at full size, showing only the bead.
-pub fn place_dock(
-    window: &WebviewWindow,
-) -> Result<(PhysicalPosition<i32>, PhysicalSize<u32>, f64), String> {
-    let monitor = window
-        .current_monitor()
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "no monitor".to_string())?;
-    let position = *monitor.position();
-    let size = *monitor.size();
-    let scale = monitor.scale_factor();
-    let (at, extent) = dock_bounds((position.x, position.y), (size.width, size.height), scale);
-    window.set_size(extent).map_err(|error| error.to_string())?;
-    window.set_position(at).map_err(|error| error.to_string())?;
-    clip_pill(window, (DOCK_COLLAPSED_CSS * scale).round() as i32)?;
-    Ok((at, extent, scale))
-}
-
 /// How far along an ease-out curve the dock is, `t` running 0 to 1.
 ///
 /// Quintic: almost all of the travel happens immediately and the last few pixels
@@ -268,7 +255,7 @@ fn overlay_window(app: &AppHandle) -> Result<WebviewWindow, String> {
 
 /// The monitor holding the middle of the capture region, so a region on a second
 /// screen puts its plate on that screen too.
-fn anchor_for(app: &AppHandle, region: [i32; 4]) -> Result<(OverlayAnchor, f64), String> {
+pub fn anchor_for(app: &AppHandle, region: [i32; 4]) -> Result<(OverlayAnchor, f64), String> {
     let window = overlay_window(app)?;
     let center_x = region[0] + region[2] / 2;
     let center_y = region[1] + region[3] / 2;
@@ -303,23 +290,10 @@ pub fn place(
     window
         .set_position(position)
         .map_err(|error| error.to_string())?;
+    // The player may have moved itself to the front since the previous line.
+    // The overlay page calls this again when its visible text changes.
+    overlay_zorder::raise_topmost(&window)?;
     Ok(())
-}
-
-/// Put the plate on screen beside `region`, returning the anchor it was placed on.
-pub fn show(app: &AppHandle, region: [i32; 4]) -> Result<(OverlayAnchor, f64), String> {
-    let (anchor, scale) = anchor_for(app, region)?;
-    place(app, anchor, scale, DEFAULT_HEIGHT_CSS)?;
-    let window = overlay_window(app)?;
-    // The plate is scenery, not a control: clicks belong to the player behind it.
-    window
-        .set_ignore_cursor_events(true)
-        .map_err(|error| error.to_string())?;
-    window.show().map_err(|error| error.to_string())?;
-    window
-        .set_always_on_top(true)
-        .map_err(|error| error.to_string())?;
-    Ok((anchor, scale))
 }
 
 pub fn hide(app: &AppHandle) -> Result<(), String> {

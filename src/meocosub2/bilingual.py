@@ -28,6 +28,10 @@ logger = logging.getLogger(__name__)
 # 98.7% of its cues. Set low enough to accept a file that is plainly bilingual,
 # high enough that a monolingual file with a few stray Latin credits is not.
 BILINGUAL_CUE_SHARE = 0.5
+# Filtering target-script-only cues needs stronger evidence than splitting the
+# rows that are present. Both measured bilingual files carried paired rows on
+# more than 98% of their cues (444/450 and 489/493).
+TARGET_ONLY_EXCLUSION_SHARE = 0.98
 
 
 class BilingualReport(NamedTuple):
@@ -74,33 +78,51 @@ def split_bilingual(
     Nothing is written until the whole file has been read. A monolingual file
     carrying a translated credit or a sign would otherwise be left with a
     handful of cues holding answers, which preparation reads as a translation
-    the file provides.
+    the file provides. In a consistently bilingual file, target-script-only
+    cues are excluded before matching or gap filling. Source-script-only cues
+    remain: an untranslated line may still be spoken dialogue.
     """
     if not _scripts_identify_the_pair(source_language, target_language):
         return BilingualReport(len(lines), 0)
 
     source_is_cjk = _language_is_cjk(source_language)
-    divisions: list[tuple[SubtitleLine, str, str]] = []
-    for line in lines:
+    divisions: list[tuple[int, SubtitleLine, str, str]] = []
+    for position, line in enumerate(lines):
         divided = _rows_by_script(line.text)
         if divided is None:
             continue
         cjk_rows, latin_rows = divided
         own, other = (cjk_rows, latin_rows) if source_is_cjk else (latin_rows, cjk_rows)
-        divisions.append((line, "\n".join(own), "\n".join(other)))
+        divisions.append((position, line, "\n".join(own), "\n".join(other)))
 
     report = BilingualReport(len(lines), len(divisions))
     if report.is_bilingual:
-        for line, own, other in divisions:
+        if report.split_cues >= report.total_cues * TARGET_ONLY_EXCLUSION_SHARE:
+            split_positions = {position for position, _, _, _ in divisions}
+            lines[:] = [
+                line
+                for position, line in enumerate(lines)
+                if position in split_positions or not _target_script_only(line.text, source_is_cjk)
+            ]
+            for position, line in enumerate(lines):
+                line.index = position
+        for _, line, own, other in divisions:
             line.text = own
             line.translated = other
             line.translation_source = "human"
         logger.debug(
-            "Subtitle file carries its own translation on %d of %d cues",
+            "Subtitle file carries its own translation on %d of %d cues; excluded %d target-script-only cues",
             report.split_cues,
             report.total_cues,
+            report.total_cues - len(lines),
         )
     return report
+
+
+def _target_script_only(text: str, source_is_cjk: bool) -> bool:
+    has_cjk = any(is_cjk_char(ch) for ch in text)
+    has_latin = any(ch.isalpha() and not is_cjk_char(ch) for ch in text)
+    return (has_latin and not has_cjk) if source_is_cjk else (has_cjk and not has_latin)
 
 
 # Languages whose subtitles are written in the scripts `is_cjk_char` covers.

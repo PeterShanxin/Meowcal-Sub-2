@@ -95,6 +95,7 @@ def test_save_copies_preserves_notes_rebuilds_tracks_and_resets_bias(tmp_path):
         assert response.status_code == 200, response.text
         session = response.json()["session"]
         assert session["session_id"] != "initial"
+        assert session["target_clock_unverified"] is True
         assert (
             Path(session["source_path"]).read_text(encoding="utf-8")
             == request["files"][0]["content"]

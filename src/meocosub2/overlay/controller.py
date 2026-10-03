@@ -1202,6 +1202,8 @@ class GuiController:
             ),
             used_translation=used_translation,
             target_alignment=alignment,
+            target_clock_unverified=bool(target_lines)
+            and not pair.presentation.offset_corroborated,
             subtitle_checks=checks,
         )
 
@@ -1384,6 +1386,11 @@ class GuiController:
             used_translation=not bool(target_lines),
             source_candidate_count=len(source_candidates),
             target_candidate_count=len(target_entries),
+            target_clock_unverified=bool(target_lines)
+            and any(
+                not candidate.pair.presentation.offset_corroborated
+                for candidate in source_candidates
+            ),
             subtitle_checks=checks,
         )
 

@@ -1,6 +1,8 @@
 """Reading a bilingual subtitle file as a source and a translation at once."""
 
 from meocosub2.bilingual import split_bilingual
+from meocosub2.gapfill import unanswered
+from meocosub2.matcher import SubtitleMatcher
 from meocosub2.models import SubtitleLine
 
 
@@ -60,18 +62,70 @@ def test_a_cue_wrapped_across_rows_is_not_two_languages() -> None:
     assert lines[0].text == "Take your time,\nboss."
 
 
-def test_a_file_that_is_mostly_bilingual_reports_the_ones_that_are_not() -> None:
+def test_a_mixed_file_preserves_untranslated_dialogue_and_uncertain_credits() -> None:
     lines = cues(
         "我们就跳进那缸酸\nwe jump into the vat of acid,",
         "你不是个发明家么\nAren't you an inventor?",
         "慢慢来 老大",
+        "Release credit",
     )
 
     report = split_bilingual(lines, "zh", "en")
 
-    assert report.total_cues == 3
+    assert report.total_cues == 4
     assert report.split_cues == 2
-    assert lines[2].translated == ""
+    assert [line.text for line in lines] == [
+        "我们就跳进那缸酸",
+        "你不是个发明家么",
+        "慢慢来 老大",
+        "Release credit",
+    ]
+    assert unanswered(lines) == [2, 3]
+
+
+def test_target_script_credits_never_reach_matching_or_gap_fill() -> None:
+    lines = cues(
+        "Release group credit",
+        "你好\nHello",
+        *(["再见\nGoodbye"] * 98),
+        "Repository link",
+        "谢谢\nThanks",
+    )
+    lines[0].end_ms = 5000
+    lines[-2].end_ms = lines[-1].start_ms + 1000
+
+    report = split_bilingual(lines, "zh", "en")
+    matcher = SubtitleMatcher(lines)
+
+    assert report.total_cues == 102
+    assert report.split_cues == 100
+    assert [line.index for line in lines] == list(range(100))
+    assert lines[0].text == "你好"
+    assert lines[-1].text == "谢谢"
+    assert unanswered(lines) == []
+    assert matcher.line_at(2500).target_text == "Hello"
+    assert matcher.line_at(lines[-1].start_ms + 100).target_text == "Thanks"
+
+
+def test_rare_source_script_dialogue_remains_matchable_and_fillable() -> None:
+    lines = cues(*(["你好\nHello"] * 99), "未翻译的对白")
+
+    report = split_bilingual(lines, "zh", "en")
+
+    assert report.is_bilingual
+    assert [line.index for line in lines] == list(range(100))
+    assert lines[-1].text == "未翻译的对白"
+    assert unanswered(lines) == [99]
+    assert SubtitleMatcher(lines).match("未翻译的对白").line_index == 99
+
+
+def test_unsplittable_cue_with_both_scripts_is_kept_for_dialogue() -> None:
+    lines = cues("你好\nHello", "再见\nGoodbye", "谢谢 Thanks")
+
+    split_bilingual(lines, "zh", "en")
+
+    assert [line.text for line in lines] == ["你好", "再见", "谢谢 Thanks"]
+    assert unanswered(lines) == [2]
 
 
 def test_a_source_and_target_in_the_same_script_is_not_a_split() -> None:

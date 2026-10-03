@@ -50,10 +50,14 @@ def command_grants(
         ("main", "exit_live_mode", True),
         ("main", "stop_translation", True),
         ("main", "get_api_base", True),
+        ("main", "check_app_update", True),
+        ("main", "install_app_update", True),
         ("selector", "set_capture_region", False),
         ("selector", "cancel_area_selector", False),
         ("selector", "get_capture_region", False),
         ("selector", "get_selector_backdrop", False),
+        ("selector", "selector_display_count", False),
+        ("selector", "switch_area_selector", False),
         ("overlay", "set_overlay_height", True),
     ],
 )
@@ -79,3 +83,8 @@ def test_window_can_perform_its_actions_without_granting_other_windows_or_origin
 def test_api_token_is_not_exposed_to_any_frontend() -> None:
     _, permissions = shell_permissions()
     assert all("get_api_token" not in rules.get("allow", []) for rules in permissions.values())
+
+
+def test_updater_plugin_can_initialize_in_unsigned_build() -> None:
+    config = json.loads((SHELL / "tauri.conf.json").read_text())
+    assert isinstance(config["plugins"]["updater"]["pubkey"], str)

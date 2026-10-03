@@ -257,9 +257,9 @@ class OpenSubtitlesClient:
 
     async def download(self, file_id: int, file_name: str | None = None) -> Path:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        destination = contained_path(
-            self.cache_dir, subtitle_file_name(file_name or "", str(file_id))
-        )
+        # A provider name can belong to multiple file IDs.
+        name = subtitle_file_name(file_name or "", str(file_id))
+        destination = contained_path(self.cache_dir, f"{file_id}-{name}" if file_name else name)
         if destination.exists():
             return destination
 

@@ -72,6 +72,43 @@ async def test_the_split_translations_are_what_the_session_will_draw(
 
 
 @pytest.mark.asyncio
+async def test_preparation_excludes_overlapping_target_script_credits(
+    tmp_path: Path, mocker
+) -> None:
+    controller, _ = _bilingual_pair(tmp_path, mocker)
+    dialogue = "".join(
+        f"{index + 5}\n"
+        f"00:{(12 + index * 2) // 60:02d}:{(12 + index * 2) % 60:02d},000 --> "
+        f"00:{(13 + index * 2) // 60:02d}:{(13 + index * 2) % 60:02d},500\n"
+        "谢谢\nThank you\n\n"
+        for index in range(98)
+    )
+    (tmp_path / "bilingual-source.srt").write_text(
+        "1\n00:00:01,450 --> 00:00:05,950\nRelease credit\n\n"
+        "2\n00:00:02,000 --> 00:00:03,800\n你好\nHello there\n\n"
+        "3\n00:00:06,450 --> 00:00:10,950\nReproduction notice\n\n"
+        "4\n00:00:07,460 --> 00:00:09,390\n再见\nGoodbye now\n\n" + dialogue,
+        encoding="utf-8",
+    )
+
+    payload = await controller.prepare_session(
+        mode="subtitle_pair",
+        feature_id="match-1",
+        source_file_id="result-1",
+        target_file_id="__source__",
+    )
+
+    runtime = controller._prepared_runtime
+    assert runtime is not None
+    pair = runtime.source_candidates[0].pair
+    assert len(pair.source_lines) == 100
+    assert [line.text for line in pair.source_lines[:2]] == ["你好", "再见"]
+    assert [line.index for line in pair.source_lines] == list(range(100))
+    assert pair.presentation.resolve_at(8000).text == "Goodbye now"
+    assert payload["target_line_count"] == 100
+
+
+@pytest.mark.asyncio
 async def test_inspecting_a_source_says_whether_it_carries_a_translation(
     tmp_path: Path, mocker
 ) -> None:

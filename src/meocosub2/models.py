@@ -146,6 +146,7 @@ class PreparedSession:
     # What the chosen target file leaves for the model, and how the other
     # candidates for this episode would have compared. Best first.
     target_alignment: list[TargetAlignment] = field(default_factory=list)
+    target_clock_unverified: bool = False
     subtitle_checks: list[SubtitleCheck] = field(default_factory=list)
 
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from enum import Enum
 from time import monotonic
 
 logger = logging.getLogger(__name__)
@@ -38,11 +39,24 @@ CONFIRMATION_MAX_AGE_S = 15.0
 # Consecutive rejected matches before the anchor is treated as wrong rather than
 # the reads as unlucky. Without this a bad anchor can never be escaped.
 ANCHOR_ABANDON_MISSES = 8
-# An anchor nothing has agreed with for this long is not describing this video.
+# Without recent matching or playback evidence, the clock is no longer usable.
 ANCHOR_MAX_AGE_S = 90.0
+# Activity establishes progression, not subtitle identity. Even uninterrupted
+# activity must eventually corroborate the selected file with new dialogue.
+ACTIVITY_IDENTITY_MAX_S = 300.0
+# A brief ambiguous frame can be a cut. Beyond this, neither advancing through
+# a pause nor subtracting a silent static shot is a defensible clock estimate.
+UNCERTAIN_GRACE_S = 3.0
 # The longest a single subtitle is assumed to genuinely stay on screen. Past
 # this the viewer has paused, and the clock should not run on without them.
 CUE_HOLD_S = 6.0
+
+
+class PlaybackState(Enum):
+    ADVANCING = "advancing"
+    STOPPED = "stopped"
+    UNCERTAIN = "uncertain"
+    INVALIDATED = "invalidated"
 
 
 @dataclass
@@ -58,16 +72,22 @@ class TimelineStatus:
 class PlaybackTimeline:
     """The playback position implied by the subtitle lines that have matched.
 
-    Anchored by every accepted match, advanced by the wall clock, and held still
-    while one subtitle stays on screen longer than a subtitle plausibly lasts.
+    Anchored by every accepted match and advanced by the wall clock. A long OCR
+    cue can hold the clock unless observed video motion refreshes its hold time.
     """
 
     def __init__(self) -> None:
         self._anchor_ms: int | None = None
         self._anchor_at = 0.0
+        self._supported_at = 0.0
+        self._has_activity_evidence = False
+        self._uncertain_since: float | None = None
         self._paused_s = 0.0
+        self._stopped_since: float | None = None
         self._cue_since: float | None = None
         self._cue_started_ms: int | None = None
+        self._hold_since: float | None = None
+        self._hold_started_ms: int | None = None
         self._cue_credited_s = 0.0
         self._misses = 0
         self._drift_ms: int | None = None
@@ -102,24 +122,29 @@ class PlaybackTimeline:
         """Where the wall clock alone says the video is."""
         if self._anchor_ms is None:
             return None
-        return int(self._anchor_ms + (now - self._anchor_at - self._paused_s) * 1000)
+        stopped_s = 0.0 if self._stopped_since is None else max(0.0, now - self._stopped_since)
+        return int(self._anchor_ms + (now - self._anchor_at - self._paused_s - stopped_s) * 1000)
 
     def _held_ms(self, now: float) -> int | None:
-        """Where the clock stood when the cue now frozen on screen appeared.
+        """Where the clock stood when this cue, or its last motion, appeared.
 
-        A cue that has outlasted any subtitle is a paused frame, and the line
-        the viewer is looking at is the one that was on screen when it went up -
+        A cue held without observed motion may be a paused frame. The line the
+        viewer is looking at is the one on screen at the latest observed motion,
         not the two or three the clock ran on through before it stopped.
-        `saw_same_cue` freezes the clock; this walks it back to the pause.
+        `saw_same_cue` freezes the clock; this walks it back to that position.
 
         Provisional on purpose: the moment a different cue is read the video is
         moving again, and the clock carries on from where it actually was.
         """
-        if self._cue_since is None or self._cue_started_ms is None:
+        if (
+            self._stopped_since is not None
+            or self._hold_since is None
+            or self._hold_started_ms is None
+        ):
             return None
-        if now - self._cue_since <= CUE_HOLD_S:
+        if now - self._hold_since <= CUE_HOLD_S:
             return None
-        return self._cue_started_ms
+        return self._hold_started_ms
 
     def predicted_ms(self, now: float | None = None) -> int | None:
         now = monotonic() if now is None else now
@@ -146,6 +171,36 @@ class PlaybackTimeline:
             return None
         return predicted - WINDOW_BACK_MS, predicted + WINDOW_FORWARD_MS
 
+    def observe_playback(self, state: PlaybackState, now: float | None = None) -> None:
+        """Apply playback evidence without treating image activity as a subtitle match."""
+        now = monotonic() if now is None else now
+        # Check before refreshing: a late sample cannot revive an expired or
+        # ambiguous position. Only progressing subtitle evidence can replace it.
+        self._expire_stale_anchor(now)
+        if state is PlaybackState.INVALIDATED:
+            self.invalidate()
+            return
+        if state is PlaybackState.UNCERTAIN:
+            if self._uncertain_since is None:
+                self._uncertain_since = now
+            return
+        self._supported_at = now
+        self._has_activity_evidence = True
+        self._uncertain_since = None
+        if state is PlaybackState.STOPPED:
+            if self._stopped_since is None:
+                self._stopped_since = now
+            return
+        if self._stopped_since is not None:
+            self._paused_s += max(0.0, now - self._stopped_since)
+            self._stopped_since = None
+        # Keep the OCR cue's first-seen time for matching. Only its pause hold
+        # moves forward, so a later stop does not walk back through motion.
+        if self._hold_since is not None:
+            self._hold_since = now
+            self._hold_started_ms = self._running_ms(now)
+            self._cue_credited_s = 0.0
+
     def saw_new_cue(self, now: float | None = None) -> None:
         """A different subtitle is on screen, so the clock is running normally."""
         now = monotonic() if now is None else now
@@ -153,25 +208,28 @@ class PlaybackTimeline:
         # Taken from the running clock rather than the reported one, so that
         # walking back to a pause does not leave the clock walked back forever.
         self._cue_started_ms = self._running_ms(now)
+        self._hold_since = now
+        self._hold_started_ms = self._cue_started_ms
         self._cue_credited_s = 0.0
 
     def clear_cue(self) -> None:
         """A blank region ends the cue hold without discarding playback timing."""
         self._cue_since = None
         self._cue_started_ms = None
+        self._hold_since = None
+        self._hold_started_ms = None
         self._cue_credited_s = 0.0
 
     def saw_same_cue(self, now: float | None = None) -> None:
         """The same subtitle is still on screen.
 
-        Past the length a subtitle plausibly runs, the extra seconds are the
-        viewer sitting on a paused frame rather than dialogue holding, so they
-        are taken back out of the clock.
+        Past the length a subtitle plausibly runs without observed motion, the
+        extra seconds may be a pause, so they are taken back out of the clock.
         """
-        if self._cue_since is None:
+        if self._hold_since is None or self._stopped_since is not None:
             return
         now = monotonic() if now is None else now
-        overrun = (now - self._cue_since) - CUE_HOLD_S
+        overrun = (now - self._hold_since) - CUE_HOLD_S
         if overrun > self._cue_credited_s:
             self._paused_s += overrun - self._cue_credited_s
             self._cue_credited_s = overrun
@@ -270,12 +328,17 @@ class PlaybackTimeline:
     def _anchor(self, line_start_ms: int, at: float, drift: int | None) -> None:
         self._anchor_ms = line_start_ms
         self._anchor_at = at
+        self._supported_at = at
+        self._uncertain_since = None
         self._paused_s = 0.0
+        self._stopped_since = None
         # The cue this line was matched from went up at the same moment the
         # clock is being anchored to, so the hold that catches a paused video
         # measures from there too.
         self._cue_since = at
         self._cue_started_ms = line_start_ms
+        self._hold_since = at
+        self._hold_started_ms = line_start_ms
         self._cue_credited_s = 0.0
         self._drift_ms = drift
         self._misses = 0
@@ -285,28 +348,50 @@ class PlaybackTimeline:
     def _forget_anchor_if_hopeless(self) -> None:
         if self._misses >= ANCHOR_ABANDON_MISSES:
             logger.debug("Timeline dropped its anchor after %d rejected matches", self._misses)
-            cue_since = self._cue_since
-            self.reset()
-            self._cue_since = cue_since
-            self._recovering = True
+            self.invalidate()
+
+    def invalidate(self) -> None:
+        """Drop projection while retaining an in-flight cue's capture time."""
+        cue_since = self._cue_since
+        self.reset()
+        self._cue_since = cue_since
+        self._recovering = True
 
     def _expire_stale_anchor(self, now: float) -> None:
-        if self._anchor_ms is not None and now - self._anchor_at > ANCHOR_MAX_AGE_S:
+        if self._anchor_ms is None:
+            return
+        running = self._running_ms(now)
+        ambiguous = (
+            self._uncertain_since is not None
+            and self._stopped_since is None
+            and now - self._uncertain_since > UNCERTAIN_GRACE_S
+        )
+        identity_overdue = (
+            self._has_activity_evidence
+            and running is not None
+            and running - self._anchor_ms > ACTIVITY_IDENTITY_MAX_S * 1000
+        )
+        if ambiguous or identity_overdue or now - self._supported_at > ANCHOR_MAX_AGE_S:
             logger.debug(
-                "Timeline dropped an anchor nothing agreed with for %.0fs", ANCHOR_MAX_AGE_S
+                "Timeline invalidated projection (ambiguous=%s, identity_overdue=%s)",
+                ambiguous,
+                identity_overdue,
             )
             # Expiry can run between a frame's capture and its OCR result.
-            cue_since = self._cue_since
-            self.reset()
-            self._cue_since = cue_since
-            self._recovering = True
+            self.invalidate()
 
     def reset(self) -> None:
         self._anchor_ms = None
         self._anchor_at = 0.0
+        self._supported_at = 0.0
+        self._has_activity_evidence = False
+        self._uncertain_since = None
         self._paused_s = 0.0
+        self._stopped_since = None
         self._cue_since = None
         self._cue_started_ms = None
+        self._hold_since = None
+        self._hold_started_ms = None
         self._cue_credited_s = 0.0
         self._misses = 0
         self._drift_ms = None
