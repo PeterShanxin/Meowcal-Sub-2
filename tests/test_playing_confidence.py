@@ -14,15 +14,17 @@ def test_repeated_ocr_does_not_hide_silent_image_motion():
         assert read(probe, at, motion=True) is PlaybackState.ADVANCING
 
 
-def test_motion_loss_with_stable_text_withholds_projection_without_pause_credit():
+def test_brief_motion_loss_is_uncertain_then_sustained_freeze_stops():
     probe = PlayingConfidence()
     read(probe, 0, motion=True)
     read(probe, 0.4, motion=True)
     states = [read(probe, at, still=True) for at in (0.8, 1.2, 1.6, 2.0)]
-    assert PlaybackState.INVALIDATED in states
+    assert PlaybackState.INVALIDATED not in states
     assert PlaybackState.STOPPED not in states
     assert states[-1] is PlaybackState.UNCERTAIN
-    assert read(probe, 2.4, motion=True) is PlaybackState.ADVANCING
+    assert read(probe, 3.0, still=True) is PlaybackState.STOPPED
+    assert probe.state_since == 0.8
+    assert read(probe, 3.2, motion=True) is PlaybackState.ADVANCING
 
 
 def test_text_change_requires_confirmation_and_is_separate_support():
@@ -55,7 +57,7 @@ def test_background_sound_never_certifies_static_browser_or_renews_lost_motion()
         assert read(probe, at, still=True, audio=ambient) is PlaybackState.UNCERTAIN
     assert read(probe, 1.2, motion=True, audio=ambient) is PlaybackState.ADVANCING
     states = [read(probe, at, still=True, audio=ambient) for at in (1.6, 2.0, 2.4, 2.8)]
-    assert PlaybackState.INVALIDATED in states
+    assert PlaybackState.INVALIDATED not in states
     assert states[-1] is PlaybackState.UNCERTAIN
 
 
@@ -69,10 +71,9 @@ def test_changing_overlay_and_unrelated_sound_do_not_certify_browser_playback():
     probe = PlayingConfidence()
     ambient = AudioObservation(0, True, 0.2, attributed=False)
     for index, text in enumerate(("First", "First", "Second", "Second", "Third", "Third")):
-        assert (
-            read(probe, index * 0.4, still=True, text=text, audio=ambient)
-            is PlaybackState.UNCERTAIN
-        )
+        state = read(probe, index * 0.4, still=True, text=text, audio=ambient)
+        assert state is not PlaybackState.ADVANCING
+    assert state is PlaybackState.STOPPED
 
 
 def test_capture_outage_resets_retained_evidence():

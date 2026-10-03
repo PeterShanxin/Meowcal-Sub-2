@@ -41,6 +41,10 @@ class PlaybackCapture:
     def confidence(self) -> float:
         return self._observer.confidence
 
+    @property
+    def state_since(self) -> float | None:
+        return self._observer.state_since
+
     def observe_text(self, text: str, at: float, captured: PlaybackState) -> PlaybackState:
         if captured is PlaybackState.INVALIDATED:
             return captured

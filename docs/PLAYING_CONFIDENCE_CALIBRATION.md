@@ -54,7 +54,13 @@ motion-only and 0.921232 attributable audio. Entry 0.704544 is the midpoint
 between the higher ambiguous/text-only score and the lower strong-channel
 score. Exit 0.628153 lies halfway between ambiguity and entry. Unknown sound
 without image motion is capped below entry, including when text changes.
-Explicit ambiguity guards withhold timing rather than infer stopped duration.
+Explicit ambiguity guards withdraw progression evidence. The separate sustained
+freeze policy in [playback evidence](PLAYBACK_EVIDENCE.md) uses a two-second
+heuristic to hold and resume an existing clock. These fitted coefficients and
+thresholds are unchanged; they do not calibrate that heuristic as a pause
+probability. New unit tests cover its elapsed-time transitions, while the authored
+physical calibration above predates this pause policy and is not native acceptance
+of the new behavior.
 
 This authored calibration is reproducible evidence for an initial index, not
 population calibration, player support certification, elapsed-time recovery,
