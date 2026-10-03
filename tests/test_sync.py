@@ -782,13 +782,17 @@ async def test_captured_motion_reaches_the_playback_timeline(monkeypatch) -> Non
     monkeypatch.setattr(sync, "PlaybackObserver", lambda: observer)
     observe_playback = MagicMock(wraps=session.observe_playback)
     session.observe_playback = observe_playback
+    begin_capture = MagicMock(wraps=session.begin_capture)
+    session.begin_capture = begin_capture
 
     await drive(session, config(), ["Hello there"])
 
     observer.observe.assert_called()
     assert all(call.args[0] is PlaybackState.ADVANCING for call in observe_playback.call_args_list)
     assert all(call.args[2] == 0.0 for call in observe_playback.call_args_list)
+    assert all(call.args[3] >= call.args[1] for call in observe_playback.call_args_list)
     assert observe_playback.call_count == observer.observe.call_count
+    assert begin_capture.call_count == observer.observe.call_count
 
 
 async def test_lost_clock_translates_same_visible_text_without_reanchoring(monkeypatch):

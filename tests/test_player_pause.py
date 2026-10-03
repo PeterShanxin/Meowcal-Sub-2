@@ -1,5 +1,7 @@
 """Observed player pauses preserve the existing human-target clock."""
 
+import asyncio
+
 import pytest
 from PIL import Image, ImageChops
 
@@ -65,7 +67,8 @@ async def test_frozen_player_holds_target_or_blank_and_resumes_at_observed_trans
         assert session.clock_ms() == 600750
         assert session.line_now().text == expected
     # Resume needs two distributed changes, but credits the first at 30.0.
-    assert observe(30, 15) is PlaybackState.STOPPED
+    assert observe(30, 15) is PlaybackState.UNCERTAIN
+    assert session.clock_ms() == 600750
     assert observe(30.25, 20) is PlaybackState.ADVANCING
     assert session.clock_ms() == 601000
     assert session.line_now().text == "Human target"
@@ -248,3 +251,87 @@ def test_unreliable_frame_withdraws_the_pending_freeze_lease():
     assert observer.state_since is None
     timeline.observe_playback(state, 7.5, observer.state_since)
     assert timeline.position_ms(7.75) is None
+
+
+def test_muted_hard_cuts_cannot_leave_a_latched_stop_supported_forever():
+    timeline = PlaybackTimeline()
+    assert timeline.accepts(600000, 0, 100, now=0)
+    observer = stopped_observer()
+    timeline.observe_playback(PlaybackState.STOPPED, 2.25, observer.state_since)
+    cut = ImageChops.invert(frame())
+    states = []
+    for index in range(16):
+        at = 2.5 + index * 0.25
+        state = observer.observe(cut if index % 2 == 0 else frame(), REGION, at, source_id=11)
+        timeline.observe_playback(state, at, observer.state_since)
+        states.append(state)
+    assert PlaybackState.ADVANCING not in states
+    assert PlaybackState.INVALIDATED in states
+    assert timeline.position_ms(at) is None
+
+
+def test_confirmed_stop_expires_when_no_more_capture_is_delivered():
+    timeline = PlaybackTimeline()
+    assert timeline.accepts(600000, 0, 100, now=0)
+    observer = stopped_observer()
+    timeline.observe_playback(PlaybackState.STOPPED, 2.25, observer.state_since)
+    assert timeline.position_ms(7.25) == 600250
+    assert timeline.position_ms(7.251) is None
+
+
+@pytest.mark.parametrize("previous", [PlaybackState.UNCERTAIN, PlaybackState.STOPPED])
+async def test_boundary_capture_delivery_preserves_pending_or_confirmed_stop(previous):
+    timeline = PlaybackTimeline()
+    assert timeline.accepts(600000, 0, 100, now=0)
+    timeline.observe_playback(previous, 0, state_since=0, received_at=0.25)
+    timeline.begin_capture(5.0)
+    ready = asyncio.Event()
+
+    async def deliver_frame():
+        await ready.wait()
+        timeline.observe_playback(PlaybackState.STOPPED, 5.0, state_since=0, received_at=5.5)
+
+    delivery = asyncio.create_task(deliver_frame())
+    try:
+        await asyncio.sleep(0)
+        assert not delivery.done()
+        # Renderer runs after the old lease but before screenshot/audio delivery.
+        assert timeline.position_ms(5.5) is not None
+        ready.set()
+        await asyncio.wait_for(delivery, 1)
+        assert timeline.position_ms(5.5) == 600000
+        assert timeline.position_ms(10.5) == 600000
+        assert timeline.position_ms(10.501) is None
+    finally:
+        delivery.cancel()
+
+
+@pytest.mark.parametrize("previous", [PlaybackState.UNCERTAIN, PlaybackState.STOPPED])
+def test_inflight_capture_margin_is_bounded_when_delivery_never_finishes(previous):
+    timeline = PlaybackTimeline()
+    assert timeline.accepts(600000, 0, 100, now=0)
+    timeline.observe_playback(previous, 0, state_since=0, received_at=0.25)
+    timeline.begin_capture(5.0)
+    assert timeline.position_ms(6.0) is not None
+    assert timeline.position_ms(6.001) is None
+    timeline.begin_capture(6.1)
+    timeline.observe_playback(PlaybackState.STOPPED, 6.1, state_since=0, received_at=6.2)
+    assert timeline.position_ms(6.2) is None
+
+
+def test_late_capture_start_cannot_extend_an_already_expired_stop():
+    timeline = PlaybackTimeline()
+    assert timeline.accepts(600000, 0, 100, now=0)
+    timeline.observe_playback(PlaybackState.STOPPED, 0, state_since=0)
+    timeline.begin_capture(5.001)
+    timeline.observe_playback(PlaybackState.STOPPED, 5.001, state_since=0, received_at=5.25)
+    assert timeline.position_ms(5.25) is None
+
+
+def test_ocr_reanchor_does_not_renew_old_capture_freshness():
+    timeline = PlaybackTimeline()
+    assert timeline.accepts(600000, 0, 100, now=0)
+    timeline.observe_playback(PlaybackState.STOPPED, 0, state_since=0, received_at=0.25)
+    assert timeline.accepts(600000, 0, 100, now=4, seen_at=0.25)
+    assert timeline.position_ms(5.25) == 600000
+    assert timeline.position_ms(5.251) is None

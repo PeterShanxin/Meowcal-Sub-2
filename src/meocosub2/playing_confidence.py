@@ -6,7 +6,7 @@ import math
 
 from meocosub2.audio_observation import AudioObservation
 from meocosub2.subtitle_gate import normalize
-from meocosub2.timeline import MAX_PLAYBACK_SAMPLE_GAP_S, PlaybackState
+from meocosub2.timeline import MAX_PLAYBACK_SAMPLE_GAP_S, UNCERTAIN_GRACE_S, PlaybackState
 
 # Reproduced by scripts/fit_playing_confidence.py from 288 authored physical
 # FFplay/Edge samples and balanced indistinguishable static observations.
@@ -49,13 +49,14 @@ class PlayingConfidence:
         self._quiet_since: float | None = None
         self._still_since: float | None = None
         self._motion_since: float | None = None
-        self._stopped_at: float | None = None
+        self._stopped_since: float | None = None
+        self._unqualified_since: float | None = None
         self.state_since: float | None = None
         self.confidence = 0.5
 
     @property
     def stopped(self) -> bool:
-        return self._stopped_at is not None
+        return self._stopped_since is not None
 
     def observe(
         self,
@@ -157,12 +158,23 @@ class PlayingConfidence:
         # attributed sound resumes the player. A new source cue can be a seek
         # on a paused frame, so it must not release an already confirmed stop.
         if self._features[0] or trusted_sound:
-            self._stopped_at = None
+            self._stopped_since = None
+            self._unqualified_since = None
             self._quiet_since = None
             self.state_since = self._motion_since if self._features[0] else at
             return PlaybackState.ADVANCING if self._advancing else PlaybackState.UNCERTAIN
-        if self._stopped_at is not None:
-            return PlaybackState.STOPPED
+        if self._stopped_since is not None:
+            if self._still_since is not None or self._features[5]:
+                self._unqualified_since = None
+                self.state_since = self._stopped_since
+                return PlaybackState.STOPPED
+            if self._unqualified_since is None:
+                self._unqualified_since = at
+            if at > self._unqualified_since + UNCERTAIN_GRACE_S:
+                self.reset()
+                return PlaybackState.INVALIDATED
+            self.state_since = None
+            return PlaybackState.UNCERTAIN
         if self._quiet_since is None:
             self._quiet_since = at
         if self._still_since is not None or self._features[5]:
@@ -172,7 +184,7 @@ class PlayingConfidence:
             )
             self.state_since = onset
             if self._features[5] and at >= onset + FREEZE_CONFIRM_S:
-                self._stopped_at = at
+                self._stopped_since = onset
                 return PlaybackState.STOPPED
         else:
             self.state_since = None

@@ -149,19 +149,19 @@ def test_confirmed_stop_holds_clock_without_visible_subtitles() -> None:
     timeline = anchored_at(600_000)
     timeline.clear_cue()
     timeline.observe_playback(PlaybackState.STOPPED, now=10)
-    timeline.observe_playback(PlaybackState.UNCERTAIN, now=20)
-    assert timeline.position_ms(now=30) == 610_000
-    timeline.observe_playback(PlaybackState.ADVANCING, now=30)
-    assert timeline.position_ms(now=35) == 615_000
+    timeline.observe_playback(PlaybackState.UNCERTAIN, now=11)
+    assert timeline.position_ms(now=12) == 610_000
+    timeline.observe_playback(PlaybackState.ADVANCING, now=12)
+    assert timeline.position_ms(now=15) == 613_000
 
 
 def test_confirmed_match_reanchors_but_independent_playback_releases_a_stopped_clock() -> None:
     timeline = anchored_at(600_000)
     timeline.observe_playback(PlaybackState.STOPPED, now=10)
-    assert read(timeline, 610_000, 11, 100, now=20)
-    assert timeline.position_ms(now=25) == 610_000
-    timeline.observe_playback(PlaybackState.ADVANCING, now=26, state_since=25)
-    assert timeline.position_ms(now=26) == 611_000
+    assert read(timeline, 610_000, 11, 100, now=12)
+    assert timeline.position_ms(now=14) == 610_000
+    timeline.observe_playback(PlaybackState.ADVANCING, now=15, state_since=14)
+    assert timeline.position_ms(now=15) == 611_000
 
 
 def test_uncertain_image_does_not_prove_a_pause_without_a_cue() -> None:

@@ -50,6 +50,9 @@ UNCERTAIN_GRACE_S = 3.0
 # Reliable freeze candidates may await the next supported capture cadence.
 # Beyond this sampling gap, image evidence must be discarded rather than held.
 MAX_PLAYBACK_SAMPLE_GAP_S = 5.0
+# Window discovery/screenshot/audio delivery may cross the next capture boundary.
+# Only an explicitly in-flight capture receives this bounded processing margin.
+CAPTURE_DELIVERY_GRACE_S = 1.0
 # The longest a single subtitle is assumed to genuinely stay on screen. Past
 # this the viewer has paused, and the clock should not run on without them.
 CUE_HOLD_S = 6.0
@@ -86,6 +89,8 @@ class PlaybackTimeline:
         self._has_activity_evidence = False
         self._uncertain_since: float | None = None
         self._pending_freeze_until: float | None = None
+        self._playback_received_at: float | None = None
+        self._capture_pending_until: float | None = None
         self._paused_s = 0.0
         self._stopped_since: float | None = None
         self._cue_since: float | None = None
@@ -175,22 +180,35 @@ class PlaybackTimeline:
             return None
         return predicted - WINDOW_BACK_MS, predicted + WINDOW_FORWARD_MS
 
+    def begin_capture(self, now: float) -> None:
+        """Bound an in-flight frame without reviving expired playback evidence."""
+        self._expire_stale_anchor(now)
+        if self.anchored:
+            self._capture_pending_until = now + CAPTURE_DELIVERY_GRACE_S
+
     def observe_playback(
-        self, state: PlaybackState, now: float | None = None, state_since: float | None = None
+        self,
+        state: PlaybackState,
+        now: float | None = None,
+        state_since: float | None = None,
+        received_at: float | None = None,
     ) -> None:
         """Apply playback evidence without treating image activity as a subtitle match."""
         now = monotonic() if now is None else now
+        received_at = now if received_at is None else received_at
         # Check before refreshing: a late sample cannot revive an expired or
         # ambiguous position. Only progressing subtitle evidence can replace it.
-        self._expire_stale_anchor(now)
+        self._expire_stale_anchor(received_at)
+        self._capture_pending_until = None
         if state is PlaybackState.INVALIDATED:
             self.invalidate()
             return
+        self._playback_received_at = received_at
         if state is PlaybackState.UNCERTAIN:
             if self._uncertain_since is None:
                 self._uncertain_since = now
             self._pending_freeze_until = (
-                now + MAX_PLAYBACK_SAMPLE_GAP_S if state_since is not None else None
+                received_at + MAX_PLAYBACK_SAMPLE_GAP_S if state_since is not None else None
             )
             return
         self._supported_at = now
@@ -378,22 +396,39 @@ class PlaybackTimeline:
         if self._anchor_ms is None:
             return
         running = self._running_ms(now)
+        capture_pending = (
+            self._capture_pending_until is not None and now <= self._capture_pending_until
+        )
+        pending_freeze = self._pending_freeze_until is not None and (
+            now <= self._pending_freeze_until or capture_pending
+        )
         ambiguous = (
             self._uncertain_since is not None
-            and self._stopped_since is None
             and now - self._uncertain_since > UNCERTAIN_GRACE_S
-            and (self._pending_freeze_until is None or now > self._pending_freeze_until)
+            and not pending_freeze
+        )
+        stale_stop = (
+            self._stopped_since is not None
+            and self._playback_received_at is not None
+            and now > self._playback_received_at + MAX_PLAYBACK_SAMPLE_GAP_S
+            and not capture_pending
         )
         identity_overdue = (
             self._has_activity_evidence
             and running is not None
             and running - self._anchor_ms > ACTIVITY_IDENTITY_MAX_S * 1000
         )
-        if ambiguous or identity_overdue or now - self._supported_at > ANCHOR_MAX_AGE_S:
+        if (
+            ambiguous
+            or stale_stop
+            or identity_overdue
+            or now - self._supported_at > ANCHOR_MAX_AGE_S
+        ):
             logger.debug(
-                "Timeline invalidated projection (ambiguous=%s, identity_overdue=%s)",
+                "Timeline invalidated projection (ambiguous=%s, identity_overdue=%s, stale_stop=%s)",
                 ambiguous,
                 identity_overdue,
+                stale_stop,
             )
             # Expiry can run between a frame's capture and its OCR result.
             self.invalidate()
@@ -405,6 +440,8 @@ class PlaybackTimeline:
         self._has_activity_evidence = False
         self._uncertain_since = None
         self._pending_freeze_until = None
+        self._playback_received_at = None
+        self._capture_pending_until = None
         self._paused_s = 0.0
         self._stopped_since = None
         self._cue_since = None

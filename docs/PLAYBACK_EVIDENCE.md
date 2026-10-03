@@ -61,6 +61,18 @@ Confirmation happens on an available sample after the two-second deadline. For
 user-selected sparse intervals, reliable pending freeze samples extend the
 uncertainty lease to the five-second supported sampling gap. The renderer keeps
 the anchor while waiting; unreliable evidence withdraws this bounded lease.
+Freeze support and freshness are separate. A confirmed stop requires continued
+reliable still samples; non-still changes that cannot qualify as motion get the
+existing three-second transition grace before invalidation. This includes muted
+hard cuts, which must not leave a stop supported indefinitely. Qualified motion
+still resumes through consecutive distributed changes.
+
+Capture receipt renews the five-second freshness deadline for pending and
+confirmed freezes. Capture start/onset remains the timing coordinate, so receipt
+or OCR latency is not charged as media time. An explicitly in-flight capture that
+started before expiry gets at most one second to deliver screenshot/audio across
+the boundary. No delivery then invalidates the clock; a late start or result
+cannot revive it. OCR processing never renews the capture receipt timestamp.
 
 Two consecutive distributed image changes or attributable audible energy resume
 the clock. Image resume credits the first qualifying change rather than the later
@@ -72,8 +84,9 @@ seeks and a constant video/source head offset continue to use existing reanchors
 Target-file scheduling and source/target mapping are unchanged.
 
 Black or unreliable crops cannot establish a pause. Capture/source loss, a black
-frame during a confirmed stop or a sampling outage longer than five seconds
-invalidates it rather than charging an unobserved gap to paused time. Other
+frame during a confirmed stop or expired five-second capture freshness
+invalidates it rather than charging an unobserved gap to paused time. The bounded
+in-flight delivery margin above is the sole capture-boundary extension. Other
 uncertain observations retain their three-second transition grace period before
 projection is invalidated. On clock loss, the stale file plate and deduplication
 cache are cleared; live OCR/fallback remains available until source evidence
