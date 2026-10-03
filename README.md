@@ -50,8 +50,8 @@ Download a package from
 [Releases](https://github.com/PeterShanxin/Meowcal-Sub-2/releases), choosing
 `arm64` for Windows on ARM or `x64` for Intel/AMD Windows:
 
-- **Installer:** `meowcal-sub-2-v0.1.0-windows-{arm64,x64}-setup.exe`.
-- **Portable:** `meowcal-sub-2-v0.1.0-windows-{arm64,x64}-portable.zip`.
+- **Installer:** `meowcal-sub-2-v0.2.0-windows-{arm64,x64}-setup.exe`.
+- **Portable:** `meowcal-sub-2-v0.2.0-windows-{arm64,x64}-portable.zip`.
   Extract the complete archive, then open **Meowcal Sub 2.exe** inside its folder.
 
 Both packages include the Python backend and Meowcal Core executable. Models

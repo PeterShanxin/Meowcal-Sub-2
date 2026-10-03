@@ -21,7 +21,12 @@ def test_repository_versions_match() -> None:
 
 @pytest.mark.parametrize(
     "path",
-    ["src-tauri/Cargo.lock", "pyproject.toml", "src/meocosub2/overlay/ui/package-lock.json#root"],
+    [
+        "src-tauri/Cargo.lock",
+        "pyproject.toml",
+        "src/meocosub2/overlay/ui/package-lock.json#root",
+        "src/meocosub2/__init__.py",
+    ],
 )
 def test_mismatched_manifest_fails(path: str) -> None:
     versions = check_app_version.manifest_versions(ROOT)
@@ -41,3 +46,20 @@ def test_invalid_version_fails() -> None:
     versions["src-tauri/tauri.conf.json"] = "0.1"
     with pytest.raises(ValueError, match="major.minor.patch"):
         check_app_version.check_versions(versions)
+
+
+@pytest.mark.parametrize(
+    "source",
+    ["", "__version__ = 2", '__version__ = "0.2.0"\n__version__ = "0.2.0"'],
+)
+def test_backend_requires_one_string_version(source: str, monkeypatch) -> None:
+    read_text = Path.read_text
+
+    def read(path: Path, *args, **kwargs) -> str:
+        if path == ROOT / "src/meocosub2/__init__.py":
+            return source
+        return read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read)
+    with pytest.raises(ValueError, match="exactly one string __version__"):
+        check_app_version.manifest_versions(ROOT)

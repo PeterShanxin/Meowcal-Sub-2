@@ -26,6 +26,8 @@ jobs:
             architecture: arm64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    outputs:
+      signed-updater: ${{ steps.package.outputs.signed-updater }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -71,6 +73,7 @@ jobs:
           CARGO_BUILD_JOBS: 1
         run: .\scripts\verify.ps1
       - name: Build and smoke-test Windows distribution
+        id: package
         shell: pwsh
         env:
           CARGO_BUILD_JOBS: 1
@@ -80,9 +83,14 @@ jobs:
           MEOWCAL_UPDATER_PUBLIC_KEY: ${{ github.ref_type == 'tag' && vars.MEOWCAL_UPDATER_PUBLIC_KEY || '' }}
         run: |
           $arguments = @{ Architecture = '${{ matrix.architecture }}' }
+          $signedUpdater = & .\scripts\select-updater-signing.ps1 `
+            -ReleaseTag:($env:GITHUB_REF_TYPE -eq 'tag') `
+            -PrivateKeyConfigured:(![string]::IsNullOrWhiteSpace($env:TAURI_SIGNING_PRIVATE_KEY)) `
+            -PublicKeyConfigured:(![string]::IsNullOrWhiteSpace($env:MEOWCAL_UPDATER_PUBLIC_KEY))
+          "signed-updater=$($signedUpdater.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
           if ($env:GITHUB_REF_TYPE -eq 'tag') {
             $arguments.Tag = $env:GITHUB_REF_NAME
-            $arguments.SignedUpdater = $true
+            $arguments.SignedUpdater = $signedUpdater
           }
           .\scripts\build-windows-release.ps1 @arguments
       - name: Upload artifacts for native acceptance
@@ -99,7 +107,7 @@ jobs:
 
   manifest:
     name: Assemble signed update manifest
-    if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag' && needs.build.outputs.signed-updater == 'true'
     needs: build
     runs-on: ubuntu-latest
     permissions:

@@ -1,8 +1,9 @@
-"""Check that every shipped app manifest agrees with the Tauri version."""
+"""Check that every shipped app version agrees with the Tauri version."""
 
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import subprocess
@@ -19,7 +20,19 @@ def manifest_versions(root: Path) -> dict[str, str]:
     shell = [item for item in cargo_lock["package"] if item["name"] == "meowcal-sub-2-shell"]
     if len(shell) != 1:
         raise ValueError("Cargo.lock must contain exactly one meowcal-sub-2-shell package")
+    runtime = ast.parse((root / "src/meocosub2/__init__.py").read_text(encoding="utf-8"))
+    runtime_versions = [
+        ast.literal_eval(statement.value)
+        for statement in runtime.body
+        if isinstance(statement, ast.Assign)
+        and any(
+            isinstance(name, ast.Name) and name.id == "__version__" for name in statement.targets
+        )
+    ]
+    if len(runtime_versions) != 1 or not isinstance(runtime_versions[0], str):
+        raise ValueError("Backend must define exactly one string __version__")
     return {
+        "src/meocosub2/__init__.py": runtime_versions[0],
         "src-tauri/tauri.conf.json": json.loads(
             (root / "src-tauri/tauri.conf.json").read_text(encoding="utf-8")
         )["version"],
