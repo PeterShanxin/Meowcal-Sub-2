@@ -3,13 +3,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/PeterShanxin/Meowcal-Sub-2/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/PeterShanxin/Meowcal-Sub-2?label=release&amp;labelColor=25272d&amp;color=c8aa76"></a>
   <img alt="Windows, x64 and ARM64" src="https://img.shields.io/badge/Windows-x64%20%7C%20ARM64-85838a?labelColor=25272d">
   <a href="LICENSE"><img alt="License: AGPL-3.0-only" src="https://img.shields.io/badge/license-AGPL--3.0--only-85838a?labelColor=25272d"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/PeterShanxin/Meowcal-Sub-2/releases">Download</a> ·
+  <a href="https://github.com/PeterShanxin/Meowcal-Sub-2/releases/latest">Download</a> ·
   <a href="docs/user-guide.md">User guide</a> ·
   <a href="docs/developer-guide.md">Build from source</a>
 </p>
@@ -47,11 +46,11 @@ player or title. Protected video surfaces can prevent screen capture.
 ## Get started
 
 Download a package from
-[Releases](https://github.com/PeterShanxin/Meowcal-Sub-2/releases), choosing
+[Latest release](https://github.com/PeterShanxin/Meowcal-Sub-2/releases/latest), choosing
 `arm64` for Windows on ARM or `x64` for Intel/AMD Windows:
 
-- **Installer:** `meowcal-sub-2-v0.2.0-windows-{arm64,x64}-setup.exe`.
-- **Portable:** `meowcal-sub-2-v0.2.0-windows-{arm64,x64}-portable.zip`.
+- **Installer:** `meowcal-sub-2-v*-windows-{arm64,x64}-setup.exe`.
+- **Portable:** `meowcal-sub-2-v*-windows-{arm64,x64}-portable.zip`.
   Extract the complete archive, then open **Meowcal Sub 2.exe** inside its folder.
 
 Both packages include the Python backend and Meowcal Core executable. Models
