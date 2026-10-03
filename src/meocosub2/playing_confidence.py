@@ -6,7 +6,7 @@ import math
 
 from meocosub2.audio_observation import AudioObservation
 from meocosub2.subtitle_gate import normalize
-from meocosub2.timeline import PlaybackState
+from meocosub2.timeline import MAX_PLAYBACK_SAMPLE_GAP_S, PlaybackState
 
 # Reproduced by scripts/fit_playing_confidence.py from 288 authored physical
 # FFplay/Edge samples and balanced indistinguishable static observations.
@@ -67,7 +67,7 @@ class PlayingConfidence:
         still_since: float | None = None,
         motion_since: float | None = None,
     ) -> PlaybackState:
-        if self._at is not None and (at <= self._at or at - self._at > 5.0):
+        if self._at is not None and (at <= self._at or at - self._at > MAX_PLAYBACK_SAMPLE_GAP_S):
             self.reset()
         self._at = at
         self._audio = audio
@@ -163,21 +163,17 @@ class PlayingConfidence:
             return PlaybackState.ADVANCING if self._advancing else PlaybackState.UNCERTAIN
         if self._stopped_at is not None:
             return PlaybackState.STOPPED
-        if self._changed_at == at:
-            self._quiet_since = None
-            self._stopped_at = None
-            self.state_since = None
-            return PlaybackState.UNCERTAIN
         if self._quiet_since is None:
             self._quiet_since = at
-        if self._features[5]:
+        if self._still_since is not None or self._features[5]:
             onset = max(
                 self._quiet_since,
                 self._still_since if self._still_since is not None else self._quiet_since,
             )
-            if at - onset >= FREEZE_CONFIRM_S:
+            self.state_since = onset
+            if self._features[5] and at >= onset + FREEZE_CONFIRM_S:
                 self._stopped_at = at
-                self.state_since = onset
                 return PlaybackState.STOPPED
-        self.state_since = None
+        else:
+            self.state_since = None
         return PlaybackState.ADVANCING if self._advancing else PlaybackState.UNCERTAIN

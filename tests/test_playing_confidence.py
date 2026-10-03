@@ -71,10 +71,9 @@ def test_changing_overlay_and_unrelated_sound_do_not_certify_browser_playback():
     probe = PlayingConfidence()
     ambient = AudioObservation(0, True, 0.2, attributed=False)
     for index, text in enumerate(("First", "First", "Second", "Second", "Third", "Third")):
-        assert (
-            read(probe, index * 0.4, still=True, text=text, audio=ambient)
-            is PlaybackState.UNCERTAIN
-        )
+        state = read(probe, index * 0.4, still=True, text=text, audio=ambient)
+        assert state is not PlaybackState.ADVANCING
+    assert state is PlaybackState.STOPPED
 
 
 def test_capture_outage_resets_retained_evidence():

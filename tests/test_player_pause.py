@@ -101,6 +101,31 @@ def stopped_observer():
     return observer
 
 
+def test_two_second_freeze_boundary_with_decimal_capture_timestamps():
+    observer = PlaybackObserver()
+    # Same observation times as the existing authored FFplay pause recording.
+    # Subtracting 3.6 from 5.6 loses one floating-point ulp below two seconds.
+    for at in (3.2, 3.6, 4.0, 4.4, 4.8, 5.2):
+        assert observer.observe(frame(), REGION, at) is PlaybackState.UNCERTAIN
+    assert observer.observe(frame(), REGION, 5.6) is PlaybackState.STOPPED
+    assert observer.state_since == 3.6
+
+
+def test_confirming_a_new_ocr_line_does_not_postpone_the_observed_image_freeze():
+    observer = PlaybackObserver()
+    for at, offset in ((0, 0), (0.25, 5), (0.5, 10)):
+        observer.observe(frame(offset), REGION, at)
+        observer.observe_text("Previous source line", at)
+    for at in (0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5):
+        observer.observe(frame(10), REGION, at)
+        assert (
+            observer.observe_text("Newly recognized paused line", at) is not PlaybackState.STOPPED
+        )
+    observer.observe(frame(10), REGION, 2.75)
+    assert observer.observe_text("Newly recognized paused line", 2.75) is PlaybackState.STOPPED
+    assert observer.state_since == 0.75
+
+
 def test_unrelated_sound_or_changing_text_cannot_resume_a_confirmed_pause():
     observer = stopped_observer()
     background = AudioObservation(0, True, 0.8, attributed=False)
@@ -170,3 +195,56 @@ def test_seek_while_paused_reanchors_and_keeps_the_new_position():
     state = observer.observe(frame(10), REGION, 7.5, source_id=11)
     timeline.observe_playback(state, 7.5, observer.state_since)
     assert timeline.position_ms(7.5) == 1201250
+
+
+@pytest.mark.parametrize("interval", [1.6, 4.0])
+def test_sparse_freeze_samples_keep_the_anchor_until_confirmation(interval):
+    timeline = PlaybackTimeline()
+    observer = PlaybackObserver()
+    for at, offset in ((0, 0), (0.25, 5), (0.5, 10)):
+        state = observer.observe(frame(offset), REGION, at)
+    assert state is PlaybackState.ADVANCING
+    assert timeline.accepts(600000, 0, 100, now=0.5)
+    timeline.observe_playback(state, 0.5, observer.state_since)
+    for sample in range(1, 4):
+        at = 0.5 + sample * interval
+        state = observer.observe(frame(10), REGION, at)
+        timeline.observe_playback(state, at, observer.state_since)
+        # The independent renderer keeps reading between sparse OCR captures.
+        for tick in range(int(interval * 4)):
+            assert timeline.position_ms(at + tick * 0.25) is not None
+    assert state is PlaybackState.STOPPED
+    assert timeline.position_ms(at) == 600000 + int(interval * 1000)
+
+
+def test_pending_freeze_lease_expires_when_capture_does_not_return():
+    timeline = PlaybackTimeline()
+    observer = PlaybackObserver()
+    for at, offset in ((0, 0), (0.25, 5), (0.5, 10)):
+        state = observer.observe(frame(offset), REGION, at)
+    assert timeline.accepts(600000, 0, 100, now=0.5)
+    timeline.observe_playback(state, 0.5, observer.state_since)
+    state = observer.observe(frame(10), REGION, 4.5)
+    assert state is PlaybackState.UNCERTAIN
+    timeline.observe_playback(state, 4.5, observer.state_since)
+    assert timeline.position_ms(9.5) is not None
+    assert timeline.position_ms(9.501) is None
+    state = observer.observe(frame(10), REGION, 9.75)
+    timeline.observe_playback(state, 9.75, observer.state_since)
+    assert timeline.position_ms(9.75) is None
+
+
+def test_unreliable_frame_withdraws_the_pending_freeze_lease():
+    timeline = PlaybackTimeline()
+    observer = PlaybackObserver()
+    for at, offset in ((0, 0), (0.25, 5), (0.5, 10)):
+        state = observer.observe(frame(offset), REGION, at)
+    assert timeline.accepts(600000, 0, 100, now=0.5)
+    timeline.observe_playback(state, 0.5, observer.state_since)
+    state = observer.observe(frame(10), REGION, 4.5)
+    timeline.observe_playback(state, 4.5, observer.state_since)
+    black = Image.new("L", (640, 240))
+    state = observer.observe(black, REGION, 7.5)
+    assert observer.state_since is None
+    timeline.observe_playback(state, 7.5, observer.state_since)
+    assert timeline.position_ms(7.75) is None

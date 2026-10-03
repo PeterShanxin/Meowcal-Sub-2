@@ -17,7 +17,7 @@
     "src/meocosub2/subtitle_sources/aggregator.py": 1458,
     "src/meocosub2/subtitle_sources/subdl.py": 651,
     "src/meocosub2/sync.py": 921,
-    "src/meocosub2/timeline.py": 407
+    "src/meocosub2/timeline.py": 418
   },
   "lintBudgets": {
     "ruff": 0,

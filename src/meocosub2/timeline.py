@@ -47,6 +47,9 @@ ACTIVITY_IDENTITY_MAX_S = 300.0
 # A brief ambiguous frame can be a cut. Reliable frozen images use STOPPED;
 # unsupported observations beyond this grace period must reacquire a clock.
 UNCERTAIN_GRACE_S = 3.0
+# Reliable freeze candidates may await the next supported capture cadence.
+# Beyond this sampling gap, image evidence must be discarded rather than held.
+MAX_PLAYBACK_SAMPLE_GAP_S = 5.0
 # The longest a single subtitle is assumed to genuinely stay on screen. Past
 # this the viewer has paused, and the clock should not run on without them.
 CUE_HOLD_S = 6.0
@@ -82,6 +85,7 @@ class PlaybackTimeline:
         self._supported_at = 0.0
         self._has_activity_evidence = False
         self._uncertain_since: float | None = None
+        self._pending_freeze_until: float | None = None
         self._paused_s = 0.0
         self._stopped_since: float | None = None
         self._cue_since: float | None = None
@@ -185,10 +189,14 @@ class PlaybackTimeline:
         if state is PlaybackState.UNCERTAIN:
             if self._uncertain_since is None:
                 self._uncertain_since = now
+            self._pending_freeze_until = (
+                now + MAX_PLAYBACK_SAMPLE_GAP_S if state_since is not None else None
+            )
             return
         self._supported_at = now
         self._has_activity_evidence = True
         self._uncertain_since = None
+        self._pending_freeze_until = None
         # Confirmation samples arrive after the observed transition. Clamp to
         # this anchor so an earlier pause cannot subtract a fresh OCR reanchor.
         transition = now if state_since is None else min(now, max(self._anchor_at, state_since))
@@ -335,6 +343,7 @@ class PlaybackTimeline:
         self._anchor_at = at
         self._supported_at = at
         self._uncertain_since = None
+        self._pending_freeze_until = None
         self._paused_s = 0.0
         # A source match can describe a seek on a still-paused frame. Preserve
         # that stop until independent player progression releases the clock.
@@ -373,6 +382,7 @@ class PlaybackTimeline:
             self._uncertain_since is not None
             and self._stopped_since is None
             and now - self._uncertain_since > UNCERTAIN_GRACE_S
+            and (self._pending_freeze_until is None or now > self._pending_freeze_until)
         )
         identity_overdue = (
             self._has_activity_evidence
@@ -394,6 +404,7 @@ class PlaybackTimeline:
         self._supported_at = 0.0
         self._has_activity_evidence = False
         self._uncertain_since = None
+        self._pending_freeze_until = None
         self._paused_s = 0.0
         self._stopped_since = None
         self._cue_since = None

@@ -8,13 +8,13 @@ from PIL import Image, ImageChops, ImageStat
 
 from meocosub2.audio_observation import AudioObservation
 from meocosub2.playing_confidence import PlayingConfidence
-from meocosub2.timeline import PlaybackState
+from meocosub2.timeline import MAX_PLAYBACK_SAMPLE_GAP_S, PlaybackState
 
 # Work on a small central area above most subtitles and player controls. A
 # subtitle-only crop or a black letterbox gives no reliable motion evidence.
 SAMPLE_SIZE = (96, 48)
 MIN_REGION_SIZE = (320, 180)
-MAX_SAMPLE_GAP_S = 5.0
+MAX_SAMPLE_GAP_S = MAX_PLAYBACK_SAMPLE_GAP_S
 MIN_TEXTURE_STDDEV = 8.0
 MIN_MIDTONE_FRACTION = 0.4
 MIN_PATCH_DIFFERENCE = 6.0

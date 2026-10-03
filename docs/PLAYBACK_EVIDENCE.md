@@ -51,17 +51,22 @@ rules. Capture failure, region changes and recognized-player changes invalidate
 projection immediately. A late activity sample cannot resurrect an old anchor.
 
 A separate practical pause policy confirms two seconds of reliable near-frozen
-video without distributed motion, confirmed text progression or attributable
+video without distributed motion or attributable
 audible energy. It holds the existing source clock at the first unchanged sample
 after progression stopped; the confirmation interval is not charged to playback.
 The target scheduler keeps the cue or blank interval at that position. Naturally
 static silent content can trigger the same heuristic. This accepted tradeoff is
 not a calibrated pause probability or proof of media transport state.
+Confirmation happens on an available sample after the two-second deadline. For
+user-selected sparse intervals, reliable pending freeze samples extend the
+uncertainty lease to the five-second supported sampling gap. The renderer keeps
+the anchor while waiting; unreliable evidence withdraws this bounded lease.
 
 Two consecutive distributed image changes or attributable audible energy resume
 the clock. Image resume credits the first qualifying change rather than the later
 confirmation frame, so repeated pauses do not accumulate confirmation latency.
-Unrelated sound and OCR changes cannot release a confirmed stop. Existing source
+Unrelated sound and OCR changes neither postpone freeze confirmation nor release
+a confirmed stop. Existing source
 matches still correct a paused seek while keeping its new position frozen; normal
 seeks and a constant video/source head offset continue to use existing reanchors.
 Target-file scheduling and source/target mapping are unchanged.

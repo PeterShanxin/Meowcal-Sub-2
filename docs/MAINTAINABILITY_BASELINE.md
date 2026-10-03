@@ -53,6 +53,7 @@ Recorded ceiling changes and their reasons:
 | File | From | To | Why |
 | --- | ---: | ---: | --- |
 | `timeline.py` | 399 | 407 | apply observed freeze/resume onset without accumulating confirmation delay, and retain a confirmed pause through source OCR reanchors |
+| `timeline.py` | 407 | 418 | preserve a reliable pending freeze through supported sparse capture intervals with a five-second lease, withdrawing it on unavailable evidence and resetting it on reanchor |
 | `sync.py` | 917 | 921 | forward observed playback transition timestamps through the existing capture/session boundary |
 | `sync.py` | 907 | 917 | combining confirmed OCR changes with captured progression evidence, reporting its score, and clearing stale plates and cue deduplication when a lost clock falls back to visible text |
 | `matcher.py` | 405 | 492 | drawing the cues that genuinely run at once, and only those |
