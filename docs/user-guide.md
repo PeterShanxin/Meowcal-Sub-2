@@ -10,13 +10,13 @@ translated directly.
 ## Install and first launch
 
 Get the Windows package matching your architecture from
-[Releases](https://github.com/PeterShanxin/Meowcal-Sub-2/releases). Choose `arm64`
+[Latest release](https://github.com/PeterShanxin/Meowcal-Sub-2/releases/latest). Choose `arm64`
 for Windows on ARM, or `x64` for Intel/AMD Windows. Windows **Settings → System →
 About → System type** identifies your architecture.
 
-Run `meowcal-sub-2-v0.2.0-windows-{arm64,x64}-setup.exe` for a per-user
+Run `meowcal-sub-2-v*-windows-{arm64,x64}-setup.exe` for a per-user
 installation. Alternatively, extract the complete
-`meowcal-sub-2-v0.2.0-windows-{arm64,x64}-portable.zip` and open
+`meowcal-sub-2-v*-windows-{arm64,x64}-portable.zip` and open
 **Meowcal Sub 2.exe** inside the extracted folder. Keep the `backend` and `core`
 folders beside the executable. Both packages include Python and the Core
 executable; translation models are installed separately through Settings.
@@ -26,12 +26,12 @@ manually when one becomes available. Later signed installer releases check for
 updates when the app opens and offer an install button in the app and under
 **Settings → Updates**. Portable copies must be replaced manually.
 
-Each architecture has a `meowcal-sub-2-v0.2.0-windows-{arm64,x64}-SHA256SUMS.txt`
+Each architecture has a `meowcal-sub-2-v*-windows-{arm64,x64}-SHA256SUMS.txt`
 file; the release also provides an aggregate checksum list. To check a downloaded
 package in PowerShell, compare its result with the matching entry:
 
 ```powershell
-Get-FileHash .\meowcal-sub-2-v0.2.0-windows-arm64-portable.zip -Algorithm SHA256
+Get-FileHash .\meowcal-sub-2-v*-windows-arm64-portable.zip -Algorithm SHA256
 ```
 
 Source-checkout setup is in the [developer guide](developer-guide.md).
