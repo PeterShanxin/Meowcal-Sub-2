@@ -21,8 +21,8 @@ installation. Alternatively, extract the complete
 folders beside the executable. Both packages include Python and the Core
 executable; translation models are installed separately through Settings.
 
-The published v0.1.0 cannot check for app updates. Install a newer release
-manually when one becomes available. Later signed installer releases check for
+The published v0.1.0 and v0.2.0 cannot check for app updates. Install the first
+signed release manually. Signed installer releases check for
 updates when the app opens and offer an install button in the app and under
 **Settings → Updates**. Portable copies must be replaced manually.
 
