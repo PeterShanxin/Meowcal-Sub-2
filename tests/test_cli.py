@@ -19,7 +19,7 @@ def test_help_lists_the_serve_command() -> None:
 def test_version() -> None:
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
-    assert "0.2.0" in result.output
+    assert "0.2.1" in result.output
 
 
 def test_setup_logging_writes_to_the_app_log_directory(tmp_path: Path, monkeypatch) -> None:

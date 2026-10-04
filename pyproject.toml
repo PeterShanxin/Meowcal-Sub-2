@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "meowcal-sub-2"
-version = "0.2.0"
+version = "0.2.1"
 description = "Windows subtitle studio: find subtitles, read the screen with OCR, translate on device, and show the result live"
 readme = "README.md"
 requires-python = ">=3.11"
