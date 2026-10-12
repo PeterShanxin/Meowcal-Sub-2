@@ -1,0 +1,16 @@
+{
+  "receiver": {
+    "version": "0.2.0",
+    "run": 37193812527,
+    "commit": "77dbff3414fb6a24ffab876f82ae70c74826ad8e",
+    "x64": {"installer": "756db6004808b92fa0116aec96bef1daaa4beb376b164e894eb68fb7d5c9a069", "portable": "ad2e4179d4fceee5624ce7956d3f64282b459686e33ce9cf5fc032dc659409fb"},
+    "arm64": {"installer": "369d8056b378b8830b01111f1162c49b95d9b0eff958ae95bba11f40ae1e0867", "portable": "a2acd09ea1f02afdadcb4fbdfeee2739141630fcd1943ac6c5c04ca562274e4c"}
+  },
+  "target": {
+    "version": "0.2.1",
+    "run": 37203011226,
+    "commit": "96f5e2d0c99afcd9df98df1d5b6e994bc8cddd05",
+    "x64": {"installer": "18595cb728694217f66de48eba25ecace50596a9cf7b69eab89b212253535277", "portable": "c9bcf917bcaf468ad71d8d8a43a4c89b05db84dc55cfd36c6d5265b0202d68e7"},
+    "arm64": {"installer": "4a747202591f418ef3937d440341488bf45d62e31228f0bba53c7e7d8025a4f8", "portable": "f1ff297a55f613129bdb4c54d1886ee3ee0c60224519e001c72232157fbf11fc"}
+  }
+}
