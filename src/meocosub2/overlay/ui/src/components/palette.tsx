@@ -37,6 +37,7 @@ interface PaletteProps {
   selectedSourceId: string | null;
   selectedTargetId: string | null;
   cursorIndex: number;
+  onCursorChange: (index: number) => void;
   onToggleExpandWork: (id: string) => void;
   onToggleExpandSeason: (workId: string, seasonNumber: number) => void;
   onPickWork: (id: string) => void;
@@ -95,6 +96,7 @@ export function Palette(props: PaletteProps): JSX.Element {
     selectedSourceId,
     selectedTargetId,
     cursorIndex,
+    onCursorChange,
     onToggleExpandWork,
     onToggleExpandSeason,
     onPickWork,
@@ -137,6 +139,7 @@ export function Palette(props: PaletteProps): JSX.Element {
       `[data-cursor-row="${cursorIndex}"]`,
     ) as HTMLElement | null;
     if (!target) return;
+    if (container.contains(document.activeElement)) target.focus({ preventScroll: true });
     const cTop = container.scrollTop;
     const cBottom = cTop + container.clientHeight;
     const tTop = target.offsetTop;
@@ -476,6 +479,17 @@ export function Palette(props: PaletteProps): JSX.Element {
 
       <div
         ref={listRef}
+        onFocusCapture={(event) => {
+          const row = (event.target as HTMLElement).closest<HTMLElement>("[data-cursor-row]");
+          if (row && Number(row.dataset.cursorRow) !== cursorIndex) {
+            onCursorChange(Number(row.dataset.cursorRow));
+          }
+        }}
+        onClickCapture={(event) => {
+          if (event.detail === 0 && (event.target as HTMLElement).closest("[data-cursor-row]")) {
+            inputRef.current?.focus();
+          }
+        }}
         style={{ maxHeight: compact ? 280 : 420, overflow: "auto", position: "relative" }}
       >
         {tab === "titles" && (
@@ -829,6 +843,7 @@ function FilterChip({
   return (
     <button
       type="button"
+      aria-pressed={active}
       onClick={onClick}
       style={{
         padding: "5px 10px",
@@ -1109,6 +1124,7 @@ function WorkRow({
       onClick={onClick}
       rowIndex={rowIndex}
       className="work-row"
+      expanded={work.expandable ? expanded : undefined}
     >
       <div className={`work-poster ${posterUrl ? "has-image" : ""}`} aria-hidden>
         {posterUrl && (
@@ -1165,7 +1181,11 @@ function SeasonRow({
   busy: boolean;
 }): JSX.Element {
   return (
-    <div
+    <button
+      type="button"
+      className="palette-result"
+      aria-expanded={open}
+      aria-busy={busy}
       data-cursor-row={rowIndex}
       onClick={onClick}
       onMouseDown={(e) => e.preventDefault()}
@@ -1191,7 +1211,7 @@ function SeasonRow({
         </span>
       )}
       {focused && !busy && <Kbd>↵</Kbd>}
-    </div>
+    </button>
   );
 }
 
@@ -1220,7 +1240,12 @@ function EpisodeRow({
 }): JSX.Element {
   const clickable = (!skeleton || !!hydratable) && !busy;
   return (
-    <div
+    <button
+      type="button"
+      className="palette-result"
+      disabled={!clickable}
+      aria-pressed={picked}
+      aria-busy={busy}
       data-cursor-row={rowIndex ?? undefined}
       onClick={clickable ? onClick : undefined}
       onMouseDown={(e) => e.preventDefault()}
@@ -1265,7 +1290,7 @@ function EpisodeRow({
         <span style={{ fontSize: 10.5, color: "var(--text-label)" }}>No subtitles found</span>
       )}
       {focused && !busy && !exhausted && <Kbd>{skeleton ? "Search" : "↵"}</Kbd>}
-    </div>
+    </button>
   );
 }
 
@@ -1482,16 +1507,20 @@ interface RowProps {
   children: React.ReactNode;
   rowIndex?: number;
   className?: string;
+  expanded?: boolean;
 }
 
-const Row = forwardRef<HTMLDivElement, RowProps>(function Row(
-  { selected, focused, onClick, children, rowIndex, className },
+const Row = forwardRef<HTMLButtonElement, RowProps>(function Row(
+  { selected, focused, onClick, children, rowIndex, className, expanded },
   ref,
 ) {
   return (
-    <div
+    <button
+      type="button"
       ref={ref}
-      className={className}
+      className={`palette-result ${className ?? ""}`}
+      aria-pressed={selected}
+      aria-expanded={expanded}
       data-cursor-row={rowIndex ?? undefined}
       data-row-active={className === "work-row" && (focused || selected) ? "true" : undefined}
       onClick={onClick}
@@ -1512,7 +1541,7 @@ const Row = forwardRef<HTMLDivElement, RowProps>(function Row(
       }}
     >
       {children}
-    </div>
+    </button>
   );
 });
 

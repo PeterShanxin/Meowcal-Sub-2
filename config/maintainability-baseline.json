@@ -9,11 +9,11 @@
     "src/meocosub2/matcher.py": 550,
     "src/meocosub2/opensubtitles/client.py": 932,
     "src/meocosub2/overlay/controller.py": 2182,
-    "src/meocosub2/overlay/ui/src/app.tsx": 1731,
-    "src/meocosub2/overlay/ui/src/components/palette.tsx": 1543,
+    "src/meocosub2/overlay/ui/src/app.tsx": 1732,
+    "src/meocosub2/overlay/ui/src/components/palette.tsx": 1572,
     "src/meocosub2/overlay/ui/src/components/primitives.tsx": 391,
     "src/meocosub2/overlay/ui/src/components/variants/settings.tsx": 1301,
-    "src/meocosub2/overlay/ui/src/styles/theme.css": 705,
+    "src/meocosub2/overlay/ui/src/styles/theme.css": 719,
     "src/meocosub2/subtitle_sources/aggregator.py": 1458,
     "src/meocosub2/subtitle_sources/subdl.py": 651,
     "src/meocosub2/sync.py": 941,
@@ -22,7 +22,7 @@
   "lintBudgets": {
     "ruff": 0,
     "clippy": 0,
-    "biome": 20
+    "biome": 14
   },
   "coverage": {
     "python": {
