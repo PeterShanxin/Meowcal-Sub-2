@@ -132,6 +132,8 @@ class Acceptance:
             WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--force-renderer-accessibility",
             MEOWCAL_CORE_EXE=str(self.destination / "core/meowcal-core.exe"),
         )
+        (self.root / "active-profile.txt").write_text(phase)
+        self.native("ProfileLinks")
 
     def registry_version(self, version):
         rows = self.native("Installations")

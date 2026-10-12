@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory)][string]$WorkRoot,
     [int]$AppPid,
-    [ValidateSet('Inspect','Settings','Cancel','Yes','Close','Processes','Remaining','Cleanup','Installations','RemoveProfiles')]
+    [ValidateSet('Inspect','Settings','Cancel','Yes','Close','Processes','Remaining','Cleanup','Installations','RemoveProfiles','ProfileLinks')]
     [string]$Action = 'Inspect',
     [string]$Tracked
 )
@@ -14,6 +14,41 @@ $root = [IO.Path]::GetFullPath($WorkRoot).TrimEnd('\') + '\'
 $temporary = [IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\') + '\'
 if (-not $root.StartsWith($temporary, [StringComparison]::OrdinalIgnoreCase) -or $root -eq $temporary) {
     throw 'Work root must be strictly inside RUNNER_TEMP.'
+}
+$aliases = @(
+    (Join-Path $env:APPDATA 'meowcal-sub-2'),
+    (Join-Path $env:LOCALAPPDATA 'com.meowcal.sub2'),
+    (Join-Path $env:USERPROFILE '.cache\meowcal-sub-2')
+)
+if ($Action -in @('ProfileLinks','RemoveProfiles')) {
+    # RunAsUser rebuilds the user's environment on restart. Route only these
+    # absent app-specific directories into this disposable job's fixture.
+    $record = Join-Path $root 'profile-links.json'
+    $saved = if (Test-Path -LiteralPath $record) { @(Get-Content -LiteralPath $record -Raw | ConvertFrom-Json) } else { @() }
+    foreach ($link in $saved) {
+        if ($link.alias -notin $aliases -or -not [IO.Path]::GetFullPath($link.target).StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid recorded profile alias.' }
+        $item = Get-Item -LiteralPath $link.alias -Force -ErrorAction SilentlyContinue
+        if ($item) {
+            if ($item.LinkType -ne 'Junction' -or @($item.Target).Count -ne 1 -or @($item.Target)[0] -ne $link.target) { throw 'Profile alias no longer belongs to this job.' }
+            [IO.Directory]::Delete($link.alias)
+        }
+    }
+    if ($Action -eq 'ProfileLinks') {
+        foreach ($alias in $aliases) {
+            if (Get-Item -LiteralPath $alias -Force -ErrorAction SilentlyContinue) { throw 'Runner already has Sub 2 data; refusing to replace it.' }
+        }
+        $phase = Get-Content -LiteralPath (Join-Path $root 'active-profile.txt') -Raw
+        if ($phase -notin @('formal','upgrade')) { throw 'Invalid profile phase.' }
+        $targets = @('meowcal-sub-2','local\com.meowcal.sub2','home\.cache\meowcal-sub-2')
+        $links = @(for ($i=0; $i -lt $aliases.Count; $i++) { @{alias=$aliases[$i];target=(Join-Path $root "$phase\$($targets[$i])")} })
+        ConvertTo-Json -InputObject $links | Set-Content -LiteralPath $record
+        foreach ($link in $links) {
+            New-Item -ItemType Directory -Path $link.target -Force | Out-Null
+            New-Item -ItemType Directory -Path (Split-Path $link.alias) -Force | Out-Null
+            New-Item -ItemType Junction -Path $link.alias -Target $link.target | Out-Null
+        }
+        '{}' ; exit
+    }
 }
 if ($Action -eq 'RemoveProfiles') {
     foreach ($name in @('formal', 'upgrade', 'installed app')) {

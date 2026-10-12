@@ -91,6 +91,13 @@ require manual replacement.
 
 ### Signed installer acceptance
 
+The disposable runner's three Sub 2 data directories must be absent before
+acceptance. The test temporarily links them to its synthetic profile because
+NSIS `RunAsUser` recreates the user's environment during automatic restart.
+This preserves the same fixture across the handoff without changing persistent
+environment settings. Cleanup removes only links whose recorded targets still
+match the test directory. The helper refuses local and self-hosted machines.
+
 `installer-acceptance.yml` uses standard disposable Windows x64 and ARM64 hosted
 runners with read-only repository/artifact access. It downloads the fixed signed
 receiver and target builds in `config/installer-acceptance.json`; it does not
