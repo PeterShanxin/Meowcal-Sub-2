@@ -6,6 +6,7 @@ param(
     [string]$Tracked
 )
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or $env:RUNNER_OS -ne 'Windows') {
     throw 'Only disposable hosted Windows runners may perform native acceptance.'
 }
@@ -100,4 +101,4 @@ if ($Action -ne 'Inspect') {
     if ($buttons.Count -ne 1) { throw "Expected one enabled owned $Action button, found $($buttons.Count). Controls: $($rows | ConvertTo-Json -Compress)" }
     $buttons[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
 }
-ConvertTo-Json -InputObject $rows -Compress
+[Console]::Out.WriteLine((ConvertTo-Json -InputObject $rows -Compress -EscapeHandling EscapeNonAscii))
