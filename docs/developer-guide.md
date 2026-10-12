@@ -89,6 +89,34 @@ the final signed installers. The JSON contains both architecture URLs and signat
 An unsigned branch build has no in-app updater. Portable packages always
 require manual replacement.
 
+### Signed installer acceptance
+
+The disposable runner's three Sub 2 data directories must be absent before
+acceptance. The test temporarily links them to its synthetic profile because
+NSIS `RunAsUser` recreates the user's environment during automatic restart.
+This preserves the same fixture across the handoff without changing persistent
+environment settings. Cleanup removes only links whose recorded targets still
+match the test directory. The helper refuses local and self-hosted machines.
+
+`installer-acceptance.yml` uses standard disposable Windows x64 and ARM64 hosted
+runners with read-only repository/artifact access. It downloads the fixed signed
+receiver and target builds in `config/installer-acceptance.json`; it does not
+rebuild, sign, publish, or run on a developer's desktop. Expired artifacts fail
+the job rather than silently substituting another build.
+
+The test checks hashes, signatures and installed payloads, cancels the target
+installer before installation, opens the native Studio and Settings, then upgrades
+the signed test receiver in place. It verifies automatic restart, exact settings
+and subtitle-cache retention, graceful child-process shutdown, and uninstall.
+`report.json` is uploaded on success or failure, without runtime tokens or profiles.
+An unavailable native accessibility surface fails acceptance; browser/backend
+checks do not substitute for it.
+
+This proves the installer path before publication. It does not prove production
+update discovery/download, the app's Later button, mid-download cancellation,
+physical monitor behavior, or OCR. Published v0.1.0/v0.2.0 installations still
+require a manual first upgrade because those public builds disabled the updater.
+
 ## Runtime map
 
 | Responsibility | Source |
