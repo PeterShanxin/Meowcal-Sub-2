@@ -314,7 +314,7 @@ class Acceptance:
             old = self.spawn(self.executable)
             upgrade["oldNative"] = self.studio(old.pid)
             settings = self.api()
-            settings["overlay"]["fontSize"], settings["sync"]["biasMs"] = 41, 750
+            settings["overlay"]["fontSize"], settings["sync"]["biasMs"] = 41, 800
             self.api(settings)
             config_hash, marker_hash = digest(self.config), digest(self.marker)
             upgrade["oldClose"] = self.close(old.pid)
@@ -335,7 +335,7 @@ class Acceptance:
             settings = self.api()
             require(
                 settings["overlay"]["fontSize"] == 41
-                and settings["sync"]["biasMs"] == 750
+                and settings["sync"]["biasMs"] == 800
                 and digest(self.config) == config_hash
                 and digest(self.marker) == marker_hash,
                 "Settings or subtitle cache changed during upgrade.",
