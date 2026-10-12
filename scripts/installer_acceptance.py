@@ -15,6 +15,7 @@ from pathlib import Path
 
 from installer_assets import (
     digest,
+    nsis_command,
     registry_matches,
     require,
     require_hosted_work,
@@ -50,7 +51,7 @@ class Acceptance:
         }
         self.tracked = self.root / "tracked.json"
         self.environment = dict(os.environ)
-        self.destination = self.root / "installed"
+        self.destination = self.root / "installed app"
         self.executable = self.destination / "meowcal-sub-2-shell.exe"
 
     def record(self):
@@ -85,7 +86,7 @@ class Acceptance:
 
     def spawn(self, path, *arguments):
         child = subprocess.Popen(
-            [str(path), *arguments],
+            nsis_command(path, arguments),
             env=self.environment,
             cwd=self.root,
             stdout=subprocess.DEVNULL,
@@ -241,7 +242,13 @@ class Acceptance:
             def cancelled():
                 if child.poll() is not None:
                     return True
-                controls = self.native(pid=child.pid)
+                try:
+                    controls = self.native(pid=child.pid)
+                except subprocess.CalledProcessError:
+                    if child.poll() is not None:
+                        self.report.pop("nativeHelperError", None)
+                        return True
+                    raise
                 if any(row["name"].replace("&", "") == "Yes" for row in controls):
                     self.native("Yes", child.pid)
                 return False

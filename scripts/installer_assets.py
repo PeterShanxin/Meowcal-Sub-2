@@ -22,6 +22,16 @@ def digest(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def nsis_command(path: Path, arguments: tuple[str, ...]) -> str:
+    """NSIS requires a final, unquoted /D= even when its path contains spaces."""
+    if arguments and arguments[-1].startswith("/D="):
+        destination = arguments[-1][3:]
+        require(Path(destination).is_absolute(), "NSIS destination must be absolute.")
+        require(not any(char in destination for char in '"\r\n'), "Invalid NSIS destination.")
+        return subprocess.list2cmdline([str(path), *arguments[:-1]]) + " /D=" + destination
+    return subprocess.list2cmdline([str(path), *arguments])
+
+
 def registry_matches(rows: list[dict], version: str, destination: Path) -> bool:
     return (
         len(rows) == 1

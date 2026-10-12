@@ -6,7 +6,12 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from installer_assets import registry_matches, require_hosted_work, verify_assets  # noqa: E402
+from installer_assets import (  # noqa: E402
+    nsis_command,
+    registry_matches,
+    require_hosted_work,
+    verify_assets,
+)
 
 
 def hosted(temporary: Path) -> dict[str, str]:
@@ -60,3 +65,14 @@ def test_nsis_quoted_install_location_keeps_exact_destination_and_version(tmp_pa
     assert not registry_matches(rows, "0.2.0", destination)
     assert not registry_matches(rows, "0.2.1", tmp_path / "other")
     assert not registry_matches(rows * 2, "0.2.1", destination)
+
+
+def test_nsis_custom_directory_with_spaces_is_last_and_unquoted(tmp_path):
+    installer = tmp_path / "signed installer.exe"
+    destination = tmp_path / "Meowcal Sub 2"
+    command = nsis_command(installer, ("/S", "/NS", "/UPDATE", "/R", f"/D={destination}"))
+    assert command == f'"{installer}" /S /NS /UPDATE /R /D={destination}'
+    with pytest.raises(RuntimeError, match="absolute"):
+        nsis_command(installer, ("/D=relative path",))
+    with pytest.raises(RuntimeError, match="Invalid"):
+        nsis_command(installer, (f'/D={destination}"',))

@@ -15,7 +15,7 @@ if (-not $root.StartsWith($temporary, [StringComparison]::OrdinalIgnoreCase) -or
     throw 'Work root must be strictly inside RUNNER_TEMP.'
 }
 if ($Action -eq 'RemoveProfiles') {
-    foreach ($name in @('formal', 'upgrade', 'installed')) {
+    foreach ($name in @('formal', 'upgrade', 'installed app')) {
         $target = Join-Path $root $name
         if (-not (Test-Path -LiteralPath $target)) { continue }
         $resolved = (Resolve-Path -LiteralPath $target).Path
