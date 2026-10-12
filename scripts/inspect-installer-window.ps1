@@ -76,18 +76,28 @@ if ($Action -eq 'Close') {
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 $condition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $AppPid)
-$windows = [System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, $condition)
-$controls = @()
-foreach ($window in $windows) {
-    $controls += @($window.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition))
+function Read-OwnedControls {
+    $windows = [System.Windows.Automation.AutomationElement]::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, $condition)
+    foreach ($window in $windows) {
+        $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+    }
 }
-$rows = @($controls | ForEach-Object { @{type=$_.Current.ControlType.ProgrammaticName; name=$_.Current.Name; offscreen=$_.Current.IsOffscreen} })
+$controls = @(Read-OwnedControls)
 if ($Action -ne 'Inspect') {
-    $buttons = @($controls | Where-Object {
-        $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
-        $_.Current.Name.Replace('&','') -eq $Action -and $_.Current.IsEnabled -and -not $_.Current.IsOffscreen
-    })
-    if ($buttons.Count -ne 1) { throw "Expected one enabled owned $Action button, found $($buttons.Count)." }
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $buttons = @($controls | Where-Object {
+            $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
+            $_.Current.Name.Replace('&','') -eq $Action -and $_.Current.IsEnabled -and -not $_.Current.IsOffscreen
+        })
+        if ($buttons.Count -eq 1) { break }
+        Start-Sleep -Milliseconds 250
+        $controls = @(Read-OwnedControls)
+    } while ([DateTime]::UtcNow -lt $deadline)
+}
+$rows = @($controls | ForEach-Object { @{type=$_.Current.ControlType.ProgrammaticName; name=$_.Current.Name; offscreen=$_.Current.IsOffscreen; enabled=$_.Current.IsEnabled} })
+if ($Action -ne 'Inspect') {
+    if ($buttons.Count -ne 1) { throw "Expected one enabled owned $Action button, found $($buttons.Count). Controls: $($rows | ConvertTo-Json -Compress)" }
     $buttons[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
 }
 ConvertTo-Json -InputObject $rows -Compress

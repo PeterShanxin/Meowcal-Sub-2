@@ -75,7 +75,7 @@ class Acceptance:
             command,
             capture_output=True,
             text=True,
-            timeout=25,
+            timeout=45,
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
         if result.returncode:
@@ -348,13 +348,14 @@ class Acceptance:
     def cleanup(self):
         try:
             # Retain pre-close descendants even if their parent has already exited.
-            previous = json.loads(self.tracked.read_text())
-            current = self.native("Processes")
-            self.tracked.write_text(
-                json.dumps(previous + [row for row in current if row not in previous])
-            )
-            remaining = self.native("Remaining")
-            if remaining:
+            for _ in range(5):
+                previous = json.loads(self.tracked.read_text())
+                current = self.native("Processes")
+                self.tracked.write_text(
+                    json.dumps(previous + [row for row in current if row not in previous])
+                )
+                if not self.native("Remaining"):
+                    break
                 self.report["passed"] = False
                 self.report["forcedCleanup"] = True
                 self.native("Cleanup")
