@@ -19,6 +19,7 @@ from installer_assets import (
     registry_matches,
     require,
     require_hosted_work,
+    settings_visible,
     verify_assets,
     verify_installed,
 )
@@ -195,11 +196,8 @@ class Acceptance:
             wait_for(ready, "native Studio accessibility", 90)
             self.native("Settings", pid)
             wait_for(
-                lambda: any(
-                    row["type"] == "ControlType.Edit" and not row["offscreen"]
-                    for row in self.native(pid=pid)
-                ),
-                "native Settings editable controls",
+                lambda: settings_visible(self.native(pid=pid)),
+                "native Settings close control",
             )
         except Exception:
             self.report["lastNativeControls"] = last

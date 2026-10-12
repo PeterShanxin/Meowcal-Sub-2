@@ -1,4 +1,4 @@
-"""Validate fixed signed installers and compare their installed payloads."""
+"""Validate fixed signed packages, installed payloads and native acceptance evidence."""
 
 from __future__ import annotations
 
@@ -37,6 +37,16 @@ def registry_matches(rows: list[dict], version: str, destination: Path) -> bool:
         len(rows) == 1
         and rows[0]["DisplayVersion"] == version
         and Path(rows[0]["InstallLocation"].strip('"')).resolve() == destination.resolve()
+    )
+
+
+def settings_visible(controls: list[dict]) -> bool:
+    return any(
+        row["type"] == "ControlType.Button"
+        and row["name"] == "Close settings"
+        and not row["offscreen"]
+        and row["enabled"]
+        for row in controls
     )
 
 

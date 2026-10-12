@@ -10,6 +10,7 @@ from installer_assets import (  # noqa: E402
     nsis_command,
     registry_matches,
     require_hosted_work,
+    settings_visible,
     verify_assets,
 )
 
@@ -76,3 +77,17 @@ def test_nsis_custom_directory_with_spaces_is_last_and_unquoted(tmp_path):
         nsis_command(installer, ("/D=relative path",))
     with pytest.raises(RuntimeError, match="Invalid"):
         nsis_command(installer, (f'/D={destination}"',))
+
+
+def test_studio_search_field_cannot_satisfy_settings_acceptance():
+    search = {"type": "ControlType.Edit", "name": "Search", "enabled": True, "offscreen": False}
+    close = {
+        "type": "ControlType.Button",
+        "name": "Close settings",
+        "enabled": True,
+        "offscreen": False,
+    }
+    assert not settings_visible([search])
+    assert settings_visible([search, close])
+    assert not settings_visible([search, {**close, "offscreen": True}])
+    assert not settings_visible([search, {**close, "enabled": False}])
