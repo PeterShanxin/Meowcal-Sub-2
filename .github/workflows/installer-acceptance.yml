@@ -1,0 +1,93 @@
+name: Signed installer acceptance
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/installer-acceptance.yml'
+      - 'scripts/installer_acceptance.py'
+      - 'scripts/installer_assets.py'
+      - 'scripts/inspect-installer-window.ps1'
+      - 'config/installer-acceptance.json'
+      - 'tests/test_installer_assets.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: installer-acceptance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  accept:
+    name: Install and upgrade ${{ matrix.architecture }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            architecture: x64
+          - runner: windows-11-arm
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14.7'
+          architecture: ${{ matrix.architecture }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Download pinned signed packages
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $pins = Get-Content config/installer-acceptance.json -Raw | ConvertFrom-Json
+          foreach ($release in @($pins.receiver, $pins.target)) {
+            $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($release.run)" | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0 -or $run.head_sha -ne $release.commit -or $run.conclusion -ne 'success') {
+              throw 'Pinned build source or conclusion does not match.'
+            }
+            $name = "meowcal-sub-2-windows-${{ matrix.architecture }}-$($release.commit)"
+            gh run download $release.run --repo $env:GITHUB_REPOSITORY --name $name --dir "$env:RUNNER_TEMP/installer-assets/$($release.version)"
+            if ($LASTEXITCODE -ne 0) { throw 'Pinned artifact download failed; do not rebuild or replace it.' }
+          }
+      - name: Build public signature verifier
+        shell: pwsh
+        run: |
+          $verifier = "$env:RUNNER_TEMP/signature-verifier"
+          New-Item -ItemType Directory "$verifier/src" -Force | Out-Null
+          Copy-Item src-tauri/examples/verify_update_signature.rs "$verifier/src/main.rs"
+          @'
+          [package]
+          name = "installer-signature-verifier"
+          version = "0.0.0"
+          edition = "2021"
+          [dependencies]
+          base64 = "=0.22.1"
+          minisign-verify = "=0.2.5"
+          '@ | Set-Content "$verifier/Cargo.toml"
+          cargo build --manifest-path "$verifier/Cargo.toml"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Accept exact signed installers on disposable Windows
+        shell: pwsh
+        env:
+          MEOWCAL_UPDATER_PUBLIC_KEY: ${{ vars.MEOWCAL_UPDATER_PUBLIC_KEY }}
+        run: >-
+          python scripts/installer_acceptance.py
+          --architecture ${{ matrix.architecture }}
+          --assets "$env:RUNNER_TEMP/installer-assets"
+          --verifier "$env:RUNNER_TEMP/signature-verifier/target/debug/installer-signature-verifier.exe"
+          --work "$env:RUNNER_TEMP/meowcal-installer-acceptance"
+      - name: Save sanitized acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-acceptance-${{ matrix.architecture }}-${{ github.sha }}
+          path: ${{ runner.temp }}/meowcal-installer-acceptance/report.json
+          if-no-files-found: warn
+          retention-days: 14
