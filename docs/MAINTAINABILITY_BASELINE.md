@@ -100,6 +100,9 @@ Later changes record these measured limits:
 
 | File | From | To | Why |
 | --- | ---: | ---: | --- |
+| `overlay/ui/src/app.tsx` | 1731 | 1732 | synchronize the result cursor when a native result button receives keyboard focus |
+| `overlay/ui/src/components/palette.tsx` | 1543 | 1592 | use native result buttons with selected/expanded states, preserve focus across tabs, keep unavailable rows non-activating, and return keyboard activation to search |
+| `overlay/ui/src/styles/theme.css` | 705 | 719 | preserve result layout for native buttons and show keyboard focus outlines |
 | `matcher.py` | 553 | 531 | share cue formatting with the target presentation owner |
 | `overlay/controller.py` | 2066 | 2060 | retain target tracks and use their coverage for prefill |
 | `sync.py` | 760 | 798 | resolve and schedule independent target cues while keeping source confirmation separate from plate changes |
@@ -136,8 +139,8 @@ The four largest are the ones worth naming, because they are where the work is:
 | File | Lines | What it holds |
 | --- | ---: | --- |
 | `overlay/controller.py` | 2,182 | session lifecycle, search orchestration, config, engine startup |
-| `overlay/ui/src/app.tsx` | 1,728 | the studio's whole screen state |
-| `overlay/ui/src/components/palette.tsx` | 1,543 | the search palette |
+| `overlay/ui/src/app.tsx` | 1,732 | the studio's whole screen state |
+| `overlay/ui/src/components/palette.tsx` | 1,592 | the search palette |
 | `subtitle_sources/aggregator.py` | 1,458 | provider-neutral search aggregation |
 
 No module is to be split to satisfy a number. A cohesive exception is better
@@ -150,19 +153,18 @@ they are scheduled.
 | --- | ---: | --- |
 | Ruff | 0 | clean |
 | Clippy (`-D warnings`) | 0 | clean |
-| Biome | 20 | debt, described below |
+| Biome | 14 | debt, described below |
 
 Ruff and Clippy are at zero and enforced at zero, so neither needs a budget so
 much as a floor under it. Budgets ratchet the same way ceilings do: beating one
 means lowering it in the same change.
 
-Biome's 20 are pre-existing findings in the studio UI, deliberately not fixed
+Biome's 14 are pre-existing findings in the studio UI, deliberately not fixed
 inside a formatting change:
 
 | Rule | Count | Why it is held rather than fixed |
 | --- | ---: | --- |
-| `a11y/noStaticElementInteractions` | 4 | the palette's rows and cards take clicks as plain elements |
-| `a11y/useKeyWithClickEvents` | 3 | the same surfaces need keyboard handling designed, not appended |
+| `a11y/noStaticElementInteractions` | 1 | the Settings backdrop handles pointer dismissal |
 | `correctness/useExhaustiveDependencies` | 4 | React hook dependency arrays; changing one blind risks a render loop |
 | `suspicious/useIterableCallbackReturn` | 3 | `forEach` callbacks returning values |
 | `complexity/noImportantStyles` | 3 | deliberate CSS overrides |
@@ -174,6 +176,11 @@ Sixteen findings of `a11y/useButtonType` were fixed rather than budgeted: the
 studio has no forms today, so nothing submits by accident yet, but the HTML
 default is `submit`, and the first form wrapped around any of those buttons
 would turn it into one.
+
+Native title, season, episode and subtitle result buttons removed six palette
+interaction findings. Their keyboard model retains search-field arrows, adds
+Tab/Enter/Space access, follows result arrows with actual focus, and returns
+keyboard activation to the search field for the next selection step.
 
 ## Coverage
 

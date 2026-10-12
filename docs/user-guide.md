@@ -86,6 +86,12 @@ until it is installed.
 Closing the studio window stops the session and exits the app. The tray's
 **Exit** action does the same.
 
+For keyboard selection, use arrows and Enter from the search field, or Tab to
+a title, season, episode or subtitle result and press Enter or Space. Arrows
+move focus between result buttons. Expanded and selected results expose their
+state to assistive technology, and activating a result returns focus to search
+for the next step. Arrow keys outside the palette keep their usual behavior.
+
 Keep the Meowcal strip outside the capture region so OCR does not read the
 app's own translation.
 
