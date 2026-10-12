@@ -101,7 +101,7 @@ Later changes record these measured limits:
 | File | From | To | Why |
 | --- | ---: | ---: | --- |
 | `overlay/ui/src/app.tsx` | 1731 | 1732 | synchronize the result cursor when a native result button receives keyboard focus |
-| `overlay/ui/src/components/palette.tsx` | 1543 | 1572 | use native result buttons with selected/expanded states, follow arrow navigation with real focus, and return keyboard activation to search |
+| `overlay/ui/src/components/palette.tsx` | 1543 | 1592 | use native result buttons with selected/expanded states, preserve focus across tabs, keep unavailable rows non-activating, and return keyboard activation to search |
 | `overlay/ui/src/styles/theme.css` | 705 | 719 | preserve result layout for native buttons and show keyboard focus outlines |
 | `matcher.py` | 553 | 531 | share cue formatting with the target presentation owner |
 | `overlay/controller.py` | 2066 | 2060 | retain target tracks and use their coverage for prefill |
@@ -140,7 +140,7 @@ The four largest are the ones worth naming, because they are where the work is:
 | --- | ---: | --- |
 | `overlay/controller.py` | 2,182 | session lifecycle, search orchestration, config, engine startup |
 | `overlay/ui/src/app.tsx` | 1,732 | the studio's whole screen state |
-| `overlay/ui/src/components/palette.tsx` | 1,572 | the search palette |
+| `overlay/ui/src/components/palette.tsx` | 1,592 | the search palette |
 | `subtitle_sources/aggregator.py` | 1,458 | provider-neutral search aggregation |
 
 No module is to be split to satisfy a number. A cohesive exception is better

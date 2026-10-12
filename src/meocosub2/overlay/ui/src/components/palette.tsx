@@ -127,26 +127,45 @@ export function Palette(props: PaletteProps): JSX.Element {
   const [focused, setFocused] = useState(false);
   const langRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const resultOwnsFocus = useRef(false);
   const titleResultsKey = useMemo(
     () => works.map((w) => `${w.id}:${w.title}:${w.totalSubtitles}:${w.posterUrl ?? ""}`).join("|"),
     [works],
   );
 
   useEffect(() => {
+    // Removing a focused row during tab changes does not emit focusin. Preserve
+    // ownership until focus or a pointer action actually moves outside the list.
+    const trackFocus = (event: Event) => {
+      const inside = !!listRef.current?.contains(event.target as Node);
+      if (event.type !== "pointerdown" || !inside) resultOwnsFocus.current = inside;
+    };
+    document.addEventListener("focusin", trackFocus);
+    document.addEventListener("pointerdown", trackFocus);
+    return () => {
+      document.removeEventListener("focusin", trackFocus);
+      document.removeEventListener("pointerdown", trackFocus);
+    };
+  }, []);
+
+  useEffect(() => {
     const container = listRef.current;
-    if (!container || cursorIndex < 0) return;
+    if (!container) return;
     const target = container.querySelector(
-      `[data-cursor-row="${cursorIndex}"]`,
+      `[data-cursor-row="${resultOwnsFocus.current ? Math.max(0, cursorIndex) : cursorIndex}"]`,
     ) as HTMLElement | null;
-    if (!target) return;
-    if (container.contains(document.activeElement)) target.focus({ preventScroll: true });
+    if (!target) {
+      if (resultOwnsFocus.current) inputRef.current?.focus();
+      return;
+    }
+    if (resultOwnsFocus.current) target.focus({ preventScroll: true });
     const cTop = container.scrollTop;
     const cBottom = cTop + container.clientHeight;
     const tTop = target.offsetTop;
     const tBottom = tTop + target.offsetHeight;
     if (tTop < cTop) container.scrollTop = tTop;
     else if (tBottom > cBottom) container.scrollTop = tBottom - container.clientHeight;
-  }, [cursorIndex, tab]);
+  }, [cursorIndex, tab, inputRef]);
 
   useEffect(() => {
     if (!openDrop) return;
@@ -486,7 +505,8 @@ export function Palette(props: PaletteProps): JSX.Element {
           }
         }}
         onClickCapture={(event) => {
-          if (event.detail === 0 && (event.target as HTMLElement).closest("[data-cursor-row]")) {
+          const row = (event.target as HTMLElement).closest("[data-cursor-row]");
+          if (event.detail === 0 && row && row.getAttribute("aria-disabled") !== "true") {
             inputRef.current?.focus();
           }
         }}
@@ -1243,7 +1263,7 @@ function EpisodeRow({
     <button
       type="button"
       className="palette-result"
-      disabled={!clickable}
+      aria-disabled={!clickable}
       aria-pressed={picked}
       aria-busy={busy}
       data-cursor-row={rowIndex ?? undefined}

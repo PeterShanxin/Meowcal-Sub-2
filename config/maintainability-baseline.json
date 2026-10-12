@@ -10,7 +10,7 @@
     "src/meocosub2/opensubtitles/client.py": 932,
     "src/meocosub2/overlay/controller.py": 2182,
     "src/meocosub2/overlay/ui/src/app.tsx": 1732,
-    "src/meocosub2/overlay/ui/src/components/palette.tsx": 1572,
+    "src/meocosub2/overlay/ui/src/components/palette.tsx": 1592,
     "src/meocosub2/overlay/ui/src/components/primitives.tsx": 391,
     "src/meocosub2/overlay/ui/src/components/variants/settings.tsx": 1301,
     "src/meocosub2/overlay/ui/src/styles/theme.css": 719,
