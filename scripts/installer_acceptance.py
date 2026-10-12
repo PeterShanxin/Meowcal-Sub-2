@@ -86,7 +86,7 @@ class Acceptance:
         return json.loads(result.stdout)
 
     def spawn(self, path, *arguments):
-        child = subprocess.Popen(
+        return subprocess.Popen(
             nsis_command(path, arguments),
             env=self.environment,
             cwd=self.root,
@@ -94,7 +94,6 @@ class Acceptance:
             stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
-        return child
 
     def track(self):
         rows = self.native("Processes")
@@ -331,8 +330,8 @@ class Acceptance:
             rows = wait_for(restarted, "automatic installer restart", 100)
             require(len(rows) == 1, "Expected one automatically restarted shell.")
             pid = rows[0]["pid"]
-            upgrade["newNative"] = self.studio(pid)
             upgrade["automaticRestart"] = {"oldPid": old.pid, "newPid": pid, "manualLaunch": False}
+            upgrade["newNative"] = self.studio(pid)
             settings = self.api()
             require(
                 settings["overlay"]["fontSize"] == 41
@@ -368,6 +367,7 @@ class Acceptance:
                     break
                 self.report["passed"] = False
                 self.report["forcedCleanup"] = True
+                self.report["processesRequiringCleanup"] = self.native("Remaining")
                 self.native("Cleanup")
                 wait_for(lambda: not self.native("Remaining"), "forced owned-process cleanup", 30)
             if (self.destination / "uninstall.exe").exists():
