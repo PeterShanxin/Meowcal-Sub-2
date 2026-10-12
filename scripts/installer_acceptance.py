@@ -66,12 +66,14 @@ class Acceptance:
             command.extend(["-AppPid", str(pid)])
         result = subprocess.run(
             command,
-            check=True,
             capture_output=True,
             text=True,
             timeout=25,
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
+        if result.returncode:
+            self.report["nativeHelperError"] = {"action": action, "stderr": result.stderr.strip()}
+            result.check_returncode()
         return json.loads(result.stdout)
 
     def spawn(self, path, *arguments):

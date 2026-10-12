@@ -62,6 +62,7 @@ $controls = @()
 foreach ($window in $windows) {
     $controls += @($window.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition))
 }
+$rows = @($controls | ForEach-Object { @{type=$_.Current.ControlType.ProgrammaticName; name=$_.Current.Name; offscreen=$_.Current.IsOffscreen} })
 if ($Action -ne 'Inspect') {
     $buttons = @($controls | Where-Object {
         $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and
@@ -70,4 +71,4 @@ if ($Action -ne 'Inspect') {
     if ($buttons.Count -ne 1) { throw "Expected one enabled owned $Action button, found $($buttons.Count)." }
     $buttons[0].GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
 }
-ConvertTo-Json -InputObject @($controls | ForEach-Object { @{type=$_.Current.ControlType.ProgrammaticName; name=$_.Current.Name; offscreen=$_.Current.IsOffscreen} }) -Compress
+ConvertTo-Json -InputObject $rows -Compress
