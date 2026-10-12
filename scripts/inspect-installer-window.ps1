@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory)][string]$WorkRoot,
     [int]$AppPid,
-    [ValidateSet('Inspect','Settings','Cancel','Yes','Close','Processes','Remaining','Cleanup','Installations')]
+    [ValidateSet('Inspect','Settings','Cancel','Yes','Close','Processes','Remaining','Cleanup','Installations','RemoveProfiles')]
     [string]$Action = 'Inspect',
     [string]$Tracked
 )
@@ -13,6 +13,25 @@ $root = [IO.Path]::GetFullPath($WorkRoot).TrimEnd('\') + '\'
 $temporary = [IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\') + '\'
 if (-not $root.StartsWith($temporary, [StringComparison]::OrdinalIgnoreCase) -or $root -eq $temporary) {
     throw 'Work root must be strictly inside RUNNER_TEMP.'
+}
+if ($Action -eq 'RemoveProfiles') {
+    foreach ($name in @('formal', 'upgrade', 'installed')) {
+        $target = Join-Path $root $name
+        if (-not (Test-Path -LiteralPath $target)) { continue }
+        $resolved = (Resolve-Path -LiteralPath $target).Path
+        if ($resolved -ne $target -or -not $resolved.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { throw 'Cleanup target changed.' }
+        $entries = @(Get-Item -LiteralPath $target -Force; Get-ChildItem -LiteralPath $target -Force -Recurse)
+        foreach ($link in @($entries | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint })) {
+            if ($link.LinkType -ne 'Junction' -or -not $link.FullName.StartsWith($target + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Unexpected profile reparse point.' }
+            foreach ($destination in @($link.Target)) {
+                if (-not [IO.Path]::GetFullPath($destination).StartsWith($target + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Profile junction escapes owned directory.' }
+            }
+            [IO.Directory]::Delete($link.FullName)
+        }
+        Remove-Item -LiteralPath $target -Recurse -Force
+        if (Test-Path -LiteralPath $target) { throw 'Owned profile remains.' }
+    }
+    '{}' ; exit
 }
 if ($Action -eq 'Installations') {
     $entries = @()

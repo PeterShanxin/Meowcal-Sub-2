@@ -22,6 +22,14 @@ def digest(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def registry_matches(rows: list[dict], version: str, destination: Path) -> bool:
+    return (
+        len(rows) == 1
+        and rows[0]["DisplayVersion"] == version
+        and Path(rows[0]["InstallLocation"].strip('"')).resolve() == destination.resolve()
+    )
+
+
 def require_hosted_work(work: Path, environment: dict[str, str]) -> None:
     require(
         environment.get("GITHUB_ACTIONS") == "true"

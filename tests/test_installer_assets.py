@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from installer_assets import require_hosted_work, verify_assets  # noqa: E402
+from installer_assets import registry_matches, require_hosted_work, verify_assets  # noqa: E402
 
 
 def hosted(temporary: Path) -> dict[str, str]:
@@ -51,3 +51,12 @@ def test_changed_installer_is_rejected_before_executing_any_verifier(tmp_path):
             "arm64",
             tmp_path / "must-not-run.exe",
         )
+
+
+def test_nsis_quoted_install_location_keeps_exact_destination_and_version(tmp_path):
+    destination = tmp_path / "installed app"
+    rows = [{"InstallLocation": f'"{destination}"', "DisplayVersion": "0.2.1"}]
+    assert registry_matches(rows, "0.2.1", destination)
+    assert not registry_matches(rows, "0.2.0", destination)
+    assert not registry_matches(rows, "0.2.1", tmp_path / "other")
+    assert not registry_matches(rows * 2, "0.2.1", destination)

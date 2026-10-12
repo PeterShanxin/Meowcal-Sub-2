@@ -13,7 +13,14 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
-from installer_assets import digest, require, require_hosted_work, verify_assets, verify_installed
+from installer_assets import (
+    digest,
+    registry_matches,
+    require,
+    require_hosted_work,
+    verify_assets,
+    verify_installed,
+)
 
 HELPER = Path(__file__).with_name("inspect-installer-window.ps1")
 PINS = Path(__file__).resolve().parents[1] / "config/installer-acceptance.json"
@@ -126,11 +133,11 @@ class Acceptance:
 
     def registry_version(self, version):
         rows = self.native("Installations")
-        return (
-            len(rows) == 1
-            and rows[0]["DisplayVersion"] == version
-            and Path(rows[0]["InstallLocation"]).resolve() == self.destination
-        )
+        self.report["lastInstallationState"] = {
+            "registry": rows,
+            "executableExists": self.executable.exists(),
+        }
+        return registry_matches(rows, version, self.destination)
 
     def install(self, installer, version, upgrade=False):
         arguments = ["/S", "/NS"]
@@ -206,6 +213,7 @@ class Acceptance:
             lambda: not self.executable.exists() and not self.native("Installations"),
             "uninstall removal",
         )
+        wait_for(lambda: not self.native("Processes"), "uninstaller child-process exit")
         require(
             digest(self.config) == config_hash and digest(self.marker) == marker_hash,
             "Default uninstall removed retained settings or subtitles.",
@@ -359,20 +367,14 @@ class Acceptance:
             }
             require(not self.report["cleanup"]["remainingProcesses"], "Owned processes remain.")
             require(not self.report["cleanup"]["remainingInstallations"], "Installation remains.")
-            for name in ("formal", "upgrade", "installed"):
-                folder = self.root / name
-                if folder.exists():
-                    require(
-                        folder.resolve().is_relative_to(self.root), "Cleanup escaped work root."
-                    )
-                    for attempt in range(5):
-                        try:
-                            shutil.rmtree(folder)
-                            break
-                        except PermissionError:
-                            if attempt == 4:
-                                raise
-                            time.sleep(1)
+            for attempt in range(5):
+                try:
+                    self.native("RemoveProfiles")
+                    break
+                except subprocess.CalledProcessError:
+                    if attempt == 4:
+                        raise
+                    time.sleep(1)
             self.report["cleanup"]["profilesRemoved"] = True
         except Exception as error:
             self.report["passed"] = False
