@@ -85,12 +85,8 @@ if ($Action -eq 'Installations') {
 if ($Action -in @('Processes','Remaining','Cleanup')) {
     $all = @(Get-CimInstance Win32_Process)
     if ($Action -eq 'Processes') {
-        $owned = @($all | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) })
-        do {
-            $ids = @($owned.ProcessId)
-            $children = @($all | Where-Object { $_.ParentProcessId -in $ids -and $_.ProcessId -notin $ids })
-            $owned += $children
-        } while ($children.Count -gt 0)
+        . (Join-Path $PSScriptRoot 'installer-processes.ps1')
+        $owned = @(Get-InstallerOwnedProcesses -Processes $all -Root $root)
     } else {
         if (-not [IO.Path]::GetFullPath($Tracked).StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { throw 'Tracked file outside work root.' }
         $saved = @(Get-Content -LiteralPath $Tracked -Raw | ConvertFrom-Json)

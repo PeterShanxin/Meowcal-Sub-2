@@ -7,6 +7,8 @@ on:
       - 'scripts/installer_acceptance.py'
       - 'scripts/installer_assets.py'
       - 'scripts/inspect-installer-window.ps1'
+      - 'scripts/installer-processes.ps1'
+      - 'scripts/tests/installer-processes.Tests.ps1'
       - 'config/installer-acceptance.json'
       - 'tests/test_installer_assets.py'
   workflow_dispatch:

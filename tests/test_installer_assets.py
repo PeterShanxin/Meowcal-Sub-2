@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -91,3 +92,9 @@ def test_studio_search_field_cannot_satisfy_settings_acceptance():
     assert settings_visible([search, close])
     assert not settings_visible([search, {**close, "offscreen": True}])
     assert not settings_visible([search, {**close, "enabled": False}])
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows acceptance process contract")
+def test_pid_reuse_cannot_adopt_an_old_compiler_process():
+    script = Path(__file__).resolve().parents[1] / "scripts/tests/installer-processes.Tests.ps1"
+    subprocess.run(["pwsh", "-NoProfile", "-File", str(script)], check=True, timeout=20)
