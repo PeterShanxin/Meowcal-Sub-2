@@ -39,3 +39,9 @@ is needed. Do not attach private subtitle dialogue, viewing screenshots,
 credentials, access tokens, or unredacted logs.
 
 Report vulnerabilities through [the security policy](SECURITY.md).
+
+## Writing clarity
+
+Human contributors and agents follow the project-wide
+[STE-inspired clarity standard](docs/WRITING_GUIDE.md) for new or changed README,
+documentation, help, error and UI text, comments, and delivery notes.
