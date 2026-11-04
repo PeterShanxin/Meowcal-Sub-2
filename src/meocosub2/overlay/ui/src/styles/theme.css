@@ -55,6 +55,20 @@ button {
   font-family: inherit;
 }
 
+.palette-result {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.palette-result:focus-visible {
+  outline: 2px solid var(--accent-hex);
+  outline-offset: -2px;
+}
+
 input {
   font-family: inherit;
 }

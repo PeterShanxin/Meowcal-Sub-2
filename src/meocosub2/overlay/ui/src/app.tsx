@@ -1422,6 +1422,7 @@ export function App(): JSX.Element {
                 selectedSourceId={selectedSourceId}
                 selectedTargetId={selectedTargetId}
                 cursorIndex={cursorIndex}
+                onCursorChange={(index) => store.set({ cursorIndex: index })}
                 onToggleExpandWork={onToggleExpandWork}
                 onToggleExpandSeason={onToggleExpandSeason}
                 onPickWork={onPickWork}

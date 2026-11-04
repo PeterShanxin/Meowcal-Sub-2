@@ -17,57 +17,43 @@ def branding_root(tmp_path: Path) -> Path:
     source = Path(__file__).resolve().parents[1]
     for name in ("banner.svg", "banner.png"):
         shutil.copyfile(source / "docs/assets" / name, assets / name)
-    (tmp_path / "src-tauri").mkdir()
-    shutil.copyfile(source / "src-tauri/tauri.conf.json", tmp_path / "src-tauri/tauri.conf.json")
     return tmp_path
 
 
-def test_version_bump_refreshes_both_assets_without_rewriting_current_files(
-    branding_root: Path,
-) -> None:
+def test_version_bump_does_not_invalidate_banner(branding_root: Path) -> None:
     config_path = branding_root / "src-tauri/tauri.conf.json"
-    config = json.loads(config_path.read_text(encoding="utf-8"))
-    config["version"] = "9.8.7-rc.1"
-    config_path.write_text(json.dumps(config), encoding="utf-8")
+    config_path.parent.mkdir()
+    config_path.write_text(json.dumps({"version": "9.8.7-rc.1"}), encoding="utf-8")
     svg = branding_root / "docs/assets/banner.svg"
     png = svg.with_suffix(".png")
     original = (svg.read_bytes(), png.read_bytes())
-    with pytest.raises(ValueError, match="Banner is stale"):
-        update_branding(branding_root, check=True)
-    assert (svg.read_bytes(), png.read_bytes()) == original
-    with Image.open(png) as image:
-        previous_label = image.convert("RGB").crop((950, 550, 1220, 590))
-
-    assert update_branding(branding_root)
-    assert ">v9.8.7-rc.1</text>" in svg.read_text(encoding="utf-8")
-    with Image.open(png) as image:
-        assert image.size == (1280, 640)
-        assert image.info["Version"] == "9.8.7-rc.1"
-        label = image.convert("RGB").crop((950, 550, 1220, 590))
-        assert ImageChops.difference(previous_label, label).getbbox() is not None
-    current = (svg.read_bytes(), png.read_bytes())
     assert not update_branding(branding_root, check=True)
     assert not update_branding(branding_root)
-    assert (svg.read_bytes(), png.read_bytes()) == current
+    assert (svg.read_bytes(), png.read_bytes()) == original
 
 
 def test_artwork_edit_invalidates_png_export(branding_root: Path) -> None:
     svg = branding_root / "docs/assets/banner.svg"
+    png = svg.with_suffix(".png")
+    with Image.open(png) as image:
+        previous = image.convert("RGB")
     svg.write_text(
         svg.read_text(encoding="utf-8").replace("Subtitles, in your language.", "Updated artwork."),
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="Banner is stale"):
         update_branding(branding_root, check=True)
+    artwork = svg.read_bytes()
+    assert update_branding(branding_root)
+    assert svg.read_bytes() == artwork
+    with Image.open(png) as image:
+        assert ImageChops.difference(previous, image.convert("RGB")).getbbox() is not None
+        assert "Version" not in image.info
+    assert not update_branding(branding_root, check=True)
 
 
-def test_missing_version_marker_does_not_overwrite_artwork(branding_root: Path) -> None:
-    svg = branding_root / "docs/assets/banner.svg"
-    svg.write_text('<svg xmlns="http://www.w3.org/2000/svg"/>', encoding="utf-8")
-    original = svg.read_bytes()
-    with pytest.raises(ValueError, match="exactly one release-version"):
-        update_branding(branding_root)
-    assert svg.read_bytes() == original
+def test_export_check_does_not_require_app_manifests(branding_root: Path) -> None:
+    assert not update_branding(branding_root, check=True)
 
 
 @pytest.mark.parametrize("damage", ["invalid", "truncated"])

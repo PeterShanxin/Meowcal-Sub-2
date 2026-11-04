@@ -108,7 +108,7 @@ try {
     if ($Wanted -contains 'python') {
         Start-Stage 'python'
         Invoke-Check 'app manifest versions' { python scripts\check_app_version.py }
-        Invoke-Check 'banner version and export' { python scripts\update_branding.py --check }
+        Invoke-Check 'banner PNG export' { python scripts\update_branding.py --check }
         # Ruff is gated at zero, so passing is the count the ratchet records.
         Invoke-Check 'ruff lint' { python -m ruff check src tests scripts }
         if ($Failures.Count -eq 0) { $LintCounts['ruff'] = 0 }

@@ -1,4 +1,4 @@
-"""Fuse observable progression without reconstructing an unknowable pause clock."""
+"""Fuse observable progression and apply a sustained player-freeze policy."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import math
 
 from meocosub2.audio_observation import AudioObservation
 from meocosub2.subtitle_gate import normalize
-from meocosub2.timeline import PlaybackState
+from meocosub2.timeline import MAX_PLAYBACK_SAMPLE_GAP_S, UNCERTAIN_GRACE_S, PlaybackState
 
 # Reproduced by scripts/fit_playing_confidence.py from 288 authored physical
 # FFplay/Edge samples and balanced indistinguishable static observations.
@@ -18,6 +18,7 @@ LEAVE_SCORE = 0.628153
 AMBIGUOUS_SCORE = 0.551762
 SUPPORTING_SCORE = 0.559150
 EVIDENCE_WINDOW_S = 1.0
+FREEZE_CONFIRM_S = 2.0
 
 
 class PlayingConfidence:
@@ -26,7 +27,8 @@ class PlayingConfidence:
     Image motion has already required distributed consecutive changes. Text
     changes require consecutive matching reads. Recent strong evidence decays
     over the measured image window; separate entry/exit scores resist flicker.
-    No observation here supplies elapsed media time or proves a silent stop.
+    A separate two-second freeze heuristic holds an existing clock. It is not
+    a calibrated pause probability: silent static content can also trigger it.
     """
 
     def __init__(self) -> None:
@@ -42,18 +44,36 @@ class PlayingConfidence:
         self._supported_at = -float("inf")
         self._supported_score = 0.0
         self._advancing = False
-        self._lost_progress_at: float | None = None
         self._audio: AudioObservation | None = None
         self._visual_at = -float("inf")
+        self._quiet_since: float | None = None
+        self._still_since: float | None = None
+        self._motion_since: float | None = None
+        self._stopped_since: float | None = None
+        self._unqualified_since: float | None = None
+        self.state_since: float | None = None
         self.confidence = 0.5
 
+    @property
+    def stopped(self) -> bool:
+        return self._stopped_since is not None
+
     def observe(
-        self, motion: bool, still: bool, audio: AudioObservation | None, at: float
+        self,
+        motion: bool,
+        still: bool,
+        audio: AudioObservation | None,
+        at: float,
+        *,
+        still_since: float | None = None,
+        motion_since: float | None = None,
     ) -> PlaybackState:
-        if self._at is not None and (at <= self._at or at - self._at > 5.0):
+        if self._at is not None and (at <= self._at or at - self._at > MAX_PLAYBACK_SAMPLE_GAP_S):
             self.reset()
         self._at = at
         self._audio = audio
+        self._still_since = still_since
+        self._motion_since = motion_since
         audible = (
             audio is not None and audio.running and audio.peak is not None and audio.peak > 0.001
         )
@@ -68,7 +88,7 @@ class PlayingConfidence:
             fresh_text and self._stable_text is not None,
             still,
         ]
-        return self._judge(at, invalidate_still=False)
+        return self._judge(at)
 
     def observe_text(self, text: str, at: float) -> PlaybackState:
         if self._at != at:
@@ -89,9 +109,9 @@ class PlayingConfidence:
                 and self._audio.peak > 0.001
                 and (self._features[0] or self._features[1])
             )
-        return self._judge(at, invalidate_still=True)
+        return self._judge(at)
 
-    def _judge(self, at: float, *, invalidate_still: bool) -> PlaybackState:
+    def _judge(self, at: float) -> PlaybackState:
         logit = COEFFICIENTS[0] + sum(
             weight * value for weight, value in zip(COEFFICIENTS[1:], self._features, strict=True)
         )
@@ -127,26 +147,45 @@ class PlayingConfidence:
             # that ambiguity, including with unrelated sound or a recent cue.
             self.confidence = min(self.confidence, AMBIGUOUS_SCORE)
         expired_context = weak_sound and at - self._visual_at > EVIDENCE_WINDOW_S
-        previously_advancing = self._advancing
         if ambiguous or expired_context or self.confidence < LEAVE_SCORE:
             self._advancing = False
-            if previously_advancing:
-                self._lost_progress_at = at
         elif self.confidence >= ENTER_SCORE:
             self._advancing = True
-            self._lost_progress_at = None
-        if self._advancing:
-            return PlaybackState.ADVANCING
-        # A sustained still/text-stable frame with no attributable sound may be
-        # paused or naturally static. Withhold projection rather than subtract
-        # an estimated stop duration. A returning image cannot revive the clock.
-        if (
-            invalidate_still
-            and self._lost_progress_at == at
-            and self._features[5]
-            and self._features[4]
-            and not trusted_sound
-        ):
-            self._lost_progress_at = None
-            return PlaybackState.INVALIDATED
-        return PlaybackState.UNCERTAIN
+        return self._freeze_state(at, trusted_sound)
+
+    def _freeze_state(self, at: float, trusted_sound: bool) -> PlaybackState:
+        # OCR can correct a seek while stopped, but only independent image or
+        # attributed sound resumes the player. A new source cue can be a seek
+        # on a paused frame, so it must not release an already confirmed stop.
+        if self._features[0] or trusted_sound:
+            self._stopped_since = None
+            self._unqualified_since = None
+            self._quiet_since = None
+            self.state_since = self._motion_since if self._features[0] else at
+            return PlaybackState.ADVANCING if self._advancing else PlaybackState.UNCERTAIN
+        if self._stopped_since is not None:
+            if self._still_since is not None or self._features[5]:
+                self._unqualified_since = None
+                self.state_since = self._stopped_since
+                return PlaybackState.STOPPED
+            if self._unqualified_since is None:
+                self._unqualified_since = at
+            if at > self._unqualified_since + UNCERTAIN_GRACE_S:
+                self.reset()
+                return PlaybackState.INVALIDATED
+            self.state_since = None
+            return PlaybackState.UNCERTAIN
+        if self._quiet_since is None:
+            self._quiet_since = at
+        if self._still_since is not None or self._features[5]:
+            onset = max(
+                self._quiet_since,
+                self._still_since if self._still_since is not None else self._quiet_since,
+            )
+            self.state_since = onset
+            if self._features[5] and at >= onset + FREEZE_CONFIRM_S:
+                self._stopped_since = onset
+                return PlaybackState.STOPPED
+        else:
+            self.state_since = None
+        return PlaybackState.ADVANCING if self._advancing else PlaybackState.UNCERTAIN

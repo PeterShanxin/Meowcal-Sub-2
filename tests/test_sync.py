@@ -140,6 +140,7 @@ async def test_silence_releases_the_clock_and_same_phrase_can_match_again(monkey
 
     observer = MagicMock()
     observer.observe.return_value = timeline.PlaybackState.ADVANCING
+    observer.state_since = None
     monkeypatch.setattr(sync, "PlaybackObserver", lambda: observer)
     clock = 0.0
     monkeypatch.setattr(timeline, "monotonic", lambda: clock)
@@ -777,15 +778,21 @@ async def test_captured_motion_reaches_the_playback_timeline(monkeypatch) -> Non
     observer = MagicMock()
     observer.observe.return_value = PlaybackState.ADVANCING
     observer.observe_text.return_value = PlaybackState.ADVANCING
+    observer.state_since = 0.0
     monkeypatch.setattr(sync, "PlaybackObserver", lambda: observer)
     observe_playback = MagicMock(wraps=session.observe_playback)
     session.observe_playback = observe_playback
+    begin_capture = MagicMock(wraps=session.begin_capture)
+    session.begin_capture = begin_capture
 
     await drive(session, config(), ["Hello there"])
 
     observer.observe.assert_called()
     assert all(call.args[0] is PlaybackState.ADVANCING for call in observe_playback.call_args_list)
+    assert all(call.args[2] == 0.0 for call in observe_playback.call_args_list)
+    assert all(call.args[3] >= call.args[1] for call in observe_playback.call_args_list)
     assert observe_playback.call_count == observer.observe.call_count
+    assert begin_capture.call_count == observer.observe.call_count
 
 
 async def test_lost_clock_translates_same_visible_text_without_reanchoring(monkeypatch):
@@ -804,6 +811,7 @@ async def test_lost_clock_translates_same_visible_text_without_reanchoring(monke
 
     class Capture:
         confidence = 0.5
+        state_since = None
         count = 0
 
         async def capture(self, grab, region, at):

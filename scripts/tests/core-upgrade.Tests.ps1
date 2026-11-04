@@ -263,7 +263,7 @@ try {
     $workflow = Get-Content -LiteralPath (Join-Path $repositoryRoot ".github\workflows\core-upgrade.yml") -Raw
     foreach ($requirement in @(
         'schedule:', 'workflow_dispatch:', 'GITHUB_TOKEN:', 'CORE_UPGRADE_TOKEN',
-        'peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676',
+        'peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1',
         'draft: true', 'config/meowcal-core.lock.json', 'RUNNER_TEMP'
     )) {
         if ($workflow -notmatch [regex]::Escape($requirement)) {

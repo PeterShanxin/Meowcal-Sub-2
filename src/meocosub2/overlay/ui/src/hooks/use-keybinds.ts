@@ -42,6 +42,8 @@ export function useKeybinds(h: KeyHandlers): void {
       const target = e.target as HTMLElement | null;
       const isPaletteInput =
         target instanceof HTMLInputElement && target.dataset.palette === "true";
+      const isPaletteResult =
+        target instanceof HTMLElement && !!target.closest("[data-cursor-row]");
 
       // Tab / Shift+Tab — step through the palette tabs from its input. Past the
       // last one, focus moves on, so the input is never a keyboard trap.
@@ -52,10 +54,9 @@ export function useKeybinds(h: KeyHandlers): void {
         }
       }
 
-      // Arrow up/down — palette cursor navigation (regardless of focus target,
-      // as long as user is not typing in a non-palette input)
+      // Only the search field and result buttons own palette arrow navigation.
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        if (!isPaletteInput && isTypingContext(e.target)) return;
+        if (!isPaletteInput && !isPaletteResult) return;
         e.preventDefault();
         h.onMoveCursor(e.key === "ArrowDown" ? "down" : "up");
         return;
@@ -83,7 +84,7 @@ export function useKeybinds(h: KeyHandlers): void {
           }
           return;
         }
-        if (isTypingContext(e.target)) return;
+        if (!isPaletteResult) return;
         e.preventDefault();
         h.onMoveCursor(e.key === "ArrowRight" ? "right" : "left");
         return;
