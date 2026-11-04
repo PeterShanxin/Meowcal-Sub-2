@@ -1,7 +1,7 @@
 {
   "name": "meocosub2-ui",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -21,7 +21,7 @@
     "@vitejs/plugin-react": "^5.2.0",
     "@vitest/coverage-v8": "^4.1.11",
     "typescript": "^5.6.3",
-    "vite": "^7.3.6",
+    "vite": "^7.3.7",
     "vitest": "^4.1.11"
   }
 }

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.1 — 2026-10-04
+
+- Hold subtitles and playback timing during sustained pauses, including silent
+  target gaps; resume from observed playback motion or sound.
+- Enable signed automatic updates for installed copies. Versions 0.1.0 and 0.2.0
+  require a manual first upgrade; portable copies remain manual.
+
+Static, silent playback with an unchanged picture can resemble a pause. This
+release uses observed playback activity and cannot distinguish those cases.
+
 ## 0.1.0 — 2026-09-15
 
 First public release of Meowcal Sub 2 for Windows x64 and ARM64.

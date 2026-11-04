@@ -37,6 +37,7 @@ interface PaletteProps {
   selectedSourceId: string | null;
   selectedTargetId: string | null;
   cursorIndex: number;
+  onCursorChange: (index: number) => void;
   onToggleExpandWork: (id: string) => void;
   onToggleExpandSeason: (workId: string, seasonNumber: number) => void;
   onPickWork: (id: string) => void;
@@ -95,6 +96,7 @@ export function Palette(props: PaletteProps): JSX.Element {
     selectedSourceId,
     selectedTargetId,
     cursorIndex,
+    onCursorChange,
     onToggleExpandWork,
     onToggleExpandSeason,
     onPickWork,
@@ -125,25 +127,45 @@ export function Palette(props: PaletteProps): JSX.Element {
   const [focused, setFocused] = useState(false);
   const langRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const resultOwnsFocus = useRef(false);
   const titleResultsKey = useMemo(
     () => works.map((w) => `${w.id}:${w.title}:${w.totalSubtitles}:${w.posterUrl ?? ""}`).join("|"),
     [works],
   );
 
   useEffect(() => {
+    // Removing a focused row during tab changes does not emit focusin. Preserve
+    // ownership until focus or a pointer action actually moves outside the list.
+    const trackFocus = (event: Event) => {
+      const inside = !!listRef.current?.contains(event.target as Node);
+      if (event.type !== "pointerdown" || !inside) resultOwnsFocus.current = inside;
+    };
+    document.addEventListener("focusin", trackFocus);
+    document.addEventListener("pointerdown", trackFocus);
+    return () => {
+      document.removeEventListener("focusin", trackFocus);
+      document.removeEventListener("pointerdown", trackFocus);
+    };
+  }, []);
+
+  useEffect(() => {
     const container = listRef.current;
-    if (!container || cursorIndex < 0) return;
+    if (!container) return;
     const target = container.querySelector(
-      `[data-cursor-row="${cursorIndex}"]`,
+      `[data-cursor-row="${resultOwnsFocus.current ? Math.max(0, cursorIndex) : cursorIndex}"]`,
     ) as HTMLElement | null;
-    if (!target) return;
+    if (!target) {
+      if (resultOwnsFocus.current) inputRef.current?.focus();
+      return;
+    }
+    if (resultOwnsFocus.current) target.focus({ preventScroll: true });
     const cTop = container.scrollTop;
     const cBottom = cTop + container.clientHeight;
     const tTop = target.offsetTop;
     const tBottom = tTop + target.offsetHeight;
     if (tTop < cTop) container.scrollTop = tTop;
     else if (tBottom > cBottom) container.scrollTop = tBottom - container.clientHeight;
-  }, [cursorIndex, tab]);
+  }, [cursorIndex, tab, inputRef]);
 
   useEffect(() => {
     if (!openDrop) return;
@@ -476,6 +498,18 @@ export function Palette(props: PaletteProps): JSX.Element {
 
       <div
         ref={listRef}
+        onFocusCapture={(event) => {
+          const row = (event.target as HTMLElement).closest<HTMLElement>("[data-cursor-row]");
+          if (row && Number(row.dataset.cursorRow) !== cursorIndex) {
+            onCursorChange(Number(row.dataset.cursorRow));
+          }
+        }}
+        onClickCapture={(event) => {
+          const row = (event.target as HTMLElement).closest("[data-cursor-row]");
+          if (event.detail === 0 && row && row.getAttribute("aria-disabled") !== "true") {
+            inputRef.current?.focus();
+          }
+        }}
         style={{ maxHeight: compact ? 280 : 420, overflow: "auto", position: "relative" }}
       >
         {tab === "titles" && (
@@ -829,6 +863,7 @@ function FilterChip({
   return (
     <button
       type="button"
+      aria-pressed={active}
       onClick={onClick}
       style={{
         padding: "5px 10px",
@@ -1109,6 +1144,7 @@ function WorkRow({
       onClick={onClick}
       rowIndex={rowIndex}
       className="work-row"
+      expanded={work.expandable ? expanded : undefined}
     >
       <div className={`work-poster ${posterUrl ? "has-image" : ""}`} aria-hidden>
         {posterUrl && (
@@ -1165,7 +1201,11 @@ function SeasonRow({
   busy: boolean;
 }): JSX.Element {
   return (
-    <div
+    <button
+      type="button"
+      className="palette-result"
+      aria-expanded={open}
+      aria-busy={busy}
       data-cursor-row={rowIndex}
       onClick={onClick}
       onMouseDown={(e) => e.preventDefault()}
@@ -1191,7 +1231,7 @@ function SeasonRow({
         </span>
       )}
       {focused && !busy && <Kbd>↵</Kbd>}
-    </div>
+    </button>
   );
 }
 
@@ -1220,7 +1260,12 @@ function EpisodeRow({
 }): JSX.Element {
   const clickable = (!skeleton || !!hydratable) && !busy;
   return (
-    <div
+    <button
+      type="button"
+      className="palette-result"
+      aria-disabled={!clickable}
+      aria-pressed={picked}
+      aria-busy={busy}
       data-cursor-row={rowIndex ?? undefined}
       onClick={clickable ? onClick : undefined}
       onMouseDown={(e) => e.preventDefault()}
@@ -1265,7 +1310,7 @@ function EpisodeRow({
         <span style={{ fontSize: 10.5, color: "var(--text-label)" }}>No subtitles found</span>
       )}
       {focused && !busy && !exhausted && <Kbd>{skeleton ? "Search" : "↵"}</Kbd>}
-    </div>
+    </button>
   );
 }
 
@@ -1482,16 +1527,20 @@ interface RowProps {
   children: React.ReactNode;
   rowIndex?: number;
   className?: string;
+  expanded?: boolean;
 }
 
-const Row = forwardRef<HTMLDivElement, RowProps>(function Row(
-  { selected, focused, onClick, children, rowIndex, className },
+const Row = forwardRef<HTMLButtonElement, RowProps>(function Row(
+  { selected, focused, onClick, children, rowIndex, className, expanded },
   ref,
 ) {
   return (
-    <div
+    <button
+      type="button"
       ref={ref}
-      className={className}
+      className={`palette-result ${className ?? ""}`}
+      aria-pressed={selected}
+      aria-expanded={expanded}
       data-cursor-row={rowIndex ?? undefined}
       data-row-active={className === "work-row" && (focused || selected) ? "true" : undefined}
       onClick={onClick}
@@ -1512,7 +1561,7 @@ const Row = forwardRef<HTMLDivElement, RowProps>(function Row(
       }}
     >
       {children}
-    </div>
+    </button>
   );
 });
 

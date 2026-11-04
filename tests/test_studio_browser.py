@@ -150,6 +150,60 @@ def test_keyboard_reaches_an_episode_in_the_wide_title_grid(search_server):
         expect(page.get_by_text("Harbor.S01E01.en.srt")).to_be_visible()
 
 
+def test_results_have_native_keyboard_activation_and_expansion_state(search_server):
+    with _studio(search_server, 1280, 900) as page:
+        search = _search(page, "Harbor")
+        expect(page.locator(".work-row")).to_have_count(2)
+        page.get_by_role("button", name="OVA / Specials", exact=True).focus()
+        page.keyboard.press("Tab")
+        title = page.get_by_role("button", name=re.compile("Harbor.*2021"))
+        expect(title).to_be_focused()
+        expect(title).to_have_attribute("aria-expanded", "false")
+        page.keyboard.press("Enter")
+        expect(title).to_have_attribute("aria-expanded", "true")
+        expect(search).to_be_focused()
+        title.focus()
+        page.keyboard.press("Tab")
+        season = page.get_by_role("button", name=re.compile("Season 1"))
+        expect(season).to_be_focused()
+        page.keyboard.press("Space")
+        expect(season).to_have_attribute("aria-expanded", "true")
+        season.focus()
+        page.keyboard.press("Tab")
+        episode = page.get_by_role("button", name=re.compile("Episode 1"))
+        expect(episode).to_be_focused()
+        page.keyboard.press("Enter")
+        source = page.locator(".palette-result").filter(has_text="Harbor.S01E01.en.srt")
+        expect(source).to_be_visible()
+        expect(search).to_be_focused()
+        source.focus()
+        page.keyboard.press("ArrowRight")
+        expect(search).to_have_attribute("placeholder", "Filter target subtitles…")
+        expect(page.locator(".palette-result").first).to_be_focused()
+        page.keyboard.press("ArrowLeft")
+        expect(source).to_be_focused()
+        page.keyboard.press("Space")
+        expect(search).to_be_focused()
+        expect(search).to_have_attribute("placeholder", "Filter target subtitles…")
+        search.press("Shift+Tab")
+        expect(source).to_have_attribute("aria-pressed", "true")
+
+
+def test_result_arrows_move_real_focus_without_capturing_filter_keys(search_server):
+    with _studio(search_server, 1280, 900) as page:
+        _search(page, "Harbor")
+        expect(page.locator(".work-row")).to_have_count(2)
+        filter_button = page.get_by_role("button", name="OVA / Specials", exact=True)
+        filter_button.focus()
+        page.keyboard.press("ArrowDown")
+        expect(filter_button).to_be_focused()
+        expect(page.locator('.work-row[data-row-active="true"]')).to_have_count(0)
+        page.keyboard.press("Tab")
+        expect(page.locator(".work-row").first).to_be_focused()
+        page.keyboard.press("ArrowRight")
+        expect(page.locator(".work-row").nth(1)).to_be_focused()
+
+
 def test_episode_finds_more_files_when_title_search_has_both_languages(search_server, monkeypatch):
     search_server.controller._state.source_language = "zh"
     search_server.controller._state.target_language = "en"
@@ -337,8 +391,18 @@ def test_reselecting_busy_episode_uses_its_pending_lookup(search_server, monkeyp
             card.locator(".work-nested").get_by_text("Season 1", exact=True).click()
             card.locator(".work-nested").get_by_text("S01E01", exact=False).click()
             assert started.wait(5)
+            busy_episode = card.get_by_role("button", name=re.compile("S01E01"))
+            expect(busy_episode).to_be_disabled()
+            expect(busy_episode).to_have_attribute("aria-busy", "true")
+            card.get_by_role("button", name=re.compile("Season 1")).focus()
+            page.keyboard.press("ArrowDown")
+            expect(busy_episode).to_be_focused()
+            page.keyboard.press("Enter")
+            expect(card.get_by_role("button", name=re.compile("S01E02"))).to_be_visible()
+            expect(busy_episode).to_be_focused()
+            card.locator(".work-row").focus()
             search.focus()
-            for _ in range(3):
+            for _ in range(2):
                 search.press("ArrowDown")
             search.press("Enter")
             release.set()

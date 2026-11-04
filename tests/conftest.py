@@ -67,6 +67,7 @@ def scheduler_clock(monkeypatch):
 
     class Capture:
         confidence = 1.0
+        state_since = None
 
         async def capture(self, grab, region, at):
             return grab(region), PlaybackState.ADVANCING
