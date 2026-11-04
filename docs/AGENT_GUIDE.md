@@ -319,3 +319,8 @@ overlay plate. Those need a real Windows run of the app.
 - The studio window loads from `http://127.0.0.1:<port>/`, so Tauri capabilities scoped to local pages do not cover it. Core permissions such as `core:event:allow-listen` need a capability with a `remote` URL scope, or `event.listen` is rejected at runtime while custom `invoke` commands keep working.
 - A Tauri command returning `Ok(())` resolves to `null` in JavaScript. Use `isTauri()` to detect the shell; a `null` result proves nothing.
 - `frontendDist` assets (`selector.html`, `selector.js`) are embedded into the shell binary at compile time. Editing them needs a `cargo build`, not just an npm build.
+
+## Writing clarity
+
+Follow [STE-inspired clarity](WRITING_GUIDE.md) for new or changed text and delivery
+notes. This project-wide standard applies to human contributors and agents.
