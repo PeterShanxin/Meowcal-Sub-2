@@ -297,29 +297,25 @@ def map_subdl_language(value: str) -> str:
     return normalize_source_language(value)
 
 
-def map_assrt_language(desc: str | None, langlist: dict[str, object] | None = None) -> str:
-    keys = {key.casefold() for key in (langlist or {})}
-    for key, code in ASSRT_LANG_MAP.items():
-        if key in keys:
-            return code
-    text = (desc or "").strip()
-    if "繁" in text or "big5" in text.casefold():
-        return "zht"
-    if "简" in text or "簡" in text:
-        return "zh"
-    if "英" in text:
-        return "en"
-    if "日" in text:
-        return "ja"
-    if "韩" in text or "韓" in text:
-        return "ko"
-    if "法" in text:
-        return "fr"
-    if "德" in text:
-        return "de"
-    if "西" in text:
-        return "es"
-    return "zh"
+def map_assrt_languages(
+    desc: str | None, langlist: dict[str, object] | None = None
+) -> tuple[str, ...]:
+    keys = {key.casefold() for key, enabled in (langlist or {}).items() if enabled}
+    codes = {code for key, code in ASSRT_LANG_MAP.items() if key in keys}
+    text = (desc or "").casefold()
+    for markers, code in (
+        (("繁", "big5"), "zht"),
+        (("简", "簡"), "zh"),
+        (("英",), "en"),
+        (("日",), "ja"),
+        (("韩", "韓"), "ko"),
+        (("法",), "fr"),
+        (("德",), "de"),
+        (("西",), "es"),
+    ):
+        if any(marker in text for marker in markers):
+            codes.add(code)
+    return tuple(sorted(codes))
 
 
 def choose_subtitle_path(paths: Iterable[Path]) -> Path:

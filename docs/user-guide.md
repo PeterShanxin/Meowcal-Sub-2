@@ -73,6 +73,9 @@ until it is installed.
    the results from the title search stay available.
 3. Choose a source subtitle and a target subtitle or local translation. Check
    the prepared-session summary; a different release may use different timings.
+   If no source file matches, check the enabled providers in Settings. **Use
+   on-screen OCR** offers a slower backup: read the screen and translate live,
+   with an optional target file. The source-file workflow remains the default.
 4. Choose **Select capture region**, drag a box around the player's subtitle
    area, and confirm. Include the complete visible lines and exclude unrelated
    interface text. Use **Switch display** if the player is on another screen.

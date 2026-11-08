@@ -19,6 +19,7 @@ import {
   mapResultsToSource,
   mapResultsToTarget,
   mapWorksToItems,
+  OCR_SOURCE_ID,
   seasonHydrateKey,
 } from "./state/mappers";
 import type {
@@ -182,8 +183,15 @@ export function App(): JSX.Element {
         episodeMatchId,
         snapshot?.target_language ?? "zh",
         sourceInspection,
+        selectedSourceId === OCR_SOURCE_ID,
       ),
-    [snapshot?.search_results, episodeMatchId, snapshot?.target_language, sourceInspection],
+    [
+      snapshot?.search_results,
+      episodeMatchId,
+      snapshot?.target_language,
+      sourceInspection,
+      selectedSourceId,
+    ],
   );
 
   // Selecting another episode leaves the old session prepared until the new one
@@ -271,100 +279,92 @@ export function App(): JSX.Element {
     inputRef.current?.focus();
   }, []);
 
-  const runSearch = useCallback(
-    async (title: string) => {
-      if (!title.trim()) return;
-      const trimmedTitle = title.trim();
-      const correlationId = clientEventId("search");
-      lastSearchedQuery.current = trimmedTitle;
-      selectionIntent.current += 1;
-      const requestEpoch = ++searchEpoch.current;
-      searchAbort.current?.abort();
-      const ctrl = new AbortController();
-      searchAbort.current = ctrl;
-      let completeSearch!: () => void;
-      const completion = new Promise<void>((resolve) => {
-        completeSearch = resolve;
-      });
-      titleSearchCompletion.current = completion;
-      setSearching(true);
+  const runSearch = useCallback(async (title: string) => {
+    if (!title.trim()) return;
+    const current = store.get();
+    const sourceLanguage = current.config?.languages.source ?? current.snapshot?.source_language;
+    const targetLanguage = current.config?.languages.target ?? current.snapshot?.target_language;
+    const trimmedTitle = title.trim();
+    const correlationId = clientEventId("search");
+    lastSearchedQuery.current = trimmedTitle;
+    selectionIntent.current += 1;
+    const requestEpoch = ++searchEpoch.current;
+    searchAbort.current?.abort();
+    const ctrl = new AbortController();
+    searchAbort.current = ctrl;
+    let completeSearch!: () => void;
+    const completion = new Promise<void>((resolve) => {
+      completeSearch = resolve;
+    });
+    titleSearchCompletion.current = completion;
+    setSearching(true);
+    logClientEvent(
+      "ui.search.submitted",
+      {
+        title: trimmedTitle,
+        sourceLanguage,
+        targetLanguage,
+      },
+      correlationId,
+    );
+    // These keys track lookups belonging to the search being replaced. Work ids
+    // are content-derived, so a re-search of the same title mints the same keys
+    // and a leftover one would leave a row of the new catalog marked busy.
+    hydrateInFlight.current.clear();
+    seasonHydrationPromises.current.clear();
+    lookedUpEpisodes.current.clear();
+    episodeLookupIntents.current.clear();
+    store.set({
+      error: null,
+      cursorIndex: -1,
+      selectedWorkId: null,
+      expandedWorkId: null,
+      expandedSeasonNumber: null,
+      selectedEpisodeMatchId: null,
+      selectedSourceId: null,
+      selectedTargetId: null,
+      sourceInspection: null,
+      inspectingSource: false,
+      hydrating: [],
+      emptyLookups: [],
+    });
+    try {
+      const res = await api.search(trimmedTitle, sourceLanguage, targetLanguage, correlationId);
+      const fresh = await api.getState();
+      if (searchEpoch.current !== requestEpoch) return;
+      store.set({ snapshot: fresh, config: fresh.config });
       logClientEvent(
-        "ui.search.submitted",
+        "ui.search.completed",
         {
-          title: trimmedTitle,
-          sourceLanguage: config?.languages.source ?? snapshot?.source_language,
-          targetLanguage: config?.languages.target ?? snapshot?.target_language,
+          results: res.results.length,
+          matches: res.matches.length,
+          works: res.works.length,
+          warnings: res.warnings.length,
         },
         correlationId,
       );
-      // These keys track lookups belonging to the search being replaced. Work ids
-      // are content-derived, so a re-search of the same title mints the same keys
-      // and a leftover one would leave a row of the new catalog marked busy.
-      hydrateInFlight.current.clear();
-      seasonHydrationPromises.current.clear();
-      lookedUpEpisodes.current.clear();
-      episodeLookupIntents.current.clear();
-      store.set({
-        error: null,
-        cursorIndex: -1,
-        selectedWorkId: null,
-        expandedWorkId: null,
-        expandedSeasonNumber: null,
-        selectedEpisodeMatchId: null,
-        selectedSourceId: null,
-        selectedTargetId: null,
-        hydrating: [],
-        emptyLookups: [],
-      });
-      try {
-        const res = await api.search(
-          trimmedTitle,
-          config?.languages.source,
-          config?.languages.target,
-          correlationId,
-        );
-        const fresh = await api.getState();
-        if (searchEpoch.current !== requestEpoch) return;
-        store.set({ snapshot: fresh, config: fresh.config });
-        logClientEvent(
-          "ui.search.completed",
-          {
-            results: res.results.length,
-            matches: res.matches.length,
-            works: res.works.length,
-            warnings: res.warnings.length,
-          },
-          correlationId,
-        );
-      } catch (err) {
-        if (searchEpoch.current === requestEpoch) {
-          store.set({ error: err instanceof Error ? err.message : String(err) });
-        }
-        logClientEvent(
-          "ui.search.failed",
-          {
-            error: err instanceof Error ? err.message : String(err),
-          },
-          correlationId,
-        );
-      } finally {
-        completeSearch();
-        if (titleSearchCompletion.current === completion) titleSearchCompletion.current = null;
-        if (searchAbort.current === ctrl) {
-          searchAbort.current = null;
-          if (backgroundSearchCount.current === 0) {
-            setSearching(false);
-          }
+    } catch (err) {
+      if (searchEpoch.current === requestEpoch) {
+        store.set({ error: err instanceof Error ? err.message : String(err) });
+      }
+      logClientEvent(
+        "ui.search.failed",
+        {
+          error: err instanceof Error ? err.message : String(err),
+        },
+        correlationId,
+      );
+    } finally {
+      completeSearch();
+      if (titleSearchCompletion.current === completion) titleSearchCompletion.current = null;
+      if (searchAbort.current === ctrl) {
+        searchAbort.current = null;
+        if (backgroundSearchCount.current === 0) {
+          setSearching(false);
         }
       }
-    },
-    [
-      config?.languages.source,
-      config?.languages.target,
-      snapshot?.source_language,
-      snapshot?.target_language,
-    ],
-  );
+    }
+  }, []);
 
   const onQueryChange = useCallback((v: string) => {
     store.set({ query: v, cursorIndex: -1 });
@@ -422,8 +422,9 @@ export function App(): JSX.Element {
   // download it costs is one the session was going to make anyway.
   const readChosenSource = useCallback(async () => {
     const { selectedSourceId, selectedEpisodeMatchId, sourceInspection } = store.get();
-    if (!selectedSourceId) return;
+    if (!selectedSourceId || selectedSourceId === OCR_SOURCE_ID) return;
     if (sourceInspection?.sourceFileId === selectedSourceId) return;
+    const requestEpoch = searchEpoch.current;
     store.set({ inspectingSource: true });
     try {
       const found = await api.inspectSource({
@@ -431,7 +432,8 @@ export function App(): JSX.Element {
         matchId: selectedEpisodeMatchId,
       });
       // The viewer can have moved on while this was in flight.
-      if (store.get().selectedSourceId !== selectedSourceId) return;
+      if (searchEpoch.current !== requestEpoch || store.get().selectedSourceId !== selectedSourceId)
+        return;
       store.set({ sourceInspection: found });
       logClientEvent("ui.source.inspected", {
         carriesTranslation: found.carriesTranslation,
@@ -447,7 +449,10 @@ export function App(): JSX.Element {
       // Only the read for the source still chosen may lift the wait. Changing
       // the source starts a second read, and letting the first one finish for
       // it opened the list while the answer that reorders it was still coming.
-      if (store.get().selectedSourceId === selectedSourceId) {
+      if (
+        searchEpoch.current === requestEpoch &&
+        store.get().selectedSourceId === selectedSourceId
+      ) {
         store.set({ inspectingSource: false });
       }
     }
@@ -472,6 +477,8 @@ export function App(): JSX.Element {
       selectedEpisodeMatchId: matchId,
       selectedSourceId: null,
       selectedTargetId: null,
+      sourceInspection: null,
+      inspectingSource: false,
       query: "",
       // Settling one step opens the next one's list, so the step the footer
       // names is the step the palette is showing.
@@ -810,6 +817,9 @@ export function App(): JSX.Element {
         tab: "target",
         cursorIndex: -1,
         sourceInspection: null,
+        selectedTargetId: null,
+        inspectingSource: false,
+        error: null,
       });
       void readChosenSource();
     },
@@ -821,22 +831,28 @@ export function App(): JSX.Element {
     // Staying on the pick that was just made keeps the last step settled.
     // Dropping back to the title list read as "start over" and invited the
     // reader to pick their way around a session that was already prepared.
-    store.set({ selectedTargetId: id, cursorIndex: -1 });
     const currentEpisode = store.get().selectedEpisodeMatchId;
     const currentSource = store.get().selectedSourceId;
-    if (!currentEpisode || !currentSource) return;
+    if (!currentEpisode || !currentSource) {
+      store.set({
+        error: "Select a source subtitle first, or choose on-screen OCR when no file matches.",
+      });
+      return;
+    }
+    store.set({ selectedTargetId: id, cursorIndex: -1, error: null });
     setPreparing(true);
     // Backend accepts only "subtitle_pair" | "ocr_fallback". Local AI
     // translation is triggered by subtitle_pair with no targetResultId —
     // the controller falls back to local translation via target_match_mode.
     const mode: "subtitle_pair" | "ocr_fallback" =
-      id === "__ocr__" ? "ocr_fallback" : "subtitle_pair";
+      id === "__ocr__" || currentSource === OCR_SOURCE_ID ? "ocr_fallback" : "subtitle_pair";
+    const sourceResultId = currentSource === OCR_SOURCE_ID ? null : currentSource;
     const targetResultId = id === "__local__" || id === "__ocr__" ? null : id;
     logClientEvent(
       "ui.target.selected",
       {
         matchId: currentEpisode,
-        sourceResultId: currentSource,
+        sourceResultId,
         targetResultId,
         mode,
       },
@@ -846,7 +862,7 @@ export function App(): JSX.Element {
       await api.prepareSession({
         mode,
         matchId: currentEpisode,
-        sourceResultId: currentSource,
+        sourceResultId,
         targetResultId,
       });
       const fresh = await api.getState();
@@ -964,7 +980,6 @@ export function App(): JSX.Element {
       const current = store.get().config;
       if (!current) return;
       const languages = applyLanguageChoice(current.languages, type, code);
-      const next: BackendConfig = { ...current, languages };
       logClientEvent("ui.language.changed", {
         type,
         code,
@@ -972,7 +987,7 @@ export function App(): JSX.Element {
         target: languages.target,
       });
       try {
-        const saved = await api.putConfig(next);
+        const saved = await api.putConfig({ languages });
         store.set({ config: saved });
         store.resetSelection();
         // Languages are part of the query, so the previous results no longer

@@ -141,6 +141,101 @@ def _search(page, title):
     return search
 
 
+def test_language_switch_research_uses_the_saved_language_pair(search_server):
+    with _studio(search_server, 1280, 900) as page:
+        _search(page, "Paper")
+        expect(page.locator(".work-row")).to_have_count(2)
+        page.get_by_role("button", name="Source language: EN", exact=True).click()
+        with page.expect_request("**/api/search") as requested:
+            page.get_by_role("button", name="Chinese (Traditional) zht", exact=True).click()
+        assert requested.value.post_data_json["sourceLanguage"] == "zht"
+        assert requested.value.post_data_json["targetLanguage"] == "zh"
+        expect(page.get_by_role("button", name="Source language: ZHT", exact=True)).to_be_visible()
+
+
+@pytest.mark.parametrize("has_target", [True, False])
+def test_no_source_requires_explicit_ocr_choice_before_preparing_target(
+    search_server, monkeypatch, has_target
+):
+    search_server.controller.config.source_language = "zh"
+    search_server.controller.config.target_language = "en"
+    search_server.controller._state.source_language = "zh"
+    search_server.controller._state.target_language = "en"
+
+    async def catalog(self, query, languages):
+        movie = _match("movie", "Paper Lanterns", "movie")
+        return ProviderSearchCatalog(
+            [movie], [_result(movie, "Paper.en.srt")] if has_target else []
+        )
+
+    monkeypatch.setattr(SubdlProvider, "search_catalog", catalog)
+    with _studio(search_server, 1000, 800) as page:
+        _search(page, "Paper")
+        page.get_by_role("button", name=re.compile("Paper Lanterns.*2021")).click()
+        expect(page.get_by_role("button", name="Source 0", exact=True)).to_be_visible()
+        expect(page.get_by_text("No matching source file.", exact=False)).to_be_visible()
+        page.get_by_role("button", name=re.compile(r"^Target \d+$")).click()
+        page.get_by_text("Paper.en.srt" if has_target else "OCR fallback only", exact=True).click()
+        expect(page.get_by_text("Select a source subtitle first,", exact=False)).to_be_visible()
+        page.get_by_role("button", name="Source 0", exact=True).click()
+        page.get_by_role("button", name=re.compile("Use on-screen OCR")).click()
+        expect(page.get_by_text("Local translation", exact=True)).to_have_count(0)
+        with page.expect_request("**/api/session/prepare") as prepare:
+            page.get_by_text(
+                "Paper.en.srt" if has_target else "OCR fallback only", exact=True
+            ).click()
+        assert prepare.value.post_data_json["mode"] == "ocr_fallback"
+        assert prepare.value.post_data_json["sourceResultId"] is None
+        assert bool(prepare.value.post_data_json["targetResultId"]) is has_target
+        expect(page.get_by_text("Session ready", exact=True)).to_be_visible()
+
+
+def test_language_change_discards_old_inspection_of_the_same_file(search_server, monkeypatch):
+    started = threading.Event()
+    release = threading.Event()
+    calls = 0
+
+    async def inspect(source_file_id, feature_id=None):
+        nonlocal calls
+        calls += 1
+        old = calls == 1
+        if old:
+            started.set()
+            assert await asyncio.to_thread(release.wait, 15)
+        return {
+            "sourceFileId": source_file_id,
+            "fileName": "Paper.en.srt",
+            "featureId": feature_id,
+            "carriesTranslation": old,
+            "totalCues": 10,
+            "translatedCues": 10 if old else 0,
+        }
+
+    monkeypatch.setattr(search_server.controller, "inspect_source", inspect)
+    try:
+        with _studio(search_server, 1000, 800) as page:
+            _search(page, "Paper")
+            title = page.get_by_role("button", name=re.compile("Paper Lanterns.*2021"))
+            title.click()
+            page.get_by_text("Paper.Lanterns.2021.WEB-DL.1080p.en.srt", exact=True).click()
+            assert started.wait(3)
+            page.get_by_role("button", name="Target language: zh", exact=True).click()
+            page.get_by_role("button", name="Japanese ja", exact=True).click()
+            title.click()
+            page.get_by_text("Paper.Lanterns.2021.WEB-DL.1080p.en.srt", exact=True).click()
+            expect(page.get_by_text("Local translation", exact=True)).to_be_visible()
+            with page.expect_response("**/api/source/inspect"):
+                release.set()
+            page.evaluate(
+                "() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))"
+            )
+            expect(
+                page.get_by_text("Translation inside the source file", exact=True)
+            ).to_have_count(0)
+    finally:
+        release.set()
+
+
 def test_keyboard_reaches_an_episode_in_the_wide_title_grid(search_server):
     with _studio(search_server, 1280, 900) as page:
         search = _search(page, "Harbor")
