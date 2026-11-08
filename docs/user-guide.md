@@ -38,9 +38,9 @@ Source-checkout setup is in the [developer guide](developer-guide.md).
 
 The desktop app needs Microsoft WebView2. PP-OCRv6 is included in Core and reads
 Chinese, Japanese and Latin-script text without a Windows language pack. Korean
-uses Windows OCR, which needs the matching Windows language pack. Settings
-provides the Windows installation control; Windows may request administrator
-permission or a restart to complete an installation.
+uses Windows OCR, which needs the matching Windows OCR language pack. Install
+that pack before starting Korean OCR; Windows may request administrator permission
+or a restart to complete an installation.
 
 **Settings → Capture → OCR engine** selects the recognizer. **Automatic** prefers
 PP-OCRv6 when a source file can confirm the read. OCR-only sessions prefer Windows

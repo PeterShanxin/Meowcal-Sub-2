@@ -1,6 +1,7 @@
 # OCR measurements
 
-Measured on Windows ARM64 (12 logical CPUs), released Core 0.2.2, two PP-OCRv6
+Measured on Windows ARM64 (Snapdragon X Elite X1E80100, 12 logical CPUs), released
+Core 0.2.2, two PP-OCRv6
 threads. These are ordered subtitle images from local video, not generated text.
 Private captions and images are not redistributed. The benchmark records Core,
 source, label and frame hashes alongside its results.
@@ -16,19 +17,21 @@ correct cue, not playback-clock recovery or semantic matching.
 
 | Set / policy | Stable exact | Correct text matches | Wrong matches | Median / P95 ms | Core CPU ms/frame |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Chinese / Windows | 60.9% | 671/675 | 0 | 16.4 / 23.1 | 13.2 |
-| Chinese / PP + line heights | 100% | 675/675 | 0 | 67.9 / 97.4 | 122.0 |
-| English / Windows | 47.6% | 457/458 | 0 | 16.7 / 20.1 | 13.4 |
-| English / PP + line heights | 99.1% | 458/458 | 0 | 138.7 / 181.2 | 237.5 |
+| Chinese / Windows | 60.9% | 671/675 | 0 | 18.0 / 24.6 | 15.4 |
+| Chinese / PP + line heights | 100% | 675/675 | 0 | 64.4 / 97.0 | 115.2 |
+| English / Windows | 47.6% | 457/458 | 0 | 19.9 / 23.4 | 16.0 |
+| English / PP + line heights | 99.1% | 458/458 | 0 | 134.4 / 178.7 | 232.6 |
 
 No recognition failures or frames above 250 ms occurred in these full runs.
 Timing includes preprocessing, transport and OCR, excluding PNG loading and
 screen capture. CPU is process CPU time, not whole-machine utilization. Tests
 ran sequentially without translation inference; timings vary with system load.
+Failure counts include any failed pass and PP initialization fallback, even when
+another Windows pass still returns usable text. Successful blank reads are separate.
 
 A separate 180-frame PP run with concurrent real GPU HY-MT inference completed
-17 translations. It retained 135/135 correct stable text matches, no wrong matches
-and no frames over 250 ms, with 76.3/149.4 ms median/P95. OCR and translation use
+15 translations. It retained 135/135 correct stable text matches, no wrong matches
+and no frames over 250 ms, with 68.2/102.9 ms median/P95. OCR and translation use
 independent Core processes; this sample does not bound every GPU or CPU workload.
 
 On every fifth frame of three harder Chinese sets, Windows matched 67, 72 and
@@ -49,8 +52,8 @@ with an actionable error.
 PP reads the original image once and retains lines at least 60% as tall as the
 tallest line, preserving comparable speaker rows while excluding small scene
 labels. On the same 180-frame Chinese sample, copying Windows' three-pass policy
-gave 93.3% exact recognition and 269.7/690.3 ms median/P95. One raw PP pass gave
-95.6% and 66.6/88.0 ms; adding line filtering gave 100% and 79.6/116.7 ms. Windows
+gave 93.3% exact recognition and 196.2/252.2 ms median/P95. One raw PP pass gave
+95.6% and 64.2/89.8 ms; adding line filtering gave 100% and 74.7/115.4 ms. Windows
 retains its existing three passes. One-thread PP was slower; four threads used
 more CPU than two without improving recognition. Two is the measured compromise.
 

@@ -95,11 +95,14 @@ def owned_cpu(handles: dict) -> float:
     return sum(cpu(process) for process in handles.values())
 
 
-async def read(image: Image.Image, language: str, policy: str, threads: int) -> str:
+async def read(
+    image: Image.Image, language: str, policy: str, threads: int, errors: list[str] | None = None
+) -> str:
+    report_error = errors.append if errors is not None else None
     if policy == "windows":
-        return await capture.ocr_image(image, language)
+        return await capture.ocr_image(image, language, on_error=report_error)
     if policy == "ppocr-height" and threads == 2:
-        return await capture.ocr_image(image, language, engine="ppOcrV6")
+        return await capture.ocr_image(image, language, engine="ppOcrV6", on_error=report_error)
     await native_ocr.initialize_ppocr(threads)
     if policy == "ppocr-three":
         passes = [image, capture.preprocess_for_ocr(image)]
@@ -276,15 +279,17 @@ async def main(args: argparse.Namespace) -> None:
                 for record in selected:
                     image = Image.open(corpus / "frames" / record["imageFile"]).convert("RGB")
                     t = time.perf_counter()
-                    error = ""
+                    errors = []
                     text = ""
                     try:
-                        text = await read(image, language, policy, args.threads)
+                        text = await read(image, language, policy, args.threads, errors)
                     except Exception as exc:
-                        error = type(exc).__name__
+                        errors.append(type(exc).__name__)
                     elapsed = (time.perf_counter() - t) * 1000
                     owned_cpu(handles)
-                    rows.append({**record, "output": text, "ms": elapsed, "error": error})
+                    rows.append(
+                        {**record, "output": text, "ms": elapsed, "error": ";".join(errors)}
+                    )
                 summary = summarize(
                     rows,
                     source,

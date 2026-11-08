@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from time import monotonic
 from typing import Literal
@@ -99,7 +100,11 @@ def _resolve_windows_language(requested: str) -> OcrResolution:
         )
 
     return OcrResolution(
-        requested, requested, f"OCR language '{requested}' is not installed.", available=False
+        requested,
+        requested,
+        f"OCR language '{requested}' is not installed. "
+        "Install its Windows OCR language pack before starting.",
+        available=False,
     )
 
 
@@ -174,8 +179,17 @@ async def prepare_ocr(language: str, engine: str, *, prefer_windows: bool = Fals
     return resolution
 
 
-async def ocr_image(image: Image.Image, language: str, *, engine: str = "windows") -> str:
+async def ocr_image(
+    image: Image.Image,
+    language: str,
+    *,
+    engine: str = "windows",
+    on_error: Callable[[str], None] | None = None,
+) -> str:
+    """Read a caption, optionally reporting failure types without subtitle text."""
     resolution = await prepare_ocr(language, engine)
+    if engine == "ppOcrV6" and resolution.engine != "ppOcrV6" and on_error:
+        on_error("ppocr-initialization-fallback")
     if resolution.engine == "ppOcrV6":
         try:
             lines = await asyncio.wait_for(
@@ -184,6 +198,8 @@ async def ocr_image(image: Image.Image, language: str, *, engine: str = "windows
             )
         except (OSError, RuntimeError, TimeoutError) as exc:
             logger.debug("PP-OCRv6 frame failed: %s", type(exc).__name__)
+            if on_error:
+                on_error(f"ppocr:{type(exc).__name__}")
             return ""
         tallest = max((line.height for line in lines), default=0)
         return clean_cjk_text(
@@ -204,11 +220,15 @@ async def ocr_image(image: Image.Image, language: str, *, engine: str = "windows
             text = await asyncio.wait_for(
                 _run_ocr(candidate, resolution.resolved_language), timeout=_OCR_PASS_TIMEOUT_SECONDS
             )
-        except TimeoutError:
+        except TimeoutError as exc:
             logger.debug("OCR pass=%s timed out", pass_name)
+            if on_error:
+                on_error(f"windows-{pass_name}:{type(exc).__name__}")
             break
         except Exception as exc:
             logger.debug("OCR pass=%s failed: %s", pass_name, exc)
+            if on_error:
+                on_error(f"windows-{pass_name}:{type(exc).__name__}")
             text = ""
         score = _ocr_score(text)
         letters = "".join(ch for ch in text.casefold() if ch.isalpha())

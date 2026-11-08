@@ -1,8 +1,11 @@
 import importlib.util
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 from PIL import Image
+
+from meocosub2 import capture, native_ocr
 
 
 def benchmark():
@@ -70,3 +73,58 @@ def test_out_of_order_or_missing_label_frames_stop_the_benchmark(tmp_path, indic
     )
     with pytest.raises(ValueError, match="consecutive and ordered"):
         benchmark().truth(tmp_path)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [None, TimeoutError(), RuntimeError("invalid geometry")])
+async def test_ppocr_benchmark_distinguishes_blank_reads_from_suppressed_failures(
+    monkeypatch, failure
+):
+    monkeypatch.setattr(
+        capture,
+        "prepare_ocr",
+        AsyncMock(return_value=capture.OcrResolution("en", "en", engine="ppOcrV6")),
+    )
+    monkeypatch.setattr(
+        native_ocr, "recognize_ppocr_lines", AsyncMock(return_value=[], side_effect=failure)
+    )
+    errors = []
+    assert await benchmark().read(Image.new("RGB", (1, 1)), "en", "ppocr-height", 2, errors) == ""
+    assert errors == ([f"ppocr:{type(failure).__name__}"] if failure else [])
+
+
+@pytest.mark.asyncio
+async def test_windows_benchmark_records_failed_pass_without_losing_the_best_read(monkeypatch):
+    monkeypatch.setattr(
+        capture, "prepare_ocr", AsyncMock(return_value=capture.OcrResolution("zh-CN", "zh-CN"))
+    )
+    monkeypatch.setattr(
+        capture, "_run_ocr", AsyncMock(side_effect=[RuntimeError(), "A valid caption", ""])
+    )
+    errors = []
+    output = await benchmark().read(Image.new("RGB", (1, 1)), "zh", "windows", 2, errors)
+    assert output == "A valid caption"
+    assert errors == ["windows-raw:RuntimeError"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [None, TimeoutError()])
+async def test_windows_benchmark_distinguishes_a_blank_from_a_timeout(monkeypatch, failure):
+    monkeypatch.setattr(
+        capture, "prepare_ocr", AsyncMock(return_value=capture.OcrResolution("en", "en"))
+    )
+    monkeypatch.setattr(capture, "_run_ocr", AsyncMock(return_value="", side_effect=failure))
+    errors = []
+    assert await benchmark().read(Image.new("RGB", (1, 1)), "en", "windows", 2, errors) == ""
+    assert errors == (["windows-preprocessed:TimeoutError"] if failure else [])
+
+
+@pytest.mark.asyncio
+async def test_ppocr_benchmark_reports_initialization_fallback(monkeypatch):
+    monkeypatch.setattr(
+        capture, "prepare_ocr", AsyncMock(return_value=capture.OcrResolution("en", "en"))
+    )
+    monkeypatch.setattr(capture, "_run_ocr", AsyncMock(return_value=""))
+    errors = []
+    assert await benchmark().read(Image.new("RGB", (1, 1)), "en", "ppocr-height", 2, errors) == ""
+    assert errors == ["ppocr-initialization-fallback"]

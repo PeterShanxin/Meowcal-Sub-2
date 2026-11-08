@@ -101,6 +101,14 @@ def test_korean_always_uses_windows_ocr(mocker, engine):
     pp.assert_not_called()
 
 
+@pytest.mark.parametrize("engine", ["auto", "ppOcrV6", "windows"])
+def test_missing_korean_pack_stops_with_an_install_action(mocker, engine):
+    mocker.patch.object(capture, "available_ocr_languages", return_value=["en-US"])
+    resolution = capture.resolve_ocr_language("ko", engine)
+    assert resolution.engine == "windows" and not resolution.available
+    assert "Install its Windows OCR language pack" in resolution.warning_message
+
+
 def test_windows_traditional_fallback_accepts_canonical_simplified_tag(mocker):
     mocker.patch.object(capture, "available_ocr_languages", return_value=["zh-CN"])
     resolution = capture.resolve_ocr_language("zh-TW")
