@@ -170,6 +170,19 @@ def test_put_config_with_language_only_merge_persists_languages_without_resettin
     assert 'target = "fr"' in config_path.read_text(encoding="utf-8")
 
 
+def test_invalid_ocr_engine_cannot_partially_save_config(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    server = make_server(path)
+    with studio_client(server) as client:
+        response = client.put(
+            "/api/config", json={"capture": {"ocrEngine": "unknown"}, "languages": {"source": "ko"}}
+        )
+        assert response.status_code == 400
+        assert "OCR engine" in response.json()["detail"]
+        assert client.get("/api/config").json()["capture"]["ocrEngine"] == "auto"
+    assert not path.exists()
+
+
 def test_app_websocket_receives_initial_state_and_subtitle_events(tmp_path: Path) -> None:
     server = make_server(tmp_path / "config.toml")
     with studio_client(server) as client, client.websocket_connect("/ws/app") as websocket:

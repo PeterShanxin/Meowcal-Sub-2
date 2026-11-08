@@ -26,6 +26,11 @@ Timing includes preprocessing, transport and OCR, excluding PNG loading and
 screen capture. CPU is process CPU time, not whole-machine utilization. Tests
 ran sequentially without translation inference; timings vary with system load.
 
+A separate 180-frame PP run with concurrent real GPU HY-MT inference completed
+17 translations. It retained 135/135 correct stable text matches, no wrong matches
+and no frames over 250 ms, with 76.3/149.4 ms median/P95. OCR and translation use
+independent Core processes; this sample does not bound every GPU or CPU workload.
+
 On every fifth frame of three harder Chinese sets, Windows matched 67, 72 and
 50 of 75 stable frames. PP with line heights matched 75, 75 and 69. Neither
 policy produced a wrong text match. PP retained unrelated scene text on some

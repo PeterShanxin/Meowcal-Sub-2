@@ -153,6 +153,29 @@ def test_language_switch_research_uses_the_saved_language_pair(search_server):
         expect(page.get_by_role("button", name="Source language: ZHT", exact=True)).to_be_visible()
 
 
+def test_ocr_engine_choice_survives_settings_save_and_reload(search_server):
+    with _studio(search_server, 1280, 900) as page:
+        for value in ("ppOcrV6", "windows", "auto"):
+            page.get_by_role("button", name="Open settings", exact=True).click()
+            dialog = page.get_by_role("dialog", name="Settings", exact=True)
+            dialog.get_by_role("button", name="Capture", exact=True).click()
+            choice = dialog.get_by_role("combobox", name="OCR engine", exact=True)
+            choice.select_option(value)
+            with page.expect_response("**/api/config") as saved:
+                dialog.get_by_role("button", name="Save changes", exact=True).click()
+            assert saved.value.ok
+            assert saved.value.json()["capture"]["ocrEngine"] == value
+            assert search_server.controller.config.ocr_engine == value
+            page.goto(f"{page.url.split('?')[0]}?token={TEST_TOKEN}")
+            page.get_by_role("button", name="Open settings", exact=True).click()
+            dialog = page.get_by_role("dialog", name="Settings", exact=True)
+            dialog.get_by_role("button", name="Capture", exact=True).click()
+            expect(dialog.get_by_role("combobox", name="OCR engine", exact=True)).to_have_value(
+                value
+            )
+            dialog.get_by_role("button", name="Close settings", exact=True).click()
+
+
 @pytest.mark.parametrize("has_target", [True, False])
 def test_no_source_requires_explicit_ocr_choice_before_preparing_target(
     search_server, monkeypatch, has_target
