@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import time
 import unicodedata
@@ -29,7 +30,7 @@ from meocosub2.subtitle_sources.utils import (
     canonical_title,
     extract_episode_info,
     extract_year,
-    map_assrt_language,
+    map_assrt_languages,
     title_similarity,
 )
 
@@ -72,61 +73,71 @@ class AssrtProvider:
             if not isinstance(item, dict):
                 continue
             lang_block = item.get("lang") if isinstance(item.get("lang"), dict) else {}
-            lang = map_assrt_language(
+            languages_in_pack = map_assrt_languages(
                 str(lang_block.get("desc", "")),
                 lang_block.get("langlist")
                 if isinstance(lang_block.get("langlist"), dict)
                 else None,
             )
-            if requested_languages and lang not in requested_languages:
-                continue
             native_name = str(item.get("native_name") or "")
             videoname = str(item.get("videoname") or "")
             filelist = item.get("filelist") if isinstance(item.get("filelist"), list) else []
             file_names = [
-                str(entry.get("f"))
+                str(entry["f"])
                 for entry in filelist
-                if isinstance(entry, dict) and entry.get("f")
+                if isinstance(entry, dict)
+                and str(entry.get("f", "")).casefold().endswith(SUBTITLE_EXTENSIONS)
             ]
-            primary_file_name = next(
-                (name for name in file_names if name.casefold().endswith(SUBTITLE_EXTENSIONS)),
-                file_names[0]
-                if file_names
-                else str(
-                    item.get("videoname") or item.get("native_name") or f"{item.get('id')}.srt"
-                ),
-            )
+            if filelist and not file_names:
+                continue
             metadata_values = [native_name, videoname, *file_names]
-            season, episode = extract_episode_info(*metadata_values)
-            guessed_title = best_title_guess(query, *metadata_values)
-            parent_title = (
-                self._episode_parent_title(query, *metadata_values, fallback=guessed_title)
-                if episode
-                else None
-            )
-            display_title = parent_title or guessed_title
-            year = extract_year(*metadata_values)
-            results.append(
-                ProviderSubtitleResult(
-                    id=f"assrt-result-{item.get('id')}",
-                    match_id=f"assrt-match-{item.get('id')}",
-                    provider=self.provider_code,
-                    provider_label=self.provider_label,
-                    title=display_title,
-                    year=year,
-                    imdb_id=None,
-                    tmdb_id=None,
-                    media_type="episode" if episode else "movie",
-                    season=season,
-                    episode=episode,
-                    parent_title=parent_title,
-                    language=lang,
-                    download_count=self._coerce_int(item.get("down_count")) or 0,
-                    file_name=primary_file_name,
-                    match_score=title_similarity(query, [native_name, videoname, guessed_title]),
-                    download_ref=str(item.get("id") or ""),
+            aliases = movie_title_aliases(*metadata_values)
+            for file_name in file_names or [f"{item.get('id')}.srt"]:
+                season, episode = extract_episode_info(file_name, native_name, videoname)
+                guessed_title = best_title_guess(query, *(aliases or metadata_values))
+                parent_title = (
+                    self._episode_parent_title(query, *metadata_values, fallback=guessed_title)
+                    if episode
+                    else None
                 )
-            )
+                file_languages = (
+                    assrt_file_languages(file_name)
+                    or (
+                        ("",)
+                        if len(file_names) > 1 and len(languages_in_pack) > 1
+                        else languages_in_pack
+                    )
+                    or ("",)
+                )
+                for language in file_languages:
+                    if language and requested_languages and language not in requested_languages:
+                        continue
+                    file_key = hashlib.blake2s(file_name.encode("utf-8"), digest_size=8).hexdigest()
+                    results.append(
+                        ProviderSubtitleResult(
+                            id=f"assrt-result-{item.get('id')}-{file_key}",
+                            match_id=f"assrt-match-{item.get('id')}",
+                            provider=self.provider_code,
+                            provider_label=self.provider_label,
+                            title=parent_title or guessed_title,
+                            year=extract_year(native_name, videoname, file_name),
+                            imdb_id=None,
+                            tmdb_id=None,
+                            media_type="episode" if episode else "movie",
+                            season=season,
+                            episode=episode,
+                            parent_title=parent_title,
+                            language=language,
+                            download_count=self._coerce_int(item.get("down_count")) or 0,
+                            file_name=file_name,
+                            match_score=title_similarity(query, aliases or metadata_values),
+                            download_ref=str(item.get("id") or ""),
+                            raw={
+                                "file_name": file_name if file_names else None,
+                                "title_aliases": aliases,
+                            },
+                        )
+                    )
         return ProviderSearchCatalog(matches=[], results=results)
 
     async def download(self, result: ProviderSubtitleResult) -> Path:
@@ -143,20 +154,38 @@ class AssrtProvider:
         if not isinstance(item, dict):
             raise SubtitleSourceError("ASSRT detail payload is malformed.")
         filelist = item.get("filelist") if isinstance(item.get("filelist"), list) else []
-        direct_url = None
-        file_name = result.file_name
-        for entry in filelist:
-            if not isinstance(entry, dict):
-                continue
-            name = str(entry.get("f") or "")
-            if name.casefold().endswith((".srt", ".ass", ".ssa", ".vtt")) and entry.get("url"):
-                direct_url = str(entry["url"])
-                file_name = name
-                break
-        if not direct_url and item.get("url"):
-            direct_url = str(item.get("url"))
-        if not direct_url:
-            raise SubtitleSourceError("ASSRT detail did not return a usable subtitle download URL.")
+        if not filelist and str(item.get("filename", "")).casefold().endswith(SUBTITLE_EXTENSIONS):
+            filelist = [{"f": item["filename"], "url": item.get("url")}]
+        files = [
+            entry
+            for entry in filelist
+            if isinstance(entry, dict)
+            and str(entry.get("f", "")).casefold().endswith(SUBTITLE_EXTENSIONS)
+            and entry.get("url")
+        ]
+        selected_name = result.raw.get("file_name")
+        if selected_name:
+            chosen = next((entry for entry in files if entry["f"] == selected_name), None)
+            if chosen is None:
+                raise SubtitleSourceError(
+                    "ASSRT no longer provides the selected file. Search again."
+                )
+        else:
+            matching = [
+                entry for entry in files if result.language in assrt_file_languages(str(entry["f"]))
+            ]
+            if matching:
+                chosen = matching[0]
+            elif len(files) == 1 and not assrt_file_languages(str(files[0]["f"])):
+                chosen = files[0]
+            else:
+                chosen = None
+        if chosen is None:
+            raise SubtitleSourceError(
+                "ASSRT did not expose a subtitle file for the selected language."
+            )
+        direct_url = str(chosen["url"])
+        file_name = str(chosen["f"])
         destination = contained_path(
             self._cache_dir,
             safe_segment(result.id, "assrt"),
@@ -225,3 +254,74 @@ class AssrtProvider:
             if segment:
                 segments.append(segment)
         return segments
+
+
+_FILE_LANGUAGES = {
+    "chs": "zh",
+    "sc": "zh",
+    "zh": "zh",
+    "zh-cn": "zh",
+    "zh-hans": "zh",
+    "简体": "zh",
+    "简体中文": "zh",
+    "简中": "zh",
+    "cht": "zht",
+    "tc": "zht",
+    "zht": "zht",
+    "zh-tw": "zht",
+    "zh-hant": "zht",
+    "繁体": "zht",
+    "繁體": "zht",
+    "繁中": "zht",
+    "繁體中文": "zht",
+    "eng": "en",
+    "en": "en",
+    "english": "en",
+    "英文": "en",
+    "jpn": "ja",
+    "ja": "ja",
+    "日文": "ja",
+    "kor": "ko",
+    "ko": "ko",
+    "fre": "fr",
+    "fr": "fr",
+    "ger": "de",
+    "de": "de",
+    "spa": "es",
+    "es": "es",
+}
+_FILE_LANGUAGE_TAGS = "|".join(sorted(_FILE_LANGUAGES, key=len, reverse=True))
+_FILE_LANGUAGE_PATTERN = re.compile(
+    rf"(?:^|[. _\[(])((?:{_FILE_LANGUAGE_TAGS})(?:[+&._ -](?:{_FILE_LANGUAGE_TAGS}))*)[\])]*$",
+    re.IGNORECASE,
+)
+
+
+def assrt_file_languages(file_name: str) -> tuple[str, ...]:
+    stem = Path(file_name.replace("\\", "/")).stem
+    suffix = _FILE_LANGUAGE_PATTERN.search(stem)
+    if suffix is None:
+        return ()
+    return tuple(
+        sorted(
+            {
+                _FILE_LANGUAGES[tag.casefold()]
+                for tag in re.findall(_FILE_LANGUAGE_TAGS, suffix[1], re.IGNORECASE)
+            }
+        )
+    )
+
+
+def movie_title_aliases(*values: str) -> list[str]:
+    aliases: list[str] = []
+    for value in values:
+        text = re.sub(r"\[[^]]*\]", " ", value)
+        text = re.split(r"\b(?:19|20|21)\d{2}\b", text, maxsplit=1)[0].strip(" .(-_")
+        for segment in re.split(r"/|\s+-\s+", text):
+            # Release names often carry the native title next to a Latin alias.
+            parts = [segment, *re.findall(r"[\u3400-\u9fff][\u3400-\u9fff！!？?：:·]*", segment)]
+            for part in parts:
+                cleaned = part.strip(" .(-_")
+                if cleaned and cleaned not in aliases:
+                    aliases.append(cleaned)
+    return aliases

@@ -106,6 +106,7 @@ class SubtitleCheck:
     file_name: str
     duplicates_removed: int = 0
     empty_removed: int = 0
+    drawings_removed: int = 0
     reordered: bool = False
 
 
