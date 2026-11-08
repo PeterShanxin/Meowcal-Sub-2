@@ -17,7 +17,7 @@ from uuid import uuid4
 
 from meocosub2 import engine
 from meocosub2.bilingual import split_bilingual
-from meocosub2.capture import available_ocr_languages, resolve_ocr_language
+from meocosub2.capture import available_ocr_languages, prepare_ocr
 from meocosub2.config import AppConfig, config_to_payload, overlay_style_payload, save_config
 from meocosub2.errors import TranslationError
 from meocosub2.event_log import log_event
@@ -222,6 +222,7 @@ class GuiController:
         self._config_path = config_path
         self._lock = asyncio.Lock()
         self._sync_task: asyncio.Task[None] | None = None
+        self._start_generation = 0
         # Answers the target file's gaps while the app is idle, so the session
         # starts with fewer of them left to answer against the viewer's reads.
         self._prefill_task: asyncio.Task[None] | None = None
@@ -1535,16 +1536,20 @@ class GuiController:
             raise ValueError("Prepared session does not match the requested session ID.")
         if self._sync_task and not self._sync_task.done():
             raise RuntimeError("A session is already running.")
+        prepared = self._state.prepared_session
+        runtime = self._prepared_runtime
+        config = self.config
+        start_generation = self._start_generation
 
         if len(self.config.capture_region) != 4 or self.config.capture_region[2] <= 0:
             raise ValueError("Select the capture region before starting sync.")
 
-        resolution = resolve_ocr_language(self.config.ocr_language)
-        if (
-            resolution.warning_message
-            and resolution.resolved_language == resolution.requested_language
-            and "not installed" in resolution.warning_message.lower()
-        ):
+        resolution = await prepare_ocr(
+            config.ocr_language,
+            config.ocr_engine,
+            prefer_windows=not runtime.source_candidates,
+        )
+        if not resolution.available:
             raise RuntimeError(resolution.warning_message)
         # Before the loop starts, not alongside it: the engine answers one
         # request at a time, and an in-flight fill would hold the slot the
@@ -1552,19 +1557,31 @@ class GuiController:
         await self._stop_prefill()
         async with self._lock:
             current = self._state.prepared_session
-            if current is None or (session_id and session_id != current.session_id):
+            if (
+                current is not prepared
+                or self._prepared_runtime is not runtime
+                or self._start_generation != start_generation
+            ):
                 raise ValueError("Subtitles changed. Start the newly prepared session.")
+            if self._sync_task and not self._sync_task.done():
+                raise RuntimeError("A session is already running.")
             self._state.status = "running"
             self._state.error_message = ""
             self._state.warning_message = resolution.warning_message
             message = _running_message(self._prepared_runtime)
             self._state.progress = AppProgress(stage="sync", message=message, current=1, total=1)
+            self._sync_task = asyncio.create_task(
+                self._run_sync_loop(runtime, replace(config, ocr_engine=resolution.engine))
+            )
+        log_event(
+            "ocr.engine.ready",
+            layer="backend",
+            session_id=prepared.session_id,
+            data={"requested": config.ocr_engine, "engine": resolution.engine},
+        )
         await self._emit_app_state()
         await self._emit_app_progress()
 
-        self._sync_task = asyncio.create_task(
-            self._run_sync_loop(self._prepared_runtime, self.config)
-        )
         return {"status": self._state.status}
 
     def _editable_session(self, session_id: str) -> tuple[PreparedSession, PreparedRuntime]:
@@ -1621,6 +1638,7 @@ class GuiController:
         return updated
 
     async def stop_session(self) -> dict[str, object]:
+        self._start_generation += 1
         logger.info("Stop session requested")
         log_event("session.stop.requested", layer="backend")
         task = self._sync_task

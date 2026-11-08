@@ -863,7 +863,7 @@ async def run_session_loop(
                 session.observe_playback(
                     playback, started, playback_capture.state_since, received_at
                 )
-                ocr_text = await ocr_image(image, config.ocr_language)
+                ocr_text = await ocr_image(image, config.ocr_language, engine=config.ocr_engine)
                 combined = playback_capture.observe_text(ocr_text, started, playback)
                 if combined is not playback:
                     session.observe_playback(

@@ -17,6 +17,15 @@ from meocosub2.languages import (
 )
 
 DEFAULT_CAPTURE_INTERVAL_MS = 250
+OCR_ENGINES = ("auto", "windows", "ppOcrV6")
+
+
+def normalize_ocr_engine(value: object) -> str:
+    if not isinstance(value, str) or value not in OCR_ENGINES:
+        raise ValueError("OCR engine must be auto, windows or ppOcrV6")
+    return value
+
+
 # How far the viewer may drag the plate off the clock, in milliseconds either
 # way. Past a few seconds the plate is describing a different scene, so a wider
 # range would only let a mis-tap look like a broken session.
@@ -46,6 +55,7 @@ class AppConfig:
     capture_region: list[int] = field(default_factory=list)
     capture_interval_ms: int = DEFAULT_CAPTURE_INTERVAL_MS
     ocr_language: str = "en-US"
+    ocr_engine: str = "auto"
     fuzzy_threshold: int = 65
     match_window_size: int = 30
     match_window_backward: int = 5
@@ -167,6 +177,7 @@ def load_config(path: Path | None = None) -> AppConfig:
             data.get("capture", {}).get("interval_ms", DEFAULT_CAPTURE_INTERVAL_MS)
         ),
         ocr_language=derive_ocr_language(source_language, ocr_language),
+        ocr_engine=normalize_ocr_engine(data.get("capture", {}).get("ocr_engine", "auto")),
         fuzzy_threshold=data.get("matching", {}).get("fuzzy_threshold", 65),
         match_window_size=data.get("matching", {}).get("window_size", 30),
         match_window_backward=data.get("matching", {}).get("window_backward", 5),
@@ -231,6 +242,7 @@ def save_config(config: AppConfig, path: Path | None = None) -> None:
             "region": config.capture_region,
             "interval_ms": config.capture_interval_ms,
             "ocr_language": derive_ocr_language(config.source_language, config.ocr_language),
+            "ocr_engine": normalize_ocr_engine(config.ocr_engine),
         },
         "matching": {
             "fuzzy_threshold": config.fuzzy_threshold,
@@ -323,6 +335,7 @@ def config_to_payload(config: AppConfig) -> dict[str, object]:
             "region": list(config.capture_region),
             "intervalMs": config.capture_interval_ms,
             "ocrLanguage": derive_ocr_language(config.source_language, config.ocr_language),
+            "ocrEngine": config.ocr_engine,
         },
         "matching": {
             "fuzzyThreshold": config.fuzzy_threshold,
@@ -483,6 +496,7 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
             str(languages.get("source", base.source_language)),
             str(capture.get("ocrLanguage", base.ocr_language)),
         ),
+        ocr_engine=normalize_ocr_engine(capture.get("ocrEngine", base.ocr_engine)),
         fuzzy_threshold=_coerce_int(
             matching.get("fuzzyThreshold", base.fuzzy_threshold), base.fuzzy_threshold
         ),

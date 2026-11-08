@@ -1,6 +1,6 @@
 # Meowcal Core
 
-Meowcal Core supplies native Windows OCR and managed HY-MT inference through a
+Meowcal Core supplies Windows OCR, PP-OCRv6 and managed HY-MT inference through a
 versioned process API. Canonical source and Windows ARM64/x64 runtime releases
 live in [Meowcal-Sub](https://github.com/PeterShanxin/Meowcal-Sub/tree/main/core).
 Sub 2 consumes a runtime artifact; it does not import Rust source or launch the
@@ -9,15 +9,23 @@ Sub 1 application.
 ## Ownership
 
 Core owns the HY-MT manifest, artifact verification, installation/recovery, GPU
-policy, managed inference process, and raw Windows OCR. Sub 2 owns screen capture,
+policy, managed inference process, and raw recognition. Sub 2 owns screen capture,
 OCR preprocessing and pass selection, subtitle search/matching, BGE embeddings,
 gap filling, prompts and output acceptance, the playback timeline, and UI.
 
 OCR has its own Core process, separate from translation. A model request cannot
 occupy the recognition transport. The raw OCR boundary returns recognized lines
-and geometry; the existing three-pass selection and white-mask corroboration
-remain in the capture pipeline. Sharing native recognition does not establish
-that one product's preprocessing is better for the other's workload.
+and geometry. PP-OCRv6 uses one original-frame pass; Sub 2 removes lines below
+60% of the tallest detected line before matching. Windows OCR retains its
+three-pass selection and white-mask corroboration. Sharing native recognition
+does not establish that one product's preprocessing is better for the other's
+workload.
+
+Automatic selects PP-OCRv6 for supported languages when a source file can confirm
+the read. OCR-only sessions prefer an installed Windows OCR language to reduce
+scene-text reads; PP-OCRv6 can supply missing language support. Korean always uses
+Windows OCR. Missing capabilities or PP-OCRv6 initialization failures produce an
+explicit Windows fallback. Both choices remain available in Capture settings.
 
 BGE retains its own model and process implementation and a separate runtime
 directory. It must not execute files from a Core installation without a lifetime
@@ -29,6 +37,10 @@ Sub 2 pins an exact Core version, API major, architecture, and artifact digest.
 The process handshake verifies version and required capabilities before any
 recognition, installation, or inference. Missing or incompatible runtimes are
 reported explicitly. There is no automatic selection of a global latest Core.
+
+Core's managed port is a preference, not its bound address. Translation stays
+on the Core RPC channel; Sub 2 does not publish that preference as a live HTTP
+endpoint. Readiness is cached only for the Core process generation that confirmed it.
 
 Cancelling an active subtitle translation discards the answer while the client
 drains its response within the original deadline, keeping the model loaded.
@@ -59,7 +71,11 @@ OCR uses `ocrRecognizeBgra`: a UTF-8 JSON header ending in a newline, followed
 by exactly `payloadBytes` raw BGRA bytes without a trailing delimiter. Control
 requests carry zero payload bytes. All JSON headers and responses are limited to
 256 KiB; packed OCR frames are limited to 4096 pixels per dimension and 64 MiB.
-The header carries language, dimensions, packed stride, and a 1–30000 ms timeout.
+The header carries dimensions, packed stride, and a 1–30000 ms timeout. Windows
+requests carry a language. PP-OCRv6 requires the additive `ocrPpOcrV6` capability,
+sets `engine: "ppOcrV6"` and `maxThreads: 2`, and omits language. Its model is
+initialized with a separate cancellable budget before the one-second frame
+deadline. Process replacement invalidates that initialization.
 The client deadline includes writing the complete header and pixels. Cancellation,
 a stalled write, or malformed framing terminates the owned OCR process before
 a later request starts a replacement. The handshake requires the binary OCR

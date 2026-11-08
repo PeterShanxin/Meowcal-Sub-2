@@ -36,10 +36,18 @@ Get-FileHash .\meowcal-sub-2-v*-windows-arm64-portable.zip -Algorithm SHA256
 
 Source-checkout setup is in the [developer guide](developer-guide.md).
 
-The desktop app needs Microsoft WebView2 and the Windows OCR language pack for
-the text on screen. Settings reports available OCR languages and provides the
-Windows installation control. Windows may request administrator permission or
-a restart to complete a language-pack installation.
+The desktop app needs Microsoft WebView2. PP-OCRv6 is included in Core and reads
+Chinese, Japanese and Latin-script text without a Windows language pack. Korean
+uses Windows OCR, which needs the matching Windows language pack. Settings
+provides the Windows installation control; Windows may request administrator
+permission or a restart to complete an installation.
+
+**Settings → Capture → OCR engine** selects the recognizer. **Automatic** prefers
+PP-OCRv6 when a source file can confirm the read. OCR-only sessions prefer Windows
+OCR to reduce scene-text reads; they can use PP-OCRv6 when the Windows pack is
+missing. You can also select either recognizer explicitly. Unsupported languages,
+missing Core capabilities or PP-OCRv6 startup failures fall back to Windows OCR
+with an explanation. The choice applies when a session starts.
 
 Open **Settings** and enable at least one subtitle source:
 

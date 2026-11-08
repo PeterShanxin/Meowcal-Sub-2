@@ -153,7 +153,13 @@ the session after stopping idle prefill so an old start cannot use a changed tra
   Lowering `fuzzy_threshold` buys wrong lines, not right ones. Lines that do not
   match are placed by the playback clock instead (see below).
 - If OCR text looks garbled → wrong capture region or OCR language; check `capture.region` in config.
-- OCR compares the original image, equalized image, and a neutral-white text mask.
+- Automatic OCR uses PP-OCRv6 with a source track and prefers Windows OCR for
+  OCR-only sessions. Korean uses Windows OCR. PP-OCRv6 needs Core's optional
+  `ocrPpOcrV6` capability and a separate model initialization before capture;
+  missing capability or failed initialization falls back to Windows with a warning.
+  PP-OCRv6 reads the original image once and excludes lines shorter than 60% of
+  the tallest detected line. See [OCR measurements](OCR_BENCHMARK.md).
+- Windows OCR compares the original image, equalized image, and a neutral-white text mask.
   The mask can recover rows hidden by scene texture only when it retains at least
   80% of the ordered letters from a whole-scene read with at least three letters.
   This preserves colored or dim subtitles when white scenery produces unrelated

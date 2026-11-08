@@ -201,7 +201,8 @@ try {
                 $env:MEOWCAL_CORE_EXE = $CoreResource
                 $env:PYTHONPATH = Join-Path $RepoRoot 'src'
                 python -m pytest -q `
-                    tests/test_core_client.py::test_real_core_process_handshake_and_status
+                    tests/test_core_client.py::test_real_core_process_handshake_and_status `
+                    tests/test_ppocr.py::test_real_pinned_ppocr_reads_a_caption_and_rejects_a_blank_frame
             }
             finally {
                 $env:MEOWCAL_CORE_EXE = $PreviousCoreExe

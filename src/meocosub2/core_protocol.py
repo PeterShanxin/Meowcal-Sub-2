@@ -109,9 +109,20 @@ def validate_payload(method: str, params: dict[str, Any], payload: bytes) -> Non
         return
     width, height = params.get("width"), params.get("height")
     stride, timeout = params.get("stride"), params.get("timeoutMs")
+    engine = params.get("engine", "windows")
+    threads = params.get("maxThreads")
+    required = {"width", "height", "stride", "timeoutMs"}
+    options_valid = (
+        isinstance(params.get("language"), str) and "maxThreads" not in params
+        if engine == "windows"
+        else engine == "ppOcrV6"
+        and "language" not in params
+        and ("maxThreads" not in params or (type(threads) is int and 1 <= threads <= 4))
+    )
     if (
-        set(params) != {"language", "width", "height", "stride", "timeoutMs"}
-        or not isinstance(params.get("language"), str)
+        not required.issubset(params)
+        or set(params) - required - {"language", "engine", "maxThreads"}
+        or not options_valid
         or any(type(value) is not int for value in (width, height, stride, timeout))
         or not (0 < width <= 4096 and 0 < height <= 4096)
         or stride != width * 4
