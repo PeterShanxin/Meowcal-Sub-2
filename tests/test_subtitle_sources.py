@@ -549,6 +549,7 @@ async def test_subdl_search_uses_api_results_and_subtitles(monkeypatch) -> None:
     assert calls[0]["film_name"] == "from"
     assert calls[0]["languages"] == "EN,ZH"
     assert calls[0]["unpack"] == "1"
+    assert all("hi" not in call for call in calls)
     assert calls[1]["sd_id"] == "1656864"
     assert calls[1]["full_season"] == "1"
     assert calls[1]["unpack"] == "1"

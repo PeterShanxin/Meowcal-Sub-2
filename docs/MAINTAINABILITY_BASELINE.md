@@ -147,6 +147,14 @@ No module is to be split to satisfy a number. A cohesive exception is better
 than fake decomposition; these are recorded because they are real, not because
 they are scheduled.
 
+Subtitle selection records these measured limits: `overlay/controller.py`
+2182 → 2183 for the OCR source label; `overlay/ui/src/app.tsx` 1732 → 1747 for
+explicit OCR selection, current language state and inspection resets;
+`overlay/ui/src/components/palette.tsx` 1592 → 1598 for the OCR source choice and readable file variants;
+`subtitle_sources/aggregator.py` 1458 → 1468 for unambiguous same-year movie
+aliases; and `subtitle_sources/subdl.py` 651 → 649 after removing the unintended
+hearing-impaired filter.
+
 ## Lint budgets
 
 | Tool | Budget | State |

@@ -84,6 +84,7 @@ export interface BackendSubtitleCheck {
   file_name: string;
   duplicates_removed: number;
   empty_removed: number;
+  drawings_removed?: number;
   reordered: boolean;
 }
 
@@ -249,7 +250,9 @@ export interface SourceItem {
   hi: boolean;
   trusted: boolean;
   recommended: boolean;
-  raw: BackendResult;
+  note?: string;
+  detail?: string;
+  raw?: BackendResult;
 }
 
 export type TargetKind = "source" | "local" | "ocr" | "file";
@@ -272,6 +275,7 @@ export interface TargetItem {
   file?: string;
   provider?: string;
   downloads?: string;
+  detail?: string;
   recommended: boolean;
   raw?: BackendResult;
 }

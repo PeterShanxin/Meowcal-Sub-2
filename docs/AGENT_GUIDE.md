@@ -106,9 +106,10 @@ source-aligned presentation behavior.
 ## Subtitle editing
 
 Every playback file is checked when loaded, including automatic candidates and
-OCR fallback targets. Empty cues are skipped, exact same-text/same-interval
-duplicates are removed, and cues are stably ordered by start time before matching,
-bilingual splitting, coverage measurement or prefill. Other overlaps and repeated
+OCR fallback targets. Empty cues and pure ASS drawing paths retained by conversion
+are skipped. Exact same-text/same-interval duplicates are removed, and cues are
+stably ordered by start time before matching, bilingual splitting, coverage
+measurement or prefill. Other overlaps and repeated
 dialogue are retained. Invalid intervals, NUL text and tracks without playable cues
 stop preparation with a file-specific error; their timing is not guessed. These
 changes affect playback data only. The prepared card reports the per-file results,
@@ -276,6 +277,7 @@ overlay plate. Those need a real Windows run of the app.
 - The repo may contain local generated or user-authored changes. Do not revert unrelated work.
 - When changing the shared studio markup, keep tests in `tests/test_overlay.py` aligned with the served contract.
 - Studio subtitle search is provider-neutral; the main API/UI flow uses opaque `matchId` and `resultId` values instead of provider file ids.
+- ASSRT results retain each package member's name and language; downloads must resolve that same member. SubDL's `hi` parameter filters hearing-impaired tracks, so ordinary searches omit it.
 - Prefer short rationale comments in non-obvious logic and hotspot flows. Do not add boilerplate comments to simple code.
 - When debugging startup issues, separate three layers:
   - served page correctness

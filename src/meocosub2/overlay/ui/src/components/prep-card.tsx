@@ -122,6 +122,9 @@ export function PrepCard({
                     ? `duplicates removed: ${check.duplicates_removed};`
                     : "",
                   check.empty_removed > 0 ? `empty cues skipped: ${check.empty_removed};` : "",
+                  (check.drawings_removed ?? 0) > 0
+                    ? `drawing cues skipped: ${check.drawings_removed};`
+                    : "",
                   "ready for sync.",
                 ]
                   .filter(Boolean)

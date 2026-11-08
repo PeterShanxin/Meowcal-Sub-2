@@ -139,6 +139,13 @@ function recommendedUpTo(total: number): number {
   return total > 1 ? RECOMMENDED_COUNT : 0;
 }
 
+export const OCR_SOURCE_ID = "__ocr_source__";
+
+function subtitleDetail(result: BackendResult): string {
+  const suffix = result.fileName.match(/(?:[^.]+\.)?(?:srt|ass|ssa|vtt)$/i)?.[0];
+  return [result.languageLabel, suffix].filter(Boolean).join(" · ");
+}
+
 export function mapResultsToSource(
   results: BackendResult[],
   matchId: string | null,
@@ -151,12 +158,27 @@ export function mapResultsToSource(
     })
     .sort(byRank);
   const recommendUpTo = recommendedUpTo(ranked.length);
+  if (matchId && ranked.length === 0) {
+    return [
+      {
+        id: OCR_SOURCE_ID,
+        file: "Use on-screen OCR",
+        provider: "",
+        downloads: "",
+        hi: false,
+        trusted: false,
+        recommended: false,
+        note: "No matching source file. Read the screen and translate live instead.",
+      },
+    ];
+  }
   return ranked.map((r, index) => ({
     id: r.resultId,
     file: r.fileName || r.displayLabel,
     provider: r.providerLabel || r.provider,
     downloads: formatDownloads(r.downloadCount),
     hi: false,
+    detail: subtitleDetail(r),
     trusted: r.providerRank <= 1,
     recommended: index < recommendUpTo,
     raw: r,
@@ -168,6 +190,7 @@ export function mapResultsToTarget(
   matchId: string | null,
   targetLanguage: string,
   inspection?: SourceInspection | null,
+  ocrSource = false,
 ): TargetItem[] {
   const ranked = results
     .filter((r) => {
@@ -182,6 +205,7 @@ export function mapResultsToTarget(
     file: r.fileName || r.displayLabel,
     provider: r.providerLabel || r.provider,
     downloads: formatDownloads(r.downloadCount),
+    detail: subtitleDetail(r),
     recommended: index < recommendUpTo,
     raw: r,
   }));
@@ -218,7 +242,7 @@ export function mapResultsToTarget(
     recommended: false,
   };
 
-  return [...carried, ...fileEntries, local, ocr];
+  return [...carried, ...fileEntries, ...(ocrSource ? [] : [local]), ocr];
 }
 
 // Backend normalizes Chinese codes: "zh" = Simplified, "zht" = Traditional.

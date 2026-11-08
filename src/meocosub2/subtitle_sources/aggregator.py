@@ -490,6 +490,16 @@ class SubtitleSearchAggregator:
         aggregated_results: list[AggregatedSubtitleResult] = []
         for item in all_results:
             mapped_match_id = provider_match_map.get(item.match_id)
+            aliases = item.raw.get("title_aliases", [])
+            if mapped_match_id is None and item.media_type == "movie" and item.year and aliases:
+                alias_keys = {canonical_title(alias) for alias in aliases}
+                candidates = {
+                    group_id
+                    for key, group_id in group_order.items()
+                    if key[0] in alias_keys and key[1] == "movie" and key[2] == item.year
+                }
+                if len(candidates) == 1:
+                    mapped_match_id = candidates.pop()
             # If a result carries explicit episode metadata, route it to a per-
             # episode group instead of collapsing it into the parent tvshow group.
             # OpenSubtitles returns every episode result under the parent feature's

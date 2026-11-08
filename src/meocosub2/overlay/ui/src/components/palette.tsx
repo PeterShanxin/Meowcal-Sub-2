@@ -221,7 +221,11 @@ export function Palette(props: PaletteProps): JSX.Element {
   const listSearching = searching && hydrating.length === 0;
   const tabs = [
     { id: "titles", label: "Titles", count: works.length },
-    { id: "source", label: "Source", count: hasSelectedEpisode ? sources.length : 0 },
+    {
+      id: "source",
+      label: "Source",
+      count: hasSelectedEpisode ? sources.filter((item) => item.raw).length : 0,
+    },
     { id: "target", label: "Target", count: hasSelectedEpisode ? targets.length : 0 },
   ];
 
@@ -1372,6 +1376,7 @@ function SubList({
             <div style={{ flex: 1, minWidth: 0 }}>
               <div
                 className="mono"
+                title={r.file}
                 style={{
                   fontSize: 14,
                   color: "var(--text-body)",
@@ -1383,7 +1388,7 @@ function SubList({
                 {r.file}
               </div>
               <div style={{ fontSize: 12, color: "var(--text-label)", marginTop: 3 }}>
-                {r.provider} · {r.downloads} downloads
+                {r.note ?? `${r.detail} · ${r.provider} · ${r.downloads} downloads`}
                 {r.trusted && (
                   <span style={{ color: "var(--accent-text)", marginLeft: 8 }}>✓ Trusted</span>
                 )}
@@ -1480,6 +1485,7 @@ function TargetList({
             <div style={{ flex: 1, minWidth: 0 }}>
               <div
                 className={isSpecial ? "" : "mono"}
+                title={r.file}
                 style={{
                   fontSize: 14,
                   color: "var(--text-body)",
@@ -1492,7 +1498,7 @@ function TargetList({
                 {r.title ?? r.file}
               </div>
               <div style={{ fontSize: 12, color: "var(--text-label)", marginTop: 3 }}>
-                {r.note ?? `${r.provider} · ${r.downloads} downloads`}
+                {r.note ?? `${r.detail} · ${r.provider} · ${r.downloads} downloads`}
               </div>
             </div>
             {r.recommended && <RecommendedBadge />}

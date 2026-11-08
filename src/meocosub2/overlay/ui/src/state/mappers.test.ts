@@ -232,6 +232,33 @@ describe("applyLanguageChoice", () => {
 });
 
 describe("mapResultsToSource", () => {
+  it("keeps language and file variants readable when the release name is long", () => {
+    const result = makeResult({
+      resultId: "bilingual",
+      matchId: "m1",
+      language: "zh",
+      languageLabel: "Chinese (Simplified)",
+      fileName: "A.very.long.release.name.chs&eng.ass",
+    });
+    expect(mapResultsToSource([result], "m1", "zh")[0].detail).toBe(
+      "Chinese (Simplified) · chs&eng.ass",
+    );
+    expect(mapResultsToTarget([result], "m1", "zh")[0].detail).toBe(
+      "Chinese (Simplified) · chs&eng.ass",
+    );
+  });
+  it("offers explicit OCR only when a selected title has no source files", () => {
+    const results = [makeResult({ resultId: "target", matchId: "m1", language: "en" })];
+    expect(mapResultsToSource(results, "m1", "zh").map((item) => item.id)).toEqual([
+      "__ocr_source__",
+    ]);
+    expect(mapResultsToSource([], null, "zh")).toEqual([]);
+    expect(mapResultsToSource(results, "m1", "en").map((item) => item.id)).toEqual(["target"]);
+    expect(mapResultsToTarget(results, "m1", "en", null, true).map((item) => item.id)).toEqual([
+      "target",
+      "__ocr__",
+    ]);
+  });
   it("filters other titles and unrelated languages while retaining regional and Chinese variants", () => {
     const results = [
       makeResult({ resultId: "traditional", matchId: "m1", language: "zht" }),

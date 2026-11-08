@@ -1490,6 +1490,7 @@ class GuiController:
             source_language_mode="exact",
             session_mode="ocr_fallback",
             target_match_mode="target_subtitle_match" if target_lines else "direct_translation",
+            source_summary="On-screen OCR",
             feature_id=feature_id,
             target_file_id=str(target_result.get("resultId") or target_file_id)
             if target_result is not None
