@@ -944,6 +944,33 @@ function CaptureSection({ draft, update }: SectionProps): JSX.Element {
       </div>
 
       <div style={{ marginTop: 18 }}>
+        <Field label="OCR engine" hint="Applies when you start a session">
+          <select
+            aria-label="OCR engine"
+            value={c.ocrEngine}
+            onChange={(event) =>
+              update((cfg) => ({
+                ...cfg,
+                capture: {
+                  ...cfg.capture,
+                  ocrEngine: event.target.value as BackendConfig["capture"]["ocrEngine"],
+                },
+              }))
+            }
+            style={{ ...inputStyle, outline: undefined, colorScheme: "dark" }}
+          >
+            <option value="auto">Automatic</option>
+            <option value="ppOcrV6">PP-OCRv6</option>
+            <option value="windows">Windows OCR</option>
+          </select>
+        </Field>
+        <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 0 }}>
+          Automatic keeps the installed Windows OCR language and uses PP-OCRv6 for supported missing
+          packs. Korean uses Windows OCR.
+        </p>
+      </div>
+
+      <div style={{ marginTop: 18 }}>
         <Field label="Languages (source → target)">
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <TextInput

@@ -1676,9 +1676,14 @@ async def test_starting_the_session_waits_for_the_fill_to_let_go_of_the_engine(
     task = controller._prefill_task
     await asking.wait()
     mocker.patch(
-        "meocosub2.overlay.controller.resolve_ocr_language",
+        "meocosub2.overlay.controller.prepare_ocr",
+        new_callable=mocker.AsyncMock,
         return_value=SimpleNamespace(
-            warning_message="", resolved_language="eng", requested_language="eng"
+            warning_message="",
+            resolved_language="eng",
+            requested_language="eng",
+            engine="windows",
+            available=True,
         ),
     )
     mocker.patch.object(controller, "_run_sync_loop", new=AsyncMock())

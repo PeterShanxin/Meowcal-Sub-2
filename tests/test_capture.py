@@ -59,7 +59,7 @@ async def test_ocr_image_calls_preprocess_before_run_ocr(mocker) -> None:
     run_ocr = mocker.patch("meocosub2.capture._run_ocr", new=mocker.AsyncMock(return_value="hello"))
     mocker.patch(
         "meocosub2.capture.resolve_ocr_language",
-        return_value=SimpleNamespace(resolved_language="en-US"),
+        return_value=SimpleNamespace(resolved_language="en-US", engine="windows"),
     )
     image = Image.new("RGB", (1, 1))
     result = await ocr_image(image, "en")
@@ -85,7 +85,7 @@ def test_ocr_output_is_cleaned_before_it_leaves_capture(monkeypatch) -> None:
     monkeypatch.setattr(
         capture_module,
         "resolve_ocr_language",
-        lambda language: capture_module.OcrResolution("zh-CN", "zh-Hans-CN"),
+        lambda language, engine: capture_module.OcrResolution("zh-CN", "zh-Hans-CN"),
     )
 
     async def fake_ocr(image, language):

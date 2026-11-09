@@ -176,7 +176,7 @@ class FakeCore:
         if method == "ready":
             if self.process_generation is None:
                 self.process_generation = 2
-            return {"managedConfig": {"port": 54321}}
+            return {"ready": True, "managedConfig": {"port": 54321}}
         return {"choices": [{"message": {"content": "Okay."}}]}
 
 
@@ -189,13 +189,36 @@ def test_status_does_not_start_or_install_the_model(monkeypatch) -> None:
     assert fake.sync_calls == ["status"]
 
 
+def test_status_does_not_publish_a_preferred_port_as_a_live_endpoint(monkeypatch):
+    fake = FakeCore()
+    fake.request_sync = lambda *_args, **_kwargs: {
+        "ready": True,
+        "managedConfig": {"port": 11436},
+        "acceleration": "gpu",
+    }
+    monkeypatch.setattr(engine, "_core", lambda: fake)
+    monkeypatch.setattr(engine, "_install_job", None)
+    monkeypatch.setattr(engine, "_repair_error", "")
+    assert engine.status().ready
+    assert engine.status().endpoint is None
+
+
+@pytest.mark.asyncio
+async def test_a_port_preference_alone_cannot_establish_readiness(monkeypatch):
+    fake = FakeCore()
+    fake.request = AsyncMock(return_value={"ready": False, "managedConfig": {"port": 11436}})
+    monkeypatch.setattr(engine, "_core", lambda: fake)
+    monkeypatch.setattr(engine, "_ready_generation", None)
+    with pytest.raises(engine.EngineStartError, match="invalid ready"):
+        await engine.ensure_ready()
+
+
 @pytest.mark.asyncio
 async def test_ready_and_complete_use_core_with_the_pinned_model(monkeypatch) -> None:
     fake = FakeCore()
     monkeypatch.setattr(engine, "_core", lambda: fake)
     monkeypatch.setattr(engine, "_ready_generation", None)
-    monkeypatch.setattr(engine, "_ready_endpoint", None)
-    assert await engine.ensure_ready() == "http://127.0.0.1:54321"
+    assert await engine.ensure_ready() is None
     response = await engine.complete({"messages": [], "model": "wrong"}, 5.0)
     assert response["choices"][0]["message"]["content"] == "Okay."
     assert fake.async_calls[1][0] == "complete"
@@ -214,7 +237,6 @@ async def test_unverified_legacy_assets_keep_the_existing_setup_error(monkeypatc
     fake.request = unverified
     monkeypatch.setattr(engine, "_core", lambda: fake)
     monkeypatch.setattr(engine, "_ready_generation", None)
-    monkeypatch.setattr(engine, "_ready_endpoint", None)
     monkeypatch.setattr(engine, "_repair_error", "")
     with pytest.raises(engine.EngineInstallError, match="Install/Repair"):
         await engine.ensure_ready()
@@ -226,7 +248,6 @@ async def test_completions_do_not_repeat_ready_for_the_same_process(monkeypatch)
     fake = FakeCore()
     monkeypatch.setattr(engine, "_core", lambda: fake)
     monkeypatch.setattr(engine, "_ready_generation", None)
-    monkeypatch.setattr(engine, "_ready_endpoint", None)
     await engine.ensure_ready()
     await engine.complete({"messages": []}, 1)
     assert await engine.complete({"messages": []}, 1) == {
@@ -240,7 +261,6 @@ async def test_new_core_generation_is_made_ready_before_completion(monkeypatch) 
     fake = FakeCore()
     monkeypatch.setattr(engine, "_core", lambda: fake)
     monkeypatch.setattr(engine, "_ready_generation", None)
-    monkeypatch.setattr(engine, "_ready_endpoint", None)
     await engine.ensure_ready()
     fake.process_generation = None
     await engine.complete({"messages": []}, 1)
@@ -270,7 +290,6 @@ async def test_repair_invalidates_ready_state_until_core_is_started_again(monkey
     monkeypatch.setattr(engine, "_install_job", None)
     monkeypatch.setattr(engine, "_repair_error", "")
     monkeypatch.setattr(engine, "_ready_generation", None)
-    monkeypatch.setattr(engine, "_ready_endpoint", None)
 
     await engine.ensure_ready()
     engine._repair_error = engine.REPAIR_REQUIRED_MESSAGE
@@ -291,7 +310,6 @@ async def test_successful_ready_clears_a_completed_install_error(monkeypatch) ->
     monkeypatch.setattr(engine, "_install_job", stale_job)
     monkeypatch.setattr(engine, "_repair_error", "")
     monkeypatch.setattr(engine, "_ready_generation", None)
-    monkeypatch.setattr(engine, "_ready_endpoint", None)
 
     await engine.ensure_ready()
 

@@ -128,6 +128,7 @@ export interface BackendConfig {
     region: [number, number, number, number];
     intervalMs: number;
     ocrLanguage: string;
+    ocrEngine: "auto" | "windows" | "ppOcrV6";
   };
   matching: { fuzzyThreshold: number; windowSize: number };
   translation: {

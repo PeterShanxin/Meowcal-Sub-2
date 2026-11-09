@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from time import monotonic
+from typing import Literal
 
 import mss
 from PIL import Image, ImageChops, ImageOps
@@ -25,6 +27,8 @@ class OcrResolution:
     requested_language: str
     resolved_language: str
     warning_message: str = ""
+    engine: Literal["windows", "ppOcrV6"] = "windows"
+    available: bool = True
 
 
 def available_ocr_languages(*, refresh: bool = True) -> list[str]:
@@ -34,11 +38,38 @@ def available_ocr_languages(*, refresh: bool = True) -> list[str]:
         return []
 
 
-def resolve_ocr_language(language: str) -> OcrResolution:
+def resolve_ocr_language(language: str, engine: str = "windows") -> OcrResolution:
     requested = normalize_ocr_language(language)
+    fallback = ""
+    if engine not in {"auto", "windows", "ppOcrV6"}:
+        raise ValueError("Unknown OCR engine")
+    if engine == "auto":
+        windows = _resolve_windows_language(requested)
+        if windows.available and normalize_ocr_language(windows.resolved_language) == requested:
+            return windows
+    if engine != "windows":
+        # These are the languages offered by Sub 2 that the embedded model reads.
+        if requested.split("-")[0] in {"zh", "ja", "en", "es", "fr", "de"}:
+            if native_ocr.supports_ppocr():
+                return OcrResolution(requested, requested, engine="ppOcrV6")
+            fallback = "PP-OCRv6 is unavailable. Using Windows OCR."
+        elif engine == "ppOcrV6":
+            fallback = "PP-OCRv6 does not support this language. Using Windows OCR."
+    resolution = _resolve_windows_language(requested)
+    return OcrResolution(
+        requested,
+        resolution.resolved_language,
+        " ".join(part for part in (fallback, resolution.warning_message) if part),
+        available=resolution.available,
+    )
+
+
+def _resolve_windows_language(requested: str) -> OcrResolution:
     installed = available_ocr_languages(refresh=False)
     if not installed:
-        return OcrResolution(requested, requested, "Windows OCR languages could not be enumerated.")
+        return OcrResolution(
+            requested, requested, "Windows OCR languages could not be enumerated.", available=False
+        )
 
     alias_candidates = {
         "zh-CN": ["zh-CN", "zh-Hans-CN"],
@@ -51,16 +82,20 @@ def resolve_ocr_language(language: str) -> OcrResolution:
         if candidate in installed:
             return OcrResolution(requested, candidate)
 
-    if requested == "zh-TW" and "zh-Hans-CN" in installed:
+    simplified = next((tag for tag in ("zh-CN", "zh-Hans-CN") if tag in installed), None)
+    traditional = next(
+        (tag for tag in ("zh-TW", "zh-Hant", "zh-Hant-TW") if tag in installed), None
+    )
+    if requested == "zh-TW" and simplified:
         return OcrResolution(
             requested,
-            "zh-Hans-CN",
+            simplified,
             "Traditional Chinese OCR pack is missing. Falling back to Simplified Chinese OCR.",
         )
-    if requested == "zh-CN" and "zh-TW" in installed:
+    if requested == "zh-CN" and traditional:
         return OcrResolution(
             requested,
-            "zh-TW",
+            traditional,
             "Simplified Chinese OCR pack is missing. Falling back to Traditional Chinese OCR.",
         )
     if requested == "en-US" and "en-GB" in installed:
@@ -68,7 +103,13 @@ def resolve_ocr_language(language: str) -> OcrResolution:
             requested, "en-GB", "English (US) OCR pack is missing. Falling back to English."
         )
 
-    return OcrResolution(requested, requested, f"OCR language '{requested}' is not installed.")
+    return OcrResolution(
+        requested,
+        requested,
+        f"OCR language '{requested}' is not installed. "
+        "Install its Windows OCR language pack before starting.",
+        available=False,
+    )
 
 
 def capture_region(region: tuple[int, int, int, int]) -> Image.Image:
@@ -121,8 +162,53 @@ async def _run_ocr(image: Image.Image, language: str) -> str:
     return await native_ocr.recognize(image, language, _OCR_PASS_TIMEOUT_SECONDS)
 
 
-async def ocr_image(image: Image.Image, language: str) -> str:
-    resolution = await asyncio.to_thread(resolve_ocr_language, language)
+async def prepare_ocr(language: str, engine: str, *, prefer_windows: bool = False) -> OcrResolution:
+    if engine == "auto" and prefer_windows:
+        windows = await asyncio.to_thread(resolve_ocr_language, language, "windows")
+        if windows.available:
+            return windows
+    resolution = await asyncio.to_thread(resolve_ocr_language, language, engine)
+    if resolution.engine == "ppOcrV6":
+        try:
+            await native_ocr.initialize_ppocr()
+        except (OSError, RuntimeError) as exc:
+            logger.warning("PP-OCRv6 initialization failed: %s", type(exc).__name__)
+            windows = await asyncio.to_thread(resolve_ocr_language, language, "windows")
+            return OcrResolution(
+                windows.requested_language,
+                windows.resolved_language,
+                "PP-OCRv6 could not start. Using Windows OCR. " + windows.warning_message,
+                available=windows.available,
+            )
+    return resolution
+
+
+async def ocr_image(
+    image: Image.Image,
+    language: str,
+    *,
+    engine: str = "windows",
+    on_error: Callable[[str], None] | None = None,
+) -> str:
+    """Read a caption, optionally reporting failure types without subtitle text."""
+    resolution = await prepare_ocr(language, engine)
+    if engine == "ppOcrV6" and resolution.engine != "ppOcrV6" and on_error:
+        on_error("ppocr-initialization-fallback")
+    if resolution.engine == "ppOcrV6":
+        try:
+            lines = await asyncio.wait_for(
+                native_ocr.recognize_ppocr_lines(image, _OCR_PASS_TIMEOUT_SECONDS),
+                timeout=_OCR_PASS_TIMEOUT_SECONDS,
+            )
+        except (OSError, RuntimeError, TimeoutError) as exc:
+            logger.debug("PP-OCRv6 frame failed: %s", type(exc).__name__)
+            if on_error:
+                on_error(f"ppocr:{type(exc).__name__}")
+            return ""
+        tallest = max((line.height for line in lines), default=0)
+        return clean_cjk_text(
+            "\n".join(line.text for line in lines if line.height >= 0.6 * tallest)
+        )
     raw_first = _should_try_raw_first(resolution.resolved_language)
     passes = [image, preprocess_for_ocr(image)] if raw_first else [preprocess_for_ocr(image), image]
     pass_names = ["raw", "preprocessed"] if raw_first else ["preprocessed", "raw"]
@@ -138,11 +224,15 @@ async def ocr_image(image: Image.Image, language: str) -> str:
             text = await asyncio.wait_for(
                 _run_ocr(candidate, resolution.resolved_language), timeout=_OCR_PASS_TIMEOUT_SECONDS
             )
-        except TimeoutError:
+        except TimeoutError as exc:
             logger.debug("OCR pass=%s timed out", pass_name)
+            if on_error:
+                on_error(f"windows-{pass_name}:{type(exc).__name__}")
             break
         except Exception as exc:
             logger.debug("OCR pass=%s failed: %s", pass_name, exc)
+            if on_error:
+                on_error(f"windows-{pass_name}:{type(exc).__name__}")
             text = ""
         score = _ocr_score(text)
         letters = "".join(ch for ch in text.casefold() if ch.isalpha())

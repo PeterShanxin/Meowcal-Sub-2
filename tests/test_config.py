@@ -2,6 +2,8 @@ import tomllib
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
 from meocosub2.config import (
     MAX_SYNC_BIAS_MS,
     AppConfig,
@@ -20,6 +22,24 @@ def test_default_config() -> None:
     assert cfg.capture_interval_ms == 250
     assert cfg.fuzzy_threshold == 65
     assert cfg.overlay_port == 8765
+
+
+@pytest.mark.parametrize("engine", ["auto", "windows", "ppOcrV6"])
+def test_ocr_engine_roundtrips_disk_and_partial_api_config(tmp_path, engine):
+    path = tmp_path / "config.toml"
+    config = config_from_payload({"capture": {"ocrEngine": engine}})
+    save_config(config, path)
+    assert load_config(path).ocr_engine == engine
+    assert config_to_payload(config)["capture"]["ocrEngine"] == engine
+    assert config_from_payload({"debug": {"mode": True}}, config).ocr_engine == engine
+
+
+@pytest.mark.parametrize("engine", ["unknown", "", 1, None])
+def test_invalid_ocr_engine_cannot_replace_existing_config(engine):
+    config = AppConfig(ocr_engine="ppOcrV6")
+    with pytest.raises(ValueError, match="OCR engine"):
+        config_from_payload({"capture": {"ocrEngine": engine}}, config)
+    assert config.ocr_engine == "ppOcrV6"
 
 
 def test_save_and_load_roundtrip(tmp_path: Path) -> None:

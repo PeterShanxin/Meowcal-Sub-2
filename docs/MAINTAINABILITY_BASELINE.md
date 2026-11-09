@@ -155,6 +155,12 @@ explicit OCR selection, current language state and inspection resets;
 aliases; and `subtitle_sources/subdl.py` 651 → 649 after removing the unintended
 hearing-impaired filter.
 
+PP-OCRv6 integration records `config.py` 535 → 549 for the persisted recognizer
+choice and validation; `overlay/controller.py` 2183 → 2201 for asynchronous
+recognizer readiness, resolved session settings and startup guards; and
+`overlay/ui/src/components/variants/settings.tsx` 1301 → 1328 for the
+keyboard-accessible recognizer choice.
+
 ## Lint budgets
 
 | Tool | Budget | State |

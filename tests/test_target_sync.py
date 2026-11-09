@@ -134,7 +134,7 @@ async def test_two_source_reads_do_not_replace_one_target_plate(monkeypatch):
     reads = iter([line.text for line in source])
     shown = []
 
-    async def ocr(*args):
+    async def ocr(*args, **kwargs):
         try:
             return next(reads)
         except StopIteration:
@@ -164,7 +164,7 @@ async def test_all_rapid_targets_play_while_ocr_stalls(monkeypatch, scheduler_cl
     completed = asyncio.Event()
     first = True
 
-    async def ocr(*args):
+    async def ocr(*args, **kwargs):
         nonlocal first
         if first:
             first = False
@@ -203,7 +203,7 @@ async def test_expiry_clears_the_plate_while_ocr_stalls(monkeypatch):
     cleared = asyncio.Event()
     shown = []
 
-    async def ocr(*args):
+    async def ocr(*args, **kwargs):
         nonlocal first
         if first:
             first = False
@@ -266,7 +266,7 @@ async def test_clock_transition_allows_a_similar_ocr_cue_to_confirm_its_source(m
     observations = []
     reads = 0
 
-    async def ocr(*args):
+    async def ocr(*args, **kwargs):
         nonlocal reads
         reads += 1
         if reads == 1:
@@ -363,7 +363,7 @@ async def test_automatic_session_plays_later_targets_under_stable_ocr(monkeypatc
     shown = []
     completed = asyncio.Event()
 
-    async def ocr(*args):
+    async def ocr(*args, **kwargs):
         return source[0].text
 
     async def broadcast(text, source):

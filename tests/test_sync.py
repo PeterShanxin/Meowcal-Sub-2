@@ -58,7 +58,7 @@ async def drive_with_source(session, config, reads: list[str]) -> list[tuple[str
     broadcasts: list[tuple[str, str]] = []
     remaining = list(reads)
 
-    async def ocr(_image, _language) -> str:
+    async def ocr(_image, _language, *, engine="auto") -> str:
         if not remaining:
             # Translations run as tasks beside the loop. Giving them a few turns
             # before it unwinds is what a session gets from its next capture.
@@ -241,7 +241,7 @@ async def test_translation_cannot_fill_a_plate_after_its_match_expires(monkeypat
     first = True
     shown = []
 
-    async def ocr(*args):
+    async def ocr(*args, **kwargs):
         nonlocal first, now
         if first:
             first = False
@@ -431,7 +431,7 @@ async def test_the_loop_follows_a_region_reselected_mid_session() -> None:
 
     reads = ["Hello there", "Goodbye now"]
 
-    async def ocr(_image, _language) -> str:
+    async def ocr(_image, _language, *, engine="auto") -> str:
         if not reads:
             raise asyncio.CancelledError()
         selected[0] = (10, 20, 30, 40)
@@ -590,7 +590,7 @@ async def test_the_clock_plays_the_next_line_without_waiting_for_a_read() -> Non
 
     reads = ["Hello there"]
 
-    async def ocr(_image, _language) -> str:
+    async def ocr(_image, _language, *, engine="auto") -> str:
         if reads:
             return reads.pop(0)
         # The reader stalls, as it does whenever OCR cannot make out the strip.
@@ -661,7 +661,7 @@ async def test_the_clock_resolves_an_unpaired_cue_without_an_ocr_read(monkeypatc
 
     first = True
 
-    async def ocr(_image, _language) -> str:
+    async def ocr(_image, _language, *, engine="auto") -> str:
         nonlocal first
         if first:
             first = False
@@ -750,7 +750,7 @@ async def test_a_confirmed_pair_clears_after_its_last_cue_expires(monkeypatch) -
 
     first = True
 
-    async def ocr(_image, _language) -> str:
+    async def ocr(_image, _language, *, engine="auto") -> str:
         nonlocal first
         if first:
             first = False
@@ -901,7 +901,7 @@ async def test_cues_changing_faster_than_a_poll_are_all_drawn(monkeypatch, sched
 
     reads = ["Hello there"]
 
-    async def ocr(_image, _language) -> str:
+    async def ocr(_image, _language, *, engine="auto") -> str:
         if reads:
             return reads.pop(0)
         # OCR stalls, which is the case this whole mechanism exists for.

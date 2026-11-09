@@ -172,7 +172,10 @@ class OverlayServer:
 
         @self.app.put("/api/config")
         async def api_put_config(payload: dict[str, object]) -> dict[str, object]:
-            return await self.controller.save_config_payload(payload)
+            try:
+                return await self.controller.save_config_payload(payload)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         @self.app.get("/api/state")
         async def api_get_state() -> dict[str, object]:
