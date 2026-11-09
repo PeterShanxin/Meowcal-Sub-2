@@ -84,8 +84,15 @@ is excluded. The host continued normal desktop workloads during sequential runs.
 The installed app also selected, downloaded and displayed the expected human
 translation for four ASSRT members of *八仙！* (2026): Simplified and Traditional
 source tracks paired with English, and both bilingual members. Each source had
-2,852 cues. These checks rendered text from each selected file; they establish
-the selection/download/display path, not complete movie playback.
+2,852 cues, with download hashes checked against the original members. The final
+automatic policy used Windows for Simplified Chinese and PP for Traditional
+Chinese on this host. Language-switch searches carried the new language.
+
+Short online movie playback also displayed selected-file English cues from the
+original pair, after matching a paused burned-in Chinese caption. This excerpt
+does not establish whole-film coverage. OCR-only sessions with and without an
+English target track produced visible English AI fallback using Windows OCR;
+those outputs are not counted as subtitle-file matches.
 
 An installed-payload rollback to Core 0.1.4 and restoration to 0.2.2 verified all
 14 changed files. Both installed versions returned the same Windows OCR results
