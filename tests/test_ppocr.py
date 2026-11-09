@@ -81,7 +81,8 @@ def test_ppocr_reads_traditional_chinese_without_windows_pack(mocker, engine):
     resolution = capture.resolve_ocr_language("zh-TW", engine)
     assert resolution.engine == "ppOcrV6"
     assert resolution.warning_message == ""
-    languages.assert_not_called()
+    if engine == "ppOcrV6":
+        languages.assert_not_called()
 
 
 def test_missing_capability_retains_windows_and_reports_fallback(mocker):
@@ -117,14 +118,33 @@ def test_windows_traditional_fallback_accepts_canonical_simplified_tag(mocker):
 
 
 @pytest.mark.asyncio
-async def test_automatic_ocr_only_prefers_windows_but_source_matching_uses_ppocr(mocker):
+async def test_automatic_keeps_an_exact_installed_windows_language(mocker):
     mocker.patch.object(native_ocr, "supports_ppocr", return_value=True)
     initialize = mocker.patch.object(native_ocr, "initialize_ppocr", new_callable=AsyncMock)
     mocker.patch.object(capture, "available_ocr_languages", return_value=["en-US"])
     assert (await capture.prepare_ocr("en", "auto", prefer_windows=True)).engine == "windows"
     initialize.assert_not_awaited()
-    assert (await capture.prepare_ocr("en", "auto")).engine == "ppOcrV6"
+    assert (await capture.prepare_ocr("en", "auto")).engine == "windows"
+    initialize.assert_not_awaited()
+
+
+@pytest.mark.parametrize("installed", ["zh-CN", "zh-Hans-CN"])
+def test_automatic_accepts_windows_simplified_aliases(mocker, installed):
+    pp = mocker.patch.object(native_ocr, "supports_ppocr")
+    mocker.patch.object(capture, "available_ocr_languages", return_value=[installed])
+    resolution = capture.resolve_ocr_language("zh", "auto")
+    assert resolution.engine == "windows" and resolution.available
+    pp.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_missing_requested_pack_uses_ppocr_but_ocr_only_keeps_compatible_windows(mocker):
+    mocker.patch.object(native_ocr, "supports_ppocr", return_value=True)
+    initialize = mocker.patch.object(native_ocr, "initialize_ppocr", new_callable=AsyncMock)
+    mocker.patch.object(capture, "available_ocr_languages", return_value=["zh-CN"])
+    assert (await capture.prepare_ocr("zht", "auto")).engine == "ppOcrV6"
     initialize.assert_awaited_once()
+    assert (await capture.prepare_ocr("zht", "auto", prefer_windows=True)).engine == "windows"
 
 
 @pytest.mark.asyncio

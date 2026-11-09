@@ -43,11 +43,13 @@ rejected those reads, but OCR-only translation has no source track to reject the
 
 ## Default policy
 
-Automatic mode uses PP-OCRv6 with source files and prefers an installed Windows
-OCR language for OCR-only sessions. Korean always uses Windows. Missing Windows
-packs can use PP for supported languages; missing PP capability or initialization
-failure falls back explicitly to Windows. A missing Windows language stops start
-with an actionable error.
+Automatic mode keeps an exact installed Windows OCR language. The native replay
+below did not show greater cue coverage from PP, despite its higher exact OCR
+accuracy. PP supplies supported languages whose requested Windows pack is missing
+and remains an explicit setting. OCR-only sessions also accept a compatible
+Chinese Windows pack to reduce scene-text reads. Korean always uses Windows.
+Missing PP capability or initialization failure falls back explicitly to Windows.
+If neither engine can supply the language, start stops with an actionable error.
 
 PP reads the original image once and retains lines at least 60% as tall as the
 tallest line, preserving comparable speaker rows while excluding small scene
@@ -56,6 +58,41 @@ gave 93.3% exact recognition and 196.2/252.2 ms median/P95. One raw PP pass gave
 95.6% and 64.2/89.8 ms; adding line filtering gave 100% and 74.7/115.4 ms. Windows
 retains its existing three passes. One-thread PP was slower; four threads used
 more CPU than two without improving recognition. Two is the measured compromise.
+
+## Native capture and presentation
+
+On 2026-11-09, the installed ARM64 backend, studio bundle and Core ran through
+the native Tauri selector and subtitle plate. The same 900 original Chinese
+frames played at 10 fps in a window, with the 40 labelled source cues and authored
+target markers. This measures capture, matching, playback timing and presentation;
+it does not measure translation quality. The test checked the unlocked console
+on each observation and the frame's pixels and visibility every two seconds.
+Both runs reached all 900 frames; all 44 pixel checks in each run matched exactly.
+
+| Policy | Cues displayed correctly | Distant wrong-cue observations | Observed cue onset median / P95 ms | Iteration median / P95 ms | Backend CPU, % of host |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Windows | 35/40 | 0 | 200 / 300 | 30 / 50 | 4.83 |
+| PP + line heights | 35/40 | 0 | 200 / 400 | 89.5 / 172 | 6.07 |
+
+Onset timings include only the 35 observed cues. There were 18 adjacent wrong-cue
+observations for Windows and 31 for PP; none was more than one second outside
+the displayed cue's interval. The observation counts differ because each run
+samples its own display updates. Backend CPU includes its owned OCR, translation
+and embedding processes, divided by the host's 12 logical CPUs. The frame player
+is excluded. The host continued normal desktop workloads during sequential runs.
+
+The installed app also selected, downloaded and displayed the expected human
+translation for four ASSRT members of *八仙！* (2026): Simplified and Traditional
+source tracks paired with English, and both bilingual members. Each source had
+2,852 cues. These checks rendered text from each selected file; they establish
+the selection/download/display path, not complete movie playback.
+
+An installed-payload rollback to Core 0.1.4 and restoration to 0.2.2 verified all
+14 changed files. Both installed versions returned the same Windows OCR results
+for nine real frames. The original user configuration was unchanged; the new OCR
+preference survived in the test profile. Version-specific production storage
+remained separate. x64 also passed released-Core checks under ARM64 emulation and
+the x64 CI gate; this laptop is not a native x64 device.
 
 ## Reproduction
 

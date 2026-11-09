@@ -965,8 +965,8 @@ function CaptureSection({ draft, update }: SectionProps): JSX.Element {
           </select>
         </Field>
         <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 0 }}>
-          Automatic prefers PP-OCRv6 with a source file and Windows OCR for OCR-only sessions.
-          Korean uses Windows OCR. PP-OCRv6 does not need Windows language packs.
+          Automatic keeps the installed Windows OCR language and uses PP-OCRv6 for supported missing
+          packs. Korean uses Windows OCR.
         </p>
       </div>
 

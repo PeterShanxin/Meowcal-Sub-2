@@ -43,6 +43,10 @@ def resolve_ocr_language(language: str, engine: str = "windows") -> OcrResolutio
     fallback = ""
     if engine not in {"auto", "windows", "ppOcrV6"}:
         raise ValueError("Unknown OCR engine")
+    if engine == "auto":
+        windows = _resolve_windows_language(requested)
+        if windows.available and normalize_ocr_language(windows.resolved_language) == requested:
+            return windows
     if engine != "windows":
         # These are the languages offered by Sub 2 that the embedded model reads.
         if requested.split("-")[0] in {"zh", "ja", "en", "es", "fr", "de"}:

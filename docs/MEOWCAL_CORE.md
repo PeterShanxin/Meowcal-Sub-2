@@ -21,11 +21,11 @@ three-pass selection and white-mask corroboration. Sharing native recognition
 does not establish that one product's preprocessing is better for the other's
 workload.
 
-Automatic selects PP-OCRv6 for supported languages when a source file can confirm
-the read. OCR-only sessions prefer an installed Windows OCR language to reduce
-scene-text reads; PP-OCRv6 can supply missing language support. Korean always uses
-Windows OCR. Missing capabilities or PP-OCRv6 initialization failures produce an
-explicit Windows fallback. Both choices remain available in Capture settings.
+Automatic keeps an exact installed Windows OCR language. PP-OCRv6 supplies
+supported languages whose requested Windows pack is missing. OCR-only sessions
+also accept a compatible Chinese Windows pack to reduce scene-text reads. Korean
+always uses Windows OCR. Missing capabilities or PP-OCRv6 initialization failures
+produce an explicit Windows fallback. Both choices remain available in Capture settings.
 
 BGE retains its own model and process implementation and a separate runtime
 directory. It must not execute files from a Core installation without a lifetime

@@ -42,12 +42,12 @@ uses Windows OCR, which needs the matching Windows OCR language pack. Install
 that pack before starting Korean OCR; Windows may request administrator permission
 or a restart to complete an installation.
 
-**Settings → Capture → OCR engine** selects the recognizer. **Automatic** prefers
-PP-OCRv6 when a source file can confirm the read. OCR-only sessions prefer Windows
-OCR to reduce scene-text reads; they can use PP-OCRv6 when the Windows pack is
-missing. You can also select either recognizer explicitly. Unsupported languages,
-missing Core capabilities or PP-OCRv6 startup failures fall back to Windows OCR
-with an explanation. The choice applies when a session starts.
+**Settings → Capture → OCR engine** selects the recognizer. **Automatic** keeps
+the requested Windows OCR language when installed and uses PP-OCRv6 for supported
+missing packs. OCR-only sessions also accept a compatible Chinese Windows pack
+to reduce scene-text reads. You can select either recognizer explicitly.
+Unsupported languages, missing Core capabilities or PP-OCRv6 startup failures
+fall back to Windows OCR with an explanation. The choice applies when a session starts.
 
 Open **Settings** and enable at least one subtitle source:
 
