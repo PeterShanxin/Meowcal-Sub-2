@@ -35,6 +35,7 @@ from meocosub2.subtitle_sources.types import (
 from meocosub2.subtitle_sources.utils import (
     EPISODE_PATTERN,
     PROVIDER_RANK,
+    canonical_imdb_id,
     canonical_title,
     extract_season_suffix,
     language_priority,
@@ -424,6 +425,12 @@ class SubtitleSearchAggregator:
         if not all_matches and not all_results:
             return AggregatedSearchCatalog(matches=[], results=[])
 
+        movie_ids: dict[tuple[str, int | None], set[str]] = {}
+        for item in (*all_matches, *all_results):
+            if item.media_type == "movie" and (movie_id := canonical_imdb_id(item.imdb_id)):
+                title_year = canonical_title(item.title), item.year
+                movie_ids.setdefault(title_year, set()).add(movie_id)
+
         group_order: dict[tuple[str, str, int, int, int], str] = {}
         groups: dict[str, dict[str, object]] = {}
 
@@ -442,6 +449,10 @@ class SubtitleSearchAggregator:
             subtitles_count: int,
             match_score: float,
         ) -> str:
+            if media_type == "movie" and not canonical_imdb_id(imdb_id):
+                identities = movie_ids.get((canonical_title(title), year), set())
+                if len(identities) == 1:
+                    imdb_id = next(iter(identities))
             key = match_group_key(title, media_type, year, season, episode, parent_title, imdb_id)
             if key in group_order:
                 group_id = group_order[key]

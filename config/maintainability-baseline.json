@@ -14,7 +14,7 @@
     "src/meocosub2/overlay/ui/src/components/primitives.tsx": 391,
     "src/meocosub2/overlay/ui/src/components/variants/settings.tsx": 1328,
     "src/meocosub2/overlay/ui/src/styles/theme.css": 719,
-    "src/meocosub2/subtitle_sources/aggregator.py": 1470,
+    "src/meocosub2/subtitle_sources/aggregator.py": 1481,
     "src/meocosub2/subtitle_sources/subdl.py": 649,
     "src/meocosub2/sync.py": 983,
     "src/meocosub2/timeline.py": 524
@@ -31,6 +31,7 @@
     "frontend": {
       "scope": [
         "src/state/mappers.ts",
+        "src/state/store.ts",
         "src/lib/session.ts",
         "src/lib/subtitle-editor/types.ts",
         "src/lib/subtitle-editor/document.ts",

@@ -7,7 +7,11 @@ from meocosub2.config import AppConfig
 from meocosub2.errors import SubtitleSourceError
 from meocosub2.subtitle_sources.aggregator import SubtitleSearchAggregator
 from meocosub2.subtitle_sources.assrt import AssrtProvider
-from meocosub2.subtitle_sources.types import ProviderSearchCatalog, ProviderSubtitleMatch
+from meocosub2.subtitle_sources.types import (
+    ProviderSearchCatalog,
+    ProviderSubtitleMatch,
+    ProviderSubtitleResult,
+)
 from meocosub2.subtitle_sources.utils import canonical_imdb_id, map_assrt_languages
 
 
@@ -240,3 +244,67 @@ async def test_yearless_assrt_member_still_joins_a_known_movie(provider, monkeyp
     )
     assert len(catalog.matches) == 1
     assert catalog.results[0].match_id == catalog.matches[0].id
+
+
+def movie_catalog(code, language, imdb_id):
+    match = ProviderSubtitleMatch(
+        f"{code}-movie", code, code, "Paper Lanterns", 2026, imdb_id, None, "movie"
+    )
+    result = ProviderSubtitleResult(
+        id=f"{code}-file",
+        match_id=match.id,
+        provider=code,
+        provider_label=code,
+        title=match.title,
+        year=match.year,
+        imdb_id=imdb_id,
+        media_type="movie",
+        language=language,
+        download_count=0,
+        file_name=f"{code}.srt",
+    )
+    return ProviderSearchCatalog([match], [result])
+
+
+@pytest.mark.parametrize("missing", ["subdl", "opensubtitles"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_missing_movie_id_keeps_same_title_year_source_and_target_together(missing, reverse):
+    english = movie_catalog("subdl", "en", None if missing == "subdl" else "tt1234567")
+    chinese = movie_catalog(
+        "opensubtitles", "zh", None if missing == "opensubtitles" else "1234567"
+    )
+    catalogs = [english, chinese]
+    merged = SubtitleSearchAggregator(AppConfig())._merge_catalogs(
+        catalogs[::-1] if reverse else catalogs, "zh,en"
+    )
+    assert len(merged.matches) == len(merged.works) == 1
+    assert {r.language for r in merged.results} == {"zh", "en"}
+    assert {r.match_id for r in merged.results} == {merged.matches[0].id}
+
+
+def test_conflicting_movie_ids_do_not_identify_a_match_without_an_id():
+    known = movie_catalog("opensubtitles", "zh", "tt1234567")
+    known.matches.append(replace(known.matches[0], id="other-movie", imdb_id="tt7654321"))
+    unknown = movie_catalog("subdl", "en", None)
+    merged = SubtitleSearchAggregator(AppConfig())._merge_catalogs([known, unknown], "zh,en")
+    assert len(merged.matches) == len(merged.works) == 3
+    unidentified = next(m for m in merged.matches if "subdl" in m.providers)
+    assert unidentified.imdb_id is None
+    assert next(r for r in merged.results if r.provider == "subdl").match_id == unidentified.id
+
+
+def test_different_years_do_not_identify_a_match_without_an_id():
+    known = movie_catalog("opensubtitles", "zh", "tt1234567")
+    unknown = movie_catalog("subdl", "en", None)
+    unknown.matches[0].year = unknown.results[0].year = 1985
+    merged = SubtitleSearchAggregator(AppConfig())._merge_catalogs([known, unknown], "zh,en")
+    assert len(merged.matches) == 2
+
+
+def test_missing_movie_id_can_use_unambiguous_file_metadata():
+    english = movie_catalog("subdl", "en", None)
+    chinese = movie_catalog("opensubtitles", "zh", None)
+    chinese.results[0].imdb_id = "tt1234567"
+    merged = SubtitleSearchAggregator(AppConfig())._merge_catalogs([english, chinese], "zh,en")
+    assert len(merged.matches) == 1
+    assert merged.matches[0].imdb_id is not None

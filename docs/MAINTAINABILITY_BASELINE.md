@@ -53,7 +53,7 @@ Recorded ceiling changes and their reasons:
 | File | From | To | Why |
 | --- | ---: | ---: | --- |
 | `app.tsx` | 1747 | 1750 | distinguish a new work from catalog enrichment of the same prepared source and target files |
-| `aggregator.py` | 1468 | 1470 | retain provider title aliases independently of movie identity so late language variants join the same IMDb group and yearless ASSRT members remain discoverable |
+| `aggregator.py` | 1468 | 1481 | retain provider title aliases independently of movie identity, resolve missing IDs only from an unambiguous title/year identity, and preserve discovery of yearless ASSRT members |
 | `sync.py` | 941 | 983 | match changed rereads against the file, retain strong cue support, discard rejected-read caches, preserve the onset through a first failed read, and timestamp similar new cues from their own capture |
 | `timeline.py` | 455 | 524 | bound visible-cue support to its interval, settle it before motion resumes, preserve its onset, retain recent strong corroboration through brief ambiguity, distinguish initial lock from recovery, and withhold the old scene while confirming a seek |
 | `timeline.py` | 399 | 407 | apply observed freeze/resume onset without accumulating confirmation delay, and retain a confirmed pause through source OCR reanchors |
@@ -224,9 +224,9 @@ by the manual Windows gate.
 
 ### Frontend — a named scope, not a percentage of everything
 
-`src/state/mappers.ts` is the only studio module under test today, at 89.94%
-statements, 78.33% branches, 71.42% functions, 89.94% lines. The floors are
-those figures rounded down.
+The named scope includes studio mapping, session authentication, subtitle editing
+and UI state. Its floors remain 89% statements and lines, 78% branches and 71%
+functions.
 
 The scope is named in the baseline file rather than left implicit, because a
 coverage percentage is meaningless without saying what it is a percentage *of*.
