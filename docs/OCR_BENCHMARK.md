@@ -94,6 +94,13 @@ does not establish whole-film coverage. OCR-only sessions with and without an
 English target track produced visible English AI fallback using Windows OCR;
 those outputs are not counted as subtitle-file matches.
 
+An installed-payload rollback to Core 0.1.4 and restoration to 0.2.2 verified all
+14 changed files. Both installed versions returned the same Windows OCR results
+for nine real frames. The original user configuration was unchanged; the new OCR
+preference survived in the test profile. Version-specific production storage
+remained separate. x64 also passed released-Core checks under ARM64 emulation and
+the x64 CI gate; this laptop is not a native x64 device.
+
 ### Cue continuity
 
 The original 35/40 result measured the 90-second labelled corpus, not a film's
@@ -121,12 +128,35 @@ source interval when motion is unavailable. Brief ambiguity retains recent
 strong corroboration, while capture loss discards it. A strong whole-file seek
 withholds the old scene until another progressing cue confirms the new position.
 
-An installed-payload rollback to Core 0.1.4 and restoration to 0.2.2 verified all
-14 changed files. Both installed versions returned the same Windows OCR results
-for nine real frames. The original user configuration was unchanged; the new OCR
-preference survived in the test profile. Version-specific production storage
-remained separate. x64 also passed released-Core checks under ARM64 emulation and
-the x64 CI gate; this laptop is not a native x64 device.
+On 2026-11-10, the revised backend repeated the native capture and presentation
+test with the same 900 original frames and 40 labelled cues. This run used the
+installed embedded Python 3.14 and released Core 0.2.2, loading the revised source
+in an isolated profile. The Tauri test shell changed only initial window geometry
+and focus to keep the user's external display free. All frames played, and all
+44 pixel checks per engine matched exactly. This does not establish whole-film
+coverage or verify an update to the installed application.
+
+| Policy | Cues displayed correctly | Stable blank / AI observations | Distant wrong-cue observations | Observed cue onset median / P95 ms | Iteration median / P95 ms | Backend CPU, % of host |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Windows | 40/40 | 0 / 0 | 0 | 100 / 300 | 32 / 47 | 6.48 |
+| PP + line heights | 40/40 | 0 / 0 | 0 | 200 / 400 | 86 / 125 | 5.24 |
+
+Windows had 556 correct and 19 adjacent-cue plate observations among 575 stable
+observations. PP had 552 correct and 31 adjacent observations among 583. Adjacent
+observations remain transition latency, not perfect frame-by-frame coverage.
+These are single sequential runs per engine on a host with other desktop work;
+the CPU difference does not establish a general performance improvement. The
+default OCR policy and recognition thresholds are unchanged.
+
+Separate native controls froze an original frame, resumed playback, then sought
+forward and backward. Both engines retained the right paused cue in 50/50
+observations, resumed, and recovered both seeks. PP cleared the old plate within
+268/266 ms after the seeks. Windows cleared it within 590/807 ms: eight samples
+still showed the old cue while a capture or OCR request was in flight, including
+two after 500 ms. The first trusted new-position read arrived at 583/801 ms;
+neither engine showed a stale old cue after that read plus a 50 ms rendering
+allowance. Seek detection latency remains observable. New-position projection
+still waits for another progressing cue rather than trusting one unrelated read.
 
 ## Reproduction
 
