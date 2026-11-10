@@ -55,6 +55,18 @@ def test_a_near_exact_first_match_anchors_on_its_own() -> None:
     assert timeline.predicted_ms(now=0.0) == 600_000
 
 
+def test_a_new_observation_of_the_same_file_cue_can_correct_its_onset() -> None:
+    timeline = anchored_at(600_000)
+    assert read(timeline, 600_000, 10, 100, now=3)
+    assert timeline.position_ms(now=3) == 600_000
+
+
+def test_capture_changes_before_initial_lock_do_not_require_recovery() -> None:
+    timeline = PlaybackTimeline()
+    timeline.observe_playback(PlaybackState.INVALIDATED, now=0)
+    assert read(timeline, 600_000, 10, 100, now=0.25)
+
+
 def test_the_prediction_advances_with_the_wall_clock() -> None:
     timeline = anchored_at(600_000)
     assert timeline.predicted_ms(now=4.0) == 604_000
@@ -101,6 +113,44 @@ def test_a_late_activity_sample_cannot_revive_an_expired_anchor() -> None:
     timeline.clear_cue()
     timeline.observe_playback(PlaybackState.ADVANCING, now=100)
     assert timeline.position_ms(now=100) is None
+
+
+def test_recent_strong_cue_can_corroborate_recovery_after_a_brief_unknown_gap() -> None:
+    timeline = anchored_at(600_000)
+    timeline.clear_cue()
+    timeline.observe_playback(PlaybackState.UNCERTAIN, now=1)
+    assert timeline.position_ms(now=5) is None
+    assert read(timeline, 605_000, 11, 100, now=5)
+    assert timeline.position_ms(now=5) == 605_000
+
+
+@pytest.mark.parametrize(
+    "start_ms,index,score,at",
+    [
+        (670_000, 11, 100, 5),
+        (605_000, 11, 70, 5),
+        (605_000, 10, 100, 5),
+        (605_000, 9, 100, 5),
+        (616_000, 11, 100, 16),
+    ],
+    ids=["inconsistent-offset", "weak", "same-cue", "backward", "old-evidence"],
+)
+def test_ambiguous_recovery_still_requires_recent_progressing_strong_agreement(
+    start_ms, index, score, at
+) -> None:
+    timeline = anchored_at(600_000)
+    timeline.clear_cue()
+    timeline.observe_playback(PlaybackState.UNCERTAIN, now=1)
+    assert timeline.position_ms(now=5) is None
+    assert not read(timeline, start_ms, index, score, now=at)
+    assert not timeline.anchored
+
+
+def test_capture_invalidation_does_not_reuse_pre_loss_corroboration() -> None:
+    timeline = anchored_at(600_000)
+    timeline.observe_playback(PlaybackState.INVALIDATED, now=5)
+    assert not read(timeline, 605_000, 11, 100, now=5)
+    assert not timeline.anchored
 
 
 def test_uncertainty_after_motion_withholds_timed_cues_without_claiming_pause() -> None:
@@ -205,11 +255,18 @@ def test_a_seek_is_followed_once_a_second_read_agrees_with_it() -> None:
     assert timeline.predicted_ms(now=6.0) == 1_202_500
 
 
+def test_a_strong_seek_withholds_old_subtitles_while_waiting_for_corroboration() -> None:
+    timeline = anchored_at(600_000)
+    assert not read(timeline, 1_200_000, 400, score=95.0, now=3.0)
+    assert timeline.position_ms(now=3.0) is None
+    assert not timeline.anchored
+
+
 def test_two_high_scores_in_different_places_do_not_move_the_clock() -> None:
     timeline = anchored_at(600_000)
     assert not read(timeline, 1_200_000, 400, score=95.0, now=3.0)
     assert not read(timeline, 300_000, 90, score=95.0, now=6.0)
-    assert timeline.predicted_ms(now=6.0) == 606_000
+    assert timeline.position_ms(now=6.0) is None
 
 
 def test_a_paused_video_walks_the_clock_back_to_where_it_was_paused() -> None:

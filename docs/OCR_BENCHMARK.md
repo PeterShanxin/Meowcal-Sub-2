@@ -94,6 +94,33 @@ does not establish whole-film coverage. OCR-only sessions with and without an
 English target track produced visible English AI fallback using Windows OCR;
 those outputs are not counted as subtitle-file matches.
 
+### Cue continuity
+
+The original 35/40 result measured the 90-second labelled corpus, not a film's
+complete subtitle track. The original missing intervals were:
+
+| Cue | Seconds in corpus | Engine |
+| --- | --- | --- |
+| r013 | 26.8–28.6 | Windows, PP |
+| r017 | 33.6–34.7 | Windows |
+| r019 | 38.5–40.7 | PP |
+| r024 | 49.4–50.9 | Windows, PP |
+| r031 | 62.3–64.6 | Windows, PP |
+| r041 | 82.1–85.6 | Windows, PP |
+
+Recognizable reads were present in these intervals. A subtitle-only image
+supplied no motion evidence, so three seconds of uncertainty expired the clock.
+Deduplication suppressed cleaner rereads, while recovery discarded the recent
+strong cue and waited for two further cues. Unlabelled intervals in the corpus
+also interrupted support. This was a continuity failure after recognition.
+
+Changed normalized reads now still match the file when the translation gate
+considers their wording similar. A matched cue retains its onset; another file
+cue uses its own capture time. Fresh strong rereads support only the current
+source interval when motion is unavailable. Brief ambiguity retains recent
+strong corroboration, while capture loss discards it. A strong whole-file seek
+withholds the old scene until another progressing cue confirms the new position.
+
 An installed-payload rollback to Core 0.1.4 and restoration to 0.2.2 verified all
 14 changed files. Both installed versions returned the same Windows OCR results
 for nine real frames. The original user configuration was unchanged; the new OCR

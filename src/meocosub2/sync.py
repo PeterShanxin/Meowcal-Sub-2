@@ -26,7 +26,7 @@ from meocosub2.playback_observation import PlaybackObserver
 from meocosub2.presentation import PresentationTrack
 from meocosub2.semantic import SemanticError, SemanticIndex
 from meocosub2.subtitle_gate import LineChange, SubtitleGate
-from meocosub2.timeline import PlaybackState, PlaybackTimeline
+from meocosub2.timeline import SEEK_SCORE, PlaybackState, PlaybackTimeline
 from meocosub2.translator import TranslationClient, is_untranslatable, open_translation_client
 
 logger = logging.getLogger(__name__)
@@ -184,6 +184,8 @@ class CandidateSession:
         self._misses = 0
         self._semantic: SemanticIndex | None = None
         self._semantic_build: asyncio.Task[None] | None = None
+        self._confirmed_read: tuple[str, int] | None = None
+        self._read_at: float | None = None
 
     @property
     def presentation(self) -> PresentationTrack | None:
@@ -237,12 +239,16 @@ class CandidateSession:
         self._semantic = index
 
     def saw_new_cue(self, at: float | None = None) -> None:
+        self._read_at = at
+        self._confirmed_read = None
         self._timeline.saw_new_cue(at)
 
     def saw_same_cue(self, at: float | None = None) -> None:
+        self._read_at = at
         self._timeline.saw_same_cue(at)
 
     def begin_capture(self, at: float) -> None:
+        self._read_at = at
         self._timeline.begin_capture(at)
 
     def observe_playback(
@@ -255,9 +261,18 @@ class CandidateSession:
         self._timeline.observe_playback(state, at, state_since, received_at)
 
     def clear_cue(self) -> None:
+        self._confirmed_read = None
         self._timeline.clear_cue()
         for matcher in self._matchers.values():
             matcher.clear_cue()
+
+    def confirm_read(self, text: str, seen_at: float | None = None) -> None:
+        if (
+            self._confirmed_read is not None
+            and self._confirmed_read[0] == self._locked
+            and self._matchers[self._confirmed_read[0]].is_repeated_frame(text)
+        ):
+            self._timeline.confirm_visible_cue(self._confirmed_read[1], seen_at)
 
     def status(self) -> dict[str, object]:
         timeline = self._timeline.status()
@@ -270,9 +285,18 @@ class CandidateSession:
 
     async def match(self, ocr_text: str, follow: bool = True) -> Resolution | None:
         self._open_semantic()
+        previous_start = self._timeline.anchor_ms
         winner, result = await self._match(ocr_text)
         if winner is None or result is None:
             return self.line_now() if follow else None
+        strong = result.score >= SEEK_SCORE or result.confidence == BOTH
+        if strong:
+            covered = self._matchers[winner].subtitles[
+                result.line_index : result.line_index + result.span
+            ]
+            self._confirmed_read = winner, max(line.end_ms for line in covered)
+            if result.start_ms == previous_start:
+                self.confirm_read(ocr_text, self._read_at)
         detail: dict[str, object] = {
             "matchIdx": result.line_index,
             "matchScore": round(result.score, 1),
@@ -280,7 +304,9 @@ class CandidateSession:
             "matchSrc": result.source_text[:60],
             "matchBy": result.confidence,
             "candidateId": winner,
-            "confirmed": True,
+            # A weak read may follow the clock, but must not suppress a later
+            # clean read of this cue or certify its continued presence.
+            "confirmed": strong,
             **self.status(),
         }
         if self.independent_target:
@@ -414,13 +440,16 @@ class CandidateSession:
             matcher = self._matchers[self._locked]
             # An unchanged read supplies no new evidence against this candidate.
             if matcher.is_repeated_frame(ocr_text):
+                self.confirm_read(ocr_text, self._read_at)
                 return None, None
+            self._confirmed_read = None
             result = await matcher.match_best(ocr_text, window, self._semantic, position)
             if result is not None and self._timeline.accepts(
                 result.start_ms,
                 result.line_index,
                 result.score,
                 confident=result.confidence == BOTH,
+                seen_at=self._read_at if result.start_ms != self._timeline.anchor_ms else None,
             ):
                 self._misses = 0
                 return self._locked, result
@@ -454,7 +483,12 @@ class CandidateSession:
         if self._locked != best_id:
             # Only a locked candidate is trusted enough to put text on screen.
             return None, None
-        if not self._timeline.accepts(best.start_ms, best.line_index, best.score):
+        if not self._timeline.accepts(
+            best.start_ms,
+            best.line_index,
+            best.score,
+            seen_at=self._read_at if best.start_ms != self._timeline.anchor_ms else None,
+        ):
             return None, None
         return best_id, best
 
@@ -467,6 +501,7 @@ class CandidateSession:
         self.close()
         self._semantic = None
         self._semantic_build = None
+        self._confirmed_read = None
         self._locked = result_id
         self._pending, self._pending_hits, self._misses = "", 0, 0
 
@@ -892,10 +927,9 @@ async def run_session_loop(
                     change = gate.classify(ocr_text)
                     if change is LineChange.REPEAT:
                         session.saw_same_cue(started)
-                        # The same subtitle is read many times over the seconds it
-                        # is up, and a read that was too damaged to match can come
-                        # back clean. Only worth trying while nothing has matched.
-                        if not screen.confirmed:
+                        # A changed read can repair OCR damage or identify another
+                        # file cue even when the gate considers its wording similar.
+                        if not screen.confirmed or isinstance(session, CandidateSession):
                             detail = await handle(ocr_text, fresh=False)
                     elif change is not LineChange.UNSTABLE:
                         gate.remember(ocr_text)

@@ -53,7 +53,7 @@ def never_translates():
     return open_it
 
 
-async def drive_with_source(session, config, reads: list[str]) -> list[tuple[str, str]]:
+async def drive_with_source(session, config, reads: list[str], debug=None) -> list[tuple[str, str]]:
     """Run the capture loop over a fixed list of OCR reads and collect broadcasts."""
     broadcasts: list[tuple[str, str]] = []
     remaining = list(reads)
@@ -78,7 +78,7 @@ async def drive_with_source(session, config, reads: list[str]) -> list[tuple[str
     sync_module.capture_region = lambda region: MagicMock()
     try:
         with pytest.raises(asyncio.CancelledError):
-            await run_session_loop(session, config, broadcast)
+            await run_session_loop(session, config, broadcast, debug_broadcast=debug)
     finally:
         sync_module.ocr_image = original_ocr
         sync_module.capture_region = original_capture
@@ -104,6 +104,130 @@ async def test_a_re_read_of_the_same_line_is_not_broadcast_again() -> None:
     session = CandidateSession([make_candidate("a", paired_lines())], config(), never_translates())
     reads = ["Hello there", "Hello there", "Hello ihere"]
     assert await drive(session, config(), reads) == ["你好"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("first_read", ["今天我们一起去医院", "今天我们一起去公园了"])
+async def test_a_first_match_does_not_suppress_a_later_clear_read(first_read) -> None:
+    lines = [
+        SubtitleLine(0, 0, 1000, "火车即将到站请乘客做好准备", "Prior target"),
+        SubtitleLine(1, 1000, 8000, "今天我们一起去公园", "Current target"),
+    ]
+    session = CandidateSession([make_candidate("a", lines)], config(), never_translates())
+    events = []
+
+    async def debug(event):
+        events.append(event)
+
+    assert await drive_with_source(
+        session, config(), [lines[0].text, first_read, "今天我们一起去公园"], debug
+    ) == [("Prior target", "matched"), ("Current target", "matched")]
+    assert events[1]["matchScore"] < 100
+    assert events[2]["matchScore"] == 100
+
+
+@pytest.mark.asyncio
+async def test_a_similar_new_file_cue_uses_its_own_capture_time(monkeypatch) -> None:
+    import meocosub2.timeline as timeline
+
+    now = 0.0
+    monkeypatch.setattr(timeline, "monotonic", lambda: now)
+    lines = [
+        SubtitleLine(0, 0, 3000, "Please close the heavy wooden door", "first target"),
+        SubtitleLine(1, 3000, 6000, "Please close the heavy wooden gate", "second target"),
+    ]
+    session = CandidateSession([make_candidate("a", lines)], config(), never_translates())
+    session.saw_new_cue(now)
+    assert (await session.match(lines[0].text)).text == "first target"
+    now = 3.3
+    session.saw_same_cue(now)
+    assert (await session.match(lines[1].text, follow=False)).text == "second target"
+    assert session.status()["predictedMs"] == 3000
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "first_read", ["The witness explains what happened", "THE WITNESS explains what happened!"]
+)
+@pytest.mark.parametrize(
+    "rereads",
+    [
+        ["The witness explains what happened"],
+        ["The witness explains wbat happened", "The witness explains whut happened"],
+    ],
+)
+async def test_confirmed_visible_cue_survives_missing_motion_without_projecting_next_cue(
+    monkeypatch,
+    first_read,
+    rereads,
+) -> None:
+    import meocosub2.timeline as timeline
+
+    now = 0.0
+    monkeypatch.setattr(timeline, "monotonic", lambda: now)
+    source = [
+        SubtitleLine(0, 0, 8000, "The witness explains what happened"),
+        SubtitleLine(1, 8000, 11000, "Someone answers from the doorway"),
+    ]
+    target = [
+        SubtitleLine(0, 0, 8000, "Current target"),
+        SubtitleLine(1, 8000, 11000, "Next target"),
+    ]
+    candidate = make_candidate("a", source)
+    candidate.pair.target_lines = target
+    session = CandidateSession([candidate], config(), never_translates())
+    session.observe_playback(timeline.PlaybackState.UNCERTAIN, now)
+    session.saw_new_cue(now)
+    assert (await session.match(first_read)).text == "Current target"
+
+    # A long caption or a pause in a subtitle-only crop still identifies the
+    # current cue, but supplies no evidence for playing beyond that interval.
+    for step in range(1, 49):
+        now = step / 4
+        session.begin_capture(now)
+        session.observe_playback(timeline.PlaybackState.UNCERTAIN, now)
+        session.saw_same_cue(now)
+        await session.match(rereads[step % len(rereads)], follow=False)
+        assert session.anchored
+        assert session.clock_ms() < 8000
+        assert session.line_now().text == "Current target"
+
+    now += 0.25
+    session.saw_new_cue(now)
+    assert (await session.match(source[1].text)).text == "Next target"
+
+
+@pytest.mark.asyncio
+async def test_repeated_visible_cue_cannot_restore_an_invalidated_clock(monkeypatch) -> None:
+    import meocosub2.timeline as timeline
+
+    now = 0.0
+    monkeypatch.setattr(timeline, "monotonic", lambda: now)
+    session = CandidateSession([make_candidate("a", paired_lines())], config(), never_translates())
+    assert (await session.match("Hello there")).text == "你好"
+    now = 0.25
+    session.observe_playback(timeline.PlaybackState.INVALIDATED, now)
+    for step in range(2, 10):
+        now = step / 4
+        session.saw_same_cue(now)
+        assert await session.match("Hello there", follow=False) is None
+        assert not session.anchored
+
+
+@pytest.mark.asyncio
+async def test_unmatched_repeat_does_not_extend_a_confirmed_cue(monkeypatch) -> None:
+    import meocosub2.timeline as timeline
+
+    now = 0.0
+    monkeypatch.setattr(timeline, "monotonic", lambda: now)
+    session = CandidateSession([make_candidate("a", paired_lines())], config(), never_translates())
+    assert (await session.match("Hello there")).text == "你好"
+    for step in range(1, 17):
+        now = step / 4
+        session.observe_playback(timeline.PlaybackState.UNCERTAIN, now)
+        session.saw_same_cue(now)
+        await session.match("Unrelated station label", follow=False)
+    assert not session.anchored
 
 
 @pytest.mark.asyncio
