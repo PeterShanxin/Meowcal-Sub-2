@@ -52,6 +52,8 @@ Recorded ceiling changes and their reasons:
 
 | File | From | To | Why |
 | --- | ---: | ---: | --- |
+| `sync.py` | 941 | 983 | match changed rereads against the file, retain strong cue support, discard rejected-read caches, preserve the onset through a first failed read, and timestamp similar new cues from their own capture |
+| `timeline.py` | 455 | 524 | bound visible-cue support to its interval, settle it before motion resumes, preserve its onset, retain recent strong corroboration through brief ambiguity, distinguish initial lock from recovery, and withhold the old scene while confirming a seek |
 | `timeline.py` | 399 | 407 | apply observed freeze/resume onset without accumulating confirmation delay, and retain a confirmed pause through source OCR reanchors |
 | `timeline.py` | 407 | 418 | preserve a reliable pending freeze through supported sparse capture intervals with a five-second lease, withdrawing it on unavailable evidence and resetting it on reanchor |
 | `timeline.py` | 418 | 455 | distinguish captured onset from frame receipt, bound an in-flight capture at the sampling deadline, and expire unsupported or stale confirmed pauses independently of subtitle identity |

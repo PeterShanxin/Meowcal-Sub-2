@@ -101,6 +101,67 @@ preference survived in the test profile. Version-specific production storage
 remained separate. x64 also passed released-Core checks under ARM64 emulation and
 the x64 CI gate; this laptop is not a native x64 device.
 
+### Cue continuity
+
+The original 35/40 result measured the 90-second labelled corpus, not a film's
+complete subtitle track. The original missing intervals were:
+
+| Cue | Seconds in corpus | Engine |
+| --- | --- | --- |
+| r013 | 26.8–28.6 | Windows, PP |
+| r017 | 33.6–34.7 | Windows |
+| r019 | 38.5–40.7 | PP |
+| r024 | 49.4–50.9 | Windows, PP |
+| r031 | 62.3–64.6 | Windows, PP |
+| r041 | 82.1–85.6 | Windows, PP |
+
+Recognizable reads were present in these intervals. A subtitle-only image
+supplied no motion evidence, so three seconds of uncertainty expired the clock.
+Deduplication suppressed cleaner rereads, while recovery discarded the recent
+strong cue and waited for two further cues. Unlabelled intervals in the corpus
+also interrupted support. This was a continuity failure after recognition.
+
+Changed normalized reads now still match the file when the translation gate
+considers their wording similar. A first successful read retains the cue's
+original onset even after OCR damage. Another file cue within an already matched
+gate cue uses its own capture time. Fresh strong rereads support only the current
+source interval when motion is unavailable; resuming motion settles that bound
+before exposing the running clock. Brief ambiguity retains recent
+strong corroboration, while capture loss discards it. A strong whole-file seek
+withholds the old scene until another progressing cue confirms the new position.
+
+On 2026-11-10, the revised backend repeated the native capture and presentation
+test with the same 900 original frames and 40 labelled cues. This run used the
+installed embedded Python 3.14 and released Core 0.2.2, loading the revised source
+in an isolated profile. The Tauri test shell changed only initial window geometry
+and focus to keep the user's external display free. All frames played, and all
+44 pixel checks per engine matched exactly. This does not establish whole-film
+coverage or verify an update to the installed application.
+
+| Policy | Cues displayed correctly | Stable blank / AI observations | Distant wrong-cue observations | Observed cue onset median / P95 ms | Iteration median / P95 ms | Backend CPU, % of host |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Windows | 40/40 | 3 / 0 | 0 | 200 / 300 | 31 / 51 | 8.01 |
+| PP + line heights | 40/40 | 3 / 0 | 0 | 250 / 400 | 87 / 145 | 6.44 |
+
+Windows had 557 correct and 23 adjacent-cue plate observations among 583 stable
+observations. PP had 532 correct and 37 adjacent observations among 572. Each had
+three blank observations near cue onset. These remain transition latency, not
+perfect frame-by-frame coverage.
+These are single sequential runs per engine on a host with other desktop work;
+the CPU difference does not establish a general performance improvement. The
+default OCR policy and recognition thresholds are unchanged.
+
+Separate native controls froze an original frame for 30 seconds, resumed
+playback, then sought forward and backward. Both engines retained the right
+paused cue in 300/300 observations, resumed without a distant wrong cue, and
+recovered both seeks. Windows cleared the old plate within 265/266 ms after the
+seeks; PP within 383/266 ms. PP had one old-cue observation before its new-position
+read arrived. Neither engine retained an old scene after that trusted read plus
+a 50 ms rendering allowance. An earlier Windows run took 590/807 ms while capture
+or OCR was in flight, including two old-cue observations after 500 ms. These
+samples do not bound seek latency below 500 ms. New-position projection still
+waits for another progressing cue rather than trusting one unrelated read.
+
 ## Reproduction
 
 Run `scripts/benchmark_ocr_policies.py --help` with a verified Core package and a

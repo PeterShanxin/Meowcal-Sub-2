@@ -98,12 +98,14 @@ class PlaybackTimeline:
         self._hold_since: float | None = None
         self._hold_started_ms: int | None = None
         self._cue_credited_s = 0.0
+        self._visible_cue_end_ms: int | None = None
         self._misses = 0
         self._drift_ms: int | None = None
         self._pending_offset_ms: int | None = None
         self._pending_index: int | None = None
         self._pending_at = 0.0
         self._recovering = False
+        self._strong_match: tuple[int, int, float] | None = None
 
     @property
     def anchored(self) -> bool:
@@ -158,6 +160,12 @@ class PlaybackTimeline:
     def predicted_ms(self, now: float | None = None) -> int | None:
         now = monotonic() if now is None else now
         running = self._running_ms(now)
+        if (
+            running is not None
+            and self._uncertain_since is not None
+            and self._visible_cue_end_ms is not None
+        ):
+            return min(running, self._visible_cue_end_ms - 1)
         held = self._held_ms(now)
         if running is None or held is None:
             return running
@@ -211,13 +219,14 @@ class PlaybackTimeline:
                 received_at + MAX_PLAYBACK_SAMPLE_GAP_S if state_since is not None else None
             )
             return
+        # Settle an unsupported hold at the observed transition before exposing
+        # the running clock again; confirmation may arrive after motion resumed.
+        transition = now if state_since is None else min(now, max(self._anchor_at, state_since))
+        self._release_visible_cue(transition)
         self._supported_at = now
         self._has_activity_evidence = True
         self._uncertain_since = None
         self._pending_freeze_until = None
-        # Confirmation samples arrive after the observed transition. Clamp to
-        # this anchor so an earlier pause cannot subtract a fresh OCR reanchor.
-        transition = now if state_since is None else min(now, max(self._anchor_at, state_since))
         if state is PlaybackState.STOPPED:
             if self._stopped_since is None:
                 self._stopped_since = transition
@@ -235,6 +244,7 @@ class PlaybackTimeline:
     def saw_new_cue(self, now: float | None = None) -> None:
         """A different subtitle is on screen, so the clock is running normally."""
         now = monotonic() if now is None else now
+        self._release_visible_cue(now)
         self._cue_since = now
         # Taken from the running clock rather than the reported one, so that
         # walking back to a pause does not leave the clock walked back forever.
@@ -245,6 +255,7 @@ class PlaybackTimeline:
 
     def clear_cue(self) -> None:
         """A blank region ends the cue hold without discarding playback timing."""
+        self._release_visible_cue(monotonic())
         self._cue_since = None
         self._cue_started_ms = None
         self._hold_since = None
@@ -257,13 +268,39 @@ class PlaybackTimeline:
         Past the length a subtitle plausibly runs without observed motion, the
         extra seconds may be a pause, so they are taken back out of the clock.
         """
-        if self._hold_since is None or self._stopped_since is not None:
+        if (
+            self._hold_since is None
+            or self._stopped_since is not None
+            or self._visible_cue_end_ms is not None
+        ):
             return
         now = monotonic() if now is None else now
         overrun = (now - self._hold_since) - CUE_HOLD_S
         if overrun > self._cue_credited_s:
             self._paused_s += overrun - self._cue_credited_s
             self._cue_credited_s = overrun
+
+    def confirm_visible_cue(self, end_ms: int, seen_at: float | None = None) -> None:
+        """Retain identity from an exact reread without certifying later dialogue."""
+        now = monotonic()
+        self._expire_stale_anchor(now)
+        at = now if seen_at is None else min(now, seen_at)
+        if self._anchor_ms is None or end_ms <= self._anchor_ms or now - at > UNCERTAIN_GRACE_S:
+            return
+        self._visible_cue_end_ms = end_ms
+        self._supported_at = at
+        if self._uncertain_since is not None:
+            self._uncertain_since = at
+
+    def _release_visible_cue(self, now: float) -> None:
+        running = self._running_ms(now)
+        if (
+            running is not None
+            and self._uncertain_since is not None
+            and self._visible_cue_end_ms is not None
+        ):
+            self._paused_s += max(0, running - (self._visible_cue_end_ms - 1)) / 1000
+        self._visible_cue_end_ms = None
 
     def accepts(
         self,
@@ -297,6 +334,12 @@ class PlaybackTimeline:
         # far apart they are, which is what makes them comparable at all.
         offset_ms = line_start_ms - int(at * 1000)
         strong = confident or score >= SEEK_SCORE
+        if line_start_ms == self._anchor_ms and at == self._anchor_at:
+            # A cleaner reread corroborates this cue without moving its onset.
+            if strong:
+                self._strong_match = offset_ms, line_index, at
+            self._misses = 0
+            return True
 
         # A held cue may have accumulated pause credit since its first read.
         # Recomputing its earlier position would subtract that credit twice.
@@ -312,15 +355,24 @@ class PlaybackTimeline:
             if (not self._recovering and strong) or self._agrees_with_pending(
                 offset_ms, line_index, at
             ):
-                self._anchor(line_start_ms, at, drift=None)
+                self._anchor(line_start_ms, line_index, at, drift=None, strong=strong)
                 return True
             self._remember_pending(offset_ms, line_index, at)
             return False
 
         in_window = predicted - WINDOW_BACK_MS <= line_start_ms <= predicted + WINDOW_FORWARD_MS
         if abs(line_start_ms - predicted) <= AGREEING_OFFSET_MS or (in_window and strong):
-            self._anchor(line_start_ms, at, drift=line_start_ms - predicted)
+            self._anchor(
+                line_start_ms, line_index, at, drift=line_start_ms - predicted, strong=strong
+            )
             return True
+
+        if strong and not in_window:
+            # Do not keep playing the old scene while a whole-file seek waits
+            # for another progressing cue to corroborate its new position.
+            self.invalidate()
+            self._remember_pending(offset_ms, line_index, at)
+            return False
 
         self._misses += 1
         if not in_window and not strong:
@@ -330,7 +382,7 @@ class PlaybackTimeline:
 
         if self._agrees_with_pending(offset_ms, line_index, at):
             logger.debug("Timeline re-anchored to line %d after a seek", line_index)
-            self._anchor(line_start_ms, at, drift=None)
+            self._anchor(line_start_ms, line_index, at, drift=None, strong=strong)
             return True
 
         # Recorded after the anchor is given up rather than before, so that
@@ -356,7 +408,12 @@ class PlaybackTimeline:
             and abs(offset_ms - pending) <= AGREEING_OFFSET_MS
         )
 
-    def _anchor(self, line_start_ms: int, at: float, drift: int | None) -> None:
+    def _anchor(
+        self, line_start_ms: int, line_index: int, at: float, drift: int | None, *, strong: bool
+    ) -> None:
+        if strong:
+            self._strong_match = line_start_ms - int(at * 1000), line_index, at
+        self._visible_cue_end_ms = None
         self._anchor_ms = line_start_ms
         self._anchor_at = at
         self._supported_at = at
@@ -387,10 +444,11 @@ class PlaybackTimeline:
 
     def invalidate(self) -> None:
         """Drop projection while retaining an in-flight cue's capture time."""
+        recovering = self.anchored or self._recovering
         cue_since = self._cue_since
         self.reset()
         self._cue_since = cue_since
-        self._recovering = True
+        self._recovering = recovering
 
     def _expire_stale_anchor(self, now: float) -> None:
         if self._anchor_ms is None:
@@ -431,9 +489,20 @@ class PlaybackTimeline:
                 stale_stop,
             )
             # Expiry can run between a frame's capture and its OCR result.
+            # Brief ambiguity removes projection, not a recent strong cue's
+            # independent evidence. Capture loss and stale stops discard both.
+            corroboration = self._strong_match if ambiguous and not stale_stop else None
             self.invalidate()
+            if (
+                corroboration is not None
+                and not identity_overdue
+                and 0 < now - corroboration[2] <= CONFIRMATION_MAX_AGE_S
+            ):
+                self._remember_pending(*corroboration)
 
     def reset(self) -> None:
+        self._strong_match = None
+        self._visible_cue_end_ms = None
         self._anchor_ms = None
         self._anchor_at = 0.0
         self._supported_at = 0.0
