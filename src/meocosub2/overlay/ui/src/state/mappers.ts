@@ -1,5 +1,6 @@
 import type {
   BackendGapFill,
+  BackendPreparedSession,
   BackendResult,
   BackendSnapshot,
   BackendTargetAlignment,
@@ -140,6 +141,23 @@ function recommendedUpTo(total: number): number {
 }
 
 export const OCR_SOURCE_ID = "__ocr_source__";
+
+export function selectionChangesPreparedWork(
+  prepared: Pick<BackendPreparedSession, "feature_id" | "source_file_id" | "target_file_id"> | null,
+  matchId: string | null,
+  sourceId: string | null,
+  targetId: string | null,
+): boolean {
+  if (!prepared || !matchId || prepared.feature_id === matchId) return false;
+  const sourceFile = sourceId === OCR_SOURCE_ID ? null : sourceId;
+  const targetFile = targetId?.startsWith("__") ? null : targetId;
+  return !(
+    sourceId &&
+    targetId &&
+    prepared.source_file_id === sourceFile &&
+    prepared.target_file_id === targetFile
+  );
+}
 
 function subtitleDetail(result: BackendResult): string {
   const suffix = result.fileName.match(/(?:[^.]+\.)?(?:srt|ass|ssa|vtt)$/i)?.[0];
