@@ -8,7 +8,7 @@ from meocosub2.errors import SubtitleSourceError
 from meocosub2.subtitle_sources.aggregator import SubtitleSearchAggregator
 from meocosub2.subtitle_sources.assrt import AssrtProvider
 from meocosub2.subtitle_sources.types import ProviderSearchCatalog, ProviderSubtitleMatch
-from meocosub2.subtitle_sources.utils import map_assrt_languages
+from meocosub2.subtitle_sources.utils import canonical_imdb_id, map_assrt_languages
 
 
 @pytest.fixture
@@ -39,6 +39,16 @@ def pack(files):
             ],
         },
     }
+
+
+@pytest.mark.parametrize("value", ["tt1234567", "1234567", " TT01234567 "])
+def test_movie_identity_accepts_numeric_and_prefixed_imdb_ids(value):
+    assert canonical_imdb_id(value) == "tt1234567"
+
+
+@pytest.mark.parametrize("value", [None, "", "0", "tt0000000", "tt-not-an-id"])
+def test_missing_or_invalid_movie_identity_does_not_group_unrelated_titles(value):
+    assert canonical_imdb_id(value) is None
 
 
 def test_language_flags_keep_all_enabled_languages_without_inventing_chinese():
@@ -165,3 +175,68 @@ async def test_movie_alias_merges_files_into_existing_title_without_merging_othe
         [ProviderSearchCatalog([replace(original, year=1985)], []), assrt], "zh"
     )
     assert len(different.matches) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reverse", [False, True])
+async def test_late_movie_alias_with_the_same_imdb_keeps_selected_files_grouped(
+    provider, monkeypatch, reverse
+):
+    async def request(*args):
+        payload = pack(["Lanterns.chs.srt", "Lanterns.eng.srt"])
+        payload["sub"]["subs"][0]["native_name"] = "纸灯笼！ 2026"
+        return payload
+
+    monkeypatch.setattr(provider, "_request", request)
+    assrt = await provider.search_catalog("Paper Lanterns", "zh,en")
+    english = ProviderSubtitleMatch(
+        "sd-movie", "subdl", "SubDL", "Paper Lanterns!", 2026, "tt1234567", "456", "movie"
+    )
+    native = replace(
+        english,
+        id="os-movie",
+        provider="opensubtitles",
+        provider_label="OpenSubtitles",
+        title="纸灯笼！",
+        imdb_id="1234567",
+    )
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    early = aggregator._merge_catalogs([ProviderSearchCatalog([english], []), assrt], "zh,en")
+    catalogs = [ProviderSearchCatalog([english], []), assrt, ProviderSearchCatalog([native], [])]
+    final = aggregator._merge_catalogs(catalogs[::-1] if reverse else catalogs, "zh,en")
+    assert len(early.matches) == len(final.matches) == 1
+    assert early.matches[0].id == final.matches[0].id
+    assert early.works[0].id == final.works[0].id
+    assert {(r.result_id, r.match_id) for r in early.results} == {
+        (r.result_id, r.match_id) for r in final.results
+    }
+    assert set(final.matches[0].providers) == {"assrt", "subdl", "opensubtitles"}
+
+
+def test_same_movie_title_with_different_imdb_ids_does_not_merge():
+    original = ProviderSubtitleMatch(
+        "sd-movie", "subdl", "SubDL", "Paper Lanterns", 2026, "tt1234567", None, "movie"
+    )
+    other = replace(original, id="os-movie", provider="opensubtitles", imdb_id="7654321")
+    catalog = SubtitleSearchAggregator(AppConfig())._merge_catalogs(
+        [ProviderSearchCatalog([original, other], [])], "zh,en"
+    )
+    assert len(catalog.matches) == len(catalog.works) == 2
+
+
+@pytest.mark.asyncio
+async def test_yearless_assrt_member_still_joins_a_known_movie(provider, monkeypatch):
+    async def request(*args):
+        return pack(["Lanterns.chs.srt"])
+
+    monkeypatch.setattr(provider, "_request", request)
+    assrt = await provider.search_catalog("Paper Lanterns", "zh")
+    assrt.results[0].year = None
+    original = ProviderSubtitleMatch(
+        "sd-movie", "subdl", "SubDL", assrt.results[0].title, 2026, "tt1234567", None, "movie"
+    )
+    catalog = SubtitleSearchAggregator(AppConfig())._merge_catalogs(
+        [ProviderSearchCatalog([original], []), assrt], "zh"
+    )
+    assert len(catalog.matches) == 1
+    assert catalog.results[0].match_id == catalog.matches[0].id

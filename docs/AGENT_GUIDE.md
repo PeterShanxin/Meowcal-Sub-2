@@ -113,6 +113,17 @@ source-aligned and are read when their interval arrives. Without a source anchor
 live OCR translation remains the fallback. Bilingual-only sessions retain their
 source-aligned presentation behavior.
 
+## Subtitle discovery
+
+Movie matches with valid IMDb IDs use a normalized ID across titles and provider
+formats. Unidentified files join by an unambiguous title alias and year; zero or
+invalid IDs supply no identity. Progressive catalog updates preserve selection
+through stable file IDs. A chosen source determines its group; without a chosen
+file, the retained files must agree before selection follows a regrouping. A
+target assigned to a different group is cleared. Catalog identification alone
+does not replace unchanged prepared files; choosing another work still blocks
+starting the previous session.
+
 ## Subtitle editing
 
 Every playback file is checked when loaded, including automatic candidates and

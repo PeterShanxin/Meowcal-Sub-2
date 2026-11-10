@@ -21,6 +21,7 @@ import {
   mapWorksToItems,
   OCR_SOURCE_ID,
   seasonHydrateKey,
+  selectionChangesPreparedWork,
 } from "./state/mappers";
 import type {
   BackendConfig,
@@ -194,12 +195,14 @@ export function App(): JSX.Element {
     ],
   );
 
-  // Selecting another episode leaves the old session prepared until the new one
-  // lands, so Start sync must not fire the episode the user just moved off.
-  const preparingReplacement =
-    !!selectedEpisodeMatchId &&
-    snapshot?.prepared_session != null &&
-    snapshot.prepared_session.feature_id !== selectedEpisodeMatchId;
+  // A different episode must not start the old session. Catalog enrichment can
+  // rename the same selection without changing its prepared files.
+  const preparingReplacement = selectionChangesPreparedWork(
+    snapshot?.prepared_session ?? null,
+    selectedEpisodeMatchId,
+    selectedSourceId,
+    selectedTargetId,
+  );
 
   useEffect(() => {
     if (selectedSeasonFilters.length === 0) return;

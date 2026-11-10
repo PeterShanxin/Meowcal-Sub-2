@@ -442,9 +442,7 @@ class SubtitleSearchAggregator:
             subtitles_count: int,
             match_score: float,
         ) -> str:
-            key = match_group_key(title, media_type, year, season, episode, parent_title)
-            # Grouping by canonical title metadata keeps the UI stable even when
-            # different providers describe the same title with slightly different ids.
+            key = match_group_key(title, media_type, year, season, episode, parent_title, imdb_id)
             if key in group_order:
                 group_id = group_order[key]
                 group = groups[group_id]
@@ -464,7 +462,9 @@ class SubtitleSearchAggregator:
                     "match_score": 0.0,
                     "providers": set(),
                     "provider_labels": set(),
+                    "aliases": set(),
                 }
+            group["aliases"].add(canonical_title(title))
             group["subtitles_count"] = int(group["subtitles_count"]) + max(subtitles_count, 0)
             group["match_score"] = max(float(group["match_score"]), match_score)
             group["providers"].add(provider)
@@ -495,8 +495,10 @@ class SubtitleSearchAggregator:
                 alias_keys = {canonical_title(alias) for alias in aliases}
                 candidates = {
                     group_id
-                    for key, group_id in group_order.items()
-                    if key[0] in alias_keys and key[1] == "movie" and key[2] == item.year
+                    for group_id, group in groups.items()
+                    if alias_keys.intersection(group["aliases"])
+                    and group["media_type"] == "movie"
+                    and group["year"] == item.year
                 }
                 if len(candidates) == 1:
                     mapped_match_id = candidates.pop()
@@ -591,8 +593,8 @@ class SubtitleSearchAggregator:
             )[0]
             candidate_group_ids = [
                 group_id
-                for key, group_id in group_order.items()
-                if group_id != current_group_id and key[0] == orphan_title_key
+                for group_id, group in groups.items()
+                if group_id != current_group_id and orphan_title_key in group["aliases"]
             ]
             if not candidate_group_ids:
                 continue

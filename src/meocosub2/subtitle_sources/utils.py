@@ -189,6 +189,11 @@ def media_type_category(media_type: str | None) -> str:
     return "movie"
 
 
+def canonical_imdb_id(value: str | None) -> str | None:
+    digits = (value or "").strip().casefold().removeprefix("tt").lstrip("0")
+    return f"tt{digits.zfill(7)}" if digits.isascii() and digits.isdecimal() else None
+
+
 def work_key(
     *,
     title: str,
@@ -209,8 +214,9 @@ def work_key(
         # carry the series IMDb id).
         series_title = parent_title or title
         return ("series", f"title:{canonical_title(series_title)}")
-    if media_type == "movie" and imdb_id:
-        return ("movie", f"imdb:{imdb_id}")
+    movie_id = canonical_imdb_id(imdb_id)
+    if media_type == "movie" and movie_id:
+        return ("movie", f"imdb:{movie_id}")
     return ("movie", f"title:{canonical_title(title)}|{year or 0}")
 
 
@@ -257,7 +263,11 @@ def match_group_key(
     season: int | None,
     episode: int | None,
     parent_title: str | None = None,
+    imdb_id: str | None = None,
 ) -> tuple[str, str, int, int, int]:
+    movie_id = canonical_imdb_id(imdb_id)
+    if media_type == "movie" and movie_id:
+        return (f"imdb:{movie_id}", media_type, 0, 0, 0)
     key_title = parent_title if media_type == "episode" and parent_title else title
     return (canonical_title(key_title), media_type, year or 0, season or 0, episode or 0)
 
