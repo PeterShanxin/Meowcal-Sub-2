@@ -67,9 +67,11 @@ high score cannot restore a dropped anchor. Brief ambiguity can retain a strong
 cue from the preceding 15 seconds as the first half of that corroboration;
 capture loss and stale pauses discard it. A normalized reread of a strongly
 matched cue retains its identity without retiming it. Without reliable motion,
-this support cannot project past that source cue's end. Changed reads still match
-the file when the gate considers their wording similar; a new file cue uses its
-own capture time. A strong whole-file seek stops the old
+this support cannot project past that source cue's end. Motion resumption settles
+this bound before the clock advances. Changed reads still match the file when the
+gate considers their wording similar. Repairing a first failed read retains its
+onset; another file cue inside an already matched gate cue uses its own capture
+time. A strong whole-file seek stops the old
 scene's projection while another progressing cue confirms the new position.
 Three consecutive empty OCR reads
 end the previous cue's pause hold and allow the same phrase to match again; while

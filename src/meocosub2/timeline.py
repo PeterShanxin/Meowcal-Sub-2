@@ -219,13 +219,14 @@ class PlaybackTimeline:
                 received_at + MAX_PLAYBACK_SAMPLE_GAP_S if state_since is not None else None
             )
             return
+        # Settle an unsupported hold at the observed transition before exposing
+        # the running clock again; confirmation may arrive after motion resumed.
+        transition = now if state_since is None else min(now, max(self._anchor_at, state_since))
+        self._release_visible_cue(transition)
         self._supported_at = now
         self._has_activity_evidence = True
         self._uncertain_since = None
         self._pending_freeze_until = None
-        # Confirmation samples arrive after the observed transition. Clamp to
-        # this anchor so an earlier pause cannot subtract a fresh OCR reanchor.
-        transition = now if state_since is None else min(now, max(self._anchor_at, state_since))
         if state is PlaybackState.STOPPED:
             if self._stopped_since is None:
                 self._stopped_since = transition

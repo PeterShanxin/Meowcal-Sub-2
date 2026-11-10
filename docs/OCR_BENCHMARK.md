@@ -122,9 +122,11 @@ strong cue and waited for two further cues. Unlabelled intervals in the corpus
 also interrupted support. This was a continuity failure after recognition.
 
 Changed normalized reads now still match the file when the translation gate
-considers their wording similar. A matched cue retains its onset; another file
-cue uses its own capture time. Fresh strong rereads support only the current
-source interval when motion is unavailable. Brief ambiguity retains recent
+considers their wording similar. A first successful read retains the cue's
+original onset even after OCR damage. Another file cue within an already matched
+gate cue uses its own capture time. Fresh strong rereads support only the current
+source interval when motion is unavailable; resuming motion settles that bound
+before exposing the running clock. Brief ambiguity retains recent
 strong corroboration, while capture loss discards it. A strong whole-file seek
 withholds the old scene until another progressing cue confirms the new position.
 
@@ -138,25 +140,27 @@ coverage or verify an update to the installed application.
 
 | Policy | Cues displayed correctly | Stable blank / AI observations | Distant wrong-cue observations | Observed cue onset median / P95 ms | Iteration median / P95 ms | Backend CPU, % of host |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Windows | 40/40 | 0 / 0 | 0 | 100 / 300 | 32 / 47 | 6.48 |
-| PP + line heights | 40/40 | 0 / 0 | 0 | 200 / 400 | 86 / 125 | 5.24 |
+| Windows | 40/40 | 3 / 0 | 0 | 200 / 300 | 31 / 51 | 8.01 |
+| PP + line heights | 40/40 | 3 / 0 | 0 | 250 / 400 | 87 / 145 | 6.44 |
 
-Windows had 556 correct and 19 adjacent-cue plate observations among 575 stable
-observations. PP had 552 correct and 31 adjacent observations among 583. Adjacent
-observations remain transition latency, not perfect frame-by-frame coverage.
+Windows had 557 correct and 23 adjacent-cue plate observations among 583 stable
+observations. PP had 532 correct and 37 adjacent observations among 572. Each had
+three blank observations near cue onset. These remain transition latency, not
+perfect frame-by-frame coverage.
 These are single sequential runs per engine on a host with other desktop work;
 the CPU difference does not establish a general performance improvement. The
 default OCR policy and recognition thresholds are unchanged.
 
-Separate native controls froze an original frame, resumed playback, then sought
-forward and backward. Both engines retained the right paused cue in 50/50
-observations, resumed, and recovered both seeks. PP cleared the old plate within
-268/266 ms after the seeks. Windows cleared it within 590/807 ms: eight samples
-still showed the old cue while a capture or OCR request was in flight, including
-two after 500 ms. The first trusted new-position read arrived at 583/801 ms;
-neither engine showed a stale old cue after that read plus a 50 ms rendering
-allowance. Seek detection latency remains observable. New-position projection
-still waits for another progressing cue rather than trusting one unrelated read.
+Separate native controls froze an original frame for 30 seconds, resumed
+playback, then sought forward and backward. Both engines retained the right
+paused cue in 300/300 observations, resumed without a distant wrong cue, and
+recovered both seeks. Windows cleared the old plate within 265/266 ms after the
+seeks; PP within 383/266 ms. PP had one old-cue observation before its new-position
+read arrived. Neither engine retained an old scene after that trusted read plus
+a 50 ms rendering allowance. An earlier Windows run took 590/807 ms while capture
+or OCR was in flight, including two old-cue observations after 500 ms. These
+samples do not bound seek latency below 500 ms. New-position projection still
+waits for another progressing cue rather than trusting one unrelated read.
 
 ## Reproduction
 

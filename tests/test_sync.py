@@ -146,6 +146,34 @@ async def test_a_similar_new_file_cue_uses_its_own_capture_time(monkeypatch) -> 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("prior_anchor", [False, True])
+async def test_first_successful_reread_retains_the_observed_cue_onset(
+    monkeypatch, prior_anchor
+) -> None:
+    import meocosub2.timeline as timeline
+    from meocosub2.subtitle_gate import LineChange, classify
+
+    now = 0.0
+    monkeypatch.setattr(timeline, "monotonic", lambda: now)
+    session = CandidateSession(
+        [make_candidate("a", paired_lines())], config(fuzzy_threshold=95), never_translates()
+    )
+    if prior_anchor:
+        session.saw_new_cue(now)
+        assert await session.match("Hello there") is not None
+        now = 3.0
+    session.saw_new_cue(now)
+    damaged = "G00dbye n0w" if prior_anchor else "He11o 1here"
+    clean = "Goodbye now" if prior_anchor else "Hello there"
+    assert classify(damaged, clean) is LineChange.REPEAT
+    assert await session.match(damaged, follow=False) is None
+    now += 0.5
+    session.saw_same_cue(now)
+    assert await session.match(clean) is not None
+    assert session.status()["predictedMs"] == (3500 if prior_anchor else 500)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "first_read", ["The witness explains what happened", "THE WITNESS explains what happened!"]
 )

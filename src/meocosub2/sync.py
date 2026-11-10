@@ -186,6 +186,7 @@ class CandidateSession:
         self._semantic_build: asyncio.Task[None] | None = None
         self._confirmed_read: tuple[str, int] | None = None
         self._read_at: float | None = None
+        self._cue_matched = False
 
     @property
     def presentation(self) -> PresentationTrack | None:
@@ -241,6 +242,7 @@ class CandidateSession:
     def saw_new_cue(self, at: float | None = None) -> None:
         self._read_at = at
         self._confirmed_read = None
+        self._cue_matched = False
         self._timeline.saw_new_cue(at)
 
     def saw_same_cue(self, at: float | None = None) -> None:
@@ -262,6 +264,7 @@ class CandidateSession:
 
     def clear_cue(self) -> None:
         self._confirmed_read = None
+        self._cue_matched = False
         self._timeline.clear_cue()
         for matcher in self._matchers.values():
             matcher.clear_cue()
@@ -289,6 +292,7 @@ class CandidateSession:
         winner, result = await self._match(ocr_text)
         if winner is None or result is None:
             return self.line_now() if follow else None
+        self._cue_matched = True
         strong = result.score >= SEEK_SCORE or result.confidence == BOTH
         if strong:
             covered = self._matchers[winner].subtitles[
@@ -436,6 +440,9 @@ class CandidateSession:
     async def _match(self, ocr_text: str) -> tuple[str | None, MatchResult | None]:
         window = self._timeline.window_ms()
         position = self._timeline.cue_position_ms
+        # Repairing a first failed read keeps its onset. Only another file cue
+        # within an already matched gate cue uses the latest capture time.
+        read_at = self._read_at if self._cue_matched else None
         if self._locked is not None:
             matcher = self._matchers[self._locked]
             # An unchanged read supplies no new evidence against this candidate.
@@ -449,7 +456,7 @@ class CandidateSession:
                 result.line_index,
                 result.score,
                 confident=result.confidence == BOTH,
-                seen_at=self._read_at if result.start_ms != self._timeline.anchor_ms else None,
+                seen_at=read_at if result.start_ms != self._timeline.anchor_ms else None,
             ):
                 self._misses = 0
                 return self._locked, result
@@ -487,7 +494,7 @@ class CandidateSession:
             best.start_ms,
             best.line_index,
             best.score,
-            seen_at=self._read_at if best.start_ms != self._timeline.anchor_ms else None,
+            seen_at=read_at if best.start_ms != self._timeline.anchor_ms else None,
         ):
             return None, None
         return best_id, best
@@ -502,6 +509,7 @@ class CandidateSession:
         self._semantic = None
         self._semantic_build = None
         self._confirmed_read = None
+        self._cue_matched = False
         self._locked = result_id
         self._pending, self._pending_hits, self._misses = "", 0, 0
 
