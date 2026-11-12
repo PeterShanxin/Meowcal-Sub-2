@@ -7,6 +7,18 @@ own presentation timings. When a cue has no human translation, the local
 translation engine can fill it. Without a matching source, OCR reads can be
 translated directly.
 
+This guide describes the current source on `main`. The latest published release
+(v0.2.2) does not yet include these parts of it:
+
+- the **OCR engine** setting and PP-OCRv6, which need Meowcal Core 0.2.2
+  (v0.2.2 includes Core 0.1.4 and uses Windows OCR);
+- the **Use on-screen OCR** source choice when no source file matches;
+- per-file language detection inside ASSRT packages;
+- the playback-continuity and movie-grouping corrections made after v0.2.2.
+
+A build from `main` also reports version 0.2.2. The
+[developer guide](developer-guide.md#release-applicability) explains the difference.
+
 ## Install and first launch
 
 Get the Windows package matching your architecture from
@@ -21,10 +33,10 @@ installation. Alternatively, extract the complete
 folders beside the executable. Both packages include Python and the Core
 executable; translation models are installed separately through Settings.
 
-The published v0.1.0 and v0.2.0 cannot check for app updates. Install the first
-signed release manually. Signed installer releases check for
-updates when the app opens and offer an install button in the app and under
-**Settings → Updates**. Portable copies must be replaced manually.
+The published v0.1.0 and v0.2.0 cannot check for app updates. Install v0.2.1 or
+later manually. Signed installer releases check for updates when the app opens
+and offer **Install update** in the app and under **Settings → Updates**
+(**Check for updates** asks again). Portable copies must be replaced manually.
 
 Each architecture has a `meowcal-sub-2-v*-windows-{arm64,x64}-SHA256SUMS.txt`
 file; the release also provides an aggregate checksum list. To check a downloaded
@@ -36,63 +48,93 @@ Get-FileHash .\meowcal-sub-2-v*-windows-arm64-portable.zip -Algorithm SHA256
 
 Source-checkout setup is in the [developer guide](developer-guide.md).
 
-The desktop app needs Microsoft WebView2. PP-OCRv6 is included in Core and reads
-Chinese, Japanese and Latin-script text without a Windows language pack. Korean
-uses Windows OCR, which needs the matching Windows OCR language pack. Install
-that pack before starting Korean OCR; Windows may request administrator permission
-or a restart to complete an installation.
+The desktop app needs Microsoft WebView2. Windows OCR needs the Windows language
+pack for the language on screen. To add one, add the language in Windows
+**Settings → Time & language → Language & region**; Windows may ask for
+administrator permission or a restart. Restart Meowcal Sub 2 after the pack is
+installed.
 
-**Settings → Capture → OCR engine** selects the recognizer. **Automatic** keeps
-the requested Windows OCR language when installed and uses PP-OCRv6 for supported
-missing packs. OCR-only sessions also accept a compatible Chinese Windows pack
-to reduce scene-text reads. You can select either recognizer explicitly.
-Unsupported languages, missing Core capabilities or PP-OCRv6 startup failures
-fall back to Windows OCR with an explanation. The choice applies when a session starts.
+### Subtitle sources
 
-Open **Settings** and enable at least one subtitle source:
+Open **Settings → Subtitle sources** and turn on at least one source:
 
 | Source | Credential |
 | --- | --- |
-| OpenSubtitles | API key; account credentials when required by the provider |
-| SubDL | API key |
-| ASSRT | Token |
+| OpenSubtitles | **API key**; **Username** and **Password** when the provider requires them |
+| SubDL | **API key** |
+| ASSRT | **Token** |
 
-Disable sources you do not use. Search coverage, service access, and download
-allowances depend on the provider. An optional TMDb API key enables metadata
-and cross-language title grouping; it is not a subtitle source.
+Each source has an **Enabled**/**Disabled** switch. A source that is enabled but
+has no credential is skipped, and the search screen shows a notice such as
+"OpenSubtitles key missing". Disable sources you do not use. Coverage, service
+access, and download allowances depend on the provider. OpenSubtitles limits
+downloads per day; the app does not spend the last two remaining downloads on
+comparing alternative target files.
 
-Set the source language to the subtitles visible in the player and the target
-language to the one you want to read. The OCR language must also match the
-visible text.
+**TMDb cross-lingual merge** with a **TMDb API key** groups the same title across
+languages. TMDb is not a subtitle source.
 
-For local translation, open **Settings → Translation → Download engine**.
-This downloads about 1.1 GB of model data plus the runtime. Meowcal Core verifies
-and stores the translation engine separately from the app. Matching verified
-artifacts from an earlier Meowcal installation can be imported; Sub 1 is not
-required. If a target subtitle supplies the needed translations, the session
-can start without the translation engine; uncovered cues cannot be translated
-until it is installed.
+### Languages
+
+The two language buttons beside the search field show the source and target
+codes, for example `ZH → EN`. The source language is the one in the subtitles
+visible in the player; the target language is the one you want to read. Chinese
+has two choices: **Chinese (Simplified)** (`zh`) and **Chinese (Traditional)**
+(`zht`). Choosing the language already used on the other side
+swaps the pair. Changing a language clears the current selection and runs the
+last search again.
+
+The OCR language follows the source language. **Settings → Capture → OCR
+language** shows it.
+
+### Local translation
+
+Open **Settings → Translation** and choose **Download engine**. This downloads
+about 1.1 GB of model data plus the runtime. If the download fails, choose
+**Retry download**. Meowcal Core verifies and stores the translation engine
+separately from the app. Matching verified artifacts from an earlier Meowcal
+installation can be imported; Sub 1 is not required.
+
+Without the translation engine, these sessions work:
+
+- a source file with a target file;
+- a source file that carries its own translation.
+
+The studio then shows the notice "Local translation is not installed. Human
+subtitles remain available after a match, but untranslated gaps cannot be
+filled." These choices need the engine: **Local translation**, **OCR fallback only**, and
+**Use on-screen OCR**.
 
 ## Watch with subtitles
 
 1. Start your video in its player and open Meowcal Sub 2.
-2. Search for the title. Choose the correct movie, series, season, or episode.
-   Choosing an episode searches that episode once for more subtitle versions;
-   the results from the title search stay available.
-3. Choose a source subtitle and a target subtitle or local translation. Check
-   the prepared-session summary; a different release may use different timings.
-   If no source file matches, check the enabled providers in Settings. **Use
-   on-screen OCR** offers a slower backup: read the screen and translate live,
-   with an optional target file. The source-file workflow remains the default.
-4. Choose **Select capture region**, drag a box around the player's subtitle
-   area, and confirm. Include the complete visible lines and exclude unrelated
-   interface text. Use **Switch display** if the player is on another screen.
-   The region is remembered.
-5. Choose **Start sync**. The studio becomes the subtitle strip with a live dock.
-6. Play the video. OCR matches establish playback position; target-file cues
-   then appear according to their own intervals, including silent gaps.
-7. Use **Stop** in the dock when finished. The studio returns with the prepared
-   session available to start again.
+2. Search for the title. Choose the movie, or the series, season, and episode.
+   Choosing an episode runs one exact search for that episode, which can add
+   subtitle versions; the results from the title search stay available.
+3. Choose **Select source subtitle** and pick a file in the source language.
+   Then choose **Select target subtitle** and pick one target. The Target list
+   can offer:
+   - **Translation inside the source file**, when the chosen source is bilingual;
+   - target-language files;
+   - **Local translation**, which translates the source lines on this device;
+   - **OCR fallback only**, which translates OCR text live without a file.
+4. Wait while the studio shows **Preparing**. When **Session ready** appears,
+   check the **Source**, **Target**, **Lines**, and **Coverage** rows. A different
+   release can use different timings. Open **Subtitles checked automatically** to
+   see what preparation changed.
+5. Choose **Start OCR and sync** (or press Ctrl+Enter). The capture selector
+   opens on the screen. Drag a box around the player's subtitle area and choose
+   **Confirm**. Choose **Switch display** if the player is on another screen, or
+   **Cancel** to return without starting.
+6. The studio becomes the subtitle strip with a live dock. Play the video. OCR
+   matches establish the playback position; target-file cues then appear
+   according to their own intervals, including silent gaps.
+7. Choose **Stop sync** in the dock when finished. The prepared session stays
+   available to start again.
+
+Each start asks for the capture region. Include the complete visible subtitle
+lines and exclude player controls and other text. Keep the Meowcal strip and the
+dock outside the region so OCR does not read the app's own translation.
 
 Closing the studio window stops the session and exits the app. The tray's
 **Exit** action does the same.
@@ -103,8 +145,68 @@ move focus between result buttons. Expanded and selected results expose their
 state to assistive technology, and activating a result returns focus to search
 for the next step. Arrow keys outside the palette keep their usual behavior.
 
-Keep the Meowcal strip outside the capture region so OCR does not read the
-app's own translation.
+### Choosing subtitle files
+
+- **Release.** Prefer a file named for the same release as your video (for
+  example the same streaming source or disc). Files for a different cut can
+  drift or skip.
+- **Language tags.** A file's row shows its language and format. A package that
+  contains several files lists each file separately. A file marked with two
+  languages, for example Chinese and English, is bilingual and appears in both
+  lists. A file without a language tag in a mixed package can appear in both
+  lists; open its name to check.
+- **Bilingual sources.** When the chosen source carries a translation, the Target
+  list puts **Translation inside the source file** first. It has exact timing and
+  needs no download.
+- **Better targets.** After preparation, the card can suggest another target file
+  that answers more lines. Choose **Use it** to prepare with that file.
+- **Target timing is unverified.** This note means that no shared human
+  subtitle text confirmed that the source and target files use the same clock.
+  Watch the first minutes and correct the target file in the editor if needed.
+
+### When no source file matches
+
+If the chosen title has no file in the source language, the Source list offers
+**Use on-screen OCR**. This reads the screen and translates live, with an
+optional target file. It is slower than the source-file workflow, needs the
+translation engine, and can translate scene text that is not dialogue. Target
+file timing cannot follow a source clock in this mode.
+
+### Empty results and source failures
+
+| What you see | Meaning | What to do |
+| --- | --- | --- |
+| `No titles found for "…"` | The search finished, and the enabled sources returned nothing | Try another spelling, the original title, or the other language. An empty answer does not prove that no subtitle exists. |
+| `No results — the search did not finish` with a notice | Every source that ran failed | Read the notice. It names each source's error. |
+| "Every subtitle source is switched off. Turn one on in Settings." | No source is enabled | Enable a source in **Settings → Subtitle sources**. |
+| A notice such as "SubDL key missing" or "ASSRT is disabled, so Chinese subtitle coverage may be thin." | A source was skipped | Add the credential or enable the source if you need it. |
+| Results with a notice | Some sources failed and others answered | Results from the working sources are usable. |
+| `No subtitles for this episode` | The open Source or Target list has no file for this episode | Choose another episode, check the language pair, or use the fallback choices in the list. |
+
+## OCR engine
+
+**Settings → Capture → OCR engine** has three choices. The choice applies when a
+session starts.
+
+- **Automatic** uses Windows OCR when the exact Windows language pack is
+  installed. Otherwise, it uses PP-OCRv6 for English, Chinese, Japanese,
+  Spanish, French, and German. A session without a source file also accepts a
+  compatible installed Windows pack, for example Simplified Chinese for
+  Traditional Chinese text, because PP-OCRv6 reads more scene text.
+- **Windows OCR** always uses Windows OCR and its language packs.
+- **PP-OCRv6** uses PP-OCRv6 for the languages above. Korean always uses
+  Windows OCR.
+
+PP-OCRv6 is included in Core and needs no Windows language pack. In the
+recorded tests it read text more accurately than Windows OCR, but it did not
+display more cues, and each frame took longer and used more CPU (see
+[OCR measurements](OCR_BENCHMARK.md)).
+
+When PP-OCRv6 is not available in Core, cannot start, or does not support the
+language, the session uses Windows OCR. The studio does not show this change
+while the session runs; the event log records which engine was used
+(`ocr.engine.ready`). When Windows OCR has no usable language pack either,
+start stops with a message that names the missing pack.
 
 ## Repair a subtitle before sync
 
@@ -133,21 +235,28 @@ and REGION blocks, are rejected instead of discarded. Supported notes, cue
 identifiers, settings and text are preserved; output uses LF line endings and
 consecutive SRT numbering. Files must be UTF-8 and at most 4 MiB.
 
-Original files stay untouched. Corrected session copies live under
+If saving fails, the new copies are removed and the previous prepared session
+stays unchanged. Correct the reported problem and save again. Original files stay
+untouched. Corrected session copies live under
 `%APPDATA%\meowcal-sub-2\subtitles\corrected`. Export a copy to keep it somewhere
 else or import it into another session.
 
 ## Adjust while watching
 
-**Region** reselects the capture box without ending the session. **Settings**
-changes capture, language, and subtitle appearance options. The timing control
-moves presentation earlier with **+** and later with **−**. Use small adjustments
-and watch the next few cues. It cannot repair a subtitle file from a different
-cut of the video.
+The live dock has these controls:
+
+- **Region** reselects the capture box without ending the session. Use it after
+  you move the player or change monitors.
+- **Settings** changes capture, language, and subtitle appearance options.
+- **+** shows subtitles earlier and **−** shows them later. Use small steps and
+  watch the next few cues. The timing control cannot repair a file from a
+  different cut of the video.
+- **Stop sync** ends the session.
 
 Seeking or resuming playback may need new visible cues before matching recovers.
 If the app cannot confirm its playback position for a prolonged period, it clears
-the old line rather than keeping a stale subtitle indefinitely.
+the old line rather than keeping a stale subtitle indefinitely. While no source
+match is current, live OCR translation can appear in place of the file cue.
 
 ## Stored data and connections
 
@@ -160,10 +269,26 @@ OCR and local translation inference run on the machine. Enabled subtitle
 providers receive searches and download requests. Optional TMDb lookups, studio
 fonts from Google Fonts, and runtime/model installation also use the network.
 
-Normal logs in `%APPDATA%\meowcal-sub-2\logs` use INFO. Explicit verbose mode
-adds detailed OCR and subtitle traces. Even normal logs can include titles,
-errors, and sensitive details. Do not share raw logs, provider credentials,
-the token-bearing studio URL, or screenshots of private viewing content.
+## Logs and diagnostics
+
+Logs are in `%APPDATA%\meowcal-sub-2\logs`:
+
+- `meowcal-sub-2.log` records the app at INFO level. A new file starts each day,
+  and seven previous files are kept.
+- `meowcal-sub-2.events.jsonl` records app events, one per line. At 5 MiB it is
+  renamed to `meowcal-sub-2.events.jsonl.1`, which replaces the previous one.
+
+The event log removes credential-like values and URL query values, but both logs
+can contain titles, search queries, file names, and error text. Detailed OCR and
+subtitle traces, which contain recognized text and subtitle lines, are written
+only when a developer runs the backend in verbose mode.
+
+**Settings → Debug → Enable debug overlay** sends per-capture timing and match
+data over the studio connection for developers. The studio does not display it,
+and it does not add detail to the log files.
+
+Do not share raw logs, provider credentials, the token-bearing studio URL, or
+screenshots of private viewing content.
 
 ## Uninstall
 
@@ -190,17 +315,31 @@ Meowcal Sub.
 
 ### Search is empty or a source fails
 
-Check the source's enabled switch and credentials in Settings, the title and
-language pair, your connection, and the provider's download allowance. The
-search notice identifies failed sources; other configured sources can still
-return results.
+Use the table in [Empty results and source failures](#empty-results-and-source-failures).
+Check the source's switch and credentials, the title and language pair, your
+connection, and the provider's download allowance.
+
+### A download fails
+
+If ASSRT reports "ASSRT no longer provides the selected file. Search again.",
+run the search again and choose the file again. If a provider reports that the
+download allowance is used up, choose a file from another source or wait for the
+allowance to renew.
+
+### Preparation stops with an error
+
+A file-specific error, for example "cue 12 has invalid timing", means that the
+file cannot be played safely. Choose another file, or fix the file and import it
+with the subtitle editor. If the error is about the translation engine, install
+it under **Settings → Translation**, or choose a target file.
 
 ### No line appears or OCR reads the wrong text
 
-Reselect the region and check that it contains the full player subtitle. Verify
-the OCR language and that Windows reports its language pack as installed. Avoid
-capturing player controls or the Meowcal strip. Protected playback surfaces may
-not be capturable; OCR cannot read a blank or black capture.
+Choose **Region** and check that the box contains the full player subtitle.
+Check the source language and the **OCR engine** setting. For Windows OCR,
+confirm that Windows lists the language pack as installed. Avoid capturing
+player controls or the Meowcal strip. Protected playback surfaces may not be
+capturable; OCR cannot read a blank or black capture.
 
 ### Subtitles drift or the wrong line appears
 
@@ -214,11 +353,23 @@ Check **Settings → Translation** for installation progress or an error. Retry
 the engine download if it failed. Translation speed depends on the machine;
 an answer that times out or fails validation is not shown.
 
-### OCR installation is offered again
+### The app does not start or shows an old screen
 
-Wait for Windows installation to finish and reopen the language list. Restart
-Windows if the new pack is not reported. The app's post-install language list,
-not the completion of the installer alone, determines availability.
+Close the app from the tray's **Exit** action and open it again. If the problem
+remains, restart Windows before reporting it.
 
-For a reproducible app problem, [open an issue](https://github.com/PeterShanxin/Meowcal-Sub-2/issues)
-with the app version, Windows architecture, steps, and sanitized error details.
+## Report a problem
+
+For a reproducible app problem, [open an issue](https://github.com/PeterShanxin/Meowcal-Sub-2/issues).
+Include:
+
+- the app version, from **Settings → Updates** or the release you installed;
+- whether you use the installer, the portable package, or a source build;
+- the Windows version and architecture;
+- the steps, the OCR engine setting, and which sources were enabled;
+- the exact error text, with titles and personal details removed.
+
+Do not attach private subtitle dialogue, viewing screenshots, raw logs,
+credentials, or tokens. If a log excerpt is needed, copy only the relevant lines
+and remove titles, file names, recognized text, and paths that contain your
+user name.

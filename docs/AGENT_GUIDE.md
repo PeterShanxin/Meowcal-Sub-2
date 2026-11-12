@@ -2,7 +2,9 @@
 
 ## Repo Overview
 - Meowcal Sub 2 is a desktop subtitle studio with a Python backend and a Tauri shell.
-- The live studio UI is served from `http://127.0.0.1:8765/`.
+- The live studio UI is served from `http://127.0.0.1:8765/` (the default `[overlay] port`).
+- [The developer guide](developer-guide.md) covers setup, run modes, the runtime
+  map, storage locations, and release applicability.
 - The Windows launcher is `run_app.vbs`.
 
 ## Runtime Map
@@ -55,111 +57,26 @@ architecture, configuration, and handoff notes.
 has to look like. [`docs/MAINTAINABILITY_BASELINE.md`](MAINTAINABILITY_BASELINE.md)
 owns the measured limits that `scripts/verify.ps1` enforces.
 
-## What Fills The Subtitle Plate
+## Product behavior
 
-Source subtitles synchronize playback; target subtitles own presentation.
-OCR text and semantic matching anchor `PlaybackTimeline` against the selected
-source candidate. An anchor unconfirmed for 90 seconds is dropped and its plate
-cleared. Recovery from an expired or repeatedly contradicted anchor needs two
-different, progressing cues, each supported by strong text or text/semantic
-agreement, whose observation times agree on the playback position. A single
-high score cannot restore a dropped anchor. Brief ambiguity can retain a strong
-cue from the preceding 15 seconds as the first half of that corroboration;
-capture loss and stale pauses discard it. A normalized reread of a strongly
-matched cue retains its identity without retiming it. Without reliable motion,
-this support cannot project past that source cue's end. Motion resumption settles
-this bound before the clock advances. Changed reads still match the file when the
-gate considers their wording similar. Repairing a first failed read retains its
-onset; another file cue inside an already matched gate cue uses its own capture
-time. A strong whole-file seek stops the old
-scene's projection while another progressing cue confirms the new position.
-Three consecutive empty OCR reads
-end the previous cue's pause hold and allow the same phrase to match again; while
-the anchor remains valid, the target track still owns presentation and silence.
-The search window does not authorize a weak clock correction beyond 2 seconds.
-Such corrections need different cues observed within 15 seconds whose playback
-offsets agree within 2 seconds; repeated reads of one cue cannot confirm a jump.
-Whole-file seeks additionally require strong text or text/semantic agreement.
-Equal text scores within the search window prefer the occurrence nearest the
-position when the current cue was captured.
-
-With a separate target file, `PresentationTrack` retains every target cue's
-index, interval, ordering and text. Both immediate matches and the clock renderer
-resolve that same track. Its scheduler wakes at target boundaries even when OCR
-stalls. Intervals are half-open `[start, end)`; genuine target overlaps remain
-simultaneous, and target presentation has no source overlap threshold or stale-line
-grace. Each cue's typesetting is flattened independently, except explicit speaker
-rows, and the browser supplies natural wrapping.
-
-Each source candidate has its own constant mapping, `target_ms = source_ms +
-offset_ms`. The offset is the median midpoint difference from unique, ordered
-matching human translations carried by the source and the target file. Model
-translations never calibrate it. Calibration requires at least two anchors and
-a nearest-rank P90 absolute residual of at most 200 ms around the median. With
-insufficient or inconsistent evidence, the files are assumed to use the same
-clock (zero offset), and the prepared card marks target timing unverified. This
-also applies when multiple automatic source candidates include an uncorroborated
-pair. Mismatched releases without corroboration still need independently
-established alignment. For the measured
-S04E08 pair, 384 shared anchors support -902 ms with 190 ms p90 absolute residual;
-affine fitting does not improve the median residual, so no rate parameter is used.
-
-A source cue that has any projected target coverage does not fill the target's
-intentional gaps. Wholly uncovered source cues use their carried human translation,
-then a local model answer. `gapfill.py` reads target coverage and neighboring human
-answers through the presentation track without copying target strings onto source
-cues. Idle prefill and playback filling share that lookup; model answers remain
-source-aligned and are read when their interval arrives. Without a source anchor,
-live OCR translation remains the fallback. Bilingual-only sessions retain their
-source-aligned presentation behavior.
-
-## Subtitle discovery
-
-Movie matches with valid IMDb IDs use a normalized ID across titles and provider
-formats. Missing IDs may use one unambiguous identity for the same title and year;
-conflicting IDs stay separate. Unidentified files join by an unambiguous title
-alias and year; zero or invalid IDs supply no identity. Progressive catalog
-updates preserve selection through stable file IDs. A chosen source determines
-its group; without a chosen file, the retained files must agree before selection
-follows a regrouping. A target assigned to a different group is cleared.
-Catalog identification alone
-does not replace unchanged prepared files; choosing another work still blocks
-starting the previous session.
-
-## Subtitle editing
-
-Every playback file is checked when loaded, including automatic candidates and
-OCR fallback targets. Empty cues and pure ASS drawing paths retained by conversion
-are skipped. Exact same-text/same-interval duplicates are removed, and cues are
-stably ordered by start time before matching, bilingual splitting, coverage
-measurement or prefill. Other overlaps and repeated
-dialogue are retained. Invalid intervals, NUL text and tracks without playable cues
-stop preparation with a file-specific error; their timing is not guessed. These
-changes affect playback data only. The prepared card reports the per-file results,
-and original documents remain available to the optional editor. Time calibration
-continues to use the corroborated human anchors described above.
-
-The prepared-session card opens the React subtitle editor. It reads the original
-SRT/WebVTT document separately from `load_subtitle_file`, whose plain-text output
-is only for matching and presentation. Save checks the prepared session ID and
-revisions of all displayed tracks, writes corrected copies, and rebuilds each source
-candidate and its target presentation. It rechecks translation engine readiness,
-persists the reset playback bias, and resumes idle gap filling on the corrected
-track. A failed save removes its new copies and keeps the previous session.
-Running or preparing sessions cannot be edited. Editor saves and starts recheck
-the session after stopping idle prefill so an old start cannot use a changed track.
+[The developer guide](developer-guide.md#runtime-contracts) owns the runtime
+contracts: subtitle discovery, playback timing and presentation, session modes,
+subtitle checks and editing, cancellation, and process ownership.
+[MEOWCAL_CORE.md](MEOWCAL_CORE.md) owns OCR engine selection and the Core
+protocol. Change those documents in the same PR as the behavior.
 
 ## Log Inspection
 
-- Log file: `%APPDATA%\meowcal-sub-2\logs\meowcal-sub-2.log` (INFO by default).
-  Explicit `python -m meocosub2.cli --verbose serve` enables DEBUG OCR/subtitle
-  traces. Normal logs can still contain titles, errors, and sensitive details;
-  use synthetic viewing content and sanitize excerpts before sharing.
+- Log file: `%APPDATA%\meowcal-sub-2\logs\meowcal-sub-2.log` (INFO by default),
+  rotated daily with seven previous files kept. Explicit
+  `python -m meocosub2.cli --verbose serve` enables DEBUG OCR/subtitle traces.
+  Normal logs can still contain titles, errors, and sensitive details; use
+  synthetic viewing content and sanitize excerpts before sharing.
 - Event log: `meowcal-sub-2.events.jsonl` beside it, one JSON record per line
   from the backend, the shell and the launcher. At 5 MiB the backend renames it
   to `meowcal-sub-2.events.jsonl.1`, replacing the previous one, so a window
   that spans a rotation needs both files.
-- Key patterns to grep:
+- Key patterns to grep. All of them are DEBUG lines, so they need `--verbose`:
   - `OCR pass=` — which pass won, score, recognized text, duration
   - `MATCH hit:` — matched subtitle index, score, source snippet
   - `MATCH miss:` — threshold and normalized OCR text that failed to match
@@ -174,25 +91,19 @@ the session after stopping idle prefill so an old start cannot use a changed tra
   most reads share no characters with the file — measured at 12% matched on a
   real episode, with the rest peaking at 20-40 against a threshold of 65.
   Lowering `fuzzy_threshold` buys wrong lines, not right ones. Lines that do not
-  match are placed by the playback clock instead (see below).
-- If OCR text looks garbled → wrong capture region or OCR language; check `capture.region` in config.
-- Automatic OCR keeps an exact installed Windows OCR language and uses PP-OCRv6
-  for supported missing packs. OCR-only sessions also accept a compatible Chinese
-  Windows pack. Korean uses Windows OCR. PP-OCRv6 needs Core's optional
-  `ocrPpOcrV6` capability and a separate model initialization before capture;
-  missing capability or failed initialization falls back to Windows with a warning.
-  PP-OCRv6 reads the original image once and excludes lines shorter than 60% of
-  the tallest detected line. See [OCR measurements](OCR_BENCHMARK.md).
-- Windows OCR compares the original image, equalized image, and a neutral-white text mask.
-  The mask can recover rows hidden by scene texture only when it retains at least
-  80% of the ordered letters from a whole-scene read with at least three letters.
-  This preserves colored or dim subtitles when white scenery produces unrelated
-  text. Eligible reads compete on cleaned text quality, not physical row count.
-  Each pass waits at most one second. A timeout returns the best prior read and
-  terminates the owned OCR Core process; a new process handles later frames.
-  Recognition never queues behind model inference.
-- If subtitle search returns 0 results → grep `OS /subtitles params=` to confirm language codes (`zhs` for Simplified Chinese) and `parent_feature_id` are present.
-- Live debug panel: set `[debug] mode = true` in config.toml, open the studio while a session is running; panel appears bottom-right showing the last 20 iterations.
+  match are placed by the playback clock instead (see
+  [playback timing](developer-guide.md#playback-timing-and-presentation)).
+- If OCR text looks garbled → wrong capture region, OCR language, or OCR engine;
+  check `capture.region` and `capture.ocr_engine` in config, and the
+  `ocr.engine.ready` event, which names the requested and the resolved engine.
+  Engine selection and passes are described in
+  [MEOWCAL_CORE.md](MEOWCAL_CORE.md#ocr-engine-selection).
+- If OpenSubtitles returns 0 results → grep `OS /subtitles params=` to confirm the
+  language codes (`zh-cn` for Simplified Chinese, `zh-tw` for Traditional) and
+  `parent_feature_id` are present.
+- `[debug] mode = true` (**Settings → Debug**) makes the running session send a
+  `debug` event per capture iteration on `/ws/app`. The studio does not render
+  these events; read them from the WebSocket.
 - The studio requires a per-run token. Read it from `%APPDATA%/meowcal-sub-2/runtime.json` and send it as `X-Meowcal-Token`, or open `/?token=...`. Unauthenticated requests get 401, foreign origins 403.
 
 ## Verification
@@ -241,8 +152,6 @@ so a final README-only commit cannot hide an earlier code change.
 
 CI covers the minimum Python 3.11 on x64 and the packaged Python 3.14.7 on
 ARM64, with Node 22 on both. CI installs only Playwright's headless shell.
-The existing ARM64 serial Rust build, architecture-specific cache keys, Core
-contracts, and local/release build resource settings are unchanged.
 
 Prerequisites, once per machine:
 
@@ -277,17 +186,16 @@ outputs must be regenerated on the PR branch before CI passes:
 Core and the embedded CPython are not Dependabot ecosystems; they change only
 through their own locks and reviewed upgrade flow.
 
-Until the reviewed Core release lock exists, Windows CI checks out the exact
-40-character commit in `config/meowcal-core.candidate.json` and passes that
-checkout to `verify.ps1 -CoreCandidateSource`. Once
-`config/meowcal-core.lock.json` is checked in, CI skips the source candidate and
-uses normal verification against the released artifacts. The source path is only
-for CI and local development verification. Every Tauri development or production
-build still requires the reviewed release hashes enforced by
-`fetch-meowcal-core.ps1`.
+`config/meowcal-core.lock.json` is checked in, so CI and `verify.ps1` verify
+against the released Core artifacts it pins. CI uses the source candidate in
+`config/meowcal-core.candidate.json` (through `verify.ps1 -CoreCandidateSource`)
+only when no release lock exists. Every Tauri development or production build
+requires the reviewed release hashes enforced by `fetch-meowcal-core.ps1`.
 
-What it cannot prove: OCR, WebView2 rendering, the capture selector, and the
-overlay plate. Those need a real Windows run of the app.
+What it cannot prove: OCR on real video, WebView2 rendering, the capture
+selector, and the overlay plate. Those need a real Windows run of the app. The
+[developer guide](developer-guide.md#what-each-layer-proves) lists what each
+validation layer proves and how to record measurements.
 
 ### While iterating
 
@@ -306,13 +214,34 @@ overlay plate. Those need a real Windows run of the app.
 ## Working Notes
 - The repo may contain local generated or user-authored changes. Do not revert unrelated work.
 - When changing the shared studio markup, keep tests in `tests/test_overlay.py` aligned with the served contract.
-- Studio subtitle search is provider-neutral; the main API/UI flow uses opaque `matchId` and `resultId` values instead of provider file ids.
-- ASSRT results retain each package member's name and language; downloads must resolve that same member. SubDL's `hi` parameter filters hearing-impaired tracks, so ordinary searches omit it.
 - Prefer short rationale comments in non-obvious logic and hotspot flows. Do not add boilerplate comments to simple code.
 - When debugging startup issues, separate three layers:
   - served page correctness
   - launcher/process correctness
   - actual Tauri/WebView2 desktop rendering
+
+## Documentation maintenance
+
+A change that alters documented behavior updates that documentation in the same
+PR. Use this map:
+
+| The change affects | Update |
+| --- | --- |
+| User workflows, controls, settings, messages, or troubleshooting | [user-guide.md](user-guide.md), and [README.md](../README.md) when its summary changes |
+| Data flow, configuration, interfaces, states, cancellation, recovery, storage, or process lifecycle | [developer-guide.md](developer-guide.md), or the specialized document that owns the contract |
+| Core protocol, capabilities, OCR engines, models, or installation compatibility | [MEOWCAL_CORE.md](MEOWCAL_CORE.md); also [CORE_UPGRADE_AUTOMATION.md](CORE_UPGRADE_AUTOMATION.md) when the upgrade workflow changes |
+| OCR, synchronization, performance method, metrics, or acceptance criteria | [OCR_BENCHMARK.md](OCR_BENCHMARK.md), [PLAYBACK_EVIDENCE.md](PLAYBACK_EVIDENCE.md), or [PLAYING_CONFIDENCE_CALIBRATION.md](PLAYING_CONFIDENCE_CALIBRATION.md) |
+| Packaging, signing, updates, migration, or recovery | The build and release sections of [developer-guide.md](developer-guide.md), and the user guide's install and update text |
+| Agent workflow, verification gates, or repository traps | This guide |
+
+Each document owns its contract. Link to it from other documents; do not copy
+it. Describe behavior on main separately from what the latest published release
+contains (see [release applicability](developer-guide.md#release-applicability)).
+Leave dated records (`docs/plans/`, `docs/audit-*/`, `CHANGELOG.md` entries)
+as they were written.
+
+Every delivery — a PR description, a handoff, or a final report — names the
+documentation it updated, or states why the change has no documentation impact.
 
 ## Maintaining this guide
 - Update this file when a task uncovers durable repo knowledge that will help future work.
@@ -341,8 +270,6 @@ overlay plate. Those need a real Windows run of the app.
 - Windows OCR capability lookup for this app should use exact BCP-47 tags such as `zh-TW` in the `Language.OCR*<tag>*` query, and the UI should treat post-install re-enumeration as the success signal instead of assuming the installer succeeded.
 - `SubDL` is integrated from public structured page data, while `ASSRT` is more reliable through its token-based API than raw page scraping.
 - `SubDL` language buckets can arrive as encoding-style keys like `big_5_code` or `gb_code`; normalize separator variants before mapping them to `zht` / `zh` or Chinese results may disappear from the studio search UI.
-- SubDL episode searches use the series title with `season_number` and `episode_number`; putting `S01E04` in `film_name` can return no titles. Unpacked files can report season zero even when their season pack identifies season one; keep explicit `S00` filenames as specials.
-- A title search can leave an episode with subtitles in only one requested language. Selecting that episode runs an exact lookup for the missing language before the source or target list is shown.
 - This machine runs Windows at 125% scale. Anything reading window bounds must set per-monitor DPI awareness first, or coordinates are scaled and captures come back cropped and offset.
 - The selector reports CSS pixels inside its own fullscreen window; the shell converts them with the monitor's scale factor and origin. Compare a stored `capture.region` against a real drag before trusting a coordinate change.
 - Driving the real desktop through `SendInput` and `ImageGrab` is the way to verify Tauri-only behavior end to end; browser automation cannot reach the selector, the HUD, or the live strip.

@@ -93,7 +93,9 @@ cache are cleared; live OCR/fallback remains available until source evidence
 reacquires timing. Target-only cues during unavailable captures cannot be timed
 exactly. Do not report fallback as seamless target timing or full #70 acceptance.
 
-Native validation still needs pause/resume, long dialogue-free playback, muted
-moving video, static content with audio, other-app sound, source changes and
-capture loss. Unit/replay evidence does not replace those runs. Do not close #70
-or #42 from the state-machine tests alone.
+Native controls in [OCR measurements](OCR_BENCHMARK.md#cue-continuity) covered
+one 30-second freeze, resume, and forward and backward seeks on one ARM64
+device. Native validation still needs long dialogue-free playback, muted moving
+video, static content with audio, other-app sound, source changes and capture
+loss. Unit/replay evidence does not replace those runs. Do not close #70 or #42
+from the state-machine tests alone.

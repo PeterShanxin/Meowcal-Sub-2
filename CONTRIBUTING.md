@@ -19,7 +19,10 @@ Read [the agent guide](docs/AGENT_GUIDE.md),
 
 Keep changes focused. Describe the user-visible problem and how the change
 addresses it. Add a regression test for a bug where practical, and identify
-any manual Windows checks that remain.
+any manual Windows checks that remain. Update the affected documentation in the
+same pull request, following the agent guide's
+[documentation map](docs/AGENT_GUIDE.md#documentation-maintenance). Name the
+documents you updated, or state why the change has no documentation impact.
 
 Run the repository's review gate from PowerShell:
 
