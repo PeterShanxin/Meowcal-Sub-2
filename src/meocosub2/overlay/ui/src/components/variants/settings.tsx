@@ -1227,7 +1227,7 @@ function DebugSection({ draft, update }: SectionProps): JSX.Element {
       <Toggle
         checked={draft.debug.mode}
         onChange={(v) => update((c) => ({ ...c, debug: { ...c.debug, mode: v } }))}
-        label="Enable debug overlay (OCR timing + match visualiser)"
+        label="Send per-capture OCR diagnostics, including recognized text, to developer tools"
       />
     </>
   );

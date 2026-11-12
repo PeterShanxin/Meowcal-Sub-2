@@ -67,7 +67,7 @@ class PlaybackState(Enum):
 
 @dataclass
 class TimelineStatus:
-    """What the clock believes, for the debug panel and the event log."""
+    """What the clock believes, for the debug events and the event log."""
 
     predicted_ms: int | None
     drift_ms: int | None

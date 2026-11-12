@@ -1647,7 +1647,6 @@ class GuiController:
                 self._state.status = "idle"
                 self._state.last_subtitle = ""
                 self._state.progress = AppProgress()
-                self._state.warning_message = ""
                 self._recount_gaps()
             await self._emit_app_state()
             await self._emit_app_event("subtitle", {"text": "", "source": MATCHED})
@@ -1673,7 +1672,6 @@ class GuiController:
             self._state.status = "idle"
             self._state.last_subtitle = ""
             self._state.progress = AppProgress()
-            self._state.warning_message = ""
             self._recount_gaps()
         await self._emit_app_state()
         await self._emit_app_event("subtitle", {"text": "", "source": MATCHED})

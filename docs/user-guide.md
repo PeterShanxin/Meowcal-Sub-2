@@ -203,10 +203,10 @@ display more cues, and each frame took longer and used more CPU (see
 [OCR measurements](OCR_BENCHMARK.md)).
 
 When PP-OCRv6 is not available in Core, cannot start, or does not support the
-language, the session uses Windows OCR. The studio does not show this change
-while the session runs; the event log records which engine was used
-(`ocr.engine.ready`). When Windows OCR has no usable language pack either,
-start stops with a message that names the missing pack.
+language, the session uses Windows OCR and shows a warning that says so. A
+substituted Windows language pack also gives a warning. The event log records
+which engine was used (`ocr.engine.ready`). When Windows OCR has no usable
+language pack either, start stops with a message that names the missing pack.
 
 ## Repair a subtitle before sync
 
@@ -253,6 +253,12 @@ The live dock has these controls:
   different cut of the video.
 - **Stop sync** ends the session.
 
+When the session has a warning, for example an OCR engine fallback, the dock's
+resting dot changes to **!**, and the open dock has a **!** button. The button
+replaces the controls with the warning text; select it again to return to the
+controls. After **Stop sync**, the warning stays on the prepared-session screen
+until a later search, preparation, subtitle save, start, or error replaces it.
+
 Seeking or resuming playback may need new visible cues before matching recovers.
 If the app cannot confirm its playback position for a prolonged period, it clears
 the old line rather than keeping a stale subtitle indefinitely. While no source
@@ -283,9 +289,10 @@ can contain titles, search queries, file names, and error text. Detailed OCR and
 subtitle traces, which contain recognized text and subtitle lines, are written
 only when a developer runs the backend in verbose mode.
 
-**Settings → Debug → Enable debug overlay** sends per-capture timing and match
-data over the studio connection for developers. The studio does not display it,
-and it does not add detail to the log files.
+**Settings → Debug → Send per-capture OCR diagnostics, including recognized
+text, to developer tools** sends timing and match data for each capture over the
+studio connection. The studio does not display it, and it does not add detail
+to the log files.
 
 Do not share raw logs, provider credentials, the token-bearing studio URL, or
 screenshots of private viewing content.

@@ -1507,6 +1507,7 @@ export function App(): JSX.Element {
 
         {phase === "live" && (
           <LiveView
+            warning={snapshot?.warning_message.trim() ?? ""}
             biasMs={config?.sync.biasMs ?? 0}
             onAdjustBias={onAdjustBias}
             onStop={() => void clearSession()}
@@ -1620,14 +1621,9 @@ function buildSourceNotices(config: BackendConfig | null, warning: string): Sour
       tone: "warn",
     });
   }
-  if (warning.trim()) {
-    notices.push({
-      id: "backend-warning",
-      label: "Provider warning",
-      detail: warning.trim(),
-      tone: "info",
-    });
-  }
+  // The strip shows one notice; the session's own warning is the current one.
+  const detail = warning.trim();
+  if (detail) notices.unshift({ id: "backend-warning", label: "Warning", detail, tone: "info" });
   return notices;
 }
 

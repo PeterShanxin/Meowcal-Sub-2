@@ -1788,6 +1788,41 @@ async def test_stopping_counts_the_gaps_the_session_answered_for_itself(
     assert controller.state_snapshot()["gap_fill"] == {"filled": 1, "total": 1, "active": False}
 
 
+async def test_the_ocr_fallback_warning_outlasts_the_session_it_describes(
+    tmp_path: Path, mocker
+) -> None:
+    """The viewer may only look at the studio again after stopping."""
+    mocker.patch("meocosub2.overlay.controller.fill_before_the_session", new=AsyncMock())
+    controller = await _prepare_pair_with_a_gap(tmp_path, mocker)
+    await controller._prefill_task
+    warning = "PP-OCRv6 could not start. Using Windows OCR."
+    mocker.patch(
+        "meocosub2.overlay.controller.prepare_ocr",
+        new_callable=mocker.AsyncMock,
+        return_value=SimpleNamespace(
+            warning_message=warning,
+            resolved_language="eng",
+            requested_language="eng",
+            engine="windows",
+            available=True,
+        ),
+    )
+
+    async def run_until_stopped(*args) -> None:
+        await asyncio.Event().wait()
+
+    mocker.patch.object(controller, "_run_sync_loop", new=run_until_stopped)
+    controller.config = replace(controller.config, capture_region=[0, 0, 100, 100])
+
+    await controller.start_session()
+    assert controller.state_snapshot()["warning_message"] == warning
+
+    await controller.stop_session()
+    snapshot = controller.state_snapshot()
+    assert snapshot["status"] == "idle"
+    assert snapshot["warning_message"] == warning
+
+
 def _gapped_lines(text: str) -> list[SubtitleLine]:
     """One cue already answered and one still waiting, which is a file with holes."""
     return [
