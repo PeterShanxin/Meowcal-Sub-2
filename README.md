@@ -60,15 +60,17 @@ release. Signed installed copies can receive later updates in the app; portable
 copies are updated manually.
 See the [user guide](docs/user-guide.md) for first-launch setup.
 
-You need Windows, Microsoft WebView2, and an OCR language pack for the language
-on screen. Subtitle search requires at least one provider credential: an
+You need Windows, Microsoft WebView2, and a Windows OCR language pack for the
+language on screen. On `main`, PP-OCRv6 reads English, Chinese, Japanese,
+Spanish, French, and German without a pack; the latest release does not include
+it yet. Subtitle search requires at least one provider credential: an
 OpenSubtitles API key, SubDL API key, or ASSRT token. Provider availability and
 download quotas apply.
 
 Open **Settings** to configure a source and the language pair. Search for a
-title, choose source and target subtitles, select the screen region containing
-the player's subtitles, then choose **Start sync**. Stop from the live dock
-when you are done.
+title, choose source and target subtitles, then choose **Start OCR and sync**.
+Drag a box around the player's subtitles and choose **Confirm**. Choose
+**Stop sync** in the live dock when you are done.
 
 Local translation uses Tencent HY-MT1.5 through Meowcal Core. Settings offers a
 one-time download of about **1.1 GB**, plus the runtime. Sub 1 does not need to
@@ -87,6 +89,17 @@ can still appear in logs. Redact them before sharing.
 The studio serves a local page on `127.0.0.1` and requires a per-run access
 token. This is not an isolation boundary against software with access to the
 same Windows account. See the [security policy](SECURITY.md).
+
+## Documentation
+
+- [User guide](docs/user-guide.md): setup, the watch workflow, settings, and troubleshooting.
+- [Developer guide](docs/developer-guide.md): setup from source, run modes, runtime
+  contracts, storage, releases, and verification.
+- [Meowcal Core](docs/MEOWCAL_CORE.md): OCR engines, the Core protocol, and
+  installation compatibility.
+- Evidence: [OCR measurements](docs/OCR_BENCHMARK.md),
+  [playback evidence](docs/PLAYBACK_EVIDENCE.md), and
+  [playing-confidence calibration](docs/PLAYING_CONFIDENCE_CALIBRATION.md).
 
 ## Development
 

@@ -43,13 +43,13 @@ rejected those reads, but OCR-only translation has no source track to reject the
 
 ## Default policy
 
-Automatic mode keeps an exact installed Windows OCR language. The native replay
-below did not show greater cue coverage from PP, despite its higher exact OCR
-accuracy. PP supplies supported languages whose requested Windows pack is missing
-and remains an explicit setting. OCR-only sessions also accept a compatible
-Chinese Windows pack to reduce scene-text reads. Korean always uses Windows.
-Missing PP capability or initialization failure falls back explicitly to Windows.
-If neither engine can supply the language, start stops with an actionable error.
+[MEOWCAL_CORE.md](MEOWCAL_CORE.md#ocr-engine-selection) owns the selection rules.
+These measurements are the reason Automatic keeps an exact installed Windows OCR
+language: the native replay below did not show greater cue coverage from PP,
+despite its higher exact OCR accuracy, and PP frames took longer and used more
+Core CPU in the policy benchmark. PP fills
+languages whose Windows pack is missing. Sessions without a source file prefer a
+compatible Windows pack because of the scene-text results above.
 
 PP reads the original image once and retains lines at least 60% as tall as the
 tallest line, preserving comparable speaker rows while excluding small scene
@@ -121,8 +121,8 @@ Deduplication suppressed cleaner rereads, while recovery discarded the recent
 strong cue and waited for two further cues. Unlabelled intervals in the corpus
 also interrupted support. This was a continuity failure after recognition.
 
-Changed normalized reads now still match the file when the translation gate
-considers their wording similar. A first successful read retains the cue's
+In the revised backend, changed normalized reads still match the file when the
+translation gate considers their wording similar. A first successful read retains the cue's
 original onset even after OCR damage. Another file cue within an already matched
 gate cue uses its own capture time. Fresh strong rereads support only the current
 source interval when motion is unavailable; resuming motion settles that bound
@@ -161,6 +161,24 @@ a 50 ms rendering allowance. An earlier Windows run took 590/807 ms while captur
 or OCR was in flight, including two old-cue observations after 500 ms. These
 samples do not bound seek latency below 500 ms. New-position projection still
 waits for another progressing cue rather than trusting one unrelated read.
+
+## Scope of these results
+
+- **Device.** One Windows ARM64 laptop. x64 was checked only under ARM64
+  emulation and in CI, not on a native x64 device.
+- **Build.** The policy benchmark used the released Core 0.2.2 package. The
+  native runs used candidate source loaded into an installed runtime, identified
+  by local source hashes. They are not measurements of a published App release.
+- **Sample.** One 90-second Chinese corpus with 40 labelled cues, one English
+  set, three small hard sets, and short online excerpts. Each native policy ran
+  once, sequentially, with other desktop work on the host.
+- **Metrics.** OCR exact recognition, text match rate, displayed cues, adjacent
+  and distant wrong-cue observations, onset latency, and CPU are separate
+  results. None of them is a whole-film coverage rate.
+- **Tradeoff.** PP-OCRv6 read text more accurately. It did not display more cues
+  in the native runs. Its frames took longer, and in the policy benchmark it used
+more Core CPU per frame. The single native runs do not establish a backend CPU
+difference.
 
 ## Reproduction
 

@@ -4,7 +4,27 @@ Meowcal Core supplies Windows OCR, PP-OCRv6 and managed HY-MT inference through 
 versioned process API. Canonical source and Windows ARM64/x64 runtime releases
 live in [Meowcal-Sub](https://github.com/PeterShanxin/Meowcal-Sub/tree/main/core).
 Sub 2 consumes a runtime artifact; it does not import Rust source or launch the
-Sub 1 application.
+Sub 1 application. Change Core in that repository, not here. The
+[Core README](https://github.com/PeterShanxin/Meowcal-Sub/blob/main/core/README.md#api-1)
+owns the API 1 protocol; this document covers how Sub 2 uses it.
+
+## Versions and capabilities
+
+These are independent:
+
+| Item | Where it is set | What it means |
+| --- | --- | --- |
+| App version | The app manifests (see the [developer guide](developer-guide.md#build-a-windows-distribution)) | The Sub 2 release |
+| Core release version | `coreVersion` and `tag` in [`config/meowcal-core.lock.json`](../config/meowcal-core.lock.json) | The Core package every build of this checkout bundles |
+| API major | `apiVersion` in the lock | The protocol generation; the handshake rejects another major |
+| Capabilities | The Core handshake at run time | The optional features this Core process offers |
+
+The lock decides which Core a build contains. The handshake decides what the
+running Core can do. A Core upgrade does not enable a new capability by itself:
+Sub 2 uses a capability only where its own code requests it, after the
+handshake reports it. For example, PP-OCRv6 needs the `ocrPpOcrV6`
+capability, which Core 0.2.2 offers; the published App v0.2.2 bundles Core
+0.1.4 and has no PP-OCRv6 support.
 
 ## Ownership
 
@@ -15,17 +35,54 @@ gap filling, prompts and output acceptance, the playback timeline, and UI.
 
 OCR has its own Core process, separate from translation. A model request cannot
 occupy the recognition transport. The raw OCR boundary returns recognized lines
-and geometry. PP-OCRv6 uses one original-frame pass; Sub 2 removes lines below
-60% of the tallest detected line before matching. Windows OCR retains its
-three-pass selection and white-mask corroboration. Sharing native recognition
-does not establish that one product's preprocessing is better for the other's
-workload.
+and geometry. Sharing native recognition does not establish that one product's
+preprocessing is better for the other's workload.
 
-Automatic keeps an exact installed Windows OCR language. PP-OCRv6 supplies
-supported languages whose requested Windows pack is missing. OCR-only sessions
-also accept a compatible Chinese Windows pack to reduce scene-text reads. Korean
-always uses Windows OCR. Missing capabilities or PP-OCRv6 initialization failures
-produce an explicit Windows fallback. Both choices remain available in Capture settings.
+## OCR engine selection
+
+`capture.ocr_engine` is `auto`, `windows`, or `ppOcrV6` (**Settings → Capture →
+OCR engine**). The OCR language follows the source language. The backend
+resolves the engine when a session starts and records the requested and
+resolved engine in the `ocr.engine.ready` event. A changed setting applies to
+the next start.
+
+| Setting | Session with a source file | Session without a source file |
+| --- | --- | --- |
+| Automatic | Windows OCR when the exact language pack is installed; otherwise PP-OCRv6 for a supported language; otherwise Windows OCR with a compatible pack | Windows OCR with the exact or a compatible pack; otherwise PP-OCRv6 for a supported language |
+| Windows OCR | Windows OCR with the exact or a compatible pack | Same |
+| PP-OCRv6 | PP-OCRv6 for a supported language; otherwise Windows OCR | Same |
+
+- PP-OCRv6 languages in Sub 2 are English, Chinese, Japanese, Spanish, French,
+  and German. Korean always uses Windows OCR.
+- Compatible Windows packs are Simplified and Traditional Chinese for each other,
+  and English (United Kingdom) for English (United States). The session records
+  a warning that names the substitution.
+- Sessions without a source file prefer Windows OCR because PP-OCRv6 reads more
+  scene text, and no source track can reject it (see
+  [OCR measurements](OCR_BENCHMARK.md)).
+- When Core lacks `ocrPpOcrV6`, the session uses Windows OCR with the warning
+  "PP-OCRv6 is unavailable. Using Windows OCR." When initialization fails, the
+  warning is "PP-OCRv6 could not start. Using Windows OCR." An explicit PP-OCRv6
+  setting with an unsupported language gives "PP-OCRv6 does not support this
+  language. Using Windows OCR."
+- When Windows OCR is the result and no usable pack is installed, start fails with
+  a message that names the missing language pack.
+
+The warnings above are stored in the session state while the session runs and
+cleared when it stops. The studio hides state notices during a live session, so
+the viewer does not see them; `ocr.engine.ready` records the outcome.
+
+PP-OCRv6 reads the original image once with two threads. Sub 2 removes lines
+shorter than 60% of the tallest detected line before matching.
+
+Windows OCR compares the original image, an equalized image, and a neutral-white
+text mask. The mask can recover rows hidden by scene texture only when it retains
+at least 80% of the ordered letters from a whole-scene read with at least three
+letters. This preserves colored or dim subtitles when white scenery produces
+unrelated text. Eligible reads compete on cleaned text quality, not physical row
+count. Each pass waits at most one second. A timeout returns the best prior read
+and terminates the owned OCR Core process; a new process handles later frames.
+Recognition never queues behind model inference.
 
 BGE retains its own model and process implementation and a separate runtime
 directory. It must not execute files from a Core installation without a lifetime
@@ -72,10 +129,13 @@ by exactly `payloadBytes` raw BGRA bytes without a trailing delimiter. Control
 requests carry zero payload bytes. All JSON headers and responses are limited to
 256 KiB; packed OCR frames are limited to 4096 pixels per dimension and 64 MiB.
 The header carries dimensions, packed stride, and a 1–30000 ms timeout. Windows
-requests carry a language. PP-OCRv6 requires the additive `ocrPpOcrV6` capability,
-sets `engine: "ppOcrV6"` and `maxThreads: 2`, and omits language. Its model is
-initialized with a separate cancellable budget before the one-second frame
-deadline. Process replacement invalidates that initialization.
+requests carry `language` and omit `engine` and `maxThreads`. PP-OCRv6 requests
+require the additive `ocrPpOcrV6` capability, set `engine: "ppOcrV6"` and
+`maxThreads: 2`, and omit `language`; the client rejects a request that mixes
+the two forms. Before capture, `ocrInitialize` loads the PP-OCRv6 model with its
+own cancellable budget, separate from the one-second frame deadline. The
+response must name `ppOcrV6` and no resolved language. Process replacement
+invalidates that initialization.
 The client deadline includes writing the complete header and pixels. Cancellation,
 a stalled write, or malformed framing terminates the owned OCR process before
 a later request starts a replacement. The handshake requires the binary OCR
