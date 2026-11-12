@@ -17,14 +17,19 @@ const BIAS_STEP_MS = 100;
  * The shell owns the shape and the state: it watches the desktop cursor and
  * clips the window to a pill that grows out of the corner. This page is told
  * how far open that pill is and fades its contents to match.
+ *
+ * A session warning marks the bead. The pill is too short for the warning
+ * beside the controls, so its button swaps the controls for the text.
  */
 export function LiveView({
+  warning,
   biasMs,
   onAdjustBias,
   onStop,
   onSelectRegion,
   onOpenSettings,
 }: {
+  warning: string;
   biasMs: number;
   onAdjustBias: (deltaMs: number) => void;
   onStop: () => void;
@@ -32,13 +37,17 @@ export function LiveView({
   onOpenSettings: () => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
+  const [readingWarning, setReadingWarning] = useState(false);
+  const showWarning = readingWarning && warning !== "";
 
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | null = null;
     void tauri
       .listen("dock-open", (event) => {
-        setOpen(Boolean((event as { payload?: boolean } | null)?.payload));
+        const next = Boolean((event as { payload?: boolean } | null)?.payload);
+        setOpen(next);
+        if (!next) setReadingWarning(false);
       })
       .then((stop) => {
         if (!stop) return;
@@ -67,24 +76,96 @@ export function LiveView({
         overflow: "hidden",
       }}
     >
-      <Reveal open={open} delay={165}>
-        <BiasControl biasMs={biasMs} onAdjust={onAdjustBias} />
-      </Reveal>
-      <Reveal open={open} delay={110}>
-        <IconButton label="Stop sync" onClick={onStop}>
-          <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor">
-            <rect x="0.5" y="0.5" width="9" height="9" rx="1.4" />
-          </svg>
-        </IconButton>
-      </Reveal>
-      <Reveal open={open} delay={55}>
-        <TextButton label="Region" onClick={onSelectRegion} />
-      </Reveal>
-      <Reveal open={open} delay={0}>
-        <TextButton label="Settings" onClick={onOpenSettings} />
-      </Reveal>
-      <Pulse />
+      {showWarning ? (
+        <Reveal open={open} delay={55} fill>
+          <WarningText text={warning} />
+        </Reveal>
+      ) : (
+        <>
+          <Reveal open={open} delay={165}>
+            <BiasControl biasMs={biasMs} onAdjust={onAdjustBias} />
+          </Reveal>
+          <Reveal open={open} delay={110}>
+            <IconButton label="Stop sync" onClick={onStop}>
+              <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor">
+                <rect x="0.5" y="0.5" width="9" height="9" rx="1.4" />
+              </svg>
+            </IconButton>
+          </Reveal>
+          <Reveal open={open} delay={55}>
+            <TextButton label="Region" onClick={onSelectRegion} />
+          </Reveal>
+          <Reveal open={open} delay={0}>
+            <TextButton label="Settings" onClick={onOpenSettings} />
+          </Reveal>
+        </>
+      )}
+      {warning !== "" && (
+        <Reveal open={open} delay={0}>
+          <WarningButton
+            expanded={showWarning}
+            onClick={() => setReadingWarning((reading) => !reading)}
+          />
+        </Reveal>
+      )}
+      <Pulse warning={warning !== ""} />
     </div>
+  );
+}
+
+function WarningButton({
+  expanded,
+  onClick,
+}: {
+  expanded: boolean;
+  onClick: () => void;
+}): JSX.Element {
+  const label = expanded ? "Hide warning" : "Show warning";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      aria-expanded={expanded}
+      style={{
+        width: 30,
+        height: 30,
+        borderRadius: 100,
+        border: "none",
+        background: expanded ? "var(--accent-ring)" : "var(--accent-tint)",
+        color: "var(--accent-text)",
+        cursor: "pointer",
+        fontSize: 14,
+        fontWeight: 700,
+        lineHeight: 1,
+      }}
+    >
+      !
+    </button>
+  );
+}
+
+/** Up to three lines fit the pill; the full text stays in the tooltip. */
+function WarningText({ text }: { text: string }): JSX.Element {
+  return (
+    <p
+      role="status"
+      title={text}
+      style={{
+        margin: 0,
+        paddingLeft: 16,
+        display: "-webkit-box",
+        WebkitLineClamp: 3,
+        WebkitBoxOrient: "vertical",
+        overflow: "hidden",
+        fontSize: 11,
+        lineHeight: 1.2,
+        color: "var(--accent-text)",
+      }}
+    >
+      {text}
+    </p>
   );
 }
 
@@ -162,8 +243,9 @@ function StepButton({
   );
 }
 
-/** The one thing on screen while the dock rests: proof the session is running. */
-function Pulse(): JSX.Element {
+/** The one thing on screen while the dock rests: proof the session is running,
+ * drawn as a mark instead of a dot while the session has a warning. */
+function Pulse({ warning }: { warning: boolean }): JSX.Element {
   return (
     <div
       style={{
@@ -175,16 +257,32 @@ function Pulse(): JSX.Element {
         height: 30,
       }}
     >
-      <span
-        style={{
-          width: 7,
-          height: 7,
-          borderRadius: 4,
-          background: "var(--accent-hex)",
-          boxShadow: "0 0 10px var(--accent-hex)",
-          animation: "pulse 1.4s ease-in-out infinite",
-        }}
-      />
+      {warning ? (
+        <span
+          aria-hidden
+          style={{
+            fontSize: 15,
+            fontWeight: 800,
+            lineHeight: 1,
+            color: "var(--accent-hex)",
+            textShadow: "0 0 10px var(--accent-hex)",
+            animation: "pulse 1.4s ease-in-out infinite",
+          }}
+        >
+          !
+        </span>
+      ) : (
+        <span
+          style={{
+            width: 7,
+            height: 7,
+            borderRadius: 4,
+            background: "var(--accent-hex)",
+            boxShadow: "0 0 10px var(--accent-hex)",
+            animation: "pulse 1.4s ease-in-out infinite",
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -193,16 +291,19 @@ function Pulse(): JSX.Element {
 function Reveal({
   open,
   delay,
+  fill = false,
   children,
 }: {
   open: boolean;
   delay: number;
+  fill?: boolean;
   children: JSX.Element;
 }): JSX.Element {
   return (
     <div
       style={{
-        flex: "0 0 auto",
+        flex: fill ? "1 1 auto" : "0 0 auto",
+        minWidth: 0,
         opacity: open ? 1 : 0,
         transform: open ? "translateX(0)" : "translateX(14px)",
         pointerEvents: open ? "auto" : "none",

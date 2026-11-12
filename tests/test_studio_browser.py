@@ -706,3 +706,21 @@ def test_tab_moves_on_from_the_palette_after_its_last_tab(tmp_path):
         # of those retries may take focus back from where Tab moved it.
         page.wait_for_timeout(1200)
         assert page.evaluate("document.activeElement.dataset.palette") is None
+
+
+def test_live_dock_shows_the_session_warning_and_keeps_it_after_stop(tmp_path):
+    server = _prepared_server(tmp_path)
+    warning = "PP-OCRv6 could not start. Using Windows OCR."
+    server.controller._state.status = "running"
+    server.controller._state.warning_message = warning
+    with _studio(server, 1280, 900) as page:
+        page.get_by_role("button", name="Show warning").press("Enter")
+        expect(page.get_by_text(warning)).to_be_visible()
+        expect(page.get_by_role("button", name="Stop sync")).to_have_count(0)
+
+        page.get_by_role("button", name="Hide warning").press("Enter")
+        expect(page.get_by_text(warning)).to_have_count(0)
+        page.get_by_role("button", name="Stop sync").press("Enter")
+
+        expect(page.get_by_role("button", name="Start OCR and sync")).to_be_visible()
+        expect(page.locator(".source-health-text")).to_have_text(warning)

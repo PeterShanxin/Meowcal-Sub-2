@@ -68,9 +68,10 @@ the next start.
 - When Windows OCR is the result and no usable pack is installed, start fails with
   a message that names the missing language pack.
 
-The warnings above are stored in the session state while the session runs and
-cleared when it stops. The studio hides state notices during a live session, so
-the viewer does not see them; `ocr.engine.ready` records the outcome.
+The warnings above become the session warning when the session starts. The live
+dock shows it during the session, and it remains after the session stops until
+a later search, preparation, subtitle save, start, or error replaces it. `ocr.engine.ready` records
+the requested and resolved engine.
 
 PP-OCRv6 reads the original image once with two threads. Sub 2 removes lines
 shorter than 60% of the tallest detected line before matching.
