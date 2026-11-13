@@ -104,6 +104,11 @@ build also runs it automatically; unchanged assets are left alone. Verification
 rejects a stale PNG export, so commit the artwork and its export together.
 README downloads link to the latest published GitHub Release.
 
+The [product page](https://petershanxin.github.io/Meowcal-Sub/sub-2/) is built
+from the Meowcal Sub repository and states the release it describes. After a
+release is published, update the Sub 2 version, copy, and screenshot there. See
+that repository's [site instructions](https://github.com/PeterShanxin/Meowcal-Sub/blob/main/site/README.md).
+
 Use a native x64 or ARM64 Windows environment with PowerShell 7 and the tools
 above. Install GitHub CLI and authenticate with `gh auth login`; the build reads
 upstream license files that some published crates omit. CI supplies its read-only

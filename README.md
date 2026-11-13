@@ -9,6 +9,8 @@
 
 <p align="center">
   <a href="https://github.com/PeterShanxin/Meowcal-Sub-2/releases/latest">Download</a> ·
+  <a href="https://petershanxin.github.io/Meowcal-Sub/sub-2/">Website</a> ·
+  <a href="https://petershanxin.github.io/Meowcal-Sub/zh-CN/sub-2/">简体中文介绍</a> ·
   <a href="docs/user-guide.md">User guide</a> ·
   <a href="docs/developer-guide.md">Build from source</a>
 </p>
