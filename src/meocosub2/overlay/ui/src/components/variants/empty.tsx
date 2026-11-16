@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import { BrandMark, Kbd } from "../primitives";
 
 export function EmptyState({
@@ -32,7 +33,7 @@ export function EmptyState({
             marginTop: 14,
           }}
         >
-          First launch
+          {t("First launch")}
         </div>
         <h1
           className="display-serif"
@@ -44,7 +45,7 @@ export function EmptyState({
             color: "var(--text-heading)",
           }}
         >
-          Pick a language pair to begin.
+          {t("Pick a language pair to begin.")}
         </h1>
         <p
           style={{
@@ -54,7 +55,7 @@ export function EmptyState({
             lineHeight: 1.55,
           }}
         >
-          Meowcal watches what's on screen and shows translated subtitles alongside.
+          {t("Meowcal watches what's on screen and shows translated subtitles alongside.")}
         </p>
       </div>
 
@@ -88,7 +89,7 @@ export function EmptyState({
                 textTransform: "uppercase",
               }}
             >
-              From
+              {t("From")}
             </div>
             <div
               style={{
@@ -123,7 +124,7 @@ export function EmptyState({
                 textTransform: "uppercase",
               }}
             >
-              To
+              {t("To")}
             </div>
             <div
               style={{
@@ -156,7 +157,7 @@ export function EmptyState({
             gap: 8,
           }}
         >
-          Open command palette <Kbd>Ctrl K</Kbd>
+          {t("Open command palette")} <Kbd>Ctrl K</Kbd>
         </button>
       </div>
     </>

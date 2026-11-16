@@ -165,6 +165,17 @@ recognizer readiness, resolved session settings and startup guards; and
 `overlay/ui/src/components/variants/settings.tsx` 1301 → 1328 for the
 keyboard-accessible recognizer choice.
 
+The interface localization records `src-tauri/src/main.rs` 1175 → 1185 for tray
+labels in the saved language and the keys and language the splash and selector
+show; `config.py` 549 → 567 for the persisted interface language;
+`overlay/ui/src/app.tsx` 1746 → 1762 for following the saved language, relabelling
+the tray and rebuilding mapped rows when the language changes;
+`overlay/ui/src/components/palette.tsx` 1598 → 1613, `primitives.tsx` 391 → 394
+and `variants/settings.tsx` 1328 → 1387 for translated copy and the language
+control; and a ceiling of 404 for `components/subtitle-editor/workspace.tsx`,
+which crossed the new-file limit by routing its labels and hints through the
+catalog.
+
 ## Lint budgets
 
 | Tool | Budget | State |
@@ -237,6 +248,8 @@ cheapest way there is to make a coverage claim mean less than it says.
 A repository-wide frontend floor would be about 3% and would say nothing. Every
 module that gains tests joins the scope. The subtitle editor adds document IO,
 diagnostics, timing transforms, history, and their shared error types to this scope.
+The interface-language runtime (`src/i18n/index.ts`) and the translation coverage
+gate (`src/i18n/coverage.ts`) also belong to it.
 
 ## Proving the gates can fail
 
