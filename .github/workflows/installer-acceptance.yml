@@ -50,6 +50,14 @@ jobs:
         run: |
           $pins = Get-Content config/installer-acceptance.json -Raw | ConvertFrom-Json
           foreach ($release in @($pins.receiver, $pins.target)) {
+            if ($release.release) {
+              if ($release.release -ne "v$($release.version)") { throw 'Pinned release tag does not match version.' }
+              gh release download $release.release --repo $env:GITHUB_REPOSITORY `
+                --pattern "meowcal-sub-2-v$($release.version)-windows-${{ matrix.architecture }}-*" `
+                --dir "$env:RUNNER_TEMP/installer-assets/$($release.version)"
+              if ($LASTEXITCODE -ne 0) { throw 'Pinned release download failed; do not substitute another build.' }
+              continue
+            }
             $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$($release.run)" | ConvertFrom-Json
             if ($LASTEXITCODE -ne 0 -or $run.head_sha -ne $release.commit -or $run.conclusion -ne 'success') {
               throw 'Pinned build source or conclusion does not match.'

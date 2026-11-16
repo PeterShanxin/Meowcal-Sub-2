@@ -289,7 +289,7 @@ class Acceptance:
             self.record()
             formal = {
                 "phase": "fresh-formal-install",
-                "installer": self.install(packages["target"][0], "0.2.1"),
+                "installer": self.install(packages["target"][0], pins["target"]["version"]),
             }
             self.report["phases"].append(formal)
             formal["payload"] = verify_installed(
@@ -303,7 +303,7 @@ class Acceptance:
             self.setup_profile("upgrade")
             upgrade = {
                 "phase": "in-place-signed-receiver-upgrade",
-                "receiver": self.install(packages["receiver"][0], "0.2.0"),
+                "receiver": self.install(packages["receiver"][0], pins["receiver"]["version"]),
             }
             self.report["phases"].append(upgrade)
             upgrade["receiverPayload"] = verify_installed(
@@ -316,7 +316,9 @@ class Acceptance:
             self.api(settings)
             config_hash, marker_hash = digest(self.config), digest(self.marker)
             upgrade["oldClose"] = self.close(old.pid)
-            upgrade["installer"] = self.install(packages["target"][0], "0.2.1", upgrade=True)
+            upgrade["installer"] = self.install(
+                packages["target"][0], pins["target"]["version"], upgrade=True
+            )
 
             def restarted():
                 return [

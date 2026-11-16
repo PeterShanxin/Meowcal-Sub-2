@@ -90,8 +90,8 @@ spend metered allowances, and a test can overwrite the viewer's configuration.
 Set the same `X.Y.Z` version in
 `tauri.conf.json`, `Cargo.toml`, `Cargo.lock`, `pyproject.toml`, and the studio's
 `package.json` and `package-lock.json`, plus the backend's `__init__.py`.
-`scripts/check_app_version.py` checks
-these files in CI and requires a matching `vX.Y.Z` tag for signed release builds.
+Update the expected CLI version in `tests/test_cli.py` as well.
+`scripts/check_app_version.py` checks these files in CI and requires a matching `vX.Y.Z` tag for signed release builds.
 The English and Chinese repository banners do not display a release version.
 After editing either SVG, regenerate the PNG exports before committing:
 
@@ -104,6 +104,8 @@ build also runs it automatically; unchanged assets are left alone. Verification
 rejects a stale PNG export, so commit the artwork and its export together.
 [Brand assets](assets/README.md) lists the icon and wordmark sources.
 README downloads link to the latest published GitHub Release.
+Write the English and Chinese notes before tagging; [release notes](RELEASE_NOTES.md)
+owns their layout and download guidance.
 
 The [product page](https://petershanxin.github.io/Meowcal-Sub/sub-2/) is built
 from the Meowcal Sub repository and states the release it describes. After a
@@ -154,8 +156,15 @@ match the test directory. The helper refuses local and self-hosted machines.
 `installer-acceptance.yml` uses standard disposable Windows x64 and ARM64 hosted
 runners with read-only repository/artifact access. It downloads the fixed signed
 receiver and target builds in `config/installer-acceptance.json`; it does not
-rebuild, sign, publish, or run on a developer's desktop. Expired artifacts fail
-the job rather than silently substituting another build.
+rebuild, sign, publish, or run on a developer's desktop. A `release` pin downloads
+the exact published tag; a `run` pin downloads a successful build at the pinned
+commit. Both paths verify the pinned hashes, source metadata and signature.
+Use the previous published release as receiver and the new signed build as
+target. Before publication, pin the target's successful workflow run: the
+read-only acceptance token cannot download draft releases. After acceptance and
+publication, replace the target's `run` with its `release` tag and rerun acceptance
+against the same hashes. Missing releases or expired artifacts fail rather than
+substituting a build.
 
 The test checks hashes, signatures and installed payloads, cancels the target
 installer before installation, opens the native Studio and Settings, then upgrades

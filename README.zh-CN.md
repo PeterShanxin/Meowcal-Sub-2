@@ -47,7 +47,7 @@
 
 两种安装包都包含 Python 后台和 Meowcal Core 可执行文件。模型在设置中安装。发布页同时提供 SHA-256 校验和。v0.1.0 和 v0.2.0 需要手动安装，才能升级到第一个已签名的版本。已签名的安装版之后可以在应用内更新；便携版需要手动更新。首次启动的设置方法见[用户指南](docs/user-guide.zh-CN.md)。
 
-你需要 Windows、Microsoft WebView2，以及屏幕上那种语言的 Windows OCR 语言包。在 `main` 分支上，PP-OCRv6 无需语言包即可识别英语、中文、日语、西班牙语、法语和德语；最新发布版尚未包含它。搜索字幕至少需要一个字幕来源的凭据：OpenSubtitles API 密钥、SubDL API 密钥或 ASSRT 令牌。各来源的可用性和下载额度以其服务为准。
+你需要 Windows 和 Microsoft WebView2。使用 Windows OCR 时，还需要屏幕上那种语言的 Windows OCR 语言包。从 v0.3.0 起，PP-OCRv6 无需 Windows OCR 语言包即可识别英语、中文、日语、西班牙语、法语和德语。搜索字幕至少需要一个字幕来源的凭据：OpenSubtitles API 密钥、SubDL API 密钥或 ASSRT 令牌。各来源的可用性和下载额度以其服务为准。
 
 打开**设置**，配置一个字幕来源和语言组合。搜索片名，选择原文和译文字幕，然后选择**开始识别并同步**。拖动鼠标框住播放器的字幕，选择**确认**。看完后，在实时控制栏中选择**停止同步**。
 
