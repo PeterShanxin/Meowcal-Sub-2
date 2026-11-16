@@ -9,18 +9,9 @@ own presentation timings. When a cue has no human translation, the local
 translation engine can fill it. Without a matching source, OCR reads can be
 translated directly.
 
-This guide describes the current source on `main`. The latest published release
-(v0.2.2) does not yet include these parts of it:
-
-- the **OCR engine** setting and PP-OCRv6, which need Meowcal Core 0.2.2
-  (v0.2.2 includes Core 0.1.4 and uses Windows OCR);
-- the **Use on-screen OCR** source choice when no source file matches;
-- per-file language detection inside ASSRT packages;
-- the playback-continuity and movie-grouping corrections made after v0.2.2;
-- the interface language setting and the Simplified Chinese interface.
-
-A build from `main` also reports version 0.2.2. The
-[developer guide](developer-guide.md#release-applicability) explains the difference.
+This guide describes v0.3.0, including the Simplified Chinese interface,
+PP-OCRv6 and subtitle selection and playback improvements. See the
+[release notes](releases/v0.3.0.md) for what changed.
 
 ## Install and first launch
 

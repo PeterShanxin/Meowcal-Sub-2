@@ -65,9 +65,9 @@ copies are updated manually.
 See the [user guide](docs/user-guide.md) for first-launch setup.
 
 You need Windows, Microsoft WebView2, and a Windows OCR language pack for the
-language on screen. On `main`, PP-OCRv6 reads English, Chinese, Japanese,
-Spanish, French, and German without a pack; the latest release does not include
-it yet. Subtitle search requires at least one provider credential: an
+language on screen when using Windows OCR. From v0.3.0, PP-OCRv6 reads English,
+Chinese, Japanese, Spanish, French, and German without Windows OCR language packs.
+Subtitle search requires at least one provider credential: an
 OpenSubtitles API key, SubDL API key, or ASSRT token. Provider availability and
 download quotas apply.
 

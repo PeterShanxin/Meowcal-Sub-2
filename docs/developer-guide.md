@@ -104,6 +104,8 @@ build also runs it automatically; unchanged assets are left alone. Verification
 rejects a stale PNG export, so commit the artwork and its export together.
 [Brand assets](assets/README.md) lists the icon and wordmark sources.
 README downloads link to the latest published GitHub Release.
+Write the English and Chinese notes before tagging; [release notes](RELEASE_NOTES.md)
+owns their layout and download guidance.
 
 The [product page](https://petershanxin.github.io/Meowcal-Sub/sub-2/) is built
 from the Meowcal Sub repository and states the release it describes. After a
@@ -154,8 +156,11 @@ match the test directory. The helper refuses local and self-hosted machines.
 `installer-acceptance.yml` uses standard disposable Windows x64 and ARM64 hosted
 runners with read-only repository/artifact access. It downloads the fixed signed
 receiver and target builds in `config/installer-acceptance.json`; it does not
-rebuild, sign, publish, or run on a developer's desktop. Expired artifacts fail
-the job rather than silently substituting another build.
+rebuild, sign, publish, or run on a developer's desktop. A `release` pin downloads
+the exact published tag; a `run` pin downloads a successful build at the pinned
+commit. Both paths verify the pinned hashes, source metadata and signature.
+Use the previous published release as receiver and the new signed build as
+target. Missing releases or expired artifacts fail rather than substituting a build.
 
 The test checks hashes, signatures and installed payloads, cancels the target
 installer before installation, opens the native Studio and Settings, then upgrades
