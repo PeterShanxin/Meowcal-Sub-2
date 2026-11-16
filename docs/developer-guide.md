@@ -90,8 +90,8 @@ spend metered allowances, and a test can overwrite the viewer's configuration.
 Set the same `X.Y.Z` version in
 `tauri.conf.json`, `Cargo.toml`, `Cargo.lock`, `pyproject.toml`, and the studio's
 `package.json` and `package-lock.json`, plus the backend's `__init__.py`.
-`scripts/check_app_version.py` checks
-these files in CI and requires a matching `vX.Y.Z` tag for signed release builds.
+Update the expected CLI version in `tests/test_cli.py` as well.
+`scripts/check_app_version.py` checks these files in CI and requires a matching `vX.Y.Z` tag for signed release builds.
 The English and Chinese repository banners do not display a release version.
 After editing either SVG, regenerate the PNG exports before committing:
 
