@@ -333,9 +333,10 @@ class OverlayServer:
     def _page_html(self, file_name: str) -> str:
         """A served page with this run's token, handed only to callers that already have it."""
         markup = (STATIC_DIR / file_name).read_text(encoding="utf-8")
-        bootstrap = (
-            "<script>window.__MEOWCAL__=" + json.dumps({"token": self._access_token}) + ";</script>"
-        )
+        # The interface language is read before the first paint, so a studio set to
+        # English on a Chinese system never flashes the wrong language.
+        context = {"token": self._access_token, "uiLanguage": self.config.ui_language}
+        bootstrap = "<script>window.__MEOWCAL__=" + json.dumps(context) + ";</script>"
         return markup.replace("</head>", f"{bootstrap}</head>", 1)
 
     async def _app_socket(self, websocket: WebSocket) -> None:

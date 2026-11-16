@@ -94,6 +94,7 @@ def test_config_example_contains_all_sections() -> None:
         "translation",
         "overlay",
         "debug",
+        "ui",
     }
     assert set(payload["subtitle_sources"]) == {"opensubtitles", "subdl", "assrt"}
     assert "api_key" in payload["subtitle_sources"]["subdl"]
@@ -205,3 +206,23 @@ def test_a_config_save_that_touches_nothing_else_still_carries_the_offset() -> N
     updated = config_from_payload({"sync": {"biasMs": 240}}, fallback=base)
     assert updated.sync_bias_ms == 200
     assert updated.fuzzy_threshold == 71
+
+
+def test_the_interface_language_survives_a_save_and_a_load(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    save_config(config_from_payload({"ui": {"language": "zh-CN"}}), path)
+    assert load_config(path).ui_language == "zh-CN"
+    assert config_to_payload(load_config(path))["ui"] == {"language": "zh-CN"}
+
+
+def test_the_interface_language_follows_the_system_by_default(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('[ui]\nlanguage = "fr"\n', encoding="utf-8")
+    assert AppConfig().ui_language == "system"
+    assert load_config(path).ui_language == "system"
+    assert config_from_payload({"ui": {"language": 3}}).ui_language == "system"
+
+
+def test_a_save_that_omits_the_interface_language_keeps_it() -> None:
+    chosen = AppConfig(ui_language="en")
+    assert config_from_payload({"debug": {"mode": True}}, chosen).ui_language == "en"

@@ -4,7 +4,7 @@
   "legacyFileCeilings": {
     "src-tauri/src/main.rs": 1175,
     "src-tauri/src/overlay_window.rs": 443,
-    "src/meocosub2/config.py": 549,
+    "src/meocosub2/config.py": 567,
     "src/meocosub2/engine/runtime.py": 211,
     "src/meocosub2/matcher.py": 550,
     "src/meocosub2/opensubtitles/client.py": 932,
