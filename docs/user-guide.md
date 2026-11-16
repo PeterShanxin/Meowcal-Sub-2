@@ -1,5 +1,7 @@
 # User guide
 
+[简体中文](user-guide.zh-CN.md)
+
 Meowcal Sub 2 reads subtitles visible in a selected screen region and shows
 the target language in an always-on-top subtitle strip. A source subtitle file
 helps it follow playback; a target file supplies human translations and their
@@ -14,7 +16,8 @@ This guide describes the current source on `main`. The latest published release
   (v0.2.2 includes Core 0.1.4 and uses Windows OCR);
 - the **Use on-screen OCR** source choice when no source file matches;
 - per-file language detection inside ASSRT packages;
-- the playback-continuity and movie-grouping corrections made after v0.2.2.
+- the playback-continuity and movie-grouping corrections made after v0.2.2;
+- the interface language setting and the Simplified Chinese interface.
 
 A build from `main` also reports version 0.2.2. The
 [developer guide](developer-guide.md#release-applicability) explains the difference.
@@ -53,6 +56,18 @@ pack for the language on screen. To add one, add the language in Windows
 **Settings → Time & language → Language & region**; Windows may ask for
 administrator permission or a restart. Restart Meowcal Sub 2 after the pack is
 installed.
+
+### Interface language
+
+The interface is in English or Simplified Chinese. By default it follows the
+Windows display language: a Chinese display language shows Simplified Chinese,
+and any other language shows English. To choose, open **Settings → Appearance →
+Interface language** and select **System**, **English**, or **简体中文**. The
+change applies immediately and is kept after a restart. With **System**, the tray
+menu shows English until the studio window has loaded.
+
+Subtitles, titles, and file names are never translated. A provider or system
+error that the app does not recognize is shown in its original wording.
 
 ### Subtitle sources
 

@@ -34,6 +34,21 @@ Python and browser checks cannot prove native OCR, WebView2 rendering, capture
 selection, or subtitle placement. Changes to those paths also need a real
 Windows run.
 
+### Interface translations
+
+The interface is in English and Simplified Chinese. Add or change English and
+Chinese text in the same change: studio text in
+`src/meocosub2/overlay/ui/src/i18n/en-zh.json`, backend and editor messages in
+`messages-zh.json` beside it, and the splash, selector and subtitle plate in
+`src/meocosub2/overlay/static/i18n.js`. Use the same `{name}` placeholders in
+both languages. Write natural Chinese product copy rather than a word-for-word
+translation. The [developer guide](docs/developer-guide.md#interface-language)
+describes how the language is chosen and applied.
+
+When a user-visible behavior or label changes, update `README.md` and
+`README.zh-CN.md`, and `docs/user-guide.md` and `docs/user-guide.zh-CN.md`, in
+the same pull request. Developer documents stay in English.
+
 ## Issues and pull requests
 
 Include reproduction steps, the app version, Windows version and architecture,

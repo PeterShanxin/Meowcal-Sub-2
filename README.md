@@ -10,7 +10,7 @@
 <p align="center">
   <a href="https://github.com/PeterShanxin/Meowcal-Sub-2/releases/latest">Download</a> ·
   <a href="https://petershanxin.github.io/Meowcal-Sub/sub-2/">Website</a> ·
-  <a href="https://petershanxin.github.io/Meowcal-Sub/zh-CN/sub-2/">简体中文介绍</a> ·
+  <a href="README.zh-CN.md">简体中文</a> ·
   <a href="docs/user-guide.md">User guide</a> ·
   <a href="docs/developer-guide.md">Build from source</a>
 </p>
@@ -32,6 +32,8 @@ it can translate locally through [Meowcal Core](docs/MEOWCAL_CORE.md).
 - Edit SRT/WebVTT text and timing before sync, preview drift corrections, and use
   corrected copies directly in the prepared session.
 - Select a capture region and change subtitle appearance from the app.
+- On `main`, use the interface in English or Simplified Chinese. It follows the
+  Windows display language unless you choose one in Settings.
 
 OCR and matching depend on the video, subtitle release, language, and selected
 region. This is an early release; it does not guarantee a match for every

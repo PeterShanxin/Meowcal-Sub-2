@@ -227,7 +227,8 @@ PR. Use this map:
 
 | The change affects | Update |
 | --- | --- |
-| User workflows, controls, settings, messages, or troubleshooting | [user-guide.md](user-guide.md), and [README.md](../README.md) when its summary changes |
+| User workflows, controls, settings, messages, or troubleshooting | [user-guide.md](user-guide.md) and [user-guide.zh-CN.md](user-guide.zh-CN.md), and [README.md](../README.md) and [README.zh-CN.md](../README.zh-CN.md) when the summary changes |
+| Interface or backend text the viewer reads | The English and Chinese catalogs ([developer guide](developer-guide.md#interface-language)) |
 | Data flow, configuration, interfaces, states, cancellation, recovery, storage, or process lifecycle | [developer-guide.md](developer-guide.md), or the specialized document that owns the contract |
 | Core protocol, capabilities, OCR engines, models, or installation compatibility | [MEOWCAL_CORE.md](MEOWCAL_CORE.md); also [CORE_UPGRADE_AUTOMATION.md](CORE_UPGRADE_AUTOMATION.md) when the upgrade workflow changes |
 | OCR, synchronization, performance method, metrics, or acceptance criteria | [OCR_BENCHMARK.md](OCR_BENCHMARK.md), [PLAYBACK_EVIDENCE.md](PLAYBACK_EVIDENCE.md), or [PLAYING_CONFIDENCE_CALIBRATION.md](PLAYING_CONFIDENCE_CALIBRATION.md) |
