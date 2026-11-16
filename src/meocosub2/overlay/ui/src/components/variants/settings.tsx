@@ -19,6 +19,7 @@ import {
   type UiLanguage,
 } from "../../i18n";
 import { Kbd } from "../primitives";
+import { useSettingsDraft } from "./settings-draft";
 
 type SectionId =
   | "appearance"
@@ -71,9 +72,8 @@ export function SettingsView({
   onInstallEngine: () => void;
 }): JSX.Element {
   const [section, setSection] = useState<SectionId>("sources");
-  const [draft, setDraft] = useState<BackendConfig>(initialConfig);
+  const { draft, setDraft, dirty, setDirty } = useSettingsDraft(initialConfig);
   const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
   const [banner, setBanner] = useState<{
     kind: "ok" | "error";
     text: string;
@@ -121,11 +121,6 @@ export function SettingsView({
       el.removeAttribute("aria-hidden");
     }
   }, [motionState]);
-
-  useEffect(() => {
-    setDraft(initialConfig);
-    setDirty(false);
-  }, [initialConfig]);
 
   useEffect(() => {
     if (motionState === "hidden") return;
