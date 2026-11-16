@@ -1064,10 +1064,9 @@ fn main() {
                 });
             });
 
-            // A saved choice is known now; "system" reads English until the studio
-            // resolves it and calls set_tray_locale.
+            // Follows the display language at once; the studio re-labels on a change.
             let [show, select_area, stop, exit] =
-                ui_language::tray_labels(ui_language::ui_language());
+                ui_language::tray_labels(ui_language::launch_locale());
             let show_item = MenuItem::with_id(app, "show", show, true, None::<&str>)?;
             let selector_item =
                 MenuItem::with_id(app, "select-area", select_area, true, None::<&str>)?;

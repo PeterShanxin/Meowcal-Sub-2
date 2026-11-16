@@ -20,6 +20,35 @@ pub(crate) fn parse_ui_language(raw: &str) -> &'static str {
     }
 }
 
+/// The locale the shell draws in: a saved choice as is, and `system` from the
+/// display language, the way the studio resolves it.
+pub(crate) fn resolve_locale(preference: &str, display_is_chinese: bool) -> &'static str {
+    match preference {
+        "zh-CN" => "zh-CN",
+        "en" => "en",
+        _ if display_is_chinese => "zh-CN",
+        _ => "en",
+    }
+}
+
+/// Whether the Windows display language is Chinese (primary language 0x04).
+#[cfg(windows)]
+pub(crate) fn display_is_chinese() -> bool {
+    // SAFETY: GetUserDefaultUILanguage takes no arguments and only reads.
+    let lang_id = unsafe { windows::Win32::Globalization::GetUserDefaultUILanguage() };
+    lang_id & 0x3ff == 0x04
+}
+
+#[cfg(not(windows))]
+pub(crate) fn display_is_chinese() -> bool {
+    false
+}
+
+/// The tray's locale at launch, before the studio window has loaded.
+pub(crate) fn launch_locale() -> &'static str {
+    resolve_locale(ui_language(), display_is_chinese())
+}
+
 /// Tray labels in the given locale: open, select area, stop, exit.
 pub(crate) fn tray_labels(locale: &str) -> [&'static str; 4] {
     if locale == "zh-CN" {
@@ -63,6 +92,14 @@ mod tests {
         assert_eq!(parse_ui_language("[ui]\nlanguage = \"fr\"\n"), "system");
         assert_eq!(parse_ui_language("[overlay]\nport = 8765\n"), "system");
         assert_eq!(parse_ui_language("[ui\nlanguage = \"en\""), "system");
+    }
+
+    #[test]
+    fn system_follows_the_display_language_and_a_saved_choice_wins() {
+        assert_eq!(resolve_locale("system", true), "zh-CN");
+        assert_eq!(resolve_locale("system", false), "en");
+        assert_eq!(resolve_locale("en", true), "en");
+        assert_eq!(resolve_locale("zh-CN", false), "zh-CN");
     }
 
     #[test]
