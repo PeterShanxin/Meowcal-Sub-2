@@ -14,7 +14,7 @@
   },
   "target": {
     "version": "0.3.0",
-    "run": 43858099619,
+    "release": "v0.3.0",
     "commit": "a86e707e7e134659f41763077338d5ee3a2965f4",
     "x64": {
       "installer": "9ac2dd1a2ea9aa2144d5b54ee46ecd82b78270f3b49a37fdc38a952f3d8ef528",
