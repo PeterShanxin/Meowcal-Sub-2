@@ -157,10 +157,14 @@ match the test directory. The helper refuses local and self-hosted machines.
 runners with read-only repository/artifact access. It downloads the fixed signed
 receiver and target builds in `config/installer-acceptance.json`; it does not
 rebuild, sign, publish, or run on a developer's desktop. A `release` pin downloads
-the exact GitHub Release tag; a `run` pin downloads a successful build at the pinned
+the exact published tag; a `run` pin downloads a successful build at the pinned
 commit. Both paths verify the pinned hashes, source metadata and signature.
 Use the previous published release as receiver and the new signed build as
-target. Missing releases or expired artifacts fail rather than substituting a build.
+target. Before publication, pin the target's successful workflow run: the
+read-only acceptance token cannot download draft releases. After acceptance and
+publication, replace the target's `run` with its `release` tag and rerun acceptance
+against the same hashes. Missing releases or expired artifacts fail rather than
+substituting a build.
 
 The test checks hashes, signatures and installed payloads, cancels the target
 installer before installation, opens the native Studio and Settings, then upgrades
