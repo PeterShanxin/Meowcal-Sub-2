@@ -9,9 +9,15 @@ In Chinese running text, the short name is **妙影2**, with no space.
 
 - `icon.svg` is the canonical source for the application icon. The studio and
   splash use the same artwork as `src/meocosub2/overlay/static/mark.svg`.
-- `icon.png` and the packaged icons in `src-tauri/icons/` are renders of
-  `icon.svg`. Render each size from the SVG rather than scaling a large PNG
-  down; `icon.ico` holds 16, 24, 32, 48, 64, 128 and 256 px PNG entries.
+- `icon-16.svg` and `icon-32.svg` are hand-fitted to the pixel grid for small
+  sizes, where the full artwork's thin gradient lines blur: the 16 px version is
+  drawn in whole pixels with flat gold, and the 32 px version uses 2 px strokes.
+  Use them for those sizes and the full `icon.svg` from 48 px up.
+- `icon.png` and the packaged icons in `src-tauri/icons/` are renders of these
+  sources. Render each size from an SVG rather than scaling a large PNG down.
+  `icon.ico` holds 16 px from `icon-16.svg`, 24 and 32 px from `icon-32.svg`,
+  and 48, 64, 128 and 256 px from `icon.svg`, all as PNG entries; `32x32.png`
+  is rendered from `icon-32.svg`.
 - `wordmark.svg` and `wordmark.zh-CN.svg` are the English and Chinese lockups for
   dark backgrounds. The text stays editable; use Segoe UI and Microsoft YaHei.
 - `banner.svg` and `banner.zh-CN.svg` head `README.md` and `README.zh-CN.md`.
