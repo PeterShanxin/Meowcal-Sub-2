@@ -1,4 +1,4 @@
-import { CatMascot, Kbd } from "../primitives";
+import { BrandMark, Kbd } from "../primitives";
 
 export function EmptyState({
   sourceLabel,
@@ -21,7 +21,7 @@ export function EmptyState({
           width: "min(560px, calc(100vw - 32px))",
         }}
       >
-        <CatMascot size={96} />
+        <BrandMark size={96} />
         <div
           style={{
             fontSize: 11,

@@ -92,8 +92,8 @@ Set the same `X.Y.Z` version in
 `package.json` and `package-lock.json`, plus the backend's `__init__.py`.
 `scripts/check_app_version.py` checks
 these files in CI and requires a matching `vX.Y.Z` tag for signed release builds.
-The repository banner does not display a release version. After editing its SVG
-artwork, regenerate the PNG export before committing:
+The English and Chinese repository banners do not display a release version.
+After editing either SVG, regenerate the PNG exports before committing:
 
 ```powershell
 python scripts/update_branding.py
@@ -102,6 +102,7 @@ python scripts/update_branding.py
 This uses the existing Playwright Chromium development dependency. The release
 build also runs it automatically; unchanged assets are left alone. Verification
 rejects a stale PNG export, so commit the artwork and its export together.
+[Brand assets](assets/README.md) lists the icon and wordmark sources.
 README downloads link to the latest published GitHub Release.
 
 The [product page](https://petershanxin.github.io/Meowcal-Sub/sub-2/) is built

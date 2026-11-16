@@ -108,10 +108,10 @@ export function Kbd({ children, dim }: { children: ReactNode; dim?: boolean }): 
   return <kbd data-dim={dim ? "true" : "false"}>{children}</kbd>;
 }
 
-export function CatMascot({ size = 56 }: { size?: number }): JSX.Element {
+export function BrandMark({ size = 56 }: { size?: number }): JSX.Element {
   return (
     <img
-      src="/static/shadow-cat-mark.svg"
+      src="/static/mark.svg"
       width={size}
       height={size}
       alt=""
