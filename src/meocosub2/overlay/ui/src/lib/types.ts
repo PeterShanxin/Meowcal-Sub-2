@@ -1,3 +1,5 @@
+import type { UiLanguage } from "../i18n";
+
 export type Phase = "home" | "prep" | "live" | "settings" | "empty" | "no-key";
 
 export type BackendStatus = "idle" | "searching" | "preparing" | "running" | "stopping" | "error";
@@ -137,6 +139,7 @@ export interface BackendConfig {
   sync: { biasMs: number };
   overlay: Record<string, unknown>;
   debug: { mode: boolean };
+  ui: { language: UiLanguage };
 }
 
 export interface BackendEpisode {

@@ -1,3 +1,5 @@
+import { t } from "../../i18n";
+
 export function NoApiKey({ onOpenSettings }: { onOpenSettings: () => void }): JSX.Element {
   return (
     <div
@@ -44,7 +46,7 @@ export function NoApiKey({ onOpenSettings }: { onOpenSettings: () => void }): JS
               textTransform: "uppercase",
             }}
           >
-            Setup required
+            {t("Setup required")}
           </div>
           <h2
             style={{
@@ -55,7 +57,7 @@ export function NoApiKey({ onOpenSettings }: { onOpenSettings: () => void }): JS
               letterSpacing: -0.3,
             }}
           >
-            Add source credentials.
+            {t("Add source credentials.")}
           </h2>
           <p
             style={{
@@ -65,8 +67,9 @@ export function NoApiKey({ onOpenSettings }: { onOpenSettings: () => void }): JS
               lineHeight: 1.55,
             }}
           >
-            At least one subtitle source credential must be configured before search. SubDL now
-            requires an API key; ASSRT uses a token.
+            {t(
+              "At least one subtitle source credential must be configured before search. SubDL now requires an API key; ASSRT uses a token.",
+            )}
           </p>
           <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
             <button
@@ -83,7 +86,7 @@ export function NoApiKey({ onOpenSettings }: { onOpenSettings: () => void }): JS
                 cursor: "pointer",
               }}
             >
-              Open Settings
+              {t("Open Settings")}
             </button>
           </div>
         </div>

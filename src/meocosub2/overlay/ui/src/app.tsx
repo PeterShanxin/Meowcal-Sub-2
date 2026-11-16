@@ -11,6 +11,7 @@ import { api } from "./hooks/use-api";
 import { useAppWebSocket } from "./hooks/use-ws";
 import { useKeybinds } from "./hooks/use-keybinds";
 import { isTauri, tauri } from "./hooks/use-tauri";
+import { localizeError, localizeMessage, setUiLanguage, t, useLocale } from "./i18n";
 import { store, useStore } from "./state/store";
 import {
   applyLanguageChoice,
@@ -75,6 +76,7 @@ export function App(): JSX.Element {
   const liveLines = useStore((s) => s.liveLines);
   const languages = useStore((s) => s.languages);
   const wsConnected = useStore((s) => s.wsConnected);
+  const locale = useLocale();
 
   const settingsRequested = manualView === "settings";
   const showSettings = settingsRequested && !!config;
@@ -141,9 +143,12 @@ export function App(): JSX.Element {
   const episodeMatchId = selectedEpisodeMatchId;
   const searchStatusMessage =
     snapshot?.progress.stage === "search" ? snapshot.progress.message : null;
+  // The mapped rows carry labels in the interface language, so they are rebuilt
+  // when it changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: locale changes the mapped labels
   const works = useMemo<WorkItem[]>(
     () => mapWorksToItems(snapshot?.search_works ?? []),
-    [snapshot?.search_works],
+    [snapshot?.search_works, locale],
   );
   const mediaFilteredWorks = useMemo(
     () => filterWorks(works, titleMediaFilter, [], null),
@@ -168,6 +173,7 @@ export function App(): JSX.Element {
       ),
     [works, titleMediaFilter, selectedSeasonFilters, seasonFilterScopeWork?.id],
   );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: locale changes the mapped labels
   const sources = useMemo(
     () =>
       mapResultsToSource(
@@ -175,8 +181,9 @@ export function App(): JSX.Element {
         episodeMatchId,
         snapshot?.source_language ?? "en",
       ),
-    [snapshot?.search_results, episodeMatchId, snapshot?.source_language],
+    [snapshot?.search_results, episodeMatchId, snapshot?.source_language, locale],
   );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: locale changes the mapped labels
   const targets = useMemo(
     () =>
       mapResultsToTarget(
@@ -192,6 +199,7 @@ export function App(): JSX.Element {
       snapshot?.target_language,
       sourceInspection,
       selectedSourceId,
+      locale,
     ],
   );
 
@@ -231,6 +239,17 @@ export function App(): JSX.Element {
   const targetListLength = inspectingSource ? 0 : targets.length;
   const activeListLength =
     tab === "titles" ? titleListLength : tab === "source" ? sources.length : targetListLength;
+
+  // The saved preference is the backend's; this keeps the studio following it
+  // when another window or a reload changes it.
+  const savedUiLanguage = config?.ui?.language;
+  useEffect(() => {
+    if (savedUiLanguage) setUiLanguage(savedUiLanguage);
+  }, [savedUiLanguage]);
+
+  useEffect(() => {
+    if (isTauri()) void tauri.setTrayLocale(locale).catch(() => undefined);
+  }, [locale]);
 
   // Enter live/exit live Tauri side-effects.
   // Only call exitLiveMode when transitioning OUT of live. Calling it on
@@ -1271,10 +1290,7 @@ export function App(): JSX.Element {
 
   const noKey = shouldShowNoKey(config);
   const isEmpty = isFirstLaunch(config) && !firstLaunchDismissed;
-  const sourceNotices = useMemo(
-    () => buildSourceNotices(config, snapshot?.warning_message ?? ""),
-    [config, snapshot?.warning_message],
-  );
+  const sourceNotices = buildSourceNotices(config, snapshot?.warning_message ?? "");
 
   // One place for both: an action that failed in the studio and a failure the
   // backend is reporting. Neither had anywhere to appear before.
@@ -1287,7 +1303,7 @@ export function App(): JSX.Element {
   const prepTitleLabel = selectedWork?.title ?? null;
   const prepFoundLabel = selectedWork
     ? selectedWork.totalSubtitles > 0
-      ? `${selectedWork.totalSubtitles.toLocaleString()} subtitles`
+      ? t("{count} subtitles", { count: selectedWork.totalSubtitles.toLocaleString() })
       : selectedWork.type
     : "—";
   const palettePhase = settingsVisible ? "settings" : phase;
@@ -1397,7 +1413,7 @@ export function App(): JSX.Element {
                     textTransform: "uppercase",
                   }}
                 >
-                  Meowcal Studio
+                  {t("Meowcal Studio")}
                 </div>
                 <h1
                   className="display-serif"
@@ -1410,7 +1426,7 @@ export function App(): JSX.Element {
                     color: "var(--text-heading)",
                   }}
                 >
-                  What are you watching?
+                  {t("What are you watching?")}
                 </h1>
               </div>
             )}
@@ -1544,7 +1560,7 @@ export function App(): JSX.Element {
             fontSize: 13,
           }}
         >
-          Bootstrap error: {bootstrapError}
+          {t("Could not load the studio: {details}", { details: localizeError(bootstrapError) })}
         </div>
       )}
     </div>
@@ -1575,7 +1591,7 @@ function SourceHealthStrip({
       </span>
       {notices.length > 1 && <span className="source-health-count">+{notices.length - 1}</span>}
       <button className="source-health-button" type="button" onClick={onOpenSettings}>
-        Settings
+        {t("Settings")}
       </button>
     </div>
   );
@@ -1592,38 +1608,38 @@ function buildSourceNotices(config: BackendConfig | null, warning: string): Sour
   if (sources.opensubtitles.enabled && !sources.opensubtitles.apiKey) {
     notices.push({
       id: "opensubtitles-key",
-      label: "OpenSubtitles key missing",
-      detail: "OpenSubtitles is enabled but skipped until an API key is saved.",
+      label: t("OpenSubtitles key missing"),
+      detail: t("OpenSubtitles is enabled but skipped until an API key is saved."),
       tone: "warn",
     });
   }
   if (sources.subdl.enabled && !sources.subdl.apiKey) {
     notices.push({
       id: "subdl-key",
-      label: "SubDL key missing",
-      detail: "SubDL now needs an API key, so searches may miss episode files.",
+      label: t("SubDL key missing"),
+      detail: t("SubDL now needs an API key, so searches may miss episode files."),
       tone: "warn",
     });
   }
   if (sources.assrt.enabled && !sources.assrt.token) {
     notices.push({
       id: "assrt-token",
-      label: "ASSRT token missing",
-      detail: "ASSRT is skipped; Chinese subtitle coverage can be thin.",
+      label: t("ASSRT token missing"),
+      detail: t("ASSRT is skipped; Chinese subtitle coverage can be thin."),
       tone: "warn",
     });
   }
   if (!hasReadySource && notices.length === 0) {
     notices.push({
       id: "no-source",
-      label: "No subtitle source ready",
-      detail: "Enable a source and save its key or token before searching.",
+      label: t("No subtitle source ready"),
+      detail: t("Enable a source and save its key or token before searching."),
       tone: "warn",
     });
   }
   // The strip shows one notice; the session's own warning is the current one.
-  const detail = warning.trim();
-  if (detail) notices.unshift({ id: "backend-warning", label: "Warning", detail, tone: "info" });
+  const detail = localizeMessage(warning.trim());
+  if (detail) notices.unshift({ id: "backend-warning", label: t("Warning"), detail, tone: "info" });
   return notices;
 }
 
@@ -1666,7 +1682,7 @@ function languageLabel(code: string | undefined): string {
     fr: "French",
     de: "German",
   };
-  return map[code] ?? code;
+  return map[code] ? t(map[code]) : code;
 }
 
 function collectSeasonNumbers(works: WorkItem[]): number[] {

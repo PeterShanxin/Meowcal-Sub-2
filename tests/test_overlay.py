@@ -45,6 +45,15 @@ def test_dashboard_root_is_served(tmp_path: Path) -> None:
     assert '<div id="root"' in dashboard.text or "<div id='root'" in dashboard.text
 
 
+def test_served_pages_carry_the_interface_language(tmp_path: Path) -> None:
+    server = make_server(tmp_path / "config.toml")
+    server.controller.config.ui_language = "zh-CN"
+    with studio_client(server) as client:
+        pages = [client.get("/").text, client.get("/overlay").text]
+    for page in pages:
+        assert '"uiLanguage": "zh-CN"' in page
+
+
 def test_config_routes_return_compat_and_nested_payload(tmp_path: Path) -> None:
     server = make_server(tmp_path / "config.toml")
     with studio_client(server) as client:

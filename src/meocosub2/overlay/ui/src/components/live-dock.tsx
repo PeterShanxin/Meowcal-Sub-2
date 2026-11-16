@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { tauri } from "../hooks/use-tauri";
+import { localizeMessage, t } from "../i18n";
 
 const EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
 // One press of the timing control. The backend rounds to its own step and
@@ -78,7 +79,7 @@ export function LiveView({
     >
       {showWarning ? (
         <Reveal open={open} delay={55} fill>
-          <WarningText text={warning} />
+          <WarningText text={localizeMessage(warning)} />
         </Reveal>
       ) : (
         <>
@@ -86,17 +87,17 @@ export function LiveView({
             <BiasControl biasMs={biasMs} onAdjust={onAdjustBias} />
           </Reveal>
           <Reveal open={open} delay={110}>
-            <IconButton label="Stop sync" onClick={onStop}>
+            <IconButton label={t("Stop sync")} onClick={onStop}>
               <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor">
                 <rect x="0.5" y="0.5" width="9" height="9" rx="1.4" />
               </svg>
             </IconButton>
           </Reveal>
           <Reveal open={open} delay={55}>
-            <TextButton label="Region" onClick={onSelectRegion} />
+            <TextButton label={t("Region")} onClick={onSelectRegion} />
           </Reveal>
           <Reveal open={open} delay={0}>
-            <TextButton label="Settings" onClick={onOpenSettings} />
+            <TextButton label={t("Settings")} onClick={onOpenSettings} />
           </Reveal>
         </>
       )}
@@ -120,7 +121,7 @@ function WarningButton({
   expanded: boolean;
   onClick: () => void;
 }): JSX.Element {
-  const label = expanded ? "Hide warning" : "Show warning";
+  const label = expanded ? t("Hide warning") : t("Show warning");
   return (
     <button
       type="button"
@@ -190,7 +191,11 @@ function BiasControl({
 }): JSX.Element {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-      <StepButton label="Show subtitles later" glyph="−" onClick={() => onAdjust(-BIAS_STEP_MS)} />
+      <StepButton
+        label={t("Show subtitles later")}
+        glyph="−"
+        onClick={() => onAdjust(-BIAS_STEP_MS)}
+      />
       <span
         aria-live="polite"
         style={{
@@ -203,7 +208,11 @@ function BiasControl({
       >
         {formatBias(biasMs)}
       </span>
-      <StepButton label="Show subtitles earlier" glyph="+" onClick={() => onAdjust(BIAS_STEP_MS)} />
+      <StepButton
+        label={t("Show subtitles earlier")}
+        glyph="+"
+        onClick={() => onAdjust(BIAS_STEP_MS)}
+      />
     </div>
   );
 }

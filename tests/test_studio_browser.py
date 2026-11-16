@@ -71,7 +71,7 @@ async def _catalog(self, query, languages):
 
 
 @contextlib.contextmanager
-def _studio(app, width, height):
+def _studio(app, width, height, locale="en-US"):
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
@@ -87,7 +87,9 @@ def _studio(app, width, height):
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch()
                 try:
-                    page = browser.new_page(viewport={"width": width, "height": height})
+                    page = browser.new_page(
+                        viewport={"width": width, "height": height}, locale=locale
+                    )
                     page.set_default_timeout(7000)
                     page.route(
                         "https://fonts.googleapis.com/**",
@@ -692,6 +694,41 @@ def test_a_narrow_window_keeps_the_prepared_session_usable(search_server):
         assert box is not None and box["x"] + box["width"] <= 390
         page.get_by_role("button", name="Edit subtitles", exact=True).click()
         expect(page.get_by_role("dialog", name="Edit subtitles · Optional")).to_be_visible()
+
+
+def test_a_chinese_display_language_gets_the_chinese_studio(search_server):
+    with _studio(search_server, 1280, 900, locale="zh-CN") as page:
+        expect(page.get_by_role("heading", name="你在看什么？")).to_be_visible()
+        assert page.evaluate("document.documentElement.lang") == "zh-CN"
+        _search(page, "nothing")
+        expect(page.get_by_text("没有找到“nothing”")).to_be_visible()
+
+
+def test_the_interface_language_switches_live_and_is_kept(search_server):
+    with _studio(search_server, 1280, 900) as page:
+        page.get_by_role("button", name="Open settings", exact=True).click()
+        dialog = page.get_by_role("dialog", name="Settings", exact=True)
+        dialog.get_by_role("button", name="Appearance", exact=True).click()
+        with page.expect_response("**/api/config") as saved:
+            dialog.get_by_role("combobox", name="Interface language").select_option("zh-CN")
+        assert saved.value.json()["ui"] == {"language": "zh-CN"}
+        assert search_server.controller.config.ui_language == "zh-CN"
+        expect(page.get_by_role("dialog", name="设置", exact=True)).to_be_visible()
+        page.goto(f"{page.url.split('?')[0]}?token={TEST_TOKEN}")
+        expect(page.get_by_role("heading", name="你在看什么？")).to_be_visible()
+
+
+def test_a_narrow_chinese_window_keeps_the_prepared_session_usable(search_server):
+    search_server.controller.config.ui_language = "zh-CN"
+    with _studio(search_server, 390, 844) as page:
+        _search(page, "Paper")
+        page.get_by_text("Paper Lanterns").click()
+        page.get_by_text("Paper.Lanterns.2021.WEB-DL.1080p.en.srt").click()
+        page.get_by_text("Paper.Lanterns.2021.WEB-DL.1080p.zh.srt").click()
+        start = page.get_by_role("button", name="开始识别并同步")
+        expect(start).to_be_enabled()
+        box = start.bounding_box()
+        assert box is not None and box["x"] + box["width"] <= 390
 
 
 def test_tab_moves_on_from_the_palette_after_its_last_tab(tmp_path):

@@ -4,6 +4,8 @@
   const mark = document.getElementById("mark");
   const markLabel = document.getElementById("mark-label");
   const token = window.__MEOWCAL__?.token || "";
+  const { t, setPreference } = window.MeowcalI18n;
+  setPreference(window.__MEOWCAL__?.uiLanguage);
 
   function withToken(path) {
     return token ? `${path}?token=${encodeURIComponent(token)}` : path;
@@ -37,7 +39,7 @@
     line.textContent = text;
     line.classList.toggle("is-provisional", provisional);
     mark.classList.toggle("is-provisional", provisional);
-    markLabel.textContent = provisional ? "AI" : "SUB";
+    markLabel.textContent = provisional ? t("overlay.translated") : t("overlay.subtitle");
     plate.classList.toggle("is-empty", !text);
     // Reaffirm the plate's Z order on each line. Some fullscreen players put
     // themselves ahead of other topmost windows after playback starts.
@@ -56,7 +58,10 @@
       }
       if (message.type === "subtitle") show(message.text || "", message.source);
       else if (message.type === "style") applyStyle(message.style);
-      else if (message.type === "state" && message.state?.status !== "running") show("", null);
+      else if (message.type === "state") {
+        setPreference(message.state?.config?.ui?.language);
+        if (message.state?.status !== "running") show("", null);
+      }
     };
     // The overlay outlives a backend restart, so a dropped socket reconnects
     // rather than leaving a stale line frozen on the video.

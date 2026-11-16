@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import type {
   BackendGapFill,
   BackendPreparedSession,
@@ -23,7 +24,7 @@ export function derivePhase(snapshot: BackendSnapshot | null, manualView: Phase 
 }
 
 function plural(count: number): string {
-  return count === 1 ? "1 line" : `${count} lines`;
+  return count === 1 ? t("1 line") : t("{count} lines", { count });
 }
 
 /**
@@ -44,14 +45,22 @@ export function coverageLabel(
   fill: BackendGapFill | null,
 ): string {
   if (fill === null) {
-    if (chosen === null || chosen.unpaired_cues === 0) return "every line answered";
+    if (chosen === null || chosen.unpaired_cues === 0) return t("every line answered");
     const seconds = Math.round(chosen.unpaired_ms / 1000);
-    return `${plural(chosen.unpaired_cues)} written on this device · ${seconds}s`;
+    return t("{lines} written on this device · {seconds}s", {
+      lines: plural(chosen.unpaired_cues),
+      seconds,
+    });
   }
-  if (fill.active) return `writing ${fill.filled} of ${fill.total} lines the file leaves blank…`;
+  if (fill.active) {
+    return t("writing {filled} of {total} lines the file leaves blank…", {
+      filled: fill.filled,
+      total: fill.total,
+    });
+  }
   const left = fill.total - fill.filled;
-  if (left <= 0) return "every line answered";
-  return `${left} of ${fill.total} blank lines still to write`;
+  if (left <= 0) return t("every line answered");
+  return t("{left} of {total} blank lines still to write", { left, total: fill.total });
 }
 
 const CHIP_TONES = new Set<InfoChip["tone"]>(["neutral", "accent", "verified"]);
@@ -67,13 +76,16 @@ export function mapWorksToItems(works: BackendWork[]): WorkItem[] {
   return works.map((w) => {
     const type =
       w.mediaType === "movie"
-        ? "Movie"
+        ? t("Movie")
         : w.totalEpisodes > 0
-          ? `Series · ${w.totalEpisodes} eps`
-          : "Series";
+          ? t("Series · {count} eps", { count: w.totalEpisodes })
+          : t("Series");
     const seasons: WorkSeasonItem[] = w.seasons.map((season) => ({
       seasonNumber: season.seasonNumber,
-      label: season.seasonNumber > 0 ? `Season ${season.seasonNumber}` : "Specials",
+      label:
+        season.seasonNumber > 0
+          ? t("Season {number}", { number: season.seasonNumber })
+          : t("Specials"),
       subtitlesCount: season.subtitlesCount,
       episodes: season.episodes.map((ep) => {
         const s = ep.season ?? season.seasonNumber;
@@ -82,8 +94,8 @@ export function mapWorksToItems(works: BackendWork[]): WorkItem[] {
           s && e
             ? `S${String(s).padStart(2, "0")}E${String(e).padStart(2, "0")}`
             : s
-              ? `Season ${s} · all episodes`
-              : ep.title || `Entry`;
+              ? t("Season {number} · all episodes", { number: s })
+              : ep.title || t("Entry");
         const label = ep.title && ep.title !== code ? `${code} — ${ep.title}` : code;
         return {
           matchId: ep.matchId,
@@ -161,7 +173,7 @@ export function selectionChangesPreparedWork(
 
 function subtitleDetail(result: BackendResult): string {
   const suffix = result.fileName.match(/(?:[^.]+\.)?(?:srt|ass|ssa|vtt)$/i)?.[0];
-  return [result.languageLabel, suffix].filter(Boolean).join(" · ");
+  return [result.languageLabel && t(result.languageLabel), suffix].filter(Boolean).join(" · ");
 }
 
 export function mapResultsToSource(
@@ -180,13 +192,13 @@ export function mapResultsToSource(
     return [
       {
         id: OCR_SOURCE_ID,
-        file: "Use on-screen OCR",
+        file: t("Use on-screen OCR"),
         provider: "",
         downloads: "",
         hi: false,
         trusted: false,
         recommended: false,
-        note: "No matching source file. Read the screen and translate live instead.",
+        note: t("No matching source file. Read the screen and translate live instead."),
       },
     ];
   }
@@ -236,8 +248,11 @@ export function mapResultsToTarget(
         {
           id: "__source__",
           kind: "source" as const,
-          title: "Translation inside the source file",
-          note: `${inspection.translatedCues} of ${inspection.totalCues} lines · exact timing · nothing to download`,
+          title: t("Translation inside the source file"),
+          note: t("{translated} of {total} lines · exact timing · nothing to download", {
+            translated: inspection.translatedCues,
+            total: inspection.totalCues,
+          }),
           recommended: true,
         },
       ]
@@ -248,15 +263,15 @@ export function mapResultsToTarget(
   const local: TargetItem = {
     id: "__local__",
     kind: "local",
-    title: "Local translation",
-    note: "On-device model · translates the source lines",
+    title: t("Local translation"),
+    note: t("On-device model · translates the source lines"),
     recommended: false,
   };
   const ocr: TargetItem = {
     id: "__ocr__",
     kind: "ocr",
-    title: "OCR fallback only",
-    note: "No subtitle file — OCR only",
+    title: t("OCR fallback only"),
+    note: t("No subtitle file — OCR only"),
     recommended: false,
   };
 

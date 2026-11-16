@@ -92,8 +92,8 @@ Set the same `X.Y.Z` version in
 `package.json` and `package-lock.json`, plus the backend's `__init__.py`.
 `scripts/check_app_version.py` checks
 these files in CI and requires a matching `vX.Y.Z` tag for signed release builds.
-The repository banner does not display a release version. After editing its SVG
-artwork, regenerate the PNG export before committing:
+The English and Chinese repository banners do not display a release version.
+After editing either SVG, regenerate the PNG exports before committing:
 
 ```powershell
 python scripts/update_branding.py
@@ -102,6 +102,7 @@ python scripts/update_branding.py
 This uses the existing Playwright Chromium development dependency. The release
 build also runs it automatically; unchanged assets are left alone. Verification
 rejects a stale PNG export, so commit the artwork and its export together.
+[Brand assets](assets/README.md) lists the icon and wordmark sources.
 README downloads link to the latest published GitHub Release.
 
 The [product page](https://petershanxin.github.io/Meowcal-Sub/sub-2/) is built
@@ -207,6 +208,7 @@ latest published release, say so in that document.
 | Core translation adapter and private BGE matcher | `src/meocosub2/engine/` |
 | Per-run authentication | `src/meocosub2/auth.py` |
 | Studio state and views | `src/meocosub2/overlay/ui/src/` |
+| Interface language and translation catalogs | `src/meocosub2/overlay/ui/src/i18n/`, `src/meocosub2/overlay/static/i18n.js`, `src-tauri/src/ui_language.rs` |
 | Desktop windows and backend process | `src-tauri/src/` |
 
 The server-backed `/` route is the desktop studio. Edit React/TypeScript under
@@ -430,6 +432,36 @@ Windows job objects end owned processes when the backend exits abnormally. See
 When the shell starts the backend, it owns that backend and stops it when the
 app closes or installs an update. A backend that the shell reused is not owned
 by that shell.
+
+### Interface language
+
+`[ui] language` in the configuration is `system`, `en` or `zh-CN`; any other
+value reads as `system`. `system` shows Simplified Chinese when the first display
+language (`navigator.languages[0]`) is any Chinese variant, and English
+otherwise. Product names, file names, titles, subtitle text, provider names and
+key names are data and are not translated.
+
+- The backend writes the saved value into each page it serves
+  (`window.__MEOWCAL__.uiLanguage`), so the studio and the subtitle plate paint
+  in the right language, and every state snapshot carries it in `config.ui`. The
+  studio follows the snapshot. **Settings → Appearance → Interface language**
+  applies at once and saves only that field.
+- The studio sends its resolved locale to the shell (`set_tray_locale`) for the
+  tray menu. The splash shows before the backend answers, so it reads the saved
+  value from the configuration file (`ui_language`). The capture selector
+  receives it with each `selector-opened` event.
+- Studio text is keyed by its English wording in `ui/src/i18n/en-zh.json` and
+  goes through `t()`. Messages written before they are shown, by the backend or by
+  the subtitle editor, stay in English until display and are translated from
+  `ui/src/i18n/messages-zh.json`, as whole sentences or `{name}` templates. A
+  joined warning is translated sentence by sentence. A message with a sentence
+  the catalog does not know is shown as written, and an unknown failure is
+  shown as a detail of a translated sentence. The splash, selector and plate use
+  `static/i18n.js`.
+- `src/i18n/coverage.test.ts` fails studio or static-page text that bypasses the
+  catalogs and keys the catalogs lack. `tests/test_interface_messages.py` fails
+  a viewer-facing backend message that is not catalogued, so rewording one means
+  updating `messages-zh.json` in the same change.
 
 ## Storage locations
 

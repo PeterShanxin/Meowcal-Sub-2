@@ -4,6 +4,7 @@ mod backend_process;
 mod config_port;
 mod overlay_window;
 mod process_lifetime;
+mod ui_language;
 mod updater;
 
 use backend_process::{spawn_backend, BackendProcess};
@@ -389,7 +390,8 @@ async fn place_selector_on_monitor(
             "height": placed.height,
         }),
     );
-    if let Err(error) = app.emit_to("selector", "selector-opened", ()) {
+    // The selector shows before it could ask, so the saved language comes with it.
+    if let Err(error) = app.emit_to("selector", "selector-opened", ui_language::ui_language()) {
         log_shell_event(
             "selector.opened_event.failed",
             serde_json::json!({ "error": error.to_string() }),
@@ -907,8 +909,9 @@ fn set_capture_region(
     Ok(())
 }
 
-fn emit_splash_status(app: &AppHandle, text: &str) {
-    let _ = app.emit_to("main", "splash-status", serde_json::json!({ "text": text }));
+/// `key` names a message in the static pages' catalog (static/i18n.js).
+fn emit_splash_status(app: &AppHandle, key: &str) {
+    let _ = app.emit_to("main", "splash-status", serde_json::json!({ "key": key }));
 }
 
 fn run_backend_boot(app: &AppHandle) {
@@ -916,7 +919,7 @@ fn run_backend_boot(app: &AppHandle) {
     // the browser, so boot success is defined by the local backend becoming ready.
     let started = std::time::Instant::now();
     log_shell_event("backend.boot.start", serde_json::json!({}));
-    emit_splash_status(app, "Checking backend...");
+    emit_splash_status(app, "splash.checking");
     if backend_ready() {
         log_shell_event(
             "backend.boot.ready_existing",
@@ -925,9 +928,9 @@ fn run_backend_boot(app: &AppHandle) {
         navigate_main_to_backend(app);
         return;
     }
-    emit_splash_status(app, "Starting Python backend...");
+    emit_splash_status(app, "splash.startingPython");
     spawn_backend(app, app.state::<BackendProcess>().inner());
-    emit_splash_status(app, "Waiting for backend (up to 60s)...");
+    emit_splash_status(app, "splash.waiting");
     if wait_for_backend(Duration::from_secs(60)) {
         log_shell_event(
             "backend.boot.ready",
@@ -1038,6 +1041,8 @@ fn main() {
             get_api_token,
             updater::check_app_update,
             updater::install_app_update,
+            ui_language::ui_language,
+            ui_language::set_tray_locale,
         ])
         .setup(move |app| {
             log_shell_event("app.setup.start", serde_json::json!({}));
@@ -1059,18 +1064,22 @@ fn main() {
                 });
             });
 
-            let show_item = MenuItem::with_id(app, "show", "Open App", true, None::<&str>)?;
-            let selector_item = MenuItem::with_id(
-                app,
-                "select-area",
-                "Select Capture Area",
-                true,
-                None::<&str>,
-            )?;
-            let stop_item = MenuItem::with_id(app, "stop", "Stop Translation", true, None::<&str>)?;
-            let exit_item = MenuItem::with_id(app, "exit", "Exit", true, None::<&str>)?;
+            // Follows the display language at once; the studio re-labels on a change.
+            let [show, select_area, stop, exit] =
+                ui_language::tray_labels(ui_language::launch_locale());
+            let show_item = MenuItem::with_id(app, "show", show, true, None::<&str>)?;
+            let selector_item =
+                MenuItem::with_id(app, "select-area", select_area, true, None::<&str>)?;
+            let stop_item = MenuItem::with_id(app, "stop", stop, true, None::<&str>)?;
+            let exit_item = MenuItem::with_id(app, "exit", exit, true, None::<&str>)?;
             let menu =
                 Menu::with_items(app, &[&show_item, &selector_item, &stop_item, &exit_item])?;
+            app.manage(ui_language::TrayMenu([
+                show_item,
+                selector_item,
+                stop_item,
+                exit_item,
+            ]));
 
             let icon = app
                 .default_window_icon()

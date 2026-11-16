@@ -18,12 +18,18 @@ from meocosub2.languages import (
 
 DEFAULT_CAPTURE_INTERVAL_MS = 250
 OCR_ENGINES = ("auto", "windows", "ppOcrV6")
+# "system" follows the Windows display language; the studio resolves it.
+UI_LANGUAGES = ("system", "en", "zh-CN")
 
 
 def normalize_ocr_engine(value: object) -> str:
     if not isinstance(value, str) or value not in OCR_ENGINES:
         raise ValueError("OCR engine must be auto, windows or ppOcrV6")
     return value
+
+
+def normalize_ui_language(value: object) -> str:
+    return value if isinstance(value, str) and value in UI_LANGUAGES else "system"
 
 
 # How far the viewer may drag the plate off the clock, in milliseconds either
@@ -76,6 +82,7 @@ class AppConfig:
     overlay_offset_pct: int = 10
     overlay_animation_ms: int = 220
     debug_mode: bool = False
+    ui_language: str = "system"
 
 
 def normalize_sync_bias_ms(value: Any, fallback: int = 0) -> int:
@@ -198,6 +205,7 @@ def load_config(path: Path | None = None) -> AppConfig:
         overlay_offset_pct=data.get("overlay", {}).get("offset_pct", 10),
         overlay_animation_ms=data.get("overlay", {}).get("animation_ms", 220),
         debug_mode=_coerce_bool(data.get("debug", {}).get("mode", False), False),
+        ui_language=normalize_ui_language(data.get("ui", {}).get("language")),
     )
 
 
@@ -273,6 +281,9 @@ def save_config(config: AppConfig, path: Path | None = None) -> None:
         },
         "debug": {
             "mode": config.debug_mode,
+        },
+        "ui": {
+            "language": config.ui_language,
         },
     }
     with config_path.open("wb") as handle:
@@ -355,6 +366,9 @@ def config_to_payload(config: AppConfig) -> dict[str, object]:
         "debug": {
             "mode": config.debug_mode,
         },
+        "ui": {
+            "language": config.ui_language,
+        },
     }
 
 
@@ -408,6 +422,7 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
     translation = payload.get("translation", {})
     sync = payload.get("sync", {})
     overlay = payload.get("overlay", {})
+    ui = payload.get("ui", {})
 
     if not isinstance(subtitle_sources, dict):
         subtitle_sources = {}
@@ -425,6 +440,8 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
         sync = {}
     if not isinstance(overlay, dict):
         overlay = {}
+    if not isinstance(ui, dict):
+        ui = {}
 
     # Payload merges are intentionally partial because the dashboard can persist
     # one subsection at a time, such as language-only saves.
@@ -546,4 +563,5 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
         debug_mode=_coerce_bool(
             payload.get("debug", {}).get("mode", base.debug_mode), base.debug_mode
         ),
+        ui_language=normalize_ui_language(ui.get("language", base.ui_language)),
     )

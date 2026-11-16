@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { isTauri, tauri } from "../hooks/use-tauri";
+import { localizeError, t } from "../i18n";
 
 export function UpdatePrompt({ visible }: { visible: boolean }): JSX.Element | null {
   const [version, setVersion] = useState<string | null>(null);
@@ -37,7 +38,7 @@ export function UpdatePrompt({ visible }: { visible: boolean }): JSX.Element | n
 
   return (
     <aside
-      aria-label="App update"
+      aria-label={t("App update")}
       style={{
         position: "absolute",
         bottom: 20,
@@ -52,18 +53,20 @@ export function UpdatePrompt({ visible }: { visible: boolean }): JSX.Element | n
       }}
     >
       <div role="status" style={{ fontWeight: 700 }}>
-        Meowcal Sub 2 v{version} is available
+        {t("Meowcal Sub 2 v{version} is available", { version })}
       </div>
       <p style={{ margin: "8px 0 12px", fontSize: 12, color: "var(--text-muted)" }}>
-        Install the signed update and restart the app. Your settings and downloads stay in place.
+        {t(
+          "Install the signed update and restart the app. Your settings and downloads stay in place.",
+        )}
       </p>
-      {error && <p style={{ color: "var(--danger-text)", fontSize: 12 }}>{error}</p>}
+      {error && <p style={{ color: "var(--danger-text)", fontSize: 12 }}>{localizeError(error)}</p>}
       <div style={{ display: "flex", gap: 8 }}>
         <button type="button" disabled={installing} onClick={() => void install()}>
-          {installing ? "Installing…" : "Install update"}
+          {installing ? t("Installing…") : t("Install update")}
         </button>
         <button type="button" disabled={installing} onClick={() => setDismissed(true)}>
-          Later
+          {t("Later")}
         </button>
       </div>
     </aside>
