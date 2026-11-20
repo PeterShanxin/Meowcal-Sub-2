@@ -209,6 +209,8 @@ The [November 2026 maintainability review](reviews/2026-11-20-maintainability.zh
 | Subtitle editor documents | `src/meocosub2/overlay/subtitle_editor.py` |
 | OCR engine selection and passes | `src/meocosub2/capture.py`, `src/meocosub2/native_ocr.py` |
 | Capture loop and session strategies | `src/meocosub2/sync.py` |
+| Path 2 screen translations and target-file position | [target_follower.py](../src/meocosub2/target_follower.py) |
+| Path 3 current and background translations, completion and handoff | [source_track.py](../src/meocosub2/source_track.py), [live_translation.py](../src/meocosub2/live_translation.py) |
 | Playback clock | `src/meocosub2/timeline.py` |
 | Target cue presentation | `src/meocosub2/presentation.py` |
 | Gap filling and idle prefill | `src/meocosub2/gapfill.py`, `src/meocosub2/prefill.py` |
