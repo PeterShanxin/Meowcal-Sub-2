@@ -22,7 +22,7 @@
 - 在一个工作室里搜索 **OpenSubtitles、SubDL 和 ASSRT**。
 - 用文字识别（OCR）匹配播放器中显示的字幕，确定播放位置。
 - 按译文字幕文件自己的时间、重叠和空档显示译文；没有覆盖的行可以使用原文字幕自带的译文或本地推理补上。
-- 在播放前准备好翻译，观看时也能调整字幕时间。
+- 部分字幕已有译文时，可以在播放前补译缺失的行。单语原文完全没有译文时，播放到相应字幕再翻译。观看时可通过实时控制栏调整字幕时间。
 - 准备时自动给字幕排序并删除完全重复的行；原始文件保持不变。
 - 同步前可以编辑 SRT/WebVTT 的文字和时间，预览偏移校正，并在已准备的会话中直接使用修正后的副本。
 - 在应用内选择捕获区域，调整字幕外观。
@@ -62,6 +62,7 @@
 ## 文档
 
 - [用户指南](docs/user-guide.zh-CN.md)：设置、观看流程、各项设置和故障排除。
+- [播放时序图](docs/developer-guide.md#end-to-end-sequence)和[四种观看方式的流程图](docs/subtitle-fallback-design.md)（英文）。
 - [开发者指南](docs/developer-guide.md)（英文）：从源代码搭建、运行模式、运行时约定、存储、发布和验证。
 - [Meowcal Core](docs/MEOWCAL_CORE.md)（英文）：文字识别引擎、Core 协议和安装兼容性。
 - 测试记录（英文）：[OCR 测量结果](docs/OCR_BENCHMARK.md)、[播放证据](docs/PLAYBACK_EVIDENCE.md)和[播放置信度校准](docs/PLAYING_CONFIDENCE_CALIBRATION.md)。
