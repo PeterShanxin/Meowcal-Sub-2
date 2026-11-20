@@ -262,7 +262,9 @@ a shell rebuild.
 4. **Selection.** The viewer picks a work and an episode. Selecting an episode
    runs one exact lookup for that episode. The studio then lists Source and
    Target results by opaque IDs. Choosing a Source reads it once to find a
-   carried translation before the Target list is shown.
+   carried translation before the Target list is shown. If no source is
+   configured or no title is found, **Translate on-screen subtitles** prepares
+   Path 4 directly with no catalog or file IDs.
 5. **Download and validation.** Preparation loads the chosen files and
    checks each one (see [Subtitle checks and editing](#subtitle-checks-and-editing)).
 6. **Preparation.** With both files, the backend builds the source candidates

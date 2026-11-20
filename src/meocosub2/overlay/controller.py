@@ -1405,10 +1405,8 @@ class GuiController:
         feature_id: str | None,
         target_file_id: str | None,
     ) -> dict[str, object]:
-        if feature_id is None:
-            raise ValueError("Select a matched title before preparing an OCR fallback session.")
-        feature = self._find_search_match(feature_id)
-        if feature is None:
+        feature = self._find_search_match(feature_id) or {}
+        if feature_id is not None and not feature:
             raise ValueError("Selected title was not found in the current search matches.")
 
         target_entry = self._selected_target(target_file_id, feature_id)
@@ -1815,7 +1813,7 @@ class GuiController:
         return self._search_catalog.find_result(result_id) if self._search_catalog else None
 
     def _selected_target(
-        self, file_id: str | None, feature_id: str
+        self, file_id: str | None, feature_id: str | None
     ) -> AggregatedSubtitleResult | None:
         if file_id is None:
             return None

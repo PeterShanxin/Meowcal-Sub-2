@@ -9,7 +9,7 @@ own presentation timings. When a cue has no human translation, the local
 translation engine can fill it. Without a matching source, OCR reads can be
 translated directly.
 
-This guide covers the v0.3.0 controls and marks playback changes on the current `main` branch. See the [v0.3.0 release notes](releases/v0.3.0.md) for the published installer.
+This guide covers v0.4.0. See the [release notes](releases/v0.4.0.md) for downloads and upgrade instructions.
 
 ## Install and first launch
 
@@ -60,7 +60,7 @@ error that the app does not recognize is shown in its original wording.
 
 ### Subtitle sources
 
-Open **Settings → Subtitle sources** and turn on at least one source:
+To search for subtitle files, open **Settings → Subtitle sources** and turn on at least one source:
 
 | Source | Credential |
 | --- | --- |
@@ -176,20 +176,19 @@ Checking a source and preparing it share the same download for that search.
 
 ### Choose by available files
 
-These choices appear after you select a movie or an episode. The table describes
-`main`. In the v0.3.0 installer, Path 2 can display matching file wording for the
-current read, and Path 3 translates a wholly untranslated source on demand.
+These choices appear after you select a movie or an episode.
 
 | Path | Source file | Target file | What to choose | What appears during playback |
 | --- | --- | --- | --- | --- |
 | Path 1 · Dual-track playback | Yes | Yes | Choose both files, preferably for the same cut. | After the screen text matches the source, the strip follows the target file's start and end times. One source line can span two successive target cues with a blank interval between them. |
 | Path 2 · Target-track playback | No | Yes | Choose **Use on-screen OCR**, then the target file. | The strip translates what you see while it looks for your place. Once several different lines agree on where you are, it plays the target file from that point. For example, the next line can appear even if the screen reader misses it. After a jump it checks the new scene and shows live answers until it finds your place again. |
-| Path 3 · Source-track translation | Yes | No | For a bilingual source, choose **Translation inside the source file**. For a monolingual source, choose **Local translation**. | Carried translations use source timings. On main, you can watch immediately with live translations while the app translates the remaining lines. The finished target follows Path 1 from your current position. |
+| Path 3 · Source-track translation | Yes | No | For a bilingual source, choose **Translation inside the source file**. For a monolingual source, choose **Local translation**. | Carried translations use source timings. You can watch immediately with live translations while the app translates the remaining lines. The finished target follows Path 1 from your current position. |
 | Path 4 · Live screen translation | No | No | Choose **Use on-screen OCR**, then **OCR fallback only**. | The local engine translates readable text in the selected region as it appears. After a seek, the strip needs text from the new scene. |
 
 Both modes without a source file need the local translation engine. Signs and
-title cards inside the region can also be translated. If the search returned no
-title at all, see [Empty results and source failures](#empty-results-and-source-failures).
+title cards inside the region can also be translated. If no subtitle source is
+configured or a search returns no title, choose **Translate on-screen subtitles**
+in the search panel, then **Start OCR and sync**.
 
 ### Empty results and source failures
 

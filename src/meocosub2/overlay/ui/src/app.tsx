@@ -4,7 +4,6 @@ import { Palette, paletteWorksNavRows } from "./components/palette";
 import { PrepCard, PreviewCard } from "./components/prep-card";
 import { LiveView } from "./components/live-dock";
 import { EmptyState } from "./components/variants/empty";
-import { NoApiKey } from "./components/variants/no-key";
 import { SettingsView } from "./components/variants/settings";
 import { UpdatePrompt } from "./components/update-prompt";
 import { api } from "./hooks/use-api";
@@ -20,6 +19,7 @@ import {
   mapResultsToSource,
   mapResultsToTarget,
   mapWorksToItems,
+  OCR_ONLY_ID,
   OCR_SOURCE_ID,
   prepareSelection,
   seasonHydrateKey,
@@ -855,10 +855,10 @@ export function App(): JSX.Element {
     [readChosenSource],
   );
 
-  const onPickTarget = useCallback(async (id: string) => {
+  const onPickTarget = useCallback(async (id: string | null) => {
     const correlationId = clientEventId("prepare");
     const { selectedEpisodeMatchId: currentEpisode, selectedSourceId: currentSource } = store.get();
-    if (!currentEpisode || !currentSource) {
+    if (id !== null && (!currentEpisode || !currentSource)) {
       store.set({
         error: "Select a source subtitle first, or choose on-screen OCR when no file matches.",
       });
@@ -867,7 +867,10 @@ export function App(): JSX.Element {
     store.set({ selectedTargetId: id, cursorIndex: -1, error: null });
     setPreparing(true);
     const intent = ++selectionIntent.current;
-    const { mode, sourceResultId, targetResultId } = prepareSelection(currentSource, id);
+    const { mode, sourceResultId, targetResultId } = prepareSelection(
+      currentSource ?? OCR_SOURCE_ID,
+      id ?? OCR_ONLY_ID,
+    );
     logClientEvent(
       "ui.target.selected",
       {
@@ -1288,8 +1291,8 @@ export function App(): JSX.Element {
 
   // --- Render ---
 
-  const noKey = shouldShowNoKey(config);
-  const isEmpty = isFirstLaunch(config) && !firstLaunchDismissed;
+  const configuredSources = countEnabledSources(config);
+  const isEmpty = phase === "home" && isFirstLaunch(config) && !firstLaunchDismissed;
   const sourceNotices = buildSourceNotices(config, snapshot?.warning_message ?? "");
 
   // One place for both: an action that failed in the studio and a failure the
@@ -1357,7 +1360,7 @@ export function App(): JSX.Element {
             phase={phase}
             wsConnected={wsConnected}
             engineStatus={engineStatus}
-            sourcesCount={countEnabledSources(config)}
+            sourcesCount={configuredSources}
             onOpenSettings={openSettings}
             onClearSession={
               selectedEpisodeMatchId || snapshot?.prepared_session
@@ -1373,9 +1376,7 @@ export function App(): JSX.Element {
             onOpenSettings={openSettings}
           />
         )}
-        {noKey && phase === "home" && !query && <NoApiKey onOpenSettings={openSettings} />}
-
-        {!noKey && isEmpty && phase === "home" && !query && (
+        {isEmpty && !query && (
           <EmptyState
             sourceLabel={languageLabel(config?.languages.source)}
             targetLabel={languageLabel(config?.languages.target)}
@@ -1402,7 +1403,7 @@ export function App(): JSX.Element {
                 "top 520ms cubic-bezier(.22, 1.3, .36, 1), width 280ms cubic-bezier(.2,.7,.3,1)",
             }}
           >
-            {!isCompact && !noKey && !isEmpty && (
+            {!isCompact && !isEmpty && (
               <div style={{ textAlign: "center", marginBottom: 26 }}>
                 <div
                   style={{
@@ -1430,7 +1431,7 @@ export function App(): JSX.Element {
                 </h1>
               </div>
             )}
-            {!noKey && !isEmpty && (
+            {!isEmpty && (
               <Palette
                 phase={palettePhase}
                 compact={isCompact}
@@ -1466,6 +1467,14 @@ export function App(): JSX.Element {
                 }
                 onPickSource={onPickSource}
                 onPickTarget={(id) => void onPickTarget(id)}
+                onTranslateScreen={
+                  config &&
+                  !searching &&
+                  !works.length &&
+                  (!configuredSources || lastSearchedQuery.current)
+                    ? () => void onPickTarget(null)
+                    : null
+                }
                 onPrimary={() => void onPrimaryConfirm()}
                 inputRef={inputRef}
                 sourceLang={sourceLang}
@@ -1601,10 +1610,6 @@ function buildSourceNotices(config: BackendConfig | null, warning: string): Sour
   const notices: SourceNotice[] = [];
   if (!config) return notices;
   const sources = config.subtitleSources;
-  const hasReadySource =
-    (sources.opensubtitles.enabled && !!sources.opensubtitles.apiKey) ||
-    (sources.subdl.enabled && !!sources.subdl.apiKey) ||
-    (sources.assrt.enabled && !!sources.assrt.token);
   if (sources.opensubtitles.enabled && !sources.opensubtitles.apiKey) {
     notices.push({
       id: "opensubtitles-key",
@@ -1629,7 +1634,7 @@ function buildSourceNotices(config: BackendConfig | null, warning: string): Sour
       tone: "warn",
     });
   }
-  if (!hasReadySource && notices.length === 0) {
+  if (countEnabledSources(config) === 0 && notices.length === 0) {
     notices.push({
       id: "no-source",
       label: t("No subtitle source ready"),
@@ -1641,15 +1646,6 @@ function buildSourceNotices(config: BackendConfig | null, warning: string): Sour
   const detail = localizeMessage(warning.trim());
   if (detail) notices.unshift({ id: "backend-warning", label: t("Warning"), detail, tone: "info" });
   return notices;
-}
-
-function shouldShowNoKey(config: BackendConfig | null): boolean {
-  if (!config) return false;
-  const s = config.subtitleSources;
-  const osReady = s.opensubtitles.enabled && !!s.opensubtitles.apiKey;
-  const subdlReady = s.subdl.enabled && !!s.subdl.apiKey;
-  const assrtReady = s.assrt.enabled && !!s.assrt.token;
-  return !(osReady || subdlReady || assrtReady);
 }
 
 function isFirstLaunch(config: BackendConfig | null): boolean {

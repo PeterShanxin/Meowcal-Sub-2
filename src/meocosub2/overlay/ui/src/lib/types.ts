@@ -1,6 +1,6 @@
 import type { UiLanguage } from "../i18n";
 
-export type Phase = "home" | "prep" | "live" | "settings" | "empty" | "no-key";
+export type Phase = "home" | "prep" | "live" | "settings" | "empty";
 
 export type BackendStatus = "idle" | "searching" | "preparing" | "running" | "stopping" | "error";
 

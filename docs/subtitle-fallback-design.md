@@ -1,6 +1,6 @@
 # Subtitle playback paths
 
-These four names describe the files available when a viewer selects a movie or episode.
+These four names describe the subtitle files available when a viewer starts watching.
 The **source** language is the writing visible in the player. The **target** is the
 language the viewer wants on the strip. For example, English captions on a
 Japanese soundtrack can be the source for a Chinese strip. The table describes
@@ -17,7 +17,8 @@ the current `main` branch. For the controls in each language, see the
 ## Where the paths meet
 
 Search by title and choose the correct movie or episode. Sub 2 lists subtitle
-files for the selected languages and prepares the viewer's selection. On Start,
+files for the selected languages and prepares the viewer's selection. If no
+provider is configured or no title is found, enter Path 4 from the search panel. On Start,
 select the part of the screen that contains the player's captions. From here
 the app observes the picture while the viewer controls the original player.
 
@@ -33,7 +34,8 @@ flowchart TD
     Locate -->|"Position confirmed"| Clock
     Locate -->|"Still locating"| Live["Available live answer"]
     Clock --> Display["Show or clear<br/>timed target cues"]
-    Neither["Path 4<br/>No files"] --> Live
+    NoTitle["No provider or title match"] --> Neither["Path 4<br/>No files"]
+    Neither --> Live
     Display --> Strip["Subtitle strip"]
     Live --> Strip
 ```

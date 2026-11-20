@@ -1,3 +1,3 @@
 """Meowcal-Sub-2 - CLI app for subtitles with OCR sync and LLM translation."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
