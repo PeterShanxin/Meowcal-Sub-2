@@ -176,6 +176,10 @@ control; and a ceiling of 404 for `components/subtitle-editor/workspace.tsx`,
 which crossed the new-file limit by routing its labels and hints through the
 catalog.
 
+Source-track translation keeps file-generation state with its prepared pair and
+uses the same live translator during setup and playback. The controller's
+ceiling moves from 2199 to 2189 lines and the capture loop from 983 to 950.
+
 ## Lint budgets
 
 | Tool | Budget | State |

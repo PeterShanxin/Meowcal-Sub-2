@@ -9,7 +9,13 @@ import pytest
 from meocosub2.config import AppConfig
 from meocosub2.engine import EngineInstallError
 from meocosub2.errors import TranslationError
-from meocosub2.models import GapFillProgress, PreparedRuntime, SearchRequest, SubtitleLine
+from meocosub2.models import (
+    GapFillProgress,
+    PreparedRuntime,
+    SearchRequest,
+    SubtitleLine,
+    SubtitlePair,
+)
 from meocosub2.overlay.controller import GuiController
 from meocosub2.subtitle_sources.types import (
     AggregatedEpisode,
@@ -1607,8 +1613,10 @@ async def test_preparing_a_pair_answers_the_gaps_before_the_session_starts(
     """The engine is idle between the target being chosen and sync starting."""
     filled: list[list[str]] = []
 
-    async def fill(lines, config, on_progress, answer) -> None:
-        filled.append([line.text for line in lines if not answer(line)])
+    async def fill(pair, config, on_progress) -> None:
+        filled.append(
+            [line.text for line in pair.source_lines if not pair.presentation.answer(line)]
+        )
         await on_progress(1)
 
     mocker.patch("meocosub2.overlay.controller.fill_before_the_session", new=fill)
@@ -1635,14 +1643,9 @@ async def test_a_pair_the_target_file_answers_whole_starts_no_fill(tmp_path: Pat
     assert controller.state_snapshot()["gap_fill"] is None
 
 
-async def test_a_session_with_nothing_answered_yet_is_not_filled_ahead(
+async def test_an_untranslated_source_starts_a_background_track_while_ready(
     tmp_path: Path, mocker
 ) -> None:
-    """Every cue unanswered is a live-translation session, not a file with holes.
-
-    Filling those ahead would spend the single-slot engine on the file's opening
-    while the viewer waits on the line in front of them.
-    """
     fill = mocker.patch("meocosub2.overlay.controller.fill_before_the_session", new=AsyncMock())
     controller, _, _ = _pair_controller(tmp_path, mocker, source_srt=_srt("hello", "goodbye"))
 
@@ -1653,7 +1656,10 @@ async def test_a_session_with_nothing_answered_yet_is_not_filled_ahead(
         target_file_id=None,
     )
 
-    assert fill.await_count == 0
+    await controller._prefill_task
+    fill.assert_awaited_once()
+    assert fill.await_args.args[0].source_translation is not None
+    assert controller.state_snapshot()["status"] == "idle"
 
 
 async def test_starting_the_session_waits_for_the_fill_to_let_go_of_the_engine(
@@ -1663,7 +1669,7 @@ async def test_starting_the_session_waits_for_the_fill_to_let_go_of_the_engine(
     asking = asyncio.Event()
     stopped = asyncio.Event()
 
-    async def fill(lines, config, on_progress, answer) -> None:
+    async def fill(pair, config, on_progress) -> None:
         asking.set()
         try:
             await asyncio.Event().wait()
@@ -1701,7 +1707,7 @@ async def test_preparing_again_stops_the_fill_the_last_selection_started(
 ) -> None:
     """Those answers belong to a pairing the viewer has moved on from."""
 
-    async def fill(lines, config, on_progress, answer) -> None:
+    async def fill(pair, config, on_progress) -> None:
         await asyncio.Event().wait()
 
     mocker.patch("meocosub2.overlay.controller.fill_before_the_session", new=fill)
@@ -1719,7 +1725,7 @@ async def test_the_fill_is_registered_before_the_state_saying_it_is_running(
 ) -> None:
     """Otherwise a target chosen during that broadcast finds nothing to stop."""
 
-    async def fill(lines, config, on_progress, answer) -> None:
+    async def fill(pair, config, on_progress) -> None:
         await asyncio.Event().wait()
 
     mocker.patch("meocosub2.overlay.controller.fill_before_the_session", new=fill)
@@ -1750,7 +1756,7 @@ async def test_the_fill_is_registered_before_the_state_saying_it_is_running(
 async def test_a_search_that_throws_the_preparation_away_stops_its_fill(
     tmp_path: Path, mocker
 ) -> None:
-    async def fill(lines, config, on_progress, answer) -> None:
+    async def fill(pair, config, on_progress) -> None:
         await asyncio.Event().wait()
 
     mocker.patch("meocosub2.overlay.controller.fill_before_the_session", new=fill)
@@ -1837,17 +1843,17 @@ async def test_a_second_preparation_cancels_the_fill_the_first_one_started(
     """Two target picks can be in flight at once; only one may hold the engine."""
     asking = asyncio.Event()
 
-    async def fill(lines, config, on_progress, answer) -> None:
+    async def fill(pair, config, on_progress) -> None:
         asking.set()
         await asyncio.Event().wait()
 
     mocker.patch("meocosub2.overlay.controller.fill_before_the_session", new=fill)
     controller = make_controller(tmp_path / "config.toml")
 
-    await controller._start_prefill(_gapped_lines("first"))
+    await controller._start_prefill(SubtitlePair(_gapped_lines("first")))
     first = controller._prefill_task
     await asking.wait()
-    await controller._start_prefill(_gapped_lines("second"))
+    await controller._start_prefill(SubtitlePair(_gapped_lines("second")))
 
     assert first.cancelled()
     assert controller._prefill_task is not None

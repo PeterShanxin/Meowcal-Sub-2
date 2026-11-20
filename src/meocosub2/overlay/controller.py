@@ -21,7 +21,7 @@ from meocosub2.capture import available_ocr_languages, prepare_ocr
 from meocosub2.config import AppConfig, config_to_payload, overlay_style_payload, save_config
 from meocosub2.errors import TranslationError
 from meocosub2.event_log import log_event
-from meocosub2.gapfill import Answer, own_translation, unanswered
+from meocosub2.gapfill import unanswered
 from meocosub2.languages import (
     is_chinese_family,
     language_label,
@@ -30,6 +30,7 @@ from meocosub2.languages import (
     source_language_mode,
     source_result_matches_requested_language,
 )
+from meocosub2.live_translation import LiveTranslator, open_live_translator
 from meocosub2.models import (
     AppProgress,
     AppStateSnapshot,
@@ -71,8 +72,6 @@ from meocosub2.sync import (
     MATCHED,
     CandidateSession,
     DirectTranslationSession,
-    LiveTranslator,
-    open_live_translator,
     run_session_loop,
 )
 
@@ -1245,7 +1244,7 @@ class GuiController:
         await self._emit_app_state()
         await self._emit_app_progress()
         if not engine_warning:
-            await self._start_prefill(source_lines, pair.presentation.answer)
+            await self._start_prefill(pair)
         return asdict(session)
 
     async def _prepare_auto_candidate_session(self, feature_id: str | None) -> dict[str, object]:
@@ -1632,9 +1631,7 @@ class GuiController:
         await self._emit_app_event("subtitle", {"text": "", "source": MATCHED})
         if not engine_warning and len(rebuilt.source_candidates) == 1:
             pair = rebuilt.source_candidates[0].pair
-            await self._start_prefill(
-                pair.source_lines, pair.presentation.answer, expected_runtime=rebuilt
-            )
+            await self._start_prefill(pair, expected_runtime=rebuilt)
         return updated
 
     async def stop_session(self) -> dict[str, object]:
@@ -1736,22 +1733,15 @@ class GuiController:
 
     async def _start_prefill(
         self,
-        lines: list[SubtitleLine],
-        answer: Answer = own_translation,
+        pair: SubtitlePair,
         *,
         expected_runtime: PreparedRuntime | None = None,
     ) -> None:
-        """Answer the target file's gaps while the viewer is still setting up.
-
-        Only where something already answers some of these cues - a paired
-        target file, or a bilingual source answering itself. Where nothing does,
-        every cue is a gap and this is a live-translation session: filling ahead
-        would spend the whole engine on the file's opening while the viewer
-        waits on the line in front of them.
-        """
-        if not any(answer(line) for line in lines):
+        """Use idle engine time to prepare the target or fill a partially covered track."""
+        answer = pair.presentation.answer
+        if pair.source_translation is None and not any(answer(line) for line in pair.source_lines):
             return
-        gaps = len(unanswered(lines, answer))
+        gaps = len(unanswered(pair.source_lines, answer))
         if not gaps:
             return
         async with self._lock:
@@ -1767,16 +1757,16 @@ class GuiController:
         # the handle without cancelling would leave the earlier fill running
         # untracked, holding the engine's one slot for a file nobody chose.
         previous = self._prefill_task
-        self._prefill_task = asyncio.create_task(self._run_prefill(lines, answer))
+        self._prefill_task = asyncio.create_task(self._run_prefill(pair))
         if previous is not None and not previous.done():
             previous.cancel()
             with suppress(asyncio.CancelledError):
                 await previous
         await self._emit_app_state()
 
-    async def _run_prefill(self, lines: list[SubtitleLine], answer: Answer) -> None:
+    async def _run_prefill(self, pair: SubtitlePair) -> None:
         try:
-            await fill_before_the_session(lines, self.config, self._report_prefill, answer)
+            await fill_before_the_session(pair, self.config, self._report_prefill)
         except asyncio.CancelledError:
             # The state is settled by whoever cancelled, which can await this
             # task where a callback running under cancellation could not.
@@ -1790,7 +1780,7 @@ class GuiController:
     async def _report_prefill(self, filled: int) -> None:
         async with self._lock:
             current = self._state.gap_fill
-            if current is None:
+            if current is None or self._prefill_task is not asyncio.current_task():
                 return
             self._state.gap_fill = replace(current, filled=filled)
         await self._emit_app_state()

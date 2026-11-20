@@ -111,6 +111,12 @@ subtitles remain available after a match, but untranslated gaps cannot be
 filled." These choices need the engine: **Local translation**, **OCR fallback only**, and
 **Use on-screen OCR**.
 
+On main, **Local translation** lets you start watching as soon as the session
+is ready. With a monolingual source, the app translates the current line first
+and works on other lines in the background. When every line is ready, playback
+uses their saved times automatically, even if you have paused or skipped
+ahead. Stopping and restarting the same prepared session keeps its answers.
+
 ## Watch with subtitles
 
 1. Start your video in its player and open Meowcal Sub 2.
