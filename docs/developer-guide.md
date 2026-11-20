@@ -380,7 +380,7 @@ are described in [playback evidence](PLAYBACK_EVIDENCE.md).
 
 With a separate target file, `PresentationTrack` retains every target cue's
 index, interval, ordering and text. Both immediate matches and the clock renderer
-resolve that same track. Its scheduler wakes at target boundaries even when OCR
+resolve that same track. Time lookups skip completed cue ranges using sorted starts and the latest end in each prefix. The scheduler binary-searches boundary times. It wakes even when OCR
 stalls. Intervals are half-open `[start, end)`; genuine target overlaps remain
 simultaneous, and target presentation has no source overlap threshold or stale-line
 grace. Each cue's typesetting is flattened independently, except explicit speaker
@@ -403,7 +403,7 @@ A source cue that has any projected target coverage does not fill the target's
 intentional gaps. Wholly uncovered source cues use their carried human translation,
 then a local model answer. `gapfill.py` reads target coverage and neighboring human
 answers through the presentation track without copying target strings onto source
-cues. Idle prefill and playback filling share that lookup; model answers remain
+cues. Each fill pass indexes initially unanswered cues and checks the next candidate again after a seek or a live answer. Idle prefill and playback filling share that lookup; model answers remain
 source-aligned and are read when their interval arrives. Without a source anchor,
 live OCR translation remains the fallback. Bilingual-only sessions retain their
 source-aligned presentation behavior.
