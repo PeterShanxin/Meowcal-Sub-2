@@ -1,5 +1,5 @@
 import asyncio
-from time import monotonic
+from time import monotonic, perf_counter
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -59,6 +59,10 @@ async def drive_with_source(session, config, reads: list[str], debug=None) -> li
     remaining = list(reads)
 
     async def ocr(_image, _language, *, engine="auto") -> str:
+        if isinstance(session, DirectTranslationSession):
+            # Play the short reads faster than real capture while leaving the
+            # queue time to publish and give each finished cue its display time.
+            await asyncio.sleep(0.03 if remaining else 0.9)
         if not remaining:
             # Translations run as tasks beside the loop. Giving them a few turns
             # before it unwinds is what a session gets from its next capture.
@@ -338,11 +342,10 @@ async def test_repeated_phrase_after_silence_follows_the_nearest_occurrence(
 
 
 @pytest.mark.asyncio
-async def test_direct_translation_reuses_target_text_after_the_phrase_disappears() -> None:
+async def test_direct_translation_reuses_target_text_for_distinct_cues() -> None:
     target = [SubtitleLine(0, 0, 3000, "Please close the door.")]
     session = DirectTranslationSession(target, config(), fake_translator("Please close door"))
     assert await session.translate("关门") == "Please close the door."
-    session.clear_cue()
     assert await session.translate("关门") == "Please close the door."
 
 
@@ -515,34 +518,172 @@ async def test_direct_translation_clears_an_old_line_after_a_failed_new_answer(f
     ]
 
 
-async def test_a_stale_failed_translation_cannot_clear_a_newer_line() -> None:
+async def test_ocr_fallback_keeps_dialogue_captured_during_a_slow_translation(monkeypatch):
+    import meocosub2.sync as sync_module
+
     first = "The cat is waiting by the window."
-    stale = "Let us walk home together."
-    current = "The train has left the station."
+    second = "The train has left the station."
     release = asyncio.Event()
-    stale_started = asyncio.Event()
+    first_started = asyncio.Event()
+    shown_second = asyncio.Event()
+    shown = []
+    shown_at = []
+    reads = iter([first, first, second, second])
     translator = MagicMock()
 
-    async def translate(text: str) -> str:
-        if text == stale:
-            stale_started.set()
-            try:
-                await release.wait()
-            except asyncio.CancelledError:
-                await release.wait()
-            return ""
-        if text == current:
+    async def translate(text):
+        if text == first:
+            first_started.set()
+            await release.wait()
+            return "猫正在窗边等待。"
+        return "火车已经离站。"
+
+    async def ocr(*args, **kwargs):
+        if (text := next(reads, None)) is not None:
+            return text
+        await asyncio.wait_for(shown_second.wait(), timeout=2)
+        raise asyncio.CancelledError()
+
+    async def debug(frame):
+        if frame["iteration"] == 2:
+            await asyncio.wait_for(first_started.wait(), timeout=2)
+        elif frame["iteration"] == 4:
             release.set()
-            return "火车已经离站。"
-        return "猫正在窗边等待。"
+
+    async def broadcast(text, source):
+        shown.append((text, source))
+        shown_at.append(perf_counter())
+        if text == "火车已经离站。":
+            shown_second.set()
+
+    translator.translate = translate
+    session = DirectTranslationSession([], config(), translator_factory(translator))
+    monkeypatch.setattr(sync_module, "ocr_image", ocr)
+    monkeypatch.setattr(sync_module, "capture_region", lambda _region: MagicMock())
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(run_session_loop(session, config(), broadcast, debug), timeout=3)
+
+    assert shown == [("猫正在窗边等待。", "translated"), ("火车已经离站。", "translated")]
+    assert shown_at[1] - shown_at[0] >= 0.35
+
+
+async def test_ocr_fallback_region_change_discards_pending_and_late_work(monkeypatch):
+    import meocosub2.sync as sync_module
+
+    old_region, new_region = (0, 0, 100, 20), (10, 20, 30, 40)
+    selected = old_region
+    stale, queued, current = "Waiting by the window", "Let us walk home", "The train has left"
+    reads = iter([stale, stale, queued, queued, current, current])
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+    new_caption = asyncio.Event()
+    release_stale = asyncio.Event()
+    shown = []
+    translator = MagicMock()
+
+    async def translate(text):
+        if text == stale:
+            started.set()
+            try:
+                await asyncio.wait_for(release_stale.wait(), timeout=2)
+            except asyncio.CancelledError:
+                cancelled.set()
+                await release_stale.wait()
+            return "旧字幕"
+        return "火车已经离站。"
+
+    async def ocr(*args, **kwargs):
+        if (text := next(reads, None)) is not None:
+            return text
+        await asyncio.wait_for(new_caption.wait(), timeout=2)
+        raise asyncio.CancelledError()
+
+    async def debug(frame):
+        nonlocal selected
+        if frame["iteration"] == 2:
+            await asyncio.wait_for(started.wait(), timeout=2)
+        elif frame["iteration"] == 4:
+            selected = new_region
+        elif frame["iteration"] == 6:
+            await asyncio.wait_for(cancelled.wait(), timeout=2)
+            release_stale.set()
+
+    async def broadcast(text, source):
+        shown.append(text)
+        new_caption.set()
 
     translator.translate = AsyncMock(side_effect=translate)
     session = DirectTranslationSession([], config(), translator_factory(translator))
+    monkeypatch.setattr(sync_module, "ocr_image", ocr)
+    monkeypatch.setattr(sync_module, "capture_region", lambda _region: MagicMock())
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(
+            run_session_loop(session, config(), broadcast, debug, region_source=lambda: selected),
+            timeout=5,
+        )
 
-    shown = await drive(session, config(), [first] * 3 + [stale] * 3 + [current] * 3)
+    assert [call.args[0] for call in translator.translate.await_args_list] == [stale, current]
+    assert shown == ["火车已经离站。"]
 
-    assert stale_started.is_set()
-    assert shown == ["猫正在窗边等待。", "火车已经离站。"]
+
+@pytest.mark.parametrize("cue_count", [2, 32], ids=["oldest-age", "depth"])
+async def test_ocr_fallback_drops_backlog_after_a_severe_stall(monkeypatch, caplog, cue_count):
+    import meocosub2.ocr_fallback as fallback
+    import meocosub2.sync as sync_module
+
+    cues = [f"Please take route {number}" for number in range(cue_count)]
+    reads = iter(text for cue in cues for text in (cue, cue))
+    first_started = asyncio.Event()
+    recovered = asyncio.Event()
+    attempts = []
+    now = 100.0
+
+    async def translate(text):
+        attempts.append(text)
+        if text == cues[0]:
+            first_started.set()
+            await asyncio.sleep(5)
+            return "不应显示"
+        return "当前字幕"
+
+    async def ocr(*args, **kwargs):
+        nonlocal now
+        now += 0.125
+        if (text := next(reads, None)) is not None:
+            return text
+        await asyncio.wait_for(recovered.wait(), timeout=2)
+        raise asyncio.CancelledError()
+
+    async def debug(frame):
+        nonlocal now
+        if frame["iteration"] == 2:
+            await asyncio.wait_for(first_started.wait(), timeout=2)
+        if cue_count == 2 and frame["iteration"] == 4:
+            now += 15.0
+
+    async def broadcast(text, source):
+        assert text == "当前字幕"
+        recovered.set()
+
+    translator = MagicMock(translate=translate)
+    session = DirectTranslationSession([], config(), translator_factory(translator))
+    monkeypatch.setattr(fallback, "perf_counter", lambda: now)
+    monkeypatch.setattr(sync_module, "ocr_image", ocr)
+    monkeypatch.setattr(sync_module, "capture_region", lambda _region: MagicMock())
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(run_session_loop(session, config(), broadcast, debug), timeout=5)
+
+    assert attempts == [cues[0], cues[-1]]
+    assert f"skipped {cue_count - 1} backlogged cues" in caplog.text
+
+
+async def test_ocr_fallback_distinguishes_changed_numbers_from_ocr_punctuation():
+    translator = MagicMock(translate=AsyncMock(side_effect=lambda text: text))
+    session = DirectTranslationSession([], config(), translator_factory(translator))
+    reads = ["Route 12", "Route 12.", "ROUTE 12!", "Route 13", "Route 13?"]
+
+    assert await drive(session, config(), reads) == ["Route 12.", "Route 13?"]
+    assert translator.translate.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -568,7 +709,7 @@ async def test_direct_translation_reconfirms_a_phrase_after_silence() -> None:
     translator = MagicMock()
     translator.translate = AsyncMock(return_value="你好")
     session = DirectTranslationSession([], config(), translator_factory(translator))
-    reads = ["Hello there", "Hello there", "", "", "", "Hello there", "Hello there"]
+    reads = ["Hello there"] * 2 + [""] * 15 + ["Hello there"] * 2
     assert await drive(session, config(), reads) == ["你好", "", "你好"]
     assert translator.translate.await_count == 2
 
