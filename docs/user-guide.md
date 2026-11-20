@@ -111,6 +111,12 @@ subtitles remain available after a match, but untranslated gaps cannot be
 filled." These choices need the engine: **Local translation**, **OCR fallback only**, and
 **Use on-screen OCR**.
 
+On main, **Local translation** lets you start watching as soon as the session
+is ready. With a monolingual source, the app translates the current line first
+and works on other lines in the background. When every line is ready, playback
+uses their saved times automatically, even if you have paused or skipped
+ahead. Stopping and restarting the same prepared session keeps its answers.
+
 ## Watch with subtitles
 
 1. Start your video in its player and open Meowcal Sub 2.
@@ -150,6 +156,9 @@ for the next step. Arrow keys outside the palette keep their usual behavior.
 
 ### Choosing subtitle files
 
+On main, changing your subtitle choice during preparation keeps the newer choice.
+Checking a source and preparing it share the same download for that search.
+
 - **Release.** Prefer a file named for the same release as your video (for
   example the same streaming source or disc). Files for a different cut can
   drift or skip.
@@ -175,7 +184,7 @@ These choices appear after you select a movie or an episode.
 | --- | --- | --- | --- | --- |
 | Path 1 · Dual-track playback | Yes | Yes | Choose both files, preferably for the same cut. | After the screen text matches the source, the strip follows the target file's start and end times. One source line can span two successive target cues with a blank interval between them. |
 | Path 2 · Target-track playback | No | Yes | Choose **Use on-screen OCR**, then the target file. | The local engine translates the screen text. A close match uses the wording from the file, otherwise the strip shows the model answer. Later cues cannot play automatically from the file's timestamps in this mode. |
-| Path 3 · Source-track translation | Yes | No | For a bilingual source, choose **Translation inside the source file**. For a monolingual source, choose **Local translation**. | Carried translations use source timings. A wholly untranslated source is translated cue by cue during playback. If some cues already have translations, the app can fill gaps before you start. |
+| Path 3 · Source-track translation | Yes | No | For a bilingual source, choose **Translation inside the source file**. For a monolingual source, choose **Local translation**. | Carried translations use source timings. On main, you can watch immediately with live translations while the app translates the remaining lines. The finished target follows Path 1 from your current position. |
 | Path 4 · Live screen translation | No | No | Choose **Use on-screen OCR**, then **OCR fallback only**. | The local engine translates readable text in the selected region as it appears. After a seek, the strip needs text from the new scene. |
 
 Both modes without a source file need the local translation engine. Signs and

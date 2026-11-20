@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
+import { setUiLanguage } from "../i18n";
 import type {
   BackendResult,
   BackendSnapshot,
@@ -14,6 +15,8 @@ import {
   mapResultsToTarget,
   mapWorksToItems,
 } from "./mappers";
+
+beforeEach(() => setUiLanguage("en"));
 
 function makeWork(
   overrides: Partial<BackendWork> & Pick<BackendWork, "id" | "title" | "mediaType">,
