@@ -21,6 +21,7 @@ import {
   mapResultsToTarget,
   mapWorksToItems,
   OCR_SOURCE_ID,
+  prepareSelection,
   seasonHydrateKey,
   selectionChangesPreparedWork,
 } from "./state/mappers";
@@ -310,6 +311,7 @@ export function App(): JSX.Element {
     const correlationId = clientEventId("search");
     lastSearchedQuery.current = trimmedTitle;
     selectionIntent.current += 1;
+    setPreparing(false);
     const requestEpoch = ++searchEpoch.current;
     searchAbort.current?.abort();
     const ctrl = new AbortController();
@@ -443,9 +445,10 @@ export function App(): JSX.Element {
   // only the file itself says. Reading it is the target step's own loading: the
   // download it costs is one the session was going to make anyway.
   const readChosenSource = useCallback(async () => {
-    const { selectedSourceId, selectedEpisodeMatchId, sourceInspection } = store.get();
+    const { selectedSourceId, selectedEpisodeMatchId, sourceInspection, inspectingSource } =
+      store.get();
     if (!selectedSourceId || selectedSourceId === OCR_SOURCE_ID) return;
-    if (sourceInspection?.sourceFileId === selectedSourceId) return;
+    if (inspectingSource || sourceInspection?.sourceFileId === selectedSourceId) return;
     const requestEpoch = searchEpoch.current;
     store.set({ inspectingSource: true });
     try {
@@ -493,6 +496,7 @@ export function App(): JSX.Element {
   // the screen, so it waits for the source and target the user picks next.
   const selectTitle = useCallback((workId: string, matchId: string) => {
     selectionIntent.current += 1;
+    setPreparing(false);
     logClientEvent("ui.title.selected", { workId, matchId });
     store.set({
       selectedWorkId: workId,
@@ -798,6 +802,7 @@ export function App(): JSX.Element {
   const onPickEpisode = useCallback(
     (workId: string, matchId: string, season: number | null, episode: number | null) => {
       const intent = ++selectionIntent.current;
+      setPreparing(false);
       if (season !== null && episode !== null) {
         const key = episodeHydrateKey(workId, season, episode);
         if (hydrateInFlight.current.has(key)) {
@@ -831,6 +836,8 @@ export function App(): JSX.Element {
 
   const onPickSource = useCallback(
     (id: string) => {
+      selectionIntent.current += 1;
+      setPreparing(false);
       logClientEvent("ui.source.selected", { resultId: id });
       // The reading below is about this file, so anything known about the last
       // one goes with it rather than briefly describing the wrong source.
@@ -850,11 +857,7 @@ export function App(): JSX.Element {
 
   const onPickTarget = useCallback(async (id: string) => {
     const correlationId = clientEventId("prepare");
-    // Staying on the pick that was just made keeps the last step settled.
-    // Dropping back to the title list read as "start over" and invited the
-    // reader to pick their way around a session that was already prepared.
-    const currentEpisode = store.get().selectedEpisodeMatchId;
-    const currentSource = store.get().selectedSourceId;
+    const { selectedEpisodeMatchId: currentEpisode, selectedSourceId: currentSource } = store.get();
     if (!currentEpisode || !currentSource) {
       store.set({
         error: "Select a source subtitle first, or choose on-screen OCR when no file matches.",
@@ -863,13 +866,8 @@ export function App(): JSX.Element {
     }
     store.set({ selectedTargetId: id, cursorIndex: -1, error: null });
     setPreparing(true);
-    // Backend accepts only "subtitle_pair" | "ocr_fallback". Local AI
-    // translation is triggered by subtitle_pair with no targetResultId —
-    // the controller falls back to local translation via target_match_mode.
-    const mode: "subtitle_pair" | "ocr_fallback" =
-      id === "__ocr__" || currentSource === OCR_SOURCE_ID ? "ocr_fallback" : "subtitle_pair";
-    const sourceResultId = currentSource === OCR_SOURCE_ID ? null : currentSource;
-    const targetResultId = id === "__local__" || id === "__ocr__" ? null : id;
+    const intent = ++selectionIntent.current;
+    const { mode, sourceResultId, targetResultId } = prepareSelection(currentSource, id);
     logClientEvent(
       "ui.target.selected",
       {
@@ -888,9 +886,11 @@ export function App(): JSX.Element {
         targetResultId,
       });
       const fresh = await api.getState();
+      if (selectionIntent.current !== intent) return;
       store.set({ snapshot: fresh, config: fresh.config });
       logClientEvent("ui.session.prepare_completed", { mode }, correlationId);
     } catch (err) {
+      if (selectionIntent.current !== intent) return;
       store.set({ error: err instanceof Error ? err.message : String(err) });
       logClientEvent(
         "ui.session.prepare_failed",
@@ -900,7 +900,7 @@ export function App(): JSX.Element {
         correlationId,
       );
     } finally {
-      setPreparing(false);
+      if (selectionIntent.current === intent) setPreparing(false);
     }
   }, []);
 

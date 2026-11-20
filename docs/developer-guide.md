@@ -325,6 +325,14 @@ follows a regrouping. A target assigned to a different group is cleared.
 Catalog identification alone does not replace unchanged prepared files;
 choosing another work still blocks starting the previous session.
 
+Preparing a choice belongs to the search and request that selected it. Manual
+source and target files must belong to the chosen title before any download.
+A newer choice or search supersedes earlier work, including its progress,
+errors and idle translation. Inspection and preparation share a single source
+download per result within the search. A failed download can be retried.
+The studio preserves a bilingual file's carried translation when catalog
+enrichment identifies the same title under a new ID.
+
 Episode results carry season and episode numbers. SubDL episode searches use the
 series title with season and episode filters. An unpacked SubDL file that reports
 season zero takes its pack's season unless its name says `S00`. SubDL's `hi`
