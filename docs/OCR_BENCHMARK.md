@@ -59,6 +59,22 @@ gave 93.3% exact recognition and 196.2/252.2 ms median/P95. One raw PP pass gave
 retains its existing three passes. One-thread PP was slower; four threads used
 more CPU than two without improving recognition. Two is the measured compromise.
 
+### Windows pass selection on a busy background
+
+On an x64 PC, moving a 1,250 × 161 capture region down by one pixel on a paused
+Edge video changed the Windows result. The raw read contained eight letters,
+including false strokes and a cluster of disconnected marks. The white mask
+read all seven visible characters correctly at both positions. After accounting
+for mixed marks inside a read, Windows selected those seven characters at both
+positions using the same three passes.
+
+We also compared both ranking rules with native Windows OCR on 48 rendered
+frames. Six Chinese and six English captions each appeared in white or gold
+on a plain or textured background. Exact text after removing punctuation and
+spacing rose from 11/24 to 12/24 in Chinese and stayed at 13/24 in English.
+The other 47 selected readings were identical. These counts cover pass
+selection on this sample, not whole-film recognition.
+
 ## Native capture and presentation
 
 On 2026-11-09, the installed ARM64 backend, studio bundle and Core ran through

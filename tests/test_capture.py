@@ -116,6 +116,35 @@ async def test_white_text_pass_recovers_row_missing_from_whole_scene_passes(mock
 
 
 @pytest.mark.asyncio
+async def test_mixed_detached_marks_do_not_outweigh_corroborated_caption(mocker) -> None:
+    mocker.patch(
+        "meocosub2.capture._run_ocr",
+        new=mocker.AsyncMock(
+            side_effect=["请 把 夕 灯 打 开 亠 · · 、 ． 丨", "请 把 灯 打 开", "请 把 台 灯 打 开"]
+        ),
+    )
+    assert await ocr_image(Image.new("RGB", (4, 2)), "zh-CN") == "请把台灯打开"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "original, shorter, expected",
+    [
+        ("再 等 . . . 一 下", "再 等 一", "再等 . . . 一下"),
+        ("= 《 = ， 请 记 下 地 址", "请 记 下 地", "= 《 = ，请记下地址"),
+    ],
+)
+async def test_ellipsis_and_margin_marks_preserve_complete_caption(
+    mocker, original, shorter, expected
+) -> None:
+    mocker.patch(
+        "meocosub2.capture._run_ocr",
+        new=mocker.AsyncMock(side_effect=[original, shorter, shorter]),
+    )
+    assert await ocr_image(Image.new("RGB", (4, 2)), "zh-CN") == expected
+
+
+@pytest.mark.asyncio
 async def test_white_text_pass_does_not_discard_complete_colored_subtitles(mocker) -> None:
     mocker.patch(
         "meocosub2.capture._run_ocr",
