@@ -4,15 +4,12 @@ import asyncio
 import contextlib
 import json
 import re
-import socket
 import threading
-import time
 from dataclasses import replace
 from unittest.mock import AsyncMock
 from urllib.parse import urljoin
 
 import pytest
-import uvicorn
 from playwright.sync_api import expect, sync_playwright
 
 from meocosub2 import engine
@@ -26,6 +23,7 @@ from meocosub2.subtitle_sources.types import (
     ProviderSubtitleResult,
 )
 from tests.conftest import TEST_TOKEN
+from tests.studio_http import running_studio
 from tests.test_subtitle_editor import editor_server
 
 
@@ -74,36 +72,19 @@ async def _catalog(self, query, languages):
 
 @contextlib.contextmanager
 def _studio(app, width, height, locale="en-US"):
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = listener.getsockname()[1]
-        app._allowed_origins = {f"http://127.0.0.1:{port}"}
-        server = uvicorn.Server(uvicorn.Config(app.app, log_level="error"))
-        thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
-        thread.start()
+    with running_studio(app) as url, sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
         try:
-            deadline = time.monotonic() + 10
-            while not server.started and thread.is_alive() and time.monotonic() < deadline:
-                time.sleep(0.02)
-            assert server.started
-            with sync_playwright() as playwright:
-                browser = playwright.chromium.launch()
-                try:
-                    page = browser.new_page(
-                        viewport={"width": width, "height": height}, locale=locale
-                    )
-                    page.set_default_timeout(7000)
-                    page.route(
-                        "https://fonts.googleapis.com/**",
-                        lambda route: route.fulfill(status=200, content_type="text/css", body=""),
-                    )
-                    page.goto(f"http://127.0.0.1:{port}/?token={TEST_TOKEN}")
-                    yield page
-                finally:
-                    browser.close()
+            page = browser.new_page(viewport={"width": width, "height": height}, locale=locale)
+            page.set_default_timeout(7000)
+            page.route(
+                "https://fonts.googleapis.com/**",
+                lambda route: route.fulfill(status=200, content_type="text/css", body=""),
+            )
+            page.goto(f"{url}/?token={TEST_TOKEN}")
+            yield page
         finally:
-            server.should_exit = True
-            thread.join(timeout=10)
+            browser.close()
 
 
 @pytest.fixture(autouse=True)
