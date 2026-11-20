@@ -1,3 +1,6 @@
+import os
+import subprocess
+import sys
 import tomllib
 from dataclasses import replace
 from pathlib import Path
@@ -22,6 +25,25 @@ def test_default_config() -> None:
     assert cfg.capture_interval_ms == 250
     assert cfg.fuzzy_threshold == 65
     assert cfg.overlay_port == 8765
+
+
+@pytest.mark.parametrize("settings,port", [("", 8766), ("[overlay]\nport = 9040", 9040)])
+def test_store_uses_private_port_unless_configured(tmp_path, settings, port):
+    path = tmp_path / "config.toml"
+    if settings:
+        path.write_text(settings)
+    result = subprocess.check_output(
+        [
+            sys.executable,
+            "-c",
+            "import sys; from pathlib import Path; from meocosub2.config import load_config; "
+            "print(load_config(Path(sys.argv[1])).overlay_port)",
+            str(path),
+        ],
+        env={**os.environ, "MEOCOSUB2_DISTRIBUTION": "store"},
+        text=True,
+    )
+    assert int(result) == port
 
 
 @pytest.mark.parametrize("engine", ["auto", "windows", "ppOcrV6"])
