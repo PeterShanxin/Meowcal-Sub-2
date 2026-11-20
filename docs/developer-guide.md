@@ -271,9 +271,10 @@ a shell rebuild.
 7. **Capture.** In the shell, **Start OCR and sync** opens the capture selector,
    and confirming a region starts the session. Browser mode starts with the saved
    region. The backend resolves the OCR engine when the session starts.
-8. **Matching and display.** With a source file, OCR matches anchor the playback
-   clock. Without one, the local engine translates screen text as it appears.
-   Both paths publish text to the same subtitle plate.
+8. **Matching and display.** A source-file match locates Paths 1 and 3. Path 2
+   compares translated screen captions with the target file. Once located, Paths
+   1 and 2 use the same timed display. Path 3 joins it when the generated track
+   is ready. Path 4 displays live translations from the selected screen area.
 
 The two-file path answers two timing questions. Preparation relates the clocks
 in the two files. During playback, OCR establishes where the viewer is on the

@@ -26,6 +26,8 @@ it can translate locally through [Meowcal Core](docs/MEOWCAL_CORE.md).
 - Use OCR to match the subtitles visible in your player and anchor playback.
 - Present a target-language subtitle file with its own timings, overlaps, and
   silent gaps; use carried translations or local inference for uncovered cues.
+- On `main`, when only a target file is available, several matching screen
+  translations can place the video and start timed playback from that file.
 - Fill untranslated gaps in partially translated subtitles before playback.
   On main, a wholly untranslated source can start playing while the local
   engine translates it. The finished target follows the current playback position.
@@ -101,7 +103,7 @@ same Windows account. See the [security policy](SECURITY.md).
 
 - [User guide](docs/user-guide.md): setup, the watch workflow, settings, and troubleshooting.
 - [Playback sequence](docs/developer-guide.md#end-to-end-sequence) and
-  [the four playback paths](docs/subtitle-fallback-design.md), including proposed fallbacks.
+  [the four playback paths](docs/subtitle-fallback-design.md), including how the paths share timed playback.
 - [Developer guide](docs/developer-guide.md): setup from source, run modes, runtime
   contracts, storage, releases, and verification.
 - [Meowcal Core](docs/MEOWCAL_CORE.md): OCR engines, the Core protocol, and
