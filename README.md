@@ -27,7 +27,8 @@ it can translate locally through [Meowcal Core](docs/MEOWCAL_CORE.md).
 - Present a target-language subtitle file with its own timings, overlaps, and
   silent gaps; use carried translations or local inference for uncovered cues.
 - Fill untranslated gaps in partially translated subtitles before playback.
-  With a wholly untranslated source, translate cues as playback reaches them.
+  On main, a wholly untranslated source can start playing while the local
+  engine translates it. The finished target follows the current playback position.
   Adjust subtitle timing from the live dock while watching.
 - Automatically order subtitle cues and remove exact duplicates during preparation;
   original files stay intact.
