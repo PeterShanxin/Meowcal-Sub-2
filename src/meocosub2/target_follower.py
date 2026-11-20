@@ -13,6 +13,7 @@ from meocosub2.matcher import SubtitleMatcher
 from meocosub2.models import SubtitleLine
 from meocosub2.presentation import PresentationTrack
 from meocosub2.resolution import display_position_ms
+from meocosub2.textnorm import format_subtitle_cue
 from meocosub2.timeline import SEEK_SCORE, PlaybackTimeline
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,9 @@ class TargetTrackFollower:
             config.match_window_backward,
             target_language=config.target_language,
         )
-        self._occurrences = Counter(self.matcher.normalize_for_match(line.text) for line in lines)
+        self._occurrences = Counter(
+            self.matcher.normalize_for_match(format_subtitle_cue(line.text)) for line in lines
+        )
         self._bias_ms = bias_ms
         self._visible_end: int | None = None
         self._end_by_index = {line.index: line.end_ms for line in lines}

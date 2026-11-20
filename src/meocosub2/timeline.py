@@ -14,9 +14,9 @@ position says which of them is the one on screen.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from enum import Enum
 from time import monotonic
+
+from meocosub2.playback_state import PlaybackState, TimelineStatus
 
 logger = logging.getLogger(__name__)
 
@@ -56,23 +56,6 @@ CAPTURE_DELIVERY_GRACE_S = 1.0
 # The longest a single subtitle is assumed to genuinely stay on screen. Past
 # this the viewer has paused, and the clock should not run on without them.
 CUE_HOLD_S = 6.0
-
-
-class PlaybackState(Enum):
-    ADVANCING = "advancing"
-    STOPPED = "stopped"
-    UNCERTAIN = "uncertain"
-    INVALIDATED = "invalidated"
-
-
-@dataclass
-class TimelineStatus:
-    """What the clock believes, for the debug events and the event log."""
-
-    predicted_ms: int | None
-    drift_ms: int | None
-    anchored: bool
-    misses: int
 
 
 class PlaybackTimeline:
@@ -211,6 +194,7 @@ class PlaybackTimeline:
                 self._stopped_since = transition
             return
         if self._stopped_since is not None:
+            self._last_completed_stop = self._stopped_since, transition
             self._paused_s += max(0.0, transition - self._stopped_since)
             self._stopped_since = None
         # Keep the OCR cue's first-seen time for matching. Only its pause hold
@@ -225,6 +209,11 @@ class PlaybackTimeline:
         now = monotonic() if now is None else now
         self._release_visible_cue(now)
         self._cue_since = now
+        self._pause_before_cue = self._paused_s
+        if self._last_completed_stop:
+            start, end = self._last_completed_stop
+            # A stable OCR cue can be confirmed one frame after this resume.
+            self._pause_before_cue -= max(0.0, end - max(start, now))
         # Taken from the running clock rather than the reported one, so that
         # walking back to a pause does not leave the clock walked back forever.
         self._cue_started_ms = self._running_ms(now)
@@ -413,7 +402,11 @@ class PlaybackTimeline:
         self._supported_at = at
         self._uncertain_since = None
         self._pending_freeze_until = None
-        self._paused_s = 0.0
+        # A model answer is anchored at first sight. Pauses already observed
+        # between that sighting and this answer still belong to this cue.
+        same_cue = self._require_confirmation and at == self._cue_since
+        self._paused_s = max(0.0, self._paused_s - self._pause_before_cue) if same_cue else 0.0
+        self._pause_before_cue = 0.0
         # A source match can describe a seek on a still-paused frame. Preserve
         # that stop until independent player progression releases the clock.
         if self._stopped_since is not None:
@@ -423,9 +416,12 @@ class PlaybackTimeline:
         # measures from there too.
         self._cue_since = at
         self._cue_started_ms = line_start_ms
-        self._hold_since = at
-        self._hold_started_ms = line_start_ms
-        self._cue_credited_s = 0.0
+        if same_cue and self._hold_since is not None:
+            self._hold_started_ms = self._running_ms(self._hold_since)
+        else:
+            self._hold_since = at
+            self._hold_started_ms = line_start_ms
+            self._cue_credited_s = 0.0
         self._drift_ms = drift
         self._misses = 0
         self._pending_offset_ms = None
@@ -504,6 +500,8 @@ class PlaybackTimeline:
         self._playback_received_at: float | None = None
         self._capture_pending_until: float | None = None
         self._paused_s = 0.0
+        self._pause_before_cue = 0.0
+        self._last_completed_stop: tuple[float, float] | None = None
         self._stopped_since: float | None = None
         self._cue_since: float | None = None
         self._cue_started_ms: int | None = None

@@ -265,3 +265,35 @@ async def test_same_caption_can_be_translated_again_after_capture_fails(monkeypa
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(run_session_loop(session, config, AsyncMock()), 3)
     assert seen == [rows[0][2], rows[0][2]]
+
+
+@pytest.mark.parametrize("stable_after_resume", [False, True])
+def test_a_delayed_match_keeps_the_pause_since_the_caption_first_appeared(
+    monkeypatch, stable_after_resume
+):
+    now = 10.0
+    monkeypatch.setattr(timeline, "monotonic", lambda: now)
+    rows = [
+        (1000, 2400, "Train is late.", "火车晚点。"),
+        (3000, 7000, "Close the window.", "关上\n窗户。"),
+        (8000, 9000, "", "出口"),
+    ]
+    session, _ = session_for(2, rows)
+    target = session.target
+    target.new_cue(now)
+    target.answer("火车晚点。", now, True)
+    if not stable_after_resume:
+        target.new_cue(12.0)
+    now = 13.0
+    session.observe_playback(PlaybackState.STOPPED, now)
+    now = 16.0
+    session.observe_playback(PlaybackState.ADVANCING, now)
+    if stable_after_resume:
+        target.new_cue(12.0)
+    now = 17.0
+    target.answer("关上窗户。", 12.0, True)
+    assert target.timeline.position_ms() == 5000
+    assert session.line_now().text == "关上窗户。"
+    now = 18.0
+    session.observe_playback(PlaybackState.ADVANCING, now)
+    assert target.timeline.position_ms() == 6000
