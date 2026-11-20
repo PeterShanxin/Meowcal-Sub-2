@@ -262,7 +262,7 @@ documentation it updated, or states why the change has no documentation impact.
 - This Codex harness can launch Windows apps through shell or URI handlers and can inspect the real desktop app with OS-level screenshots or `scripts/capture_meowcal_window.py`.
 - Treat that desktop visibility as a visual inspection capability, not as proof of stable native GUI interaction parity with browser automation.
 - Generic active-window OS screenshots can show a black WebView2 surface even when the app is visible; `scripts/capture_meowcal_window.py` is currently the more reliable path for Meowcal desktop captures.
-- Relaunching the desktop shell can reuse stale `meocosub2.cli serve` workers on port `8765` if the launcher does not kill them first.
+- The development launcher stops only its own debug shell. An independently started backend must release the configured port before launch.
 - WebView2 can appear stale during debugging; Vite emits hashed asset URLs under `static/assets/`, so hard-reloading or relaunching the shell after a rebuild is usually enough to break stale-asset symptoms.
 - The desktop shell appends a `desktopLaunch` cache-buster when navigating to `/`, and the server marks `index.html` as `no-store`; keep both if WebView2 starts showing an older React bundle after `run_app.vbs`.
 - For desktop UI bugs, verify the runtime path before changing the wrong file. The shared `/` route (served from the Vite bundle in `static/`) is the one that matters.
