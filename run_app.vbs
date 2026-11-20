@@ -190,6 +190,7 @@ End Function
 WshShell.CurrentDirectory = repoRoot
 LogEvent "launcher.start", """repoRoot"":""" & JsonEscape(repoRoot) & """,""forceRebuild"":" & LCase(CStr(forceRebuild))
 StopCheckoutShell
+WshShell.Environment("PROCESS")("MEOWCAL_CORE_PROFILE") = "development"
 
 LogEvent "launcher.core.prepare.start", """lockPath"": """ & JsonEscape(coreLockPath) & """"
 coreResult = WshShell.Run( _
@@ -227,7 +228,6 @@ End If
 CheckStudioPort
 If fso.FileExists(shellPath) Then
   LogEvent "launcher.shell.launch", """path"":""" & JsonEscape(shellPath) & """"
-  WshShell.Environment("PROCESS")("MEOWCAL_CORE_PROFILE") = "development"
   WshShell.Run Chr(34) & shellPath & Chr(34), 0, False
 Else
   LogEvent "launcher.shell.missing", """path"":""" & JsonEscape(shellPath) & """"
