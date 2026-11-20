@@ -179,6 +179,10 @@ catalog.
 The shared preparation commit and typed catalog selections reduced
 `overlay/controller.py` from 2,199 to 2,156 lines.
 
+Source-track translation keeps file-generation state with its prepared pair and
+uses the same live translator during setup and playback. This reduces the
+controller from 2,156 to 2,144 lines and the capture loop from 983 to 950.
+
 ## Lint budgets
 
 | Tool | Budget | State |

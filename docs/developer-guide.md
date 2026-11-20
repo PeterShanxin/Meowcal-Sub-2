@@ -416,13 +416,29 @@ source-aligned and are read when their interval arrives. Without a source anchor
 live OCR translation remains the fallback. Bilingual-only sessions retain their
 source-aligned presentation behavior.
 
+On main, Path 3 (Source-track translation) builds an in-memory target when a
+source has no target-language rows. Idle preparation can start it. During
+playback, the first capture gets priority, then a single background request at
+a time selects unanswered cues near the current playback position and supplies
+neighboring source/target examples. A live request may wait for one completion
+already in progress. A live and a background request for the same source cue
+share its answer. Combined multi-cue reads can be shown live and are translated
+as individual cues for the target track.
+
+The generated target preserves each source cue's identity, start and end. Only
+a fully answered source joins Path 1 (Dual-track playback). The existing
+scheduler reads the same clock with zero file offset, including paused positions
+and blank intervals. An incomplete pass keeps live translation available.
+Stopping retains completed answers for the same prepared source. Editing or
+replacing it creates a new track. Generated answers stay in session memory.
+
 ### Session modes
 
 | Target choice | Session mode | Needs the translation engine |
 | --- | --- | --- |
 | A target file | Source file plus target presentation | No. Without it, gaps stay empty and the studio shows a warning. |
 | Translation inside the source file | Source rows split into source and target | No. Rows without a carried translation need it to be filled. |
-| Local translation | Model answers follow source cues. A wholly untranslated file is translated on demand during playback. | Yes, unless the source carries translations |
+| Local translation | Source file plus model answers while the timed target is being generated | Yes, unless the source carries translations |
 | Automatic source candidates (backend mode) | The clock follows the candidate that locks. A target file, when found, has a separate mapping for each candidate. | When there is no target file and no candidate carries a translation |
 | **Use on-screen OCR** source (no matching source file) | OCR fallback, optionally with a target file | Yes. OCR text is translated live. |
 | OCR fallback only | Live OCR translation | Yes |

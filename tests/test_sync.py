@@ -6,11 +6,11 @@ import pytest
 
 from meocosub2.config import AppConfig
 from meocosub2.engine import EngineStartError
+from meocosub2.live_translation import LiveTranslator
 from meocosub2.models import SourceSubtitleCandidate, SubtitleLine, SubtitlePair
 from meocosub2.sync import (
     CandidateSession,
     DirectTranslationSession,
-    LiveTranslator,
     run_session_loop,
 )
 
@@ -380,7 +380,7 @@ async def test_translation_cannot_fill_a_plate_after_its_match_expires(monkeypat
     ready = asyncio.Event()
     client = MagicMock()
 
-    async def translate(*args):
+    async def translate(*args, **kwargs):
         await ready.wait()
         return "late target"
 
@@ -1284,21 +1284,18 @@ async def test_a_session_with_a_target_file_fills_what_it_left_unpaired() -> Non
     assert translator.filled == ["Goodbye now"]
 
 
-async def test_a_session_without_a_target_file_never_fills_ahead() -> None:
-    """Without a target file every cue is unanswered, so there is no gap to fill.
+async def test_source_only_starts_with_the_current_line_then_builds_a_target(monkeypatch) -> None:
+    import meocosub2.source_track as source_track
 
-    Treating them as gaps would spend the single-slot engine on the opening of
-    the file while the viewer waits on the read in front of them - which is the
-    whole of what a session with no target file is doing.
-    """
+    monkeypatch.setattr(source_track, "YIELD_POLL_S", 0)
     translator = _FakeTranslator()
-    session = CandidateSession(
-        [_gapped_candidate("a", with_target=False)], config(), lambda: _ready(translator)
-    )
-
-    await drive(session, config(), ["Hello there"])
-
-    assert translator.filled == []
+    source = _gapped_candidate("a", with_target=False)
+    session = CandidateSession([source], config(), lambda: _ready(translator))
+    assert await drive(session, config(), ["Goodbye now"]) == ["filled Goodbye now"]
+    assert translator.filled == ["Goodbye now", "Hello there"]
+    assert session.independent_target
+    assert session.presentation.resolve_at(3500).text == "filled Goodbye now"
+    assert session.presentation.resolve_at(6000).text == ""
 
 
 async def test_filling_moves_to_the_candidate_the_session_locks_onto_next() -> None:
