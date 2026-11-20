@@ -1643,7 +1643,7 @@ class GuiController:
     async def broadcast_overlay_subtitle(self, subtitle_text: str, source: str = MATCHED) -> None:
         """Put a line on the plate, saying whether it came from a file or the model."""
         async with self._lock:
-            self._state.last_subtitle = subtitle_text
+            self._state.last_subtitle, self._state.last_subtitle_source = subtitle_text, source
         await self._emit_app_event("subtitle", {"text": subtitle_text, "source": source})
 
     async def shutdown(self) -> None:

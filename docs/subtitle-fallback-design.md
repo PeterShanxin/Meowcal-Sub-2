@@ -1,47 +1,62 @@
 # Subtitle playback paths
 
-The path names below describe what the viewer has when starting. The same
-session can switch from a live answer to a timed subtitle without restarting
-the video. The studio controls are listed in the [user guide](user-guide.md#choose-by-available-files).
+These four names describe the files available when a viewer selects a movie or episode.
+The **source** language is the writing visible in the player. The **target** is the
+language the viewer wants on the strip. For example, English captions on a
+Japanese soundtrack can be the source for a Chinese strip. The table describes
+the current `main` branch. For the controls in each language, see the
+[English guide](user-guide.md#choose-by-available-files) and [Chinese guide](user-guide.zh-CN.md).
 
-| Path | Files at the start | Available today | Proposed addition |
+| Path | Files at the start | How Sub 2 finds the scene | What the viewer sees |
 | --- | --- | --- | --- |
-| **Path 1 · Dual-track playback** (双轨跟播) | Source and target | Match screen text to source cues, then show target cues on their own schedule. | This is the reference for timed playback. |
-| **Path 2 · Target-track playback** (译文跟播) | Target only | Compare translated screen reads with the target file. Once different cues agree on time, play the target file between reads. | See the [matching replay](target-track-replay.md) for tested limits. |
-| **Path 3 · Source-track translation** (原文补译) | Source only | On main, watch with live answers while the local engine builds a timed target. The finished target joins Path 1 at the current position. A bilingual source uses its own translations. | Implemented on main. |
-| **Path 4 · Live screen translation** (屏幕直译) | Neither | Translate readable on-screen captions as they appear after title selection. | This also supplies text while another path is waiting for a reliable position or translation. |
+| **Path 1 · Dual-track playback** (双轨跟播) | Source and target | Compare words read from the screen with the source file. Preparation checks how the two files' times relate. | After locating the scene, show each target cue at its scheduled time. |
+| **Path 2 · Target-track playback** (译文跟播) | Target only | Translate screen captions and compare them with the target file. Several distinct cues must agree on a position. | Show available translations while searching. Once located, use the same timed display as Path 1. |
+| **Path 3 · Source-track translation** (原文补译) | Source only | Locate the viewer in the source file. Generate a target track with the source cue times while the viewer watches. | Show current answers first. Once the whole track is ready, use Path 1's timed display at the viewer's current position. A bilingual source can already supply its own translations. |
+| **Path 4 · Live screen translation** (屏幕直译) | Neither | Read each visible caption in the selected screen area. | Show the live translation. After a jump, the next readable dialogue supplies the next answer. |
 
 ## Where the paths meet
 
-The diagram shows the intended connections. Dashed arrows mark work still to
-implement. The existing clock estimates the player's position, and the existing
-target scheduler decides when text appears or clears. Path 2 joins Path 1 as soon as a target cue places the video. Path 3 uses the source clock while translating, then joins Path 1 at the target scheduler once its track is ready. Both components belong to the
-[playback loop](../src/meocosub2/sync.py).
+Search by title and choose the correct movie or episode. Sub 2 lists subtitle
+files for the selected languages and prepares the viewer's selection. On Start,
+select the part of the screen that contains the player's captions. From here
+the app observes the picture while the viewer controls the original player.
 
 ```mermaid
 flowchart TD
-    Dual["Path 1 · Dual-track playback"] --> Src["Locate screen cue in source file"]
-    Src --> Clock["Playback clock and pause / seek handling"]
-    Target["Path 2 · Target-track playback"] --> OCR["Read screen cue and compare with target"]
-    OCR --> Live["Display a live answer"]
-    OCR -->|"Confirmed target position"| Clock
-    Source["Path 3 · Source-track translation"] --> Src
-    Source --> Now["Translate current dialogue on demand"]
-    Now --> Live
-    Source -->|"While watching"| Build["Generate a timed target track"]
-    Build -->|"Track ready for this session"| Display
-    Clock --> Display["Shared target scheduler"]
-    Dual --> Display
+    Dual["Path 1<br/>Both files"] --> Src["Find screen text<br/>in source"]
+    Source["Path 3<br/>Source only"] --> Src
+    Source --> Build["Translate source<br/>while watching"]
+    Build -->|"Complete track"| Display
+    Source -->|"Current cue"| Live
+    Target["Path 2<br/>Target only"] --> Locate["Translate and locate<br/>in target file"]
+    Src --> Clock["Shared clock<br/>Play, pause or seek"]
+    Locate -->|"Position confirmed"| Clock
+    Locate -->|"Still locating"| Live["Available live answer"]
+    Clock --> Display["Show or clear<br/>timed target cues"]
+    Neither["Path 4<br/>No files"] --> Live
     Display --> Strip["Subtitle strip"]
-    Neither["Path 4 · Live screen translation"] --> Live
     Live --> Strip
 ```
 
-**Which clock?** With two files, map the source position to the target file
-using the calibrated offset, or the unverified zero-offset default. With only a
-target file, a reliable hit is already in target time. For a generated track,
-copy the source intervals, so source and target time are equal. Applying the
-two-file offset twice would move the subtitle away from the matched scene.
+**Two times to keep straight.** If preparation finds that target captions are
+500 ms later than source captions, source time 12.0 seconds selects the target at
+12.5 seconds. Without enough shared evidence, Path 1 starts with an unverified
+offset of zero. Path 2 already locates the scene in target time. Path 3 gives
+the generated captions the exact times of their source cues.
+
+To locate a source cue, Sub 2 compares the words and tolerates small OCR
+mistakes. When the optional meaning-based index is ready, it can also help
+with weaker reads. For example, two lines may express the same idea using
+different words. For Path 2 we tested an experimental direct cross-language
+matcher on the same scenes as the installed translate-first method.
+
+**Between screen reads.** Once located, the clock advances with observed playback,
+and the strip can change at the next target boundary without a fresh screen caption.
+A cue ending at 8:02 and the next starting at 8:04 leave two seconds of blank
+strip. If two speakers' captions cover the same second, both appear. Screen
+observations help the clock hold during a pause and find its place again after
+a seek. The shared behavior is in the [clock](../src/meocosub2/timeline.py),
+[cue selection](../src/meocosub2/presentation.py) and [playback loop](../src/meocosub2/sync.py).
 
 ## Follow a target file using screen observations
 
@@ -49,9 +64,11 @@ Path 2 keeps the first capture time when the next read confirms the same
 words. The local translator supplies text to compare with the target file.
 Two near-exact single-cue matches, or three qualifying matches with less
 similar wording, can place the clock when their order and elapsed times agree.
-Repeated file wording can supply the displayed text. It cannot establish a
-position by itself. A result for a caption that has changed or disappeared
-cannot replace the current strip.
+Repeated wording can supply text for the strip. The clock needs evidence
+from different cues to distinguish two appearances of the same phrase. While
+locating, a late translation can supply a live answer and the next request
+picks up the newest confirmed caption. Only a still-current answer supplies
+timing evidence. Once following the file, the shared renderer owns the strip.
 
 The position is already in target-file time. From here Paths 1 and 2 use
 the same playback clock, capture observations, cue boundaries and strip
@@ -100,3 +117,22 @@ Stopping keeps completed answers in the prepared session. Editing the file or
 preparing another video gives the new session its own track. If the model
 declines a line, live viewing continues. The implementation and local timing
 measurements are in [PR #182](https://github.com/PeterShanxin/Meowcal-Sub-2/pull/182).
+
+## Watching through both handoffs on the NUC
+
+We supplied generated moving frames and a player region to the ordinary
+playback loop on Windows x64. Windows OCR read the pixels and the installed
+HY-MT model supplied the translations. The English captions changed every six
+seconds. In the final scene the screen had no English caption to read.
+
+| Watching path | What happened before the final scene | What reached the subtitle strip in the final scene |
+| --- | --- | --- |
+| Path 2 · Chinese file only | Live Chinese appeared at 1.12 s. At 13.55 s the clock was following the Chinese file. | The file scheduled a Chinese line at 36.0–39.5 s. The app sent it at 36.84 s and cleared it at 40.33 s. |
+| Path 3 · English file only | Playback started 12 s into the source. The current translation arrived 1.25 s after starting. All seven source cues had translations by 6.72 s. | The app sent the generated final line 24.91 s after starting and cleared it at 28.41 s, without another English screen read. |
+
+The stock renderer includes a 650 ms display delay. Times above are elapsed
+wall-clock measurements at the strip's event output. Window discovery and
+screen capture were supplied by the fixture. Desktop paint time and third-party
+player behavior were outside this test. The [matched-scene comparison](target-track-replay.md)
+and [live versus background model runs](https://github.com/PeterShanxin/Meowcal-Sub-2/pull/182)
+cover different clips and loads.

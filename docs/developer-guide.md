@@ -36,20 +36,18 @@ use the bundled `backend/python.exe` and do not fall back to a developer install
 | Mode | Start | What runs |
 | --- | --- | --- |
 | Browser mode | `python -m meocosub2.cli serve`, then open the printed token-bearing URL | Source backend and the committed studio bundle in a browser. No capture selector, subtitle plate, live dock, tray, or updater. |
-| Tauri debug | `run_app.vbs` (`--rebuild` forces a rebuild) | Debug shell from `src-tauri/target/debug`, source backend, committed studio bundle. |
+| Tauri debug | `run_app.vbs` (`--rebuild` rebuilds the studio bundle) | Debug shell from `src-tauri/target/debug`, source backend, committed studio bundle. |
 | Optimized build | `.\scripts\build-windows-release.ps1` | Release shell with a bundled CPython backend, Core, and a rebuilt studio bundle in `dist/`. |
 | Installer | `…-setup.exe` from a build or release | Per-user NSIS installation of the optimized build. Signed releases can update in place. |
 | Portable | `…-portable.zip` from a build or release | The same payload as the installer, run from its extracted folder. Updates are manual. |
 
-`run_app.vbs` prepares the pinned Core resource, rebuilds the studio bundle when
-its sources are newer than `static/index.html`, and rebuilds the debug shell
-when its Rust sources, manifests, or Tauri configuration are newer than the
-executable.
-Before it starts, it force-stops every `meowcal-sub-2-shell` process, every
-Python process running `meocosub2.cli serve`, and any process listening on port
-8765. This includes an installed copy that is running. Afterwards, check for
-surviving Core children as described in
-[the agent guide](AGENT_GUIDE.md#stopping-the-app-without-leaking-the-engine).
+`run_app.vbs` stops the debug shell whose executable belongs to this checkout.
+Windows releases that shell's owned backend processes. The launcher prepares
+Core, rebuilds a stale studio bundle, then runs Cargo with the checked-in lock.
+Cargo tracks embedded window assets and reuses a current desktop build.
+A build failure stops launch. If the configured studio port is unavailable,
+the launcher reports a conflict. Close its owner or choose another port and
+try again. Other checkouts and installed copies can keep running.
 
 ### Stale code under test
 
@@ -59,8 +57,7 @@ surviving Core children as described in
   change under `overlay/ui/src/` is not visible until
   `npm --prefix src\meocosub2\overlay\ui run build` rewrites that bundle.
 - `selector.*` and `splash.html` are compiled into the shell binary. A change to
-  them needs a shell rebuild, and `run_app.vbs` does not detect it: use
-  `run_app.vbs --rebuild`.
+  them triggers an incremental Cargo build on the next development launch.
 - WebView2 can show an older bundle after a rebuild. The shell adds a
   `desktopLaunch` cache-buster and the server marks `index.html` as `no-store`.
 - An installed or portable build runs its own bundled backend. Testing that build
@@ -212,6 +209,8 @@ The [November 2026 maintainability review](reviews/2026-11-20-maintainability.zh
 | Subtitle editor documents | `src/meocosub2/overlay/subtitle_editor.py` |
 | OCR engine selection and passes | `src/meocosub2/capture.py`, `src/meocosub2/native_ocr.py` |
 | Capture loop and session strategies | `src/meocosub2/sync.py` |
+| Path 2 screen translations and target-file position | [target_follower.py](../src/meocosub2/target_follower.py) |
+| Path 3 current and background translations, completion and handoff | [source_track.py](../src/meocosub2/source_track.py), [live_translation.py](../src/meocosub2/live_translation.py) |
 | Playback clock | `src/meocosub2/timeline.py` |
 | Target cue presentation | `src/meocosub2/presentation.py` |
 | Gap filling and idle prefill | `src/meocosub2/gapfill.py`, `src/meocosub2/prefill.py` |
@@ -274,9 +273,10 @@ a shell rebuild.
 7. **Capture.** In the shell, **Start OCR and sync** opens the capture selector,
    and confirming a region starts the session. Browser mode starts with the saved
    region. The backend resolves the OCR engine when the session starts.
-8. **Matching and display.** With a source file, OCR matches anchor the playback
-   clock. Without one, the local engine translates screen text as it appears.
-   Both paths publish text to the same subtitle plate.
+8. **Matching and display.** A source-file match locates Paths 1 and 3. Path 2
+   compares translated screen captions with the target file. Once located, Paths
+   1 and 2 use the same timed display. Path 3 joins it when the generated track
+   is ready. Path 4 displays live translations from the selected screen area.
 
 The two-file path answers two timing questions. Preparation relates the clocks
 in the two files. During playback, OCR establishes where the viewer is on the
@@ -477,6 +477,15 @@ Running or preparing sessions cannot be edited. Editor saves and starts recheck
 the session after stopping idle prefill so an old start cannot use a changed track.
 
 ### Cancellation and stale results
+
+A catalog search cancels and joins unfinished provider lookups when it exits.
+A normal provider failure still allows the other sources to finish.
+Each studio window receives state, style and later events in order through
+its own bounded queue. A stalled or disconnected window reconnects to a
+fresh snapshot without delaying subtitle changes in another window.
+On shutdown, the local HTTP server allows five seconds for active connections
+and requests to finish before proceeding to application cleanup. The browser
+tests use the same server settings and verify that its thread and requests exit.
 
 - **Search.** Each search has an ID. A result that arrives after a newer search
   started returns to its caller but does not change the newer state. Episode and

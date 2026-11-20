@@ -9,9 +9,7 @@ own presentation timings. When a cue has no human translation, the local
 translation engine can fill it. Without a matching source, OCR reads can be
 translated directly.
 
-This guide describes v0.3.0, including the Simplified Chinese interface,
-PP-OCRv6 and subtitle selection and playback improvements. See the
-[release notes](releases/v0.3.0.md) for what changed.
+This guide covers the v0.3.0 controls and marks playback changes on the current `main` branch. See the [v0.3.0 release notes](releases/v0.3.0.md) for the published installer.
 
 ## Install and first launch
 
@@ -136,8 +134,8 @@ ahead. Stopping and restarting the same prepared session keeps its answers.
    **Confirm**. Choose **Switch display** if the player is on another screen, or
    **Cancel** to return without starting.
 6. The studio becomes the subtitle strip with a live dock. Use your player to
-   play, pause, or seek. With a source file, the app checks the position against
-   visible subtitles. In OCR-only mode, the next readable cue triggers translation.
+   play, pause, or seek. The app uses visible captions to check the position when
+   following a file. With no files, the next readable cue triggers translation.
 7. Choose **Stop sync** in the dock when finished. The prepared session stays
    available to start again.
 
@@ -178,7 +176,9 @@ Checking a source and preparing it share the same download for that search.
 
 ### Choose by available files
 
-These choices appear after you select a movie or an episode.
+These choices appear after you select a movie or an episode. The table describes
+`main`. In the v0.3.0 installer, Path 2 can display matching file wording for the
+current read, and Path 3 translates a wholly untranslated source on demand.
 
 | Path | Source file | Target file | What to choose | What appears during playback |
 | --- | --- | --- | --- | --- |
@@ -278,7 +278,7 @@ replaces the controls with the warning text; select it again to return to the
 controls. After **Stop sync**, the warning stays on the prepared-session screen
 until a later search, preparation, subtitle save, start, or error replaces it.
 
-With a source file, the app uses picture changes and audio activity it can
+When following a file, the app uses picture changes and audio activity it can
 attribute to the player to infer whether playback continues. A confirmed pause
 holds the current subtitle or blank interval. After a seek, the app may need
 two different cues in sequence to confirm the new position. If it loses the

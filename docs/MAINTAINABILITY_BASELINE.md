@@ -242,6 +242,8 @@ by the manual Windows gate.
 
 ### Frontend — a named scope, not a percentage of everything
 
+On pull requests, the x64 job also compares the proposed scope with its base commit. Modules still in the studio must stay covered, including detected renames. Removed files are reported by name. The local coverage check still works without Git history.
+
 The named scope includes studio mapping, session authentication, subtitle editing
 and UI state. Its floors remain 89% statements and lines, 78% branches and 71%
 functions.
