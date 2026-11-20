@@ -11,7 +11,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass
 from time import monotonic
 
 from meocosub2.capture import capture_region, ocr_image
@@ -24,9 +24,11 @@ from meocosub2.models import MatchResult, SourceSubtitleCandidate, SubtitleLine
 from meocosub2.playback_capture import PlaybackCapture, PlaybackCaptureError
 from meocosub2.playback_observation import PlaybackObserver
 from meocosub2.presentation import PresentationTrack
+from meocosub2.resolution import MATCHED, TRANSLATED, Resolution, display_position_ms, target_frame
 from meocosub2.semantic import SemanticError, SemanticIndex
 from meocosub2.source_track import SourceTrackTranslation
 from meocosub2.subtitle_gate import LineChange, SubtitleGate
+from meocosub2.target_follower import TargetTrackFollower
 from meocosub2.timeline import SEEK_SCORE, PlaybackState, PlaybackTimeline
 from meocosub2.translator import is_untranslatable
 
@@ -57,9 +59,6 @@ DISPLAY_LEAD_MS = -650
 # already on the plate broadcasts nothing, so the extra wakes cost a comparison.
 RETIME_CHECK_S = 0.2
 
-MATCHED = "matched"
-TRANSLATED = "translated"
-
 Broadcast = Callable[[str, str], Awaitable[None]]
 DebugBroadcast = Callable[[dict[str, object]], Awaitable[None]]
 RegionSource = Callable[[], tuple[int, ...]]
@@ -68,28 +67,6 @@ TranslatorFactory = Callable[[], Awaitable[LiveTranslator]]
 # Supplied by whoever starts the session rather than reached for here, so a
 # session can be run - and tested - without an embedding engine behind it.
 SemanticFactory = Callable[[], Awaitable[SemanticIndex]]
-
-
-@dataclass
-class Resolution:
-    """What a read came to.
-
-    Either a line ready for the plate, or the text to translate for it - the
-    clean subtitle line when one matched, the raw read when none did.
-    """
-
-    text: str = ""
-    translate: str = ""
-    matched: bool = False
-    # The last file line this answer covers. A read can match a cue the file
-    # splits across two lines; the clock only ever answers with one.
-    covers_through: int | None = None
-    covers_until_ms: int | None = None
-    detail: dict[str, object] = field(default_factory=dict)
-
-    @property
-    def source(self) -> str:
-        return MATCHED if self.matched else TRANSLATED
 
 
 class CandidateSession:
@@ -313,22 +290,7 @@ class CandidateSession:
         question, and the viewer is correcting what the measurement did not cover
         for their player.
         """
-        position = self._timeline.position_ms(now)
-        if position is None:
-            return None
-        anchor = self._timeline.anchor_ms
-        # The lag holds the plate back as playback advances; it must never read
-        # behind the line the clock was just anchored to, which is on screen by
-        # definition. Without the floor, a match would blank the plate it filled.
-        lagged = position + DISPLAY_LEAD_MS
-        if anchor is not None:
-            lagged = max(lagged, anchor)
-        # The viewer's offset applies after the floor rather than inside it. The
-        # floor exists to protect a match from the measured lag; folding an
-        # offset into it would let the floor swallow one asking for a later
-        # plate, which is the direction a viewer reaches for when the plate runs
-        # ahead of their player.
-        return lagged + self._bias_ms()
+        return display_position_ms(self._timeline, DISPLAY_LEAD_MS, self._bias_ms(), now)
 
     @property
     def followed_position(self) -> int | None:
@@ -362,19 +324,7 @@ class CandidateSession:
             return None
         track = self.presentation
         if track is not None and track.target_lines:
-            frame = track.resolve_at(position)
-            return Resolution(
-                text=frame.text,
-                matched=True,
-                detail={
-                    "presentationCues": [asdict(cue) for cue in frame.cues],
-                    "presentationClockMs": position + track.offset_ms,
-                    "mappingOffsetMs": track.offset_ms,
-                    "candidateId": self._locked,
-                    "confirmed": False,
-                    **self.status(),
-                },
-            )
+            return target_frame(track, position, {"candidateId": self._locked, **self.status()})
         result = self._matchers[self._locked].line_at(position)
         if result is None:
             return Resolution(text="", matched=True, detail=dict(self.status()))
@@ -490,35 +440,36 @@ class DirectTranslationSession:
     """Translates what OCR reads, with no source subtitle file to match against."""
 
     mode = "translation"
-    independent_target = False
 
     def __init__(
         self,
         target_lines: list[SubtitleLine],
         config: AppConfig,
         translator: TranslatorFactory,
+        bias_source: BiasSource | None = None,
     ) -> None:
         self._open_translator = translator
-        self._matcher = (
-            SubtitleMatcher(
-                target_lines,
-                config.fuzzy_threshold,
-                config.match_window_size,
-                config.match_window_backward,
-                target_language=config.target_language,
-            )
+        self.target = (
+            TargetTrackFollower(target_lines, config, bias_source or (lambda: config.sync_bias_ms))
             if target_lines
             else None
         )
 
-    def saw_new_cue(self, at: float | None = None) -> None:
-        return None
+    @property
+    def independent_target(self) -> bool:
+        return self.target is not None
 
-    def saw_same_cue(self, at: float | None = None) -> None:
-        return None
+    def saw_new_cue(self, at: float) -> None:
+        if self.target:
+            self.target.new_cue(at)
+
+    def saw_same_cue(self, at: float) -> None:
+        if self.target:
+            self.target.same_cue(at)
 
     def begin_capture(self, at: float) -> None:
-        return None
+        if self.target:
+            self.target.timeline.begin_capture(at)
 
     def observe_playback(
         self,
@@ -527,24 +478,39 @@ class DirectTranslationSession:
         state_since: float | None = None,
         received_at: float | None = None,
     ) -> None:
-        return None
+        if self.target:
+            if state is PlaybackState.INVALIDATED:
+                self.target.reset()
+            self.target.timeline.observe_playback(state, at, state_since, received_at)
 
     def clear_cue(self) -> None:
-        if self._matcher is not None:
-            self._matcher.clear_cue()
+        if self.target:
+            self.target.clear_cue()
 
     def status(self) -> dict[str, object]:
         return {}
 
     @property
     def anchored(self) -> bool:
-        return False
+        return self.target is not None and self.target.timeline.anchored
+
+    def clock_ms(self, now: float | None = None) -> int | None:
+        return self.target.position_ms(DISPLAY_LEAD_MS, now) if self.target else None
 
     def line_now(self, position_ms: int | None = None) -> Resolution | None:
-        return None
+        position = self.clock_ms() if position_ms is None else position_ms
+        return (
+            target_frame(self.target.track, position, {})
+            if self.target and position is not None
+            else None
+        )
 
     def seconds_to_next_line(self) -> float | None:
-        return None
+        position = self.clock_ms()
+        if self.target is None or position is None:
+            return None
+        change = self.target.track.next_change_ms(position)
+        return None if change is None else max(0.0, (change - position) / 1000)
 
     def close(self) -> None:
         return None
@@ -554,13 +520,13 @@ class DirectTranslationSession:
         # read takes the slow path.
         return None
 
-    async def translate(self, text: str) -> str:
+    async def translate_read(self, text: str) -> str:
         translator = await self._open_translator()
-        translation = await translator.translate(text)
-        if not translation or self._matcher is None:
-            return translation
-        match = self._matcher.match(translation)
-        return match.target_text if match is not None else translation
+        return await translator.translate(text)
+
+    async def translate(self, text: str) -> str:
+        translation = await self.translate_read(text)
+        return self.target.answer(translation, 0, current=False) if self.target else translation
 
 
 Session = CandidateSession | DirectTranslationSession
@@ -584,6 +550,14 @@ class _Screen:
     covers_until_ms: int | None = None
 
 
+async def wait_for_redraw(event: asyncio.Event, timeout: float) -> None:
+    # Keep the wait inside the renderer task so cancellation at the same
+    # instant as a capture wakeup cannot be lost (Python 3.11 wait_for race).
+    with suppress(TimeoutError):
+        async with asyncio.timeout(timeout):
+            await event.wait()
+
+
 async def run_session_loop(
     session: Session,
     config: AppConfig,
@@ -596,6 +570,7 @@ async def run_session_loop(
     interval_s = config.capture_interval_ms / 1000
     gate = SubtitleGate(require_stable_read=isinstance(session, DirectTranslationSession))
     playback_capture = PlaybackCapture(PlaybackObserver())
+    target = session.target if isinstance(session, DirectTranslationSession) else None
     screen = _Screen()
     pending: asyncio.Task[None] | None = None
     pending_cue: tuple[str, int, int] | None = None
@@ -655,17 +630,17 @@ async def run_session_loop(
         nonlocal pending, pending_cue, pending_seq
         while True:
             waiting = session.seconds_to_next_line()
-            with suppress(TimeoutError):
-                await asyncio.wait_for(
-                    nudge.wait(),
-                    timeout=RETIME_CHECK_S if waiting is None else min(waiting, RETIME_CHECK_S),
-                )
+            await wait_for_redraw(
+                nudge, RETIME_CHECK_S if waiting is None else min(waiting, RETIME_CHECK_S)
+            )
             nudge.clear()
             if not session.anchored:
-                if screen.matched:
+                if target is not None:
+                    await show(target.live_text, TRANSLATED)
+                elif screen.matched:
                     await clear_plate()
                 continue
-            position = session.clock_ms() if isinstance(session, CandidateSession) else None
+            position = session.clock_ms()
             line = session.line_now(position) if position is not None else None
             if line is None:
                 if not session.anchored:
@@ -754,6 +729,10 @@ async def run_session_loop(
 
     async def handle(ocr_text: str, fresh: bool) -> dict[str, object]:
         nonlocal pending, pending_cue, pending_seq
+        if isinstance(session, DirectTranslationSession) and target is not None:
+            if fresh:
+                target.submit(ocr_text, session.translate_read, nudge)
+            return {}
         # A read of a cue already on screen may only improve on it by matching
         # outright. Letting the clock answer again would swap the line mid-cue,
         # as soon as the prediction crossed into the next one.
@@ -878,7 +857,10 @@ async def run_session_loop(
                     session.observe_playback(
                         combined, started, playback_capture.state_since, received_at
                     )
-                if screen.matched and not session.anchored:
+                if target is not None and playback is PlaybackState.INVALIDATED:
+                    await clear_plate()
+                    ocr_text = ""
+                elif target is None and screen.matched and not session.anchored:
                     await clear_plate()
 
                 if is_untranslatable(ocr_text):
@@ -898,7 +880,7 @@ async def run_session_loop(
                         await clear_plate()
                 else:
                     empty_reads = 0
-                    change = gate.classify(ocr_text)
+                    change = gate.classify(ocr_text, started)
                     if change is LineChange.REPEAT:
                         session.saw_same_cue(started)
                         # A changed read can repair OCR damage or identify another
@@ -916,13 +898,15 @@ async def run_session_loop(
                         # Timed from before the capture, not from after the
                         # OCR: the recognising is what puts a read behind the
                         # picture, and the clock should not inherit it.
-                        session.saw_new_cue(started)
+                        session.saw_new_cue(gate.first_seen if target is not None else started)
                         detail = await handle(ocr_text, fresh=True)
             except asyncio.CancelledError:
                 raise
             except Exception as error:
                 if isinstance(error, PlaybackCaptureError):
                     session.observe_playback(PlaybackState.INVALIDATED, started)
+                    if target is not None:
+                        await clear_plate()
                 logger.exception("Capture loop #%d failed (ocr=%r)", iteration, ocr_text[:60])
 
             first_capture.set()
@@ -943,8 +927,12 @@ async def run_session_loop(
                 )
             await asyncio.sleep(max(0.0, interval_s - (monotonic() - started)))
     finally:
-        workers = [renderer, filler] + ([pending] if pending is not None else [])
-        for worker in workers:
-            worker.cancel()
         session.close()
-        await asyncio.gather(*workers, return_exceptions=True)
+        tasks = [renderer, filler]
+        if pending is not None:
+            tasks.append(pending)
+        if target is not None and target.worker is not None:
+            tasks.append(target.worker)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)

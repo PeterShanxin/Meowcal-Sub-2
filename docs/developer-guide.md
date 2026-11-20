@@ -443,13 +443,14 @@ replacing it creates a new track. Generated answers stay in session memory.
 | **Use on-screen OCR** source (no matching source file) | OCR fallback, optionally with a target file | Yes. OCR text is translated live. |
 | OCR fallback only | Live OCR translation | Yes |
 
-In OCR fallback, HY-MT translates the recognized text. If a target file is
-selected, `DirectTranslationSession` runs the fuzzy text matcher on that
-translation and substitutes the matched file wording. This path uses neither
-the source embedding index nor the matched cue's timestamp. The screen cue
-drives display. The [playback path diagrams](subtitle-fallback-design.md) show
-where target-track playback can rejoin the existing clock and where source-track
-translation can attach a generated track while the viewer keeps watching.
+With a target file and an OCR source (Path 2), the local translator supplies
+text for the target matcher. Each still-current match keeps its cue identity
+and first capture time. Progressing matches that agree on the position start
+the same clock and target renderer used by Path 1, directly in target time.
+While looking for the scene, the strip can show a live translation or matching
+file wording. Paths 2 and 4 use the same local translation model.
+[Playback paths](subtitle-fallback-design.md) · [Matching replay](target-track-replay.md).
+
 Live OCR translation can read scene text that a source file would have rejected.
 
 ### Subtitle checks and editing
