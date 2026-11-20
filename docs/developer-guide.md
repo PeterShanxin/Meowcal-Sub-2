@@ -450,6 +450,12 @@ the session after stopping idle prefill so an old start cannot use a changed tra
 
 ### Cancellation and stale results
 
+A catalog search cancels and joins unfinished provider lookups when it exits.
+A normal provider failure still allows the other sources to finish.
+Each studio window receives state, style and later events in order through
+its own bounded queue. A stalled or disconnected window reconnects to a
+fresh snapshot without delaying subtitle changes in another window.
+
 - **Search.** Each search has an ID. A result that arrives after a newer search
   started returns to its caller but does not change the newer state. Episode and
   season lookups apply only while their own search catalog is current.

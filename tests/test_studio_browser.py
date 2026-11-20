@@ -2,12 +2,14 @@
 
 import asyncio
 import contextlib
+import json
 import re
 import socket
 import threading
 import time
 from dataclasses import replace
 from unittest.mock import AsyncMock
+from urllib.parse import urljoin
 
 import pytest
 import uvicorn
@@ -761,3 +763,34 @@ def test_live_dock_shows_the_session_warning_and_keeps_it_after_stop(tmp_path):
 
         expect(page.get_by_role("button", name="Start OCR and sync")).to_be_visible()
         expect(page.locator(".source-health-text")).to_have_text(warning)
+
+
+def test_plate_restores_the_current_line_and_silence_after_reconnecting(search_server):
+    snapshots = iter(["First cue", "", "Next cue"])
+    sockets = []
+
+    def connected(ws):
+        sockets.append(ws)
+        ws.send(
+            json.dumps(
+                {
+                    "type": "state",
+                    "state": {
+                        "status": "running",
+                        "last_subtitle": next(snapshots),
+                        "last_subtitle_source": "translated",
+                    },
+                }
+            )
+        )
+
+    with _studio(search_server, 900, 500) as page:
+        page.route_web_socket("**/ws/app*", connected)
+        page.goto(urljoin(page.url, f"/overlay?token={TEST_TOKEN}"))
+        line = page.locator("#line")
+        expect(line).to_have_text("First cue")
+        sockets[-1].close()
+        expect(page.locator("#plate")).to_have_class(re.compile("is-empty"))
+        sockets[-1].close()
+        expect(line).to_have_text("Next cue")
+        expect(line).to_have_class(re.compile("is-provisional"))

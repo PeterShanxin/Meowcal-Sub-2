@@ -166,6 +166,7 @@ class AppStateSnapshot:
     prepared_session: PreparedSession | None = None
     progress: AppProgress = field(default_factory=AppProgress)
     last_subtitle: str = ""
+    last_subtitle_source: str = "matched"
     error_message: str = ""
     warning_message: str = ""
     gap_fill: GapFillProgress | None = None

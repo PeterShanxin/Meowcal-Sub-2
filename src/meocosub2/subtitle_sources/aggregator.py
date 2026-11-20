@@ -195,12 +195,7 @@ class SubtitleSearchAggregator:
             providers=[provider.provider_code for provider in self.providers],
             tmdb_enabled=bool(self._tmdb_client and self._tmdb_client.enabled),
         )
-        # SubDL typically answers in ~1-2s while ASSRT can take 5s+, so the
-        # slowest provider used to hold the whole card list behind one spinner.
-        # Providers are awaited as they land and merged in fixed provider order
-        # (never completion order), so a match/work id assigned in an early
-        # interim merge is exactly what the final merge assigns too — nothing
-        # the user clicked on while only some providers had answered goes stale.
+        # Merge settled providers in catalog order so interim selections keep their IDs.
         with event_correlation(correlation_id):
             tasks = {
                 asyncio.create_task(
@@ -212,32 +207,37 @@ class SubtitleSearchAggregator:
             errors: list[str] = []
             settled_codes: list[str] = []
             pending = set(tasks)
-            while pending:
-                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-                for task in done:
-                    provider = tasks[task]
-                    try:
-                        catalogs_by_provider[provider.provider_code] = task.result()
-                    except Exception as exc:
-                        errors.append(_provider_error_warning(provider.provider_label, exc))
-                    settled_codes.append(provider.provider_code)
-                    if on_provider_update is not None:
-                        ordered = [
-                            catalogs_by_provider[p.provider_code]
-                            for p in self.providers
-                            if p.provider_code in catalogs_by_provider
-                        ]
-                        interim = (
-                            self._merge_catalogs(ordered, languages, query_year, dispatch_query)
-                            if ordered
-                            else AggregatedSearchCatalog(matches=[], results=[])
-                        )
-                        # Succeeded and settled are reported separately: a provider
-                        # that fails is done (it must drop off "waiting on...") but
-                        # never appears in the interim results.
-                        await on_provider_update(
-                            list(catalogs_by_provider.keys()), list(settled_codes), interim
-                        )
+            try:
+                while pending:
+                    done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                    for task in done:
+                        provider = tasks[task]
+                        try:
+                            catalogs_by_provider[provider.provider_code] = task.result()
+                        except Exception as exc:
+                            errors.append(_provider_error_warning(provider.provider_label, exc))
+                        settled_codes.append(provider.provider_code)
+                        if on_provider_update is not None:
+                            ordered = [
+                                catalogs_by_provider[p.provider_code]
+                                for p in self.providers
+                                if p.provider_code in catalogs_by_provider
+                            ]
+                            interim = (
+                                self._merge_catalogs(ordered, languages, query_year, dispatch_query)
+                                if ordered
+                                else AggregatedSearchCatalog(matches=[], results=[])
+                            )
+                            # Succeeded and settled are reported separately: a provider
+                            # that fails is done (it must drop off "waiting on...") but
+                            # never appears in the interim results.
+                            await on_provider_update(
+                                list(catalogs_by_provider.keys()), list(settled_codes), interim
+                            )
+            finally:
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
 
         catalogs = [
             catalogs_by_provider[p.provider_code]
