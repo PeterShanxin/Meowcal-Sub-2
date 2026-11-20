@@ -84,6 +84,9 @@ spend metered allowances, and a test can overwrite the viewer's configuration.
 
 ## Build a Windows distribution
 
+For the Partner Center package, Store updates and private data locations, see
+[Microsoft Store edition](microsoft-store.md).
+
 Set the same `X.Y.Z` version in
 `tauri.conf.json`, `Cargo.toml`, `Cargo.lock`, `pyproject.toml`, and the studio's
 `package.json` and `package-lock.json`, plus the backend's `__init__.py`.

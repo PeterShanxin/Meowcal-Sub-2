@@ -2,6 +2,7 @@
   "{count} eps": "{count} 集",
   "Update checks are available in release builds.": "发布版才能检查更新。",
   "Updates are not configured for this build.": "此版本未配置更新。",
+  "Microsoft Store manages updates for this installation.": "这个版本由 Microsoft Store 提供更新。",
   "Portable copies must be updated manually.": "便携版需要手动更新。",
   "An update is already being installed.": "已有更新正在安装。",
   "Updates are unavailable for this build.": "此版本无法更新。",

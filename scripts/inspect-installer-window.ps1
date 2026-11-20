@@ -3,7 +3,8 @@ param(
     [int]$AppPid,
     [ValidateSet('Inspect','Settings','Cancel','Yes','Close','Processes','Remaining','Cleanup','Installations','RemoveProfiles','ProfileLinks')]
     [string]$Action = 'Inspect',
-    [string]$Tracked
+    [string]$Tracked,
+    [switch]$Store
 )
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
@@ -100,7 +101,18 @@ if ($Action -in @('Processes','Remaining','Cleanup')) {
     exit
 }
 $app = Get-Process -Id $AppPid
-if (-not $app.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { throw 'Window process is not owned by this test.' }
+if ($Store) {
+    if ($Action -ne 'Inspect') { throw 'Store package windows support read-only inspection.' }
+    $windowsApps = Join-Path $env:ProgramFiles 'WindowsApps'
+    $packageDir = Split-Path $app.Path -Parent
+    if ((Split-Path $packageDir -Parent) -ne $windowsApps -or
+        (Split-Path $packageDir -Leaf) -notmatch '^ShanxinLi\.MeowcalSub2_[0-9.]+_(x64|arm64)__hs4jcn39rmtjt$' -or
+        (Split-Path $app.Path -Leaf) -ne 'Meowcal Sub 2.exe') {
+        throw 'Window process does not belong to the installed Store package.'
+    }
+} elseif (-not $app.Path.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Window process is not owned by this test.'
+}
 if ($Action -eq 'Close') {
     if (-not $app.CloseMainWindow()) { throw 'Owned app has no closeable main window.' }
     '{}' ; exit

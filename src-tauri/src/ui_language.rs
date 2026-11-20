@@ -68,7 +68,9 @@ pub(crate) struct TrayMenu(pub(crate) [MenuItem<Wry>; 4]);
 
 #[tauri::command]
 pub(crate) fn ui_language() -> &'static str {
-    parse_ui_language(&std::fs::read_to_string(crate::config_path()).unwrap_or_default())
+    parse_ui_language(
+        &std::fs::read_to_string(crate::config_port::config_path()).unwrap_or_default(),
+    )
 }
 
 /// The studio resolves `system` to a locale, so the tray follows what it shows.

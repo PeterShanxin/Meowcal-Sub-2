@@ -4,6 +4,8 @@ mod backend_process;
 mod config_port;
 mod overlay_window;
 mod process_lifetime;
+#[cfg(feature = "microsoft-store")]
+mod store;
 mod ui_language;
 mod updater;
 
@@ -53,13 +55,6 @@ struct ShellState {
     shutdown_requested: AtomicBool,
 }
 
-fn config_path() -> PathBuf {
-    let appdata = std::env::var("APPDATA").unwrap_or_else(|_| String::from("."));
-    PathBuf::from(appdata)
-        .join("meowcal-sub-2")
-        .join("config.toml")
-}
-
 fn event_log_path() -> PathBuf {
     if let Ok(path) = std::env::var("MEOCOSUB2_EVENT_LOG_PATH") {
         return PathBuf::from(path);
@@ -96,10 +91,7 @@ fn log_shell_event(event: &str, fields: serde_json::Value) {
 }
 
 fn overlay_port() -> u16 {
-    let Ok(raw) = fs::read_to_string(config_path()) else {
-        return 8765;
-    };
-    config_port::parse_overlay_port(&raw).unwrap_or(8765)
+    config_port::configured_port()
 }
 
 fn api_base() -> String {
@@ -1006,6 +998,8 @@ fn request_shutdown(app: &AppHandle) {
 }
 
 fn main() {
+    #[cfg(feature = "microsoft-store")]
+    store::initialize().expect("Microsoft Store package storage is unavailable");
     let backend_process = BackendProcess::new();
     let shell_state = ShellState {
         prev_main_bounds: Arc::new(Mutex::new(None)),
