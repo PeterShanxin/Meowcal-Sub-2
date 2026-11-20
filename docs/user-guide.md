@@ -178,6 +178,10 @@ optional target file. It is slower than the source-file workflow, needs the
 translation engine, and can translate scene text that is not dialogue. Target
 file timing cannot follow a source clock in this mode.
 
+In builds from `main`, **Use on-screen OCR** shows translations in the order
+the original lines appear. If translation falls far behind, the strip skips
+older lines to catch up. Selecting a new capture region clears the old lines.
+
 ### Empty results and source failures
 
 | What you see | Meaning | What to do |

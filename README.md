@@ -24,6 +24,8 @@ it can translate locally through [Meowcal Core](docs/MEOWCAL_CORE.md).
 
 - Search **OpenSubtitles, SubDL, and ASSRT** from one studio.
 - Use OCR to match the subtitles visible in your player and anchor playback.
+- In builds from `main`, show translations in screen order when you use
+  **Use on-screen OCR** without a source subtitle file.
 - Present a target-language subtitle file with its own timings, overlaps, and
   silent gaps; use carried translations or local inference for uncovered cues.
 - Prepare translations before playback and adjust subtitle timing while watching.

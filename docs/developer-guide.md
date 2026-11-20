@@ -386,6 +386,16 @@ source-aligned presentation behavior.
 
 In OCR fallback the target file cannot be scheduled against a source clock.
 Live OCR translation can read scene text that a source file would have rejected.
+Two consecutive usable reads of the same cue within two seconds confirm it for
+the queue. Pause rereads keep the current cue and new cues translate and appear
+in capture order. A late answer has at least 350 ms on the overlay, with its hold
+bounded by the observed source duration. After a cue ends, its translation can
+stay visible for up to four seconds while the next answer is pending. A backlog
+of 32 cues or an oldest queued cue aged 15 seconds skips old work and resumes
+from the current cue. Each queued translation has up to 15 seconds, or the
+configured translation timeout if it is shorter. Reselecting the region or
+losing capture discards the queue. When a target file is available, its wording
+can replace a matching model answer.
 
 ### Subtitle checks and editing
 
@@ -426,7 +436,8 @@ the session after stopping idle prefill so an old start cannot use a changed tra
 - **Stop.** Stop sets the state to stopping, cancels the sync task, and returns
   to idle with the prepared session kept.
 - **Translation.** A cancelled translation discards its answer. Answers for a cue
-  that is no longer current are not shown.
+  that is no longer current are discarded in sessions with a source file.
+  In OCR fallback, admitted cues can still display after their source cue ends.
 
 ### Process ownership
 

@@ -21,6 +21,7 @@ from meocosub2.engine import EngineInstallError, EngineStartError
 from meocosub2.gapfill import fill_gaps
 from meocosub2.matcher import BOTH, FOLLOW_GRACE_MS, SubtitleMatcher
 from meocosub2.models import MatchResult, SourceSubtitleCandidate, SubtitleLine
+from meocosub2.ocr_fallback import run_ocr_fallback
 from meocosub2.playback_capture import PlaybackCapture, PlaybackCaptureError
 from meocosub2.playback_observation import PlaybackObserver
 from meocosub2.presentation import PresentationTrack
@@ -517,9 +518,6 @@ class CandidateSession:
 class DirectTranslationSession:
     """Translates what OCR reads, with no source subtitle file to match against."""
 
-    mode = "translation"
-    independent_target = False
-
     def __init__(
         self,
         target_lines: list[SubtitleLine],
@@ -539,54 +537,18 @@ class DirectTranslationSession:
             else None
         )
 
-    def saw_new_cue(self, at: float | None = None) -> None:
-        return None
-
-    def saw_same_cue(self, at: float | None = None) -> None:
-        return None
-
-    def begin_capture(self, at: float) -> None:
-        return None
-
-    def observe_playback(
-        self,
-        state: PlaybackState,
-        at: float,
-        state_since: float | None = None,
-        received_at: float | None = None,
-    ) -> None:
-        return None
-
-    def clear_cue(self) -> None:
+    def reset(self) -> None:
         if self._matcher is not None:
-            self._matcher.clear_cue()
-
-    def status(self) -> dict[str, object]:
-        return {}
-
-    @property
-    def anchored(self) -> bool:
-        return False
-
-    def line_now(self, position_ms: int | None = None) -> Resolution | None:
-        return None
-
-    def seconds_to_next_line(self) -> float | None:
-        return None
-
-    def close(self) -> None:
-        return None
-
-    async def match(self, ocr_text: str, follow: bool = True) -> Resolution | None:
-        # Nothing to match against until the read has been translated, so every
-        # read takes the slow path.
-        return None
+            self._matcher.reset()
 
     async def translate(self, text: str) -> str:
         translator = await self._open_translator()
         translation = await translator.translate(text)
         if not translation or self._matcher is None:
             return translation
+        # The OCR queue has already confirmed a distinct cue. Two source cues
+        # can have the same translation and should both get the file wording.
+        self._matcher.clear_cue()
         match = self._matcher.match(translation)
         return match.target_text if match is not None else translation
 
@@ -601,10 +563,6 @@ class _Screen:
     seq: int = 0
     text: str = ""
     matched: bool = False
-    # Whether the read itself matched, rather than the clock placing the line.
-    # A followed line is right about as often as the anchor is, so reads of the
-    # same cue keep trying to match until one of them confirms it.
-    confirmed: bool = False
     # The last file line a confirmed match covered. A read can match a cue the
     # file splits across two lines, and the clock only ever answers with one of
     # them, so the clock waits until it has moved past the whole match.
@@ -627,7 +585,31 @@ async def run_session_loop(
     # Read the region every frame: the live dock can reselect it without stopping.
     read_region = region_source or (lambda: tuple(config.capture_region))
     interval_s = config.capture_interval_ms / 1000
-    gate = SubtitleGate(require_stable_read=isinstance(session, DirectTranslationSession))
+    if isinstance(session, DirectTranslationSession):
+
+        async def read_text(region: tuple[int, ...]) -> str:
+            try:
+                image = await asyncio.to_thread(capture_region, region)
+            except Exception as error:
+                raise PlaybackCaptureError("OCR fallback capture unavailable") from error
+            return await ocr_image(image, config.ocr_language, engine=config.ocr_engine)
+
+        async def publish_fallback(text: str) -> None:
+            await broadcast(text, TRANSLATED if text else MATCHED)
+
+        await run_ocr_fallback(
+            read_region,
+            read_text,
+            session.translate,
+            publish_fallback,
+            session.reset,
+            interval_s,
+            config.translation_timeout_s,
+            debug_broadcast,
+        )
+        return
+
+    gate = SubtitleGate()
     playback_capture = PlaybackCapture(PlaybackObserver())
     screen = _Screen()
     pending: asyncio.Task[None] | None = None
@@ -663,7 +645,6 @@ async def run_session_loop(
             pending.cancel()
             pending = None
         screen.seq += 1
-        screen.confirmed = False
         screen.covers_through = None
         screen.covers_until_ms = None
         pending_cue = None
@@ -698,7 +679,7 @@ async def run_session_loop(
                 if screen.matched:
                     await clear_plate()
                 continue
-            position = session.clock_ms() if isinstance(session, CandidateSession) else None
+            position = session.clock_ms()
             line = session.line_now(position) if position is not None else None
             if line is None:
                 if not session.anchored:
@@ -725,7 +706,6 @@ async def run_session_loop(
                 if pending is not None:
                     pending.cancel()
                 screen.seq += 1
-                screen.confirmed = False
                 screen.covers_through = None
                 screen.covers_until_ms = None
                 if cue != pending_cue and screen.text:
@@ -739,11 +719,8 @@ async def run_session_loop(
                     pending = None
                 pending_cue = None
             if await show(line.text, MATCHED):
-                # A clock transition lets similar OCR reads confirm the source
-                # again: REPEAT alone cannot prove the same dialogue is still up.
-                # The sequence also invalidates translations still in flight.
+                # A clock transition invalidates translations still in flight.
                 screen.seq += 1
-                screen.confirmed = False
                 screen.covers_through = None
                 screen.covers_until_ms = None
 
@@ -794,8 +771,6 @@ async def run_session_loop(
             if pending is not None:
                 pending.cancel()
                 pending = None
-            if resolution.detail.get("confirmed"):
-                screen.confirmed = True
             # Matching and scheduled rendering resolve the same target intervals,
             # including silence. Source spans cannot hold a target cue on screen.
             screen.covers_through = None
@@ -809,7 +784,6 @@ async def run_session_loop(
                 pending = None
             pending_cue = None
             if resolution.detail.get("confirmed"):
-                screen.confirmed = True
                 screen.covers_through = resolution.covers_through
                 screen.covers_until_ms = resolution.covers_until_ms
             await publish(resolution.text, resolution.source, screen.seq)
@@ -858,7 +832,7 @@ async def run_session_loop(
         or seeks, would otherwise have the engine spend its pass on cues that
         have already gone by.
         """
-        if not isinstance(session, CandidateSession) or not session.has_target_file:
+        if not session.has_target_file:
             return
         answered: set[int] = set()
         while True:
@@ -921,7 +895,6 @@ async def run_session_loop(
                     if empty_reads == CLEAR_AFTER_EMPTY_READS:
                         gate.clear()
                         session.clear_cue()
-                        screen.confirmed = False
                         screen.covers_through = None
                         screen.covers_until_ms = None
                     # While the clock is running it decides what is on screen.
@@ -937,14 +910,12 @@ async def run_session_loop(
                         session.saw_same_cue(started)
                         # A changed read can repair OCR damage or identify another
                         # file cue even when the gate considers its wording similar.
-                        if not screen.confirmed or isinstance(session, CandidateSession):
-                            detail = await handle(ocr_text, fresh=False)
+                        detail = await handle(ocr_text, fresh=False)
                     elif change is not LineChange.UNSTABLE:
                         gate.remember(ocr_text)
                         screen.seq += 1
                         if not (session.independent_target and session.anchored):
                             screen.matched = False
-                        screen.confirmed = False
                         screen.covers_through = None
                         screen.covers_until_ms = None
                         # Timed from before the capture, not from after the
