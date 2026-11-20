@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import re
 import statistics
-from bisect import bisect_left
+from bisect import bisect_left, bisect_right
 from collections.abc import Iterable
 from dataclasses import dataclass
+from itertools import accumulate
 from typing import Literal
 
 from meocosub2.models import SubtitleLine
@@ -40,6 +41,22 @@ _ANCHOR_WORDS = re.compile(r"[^\W_]+", re.UNICODE)
 _MAX_ANCHOR_P90_RESIDUAL_MS = 200
 
 
+class _CueIntervals:
+    """Limit a time lookup to cues that could still be active at that position."""
+
+    def __init__(self, lines: Iterable[SubtitleLine]) -> None:
+        self.lines = sorted(lines, key=lambda line: line.start_ms)
+        self.starts = [line.start_ms for line in self.lines]
+        self.latest_ends = list(accumulate((line.end_ms for line in self.lines), max))
+
+    def active_at(self, ms: int) -> list[SubtitleLine]:
+        stop = bisect_right(self.starts, ms)
+        # A long cue can outlive its shorter neighbours. Skip only prefixes
+        # whose latest end has already passed, including the half-open end.
+        start = bisect_right(self.latest_ends, ms, 0, stop)
+        return [self.lines[i] for i in range(start, stop) if self.lines[i].end_ms > ms]
+
+
 class PresentationTrack:
     """Answers source-clock positions from a separate target subtitle track."""
 
@@ -52,30 +69,18 @@ class PresentationTrack:
         self.offset_corroborated = calibrated_offset is not None
         self.offset_ms = calibrated_offset if calibrated_offset is not None else 0
 
-        self._target_entries = tuple(
+        target_entries = tuple(
             (line, position, line.start_ms - self.offset_ms, line.end_ms - self.offset_ms)
             for position, line in enumerate(target_lines)
         )
-        self._overlapping_targets = _overlapping_entries(source_lines, self._target_entries)
-        self._wholly_uncovered_ids = {
-            id(source) for source in source_lines if not self._overlapping_targets[id(source)]
-        }
-        self._boundaries = tuple(
-            sorted(
-                {
-                    *(
-                        boundary
-                        for _, _, start, end in self._target_entries
-                        for boundary in (start, end)
-                    ),
-                    *(
-                        boundary
-                        for source in source_lines
-                        if id(source) in self._wholly_uncovered_ids
-                        for boundary in (source.start_ms, source.end_ms)
-                    ),
-                }
-            )
+        self._overlapping_targets = _overlapping_entries(source_lines, target_entries)
+        self._targets = _CueIntervals(target_lines)
+        self._fallbacks = _CueIntervals(
+            source for source in source_lines if not self._overlapping_targets[id(source)]
+        )
+        self._boundaries = sorted(
+            {boundary for _, _, start, end in target_entries for boundary in (start, end)}
+            | {ms for line in self._fallbacks.lines for ms in (line.start_ms, line.end_ms)}
         )
 
     def answer(self, line: SubtitleLine) -> str:
@@ -88,31 +93,22 @@ class PresentationTrack:
         )
 
     def resolve_at(self, source_ms: int) -> PresentationFrame:
-        targets = [entry for entry in self._target_entries if entry[2] <= source_ms < entry[3]]
-        if targets:
-            ordered = _ordered_targets(targets)
-            lines = [entry[0] for entry in ordered]
+        lines = self._targets.active_at(source_ms + self.offset_ms)
+        if lines:
             return PresentationFrame(
                 text=_join_target_text(lines),
                 cues=tuple(_cue(line, "target") for line in lines),
             )
 
-        fallbacks = [
-            (line, position)
-            for position, line in enumerate(self.source_lines)
-            if id(line) in self._wholly_uncovered_ids
-            and line.start_ms <= source_ms < line.end_ms
-            and line.translated
-        ]
-        ordered_fallbacks = sorted(fallbacks, key=lambda entry: (entry[0].start_ms, entry[1]))
-        lines = [entry[0] for entry in ordered_fallbacks]
+        lines = [line for line in self._fallbacks.active_at(source_ms) if line.translated]
         return PresentationFrame(
             text="\n".join(format_subtitle_cue(line.translated) for line in lines),
             cues=tuple(_cue(line, _fallback_kind(line)) for line in lines),
         )
 
     def next_change_ms(self, source_ms: int) -> int | None:
-        return next((boundary for boundary in self._boundaries if boundary > source_ms), None)
+        index = bisect_right(self._boundaries, source_ms)
+        return self._boundaries[index] if index < len(self._boundaries) else None
 
 
 def _ordered_unique_anchors(
