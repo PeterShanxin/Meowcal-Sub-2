@@ -62,7 +62,8 @@
       else if (message.type === "state") {
         setPreference(message.state?.config?.ui?.language);
         if (message.state?.status !== "running") show("", null);
-        else if (firstState) show(message.state.last_subtitle || "", message.state.last_subtitle_source);
+        else if (firstState)
+          show(message.state.last_subtitle || "", message.state.last_subtitle_source);
         firstState = false;
       }
     };
