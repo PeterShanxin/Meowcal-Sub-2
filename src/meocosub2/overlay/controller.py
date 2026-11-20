@@ -1833,13 +1833,7 @@ class GuiController:
             return SemanticIndex(await engine.ensure_embedding_ready())
 
         async def translator_factory() -> LiveTranslator:
-            """Open the translator once, however many reads ask for it at once.
-
-            Every unmatched read starts its own task, and until the engine is up
-            they all arrive here together. Checking `opened` without the lock
-            let each of them past - measured as nine engines started in twenty
-            seconds, one per waiting read, competing for the GPU.
-            """
+            """Share one engine startup across simultaneous subtitle requests."""
             async with opening:
                 if not opened:
                     opened.append(await open_live_translator(config))
@@ -1855,7 +1849,12 @@ class GuiController:
                     bias_source=lambda: self.config.sync_bias_ms,
                 )
             else:
-                session = DirectTranslationSession(runtime.target_lines, config, translator_factory)
+                session = DirectTranslationSession(
+                    runtime.target_lines,
+                    config,
+                    translator_factory,
+                    bias_source=lambda: self.config.sync_bias_ms,
+                )
             await run_session_loop(
                 session,
                 config,

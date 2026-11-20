@@ -82,30 +82,9 @@ class PlaybackTimeline:
     cue can hold the clock unless observed video motion refreshes its hold time.
     """
 
-    def __init__(self) -> None:
-        self._anchor_ms: int | None = None
-        self._anchor_at = 0.0
-        self._supported_at = 0.0
-        self._has_activity_evidence = False
-        self._uncertain_since: float | None = None
-        self._pending_freeze_until: float | None = None
-        self._playback_received_at: float | None = None
-        self._capture_pending_until: float | None = None
-        self._paused_s = 0.0
-        self._stopped_since: float | None = None
-        self._cue_since: float | None = None
-        self._cue_started_ms: int | None = None
-        self._hold_since: float | None = None
-        self._hold_started_ms: int | None = None
-        self._cue_credited_s = 0.0
-        self._visible_cue_end_ms: int | None = None
-        self._misses = 0
-        self._drift_ms: int | None = None
-        self._pending_offset_ms: int | None = None
-        self._pending_index: int | None = None
-        self._pending_at = 0.0
-        self._recovering = False
-        self._strong_match: tuple[int, int, float] | None = None
+    def __init__(self, *, require_confirmation: bool = False) -> None:
+        self._require_confirmation = require_confirmation
+        self.reset()
 
     @property
     def anchored(self) -> bool:
@@ -349,6 +328,17 @@ class PlaybackTimeline:
             else self.predicted_ms(at)
         )
         if predicted is None:
+            if self._require_confirmation:
+                # Translated cues can use different wording. Three consistent
+                # observations can establish time even if none is near-exact.
+                agrees = self._agrees_with_pending(offset_ms, line_index, at)
+                if agrees and (self._pending_count >= 2 or (strong and self._pending_strong)):
+                    self._anchor(line_start_ms, line_index, at, drift=None, strong=strong)
+                    return True
+                self._pending_count = self._pending_count + 1 if agrees else 1
+                self._pending_strong = strong
+                self._remember_pending(offset_ms, line_index, at)
+                return False
             if self._recovering and not strong:
                 self._pending_offset_ms = None
                 return False
@@ -361,16 +351,20 @@ class PlaybackTimeline:
             return False
 
         in_window = predicted - WINDOW_BACK_MS <= line_start_ms <= predicted + WINDOW_FORWARD_MS
-        if abs(line_start_ms - predicted) <= AGREEING_OFFSET_MS or (in_window and strong):
+        if abs(line_start_ms - predicted) <= AGREEING_OFFSET_MS or (
+            in_window and strong and not self._require_confirmation
+        ):
             self._anchor(
                 line_start_ms, line_index, at, drift=line_start_ms - predicted, strong=strong
             )
             return True
 
-        if strong and not in_window:
+        if (strong and not in_window) or self._require_confirmation:
             # Do not keep playing the old scene while a whole-file seek waits
             # for another progressing cue to corroborate its new position.
             self.invalidate()
+            self._pending_count = 1
+            self._pending_strong = strong
             self._remember_pending(offset_ms, line_index, at)
             return False
 
@@ -501,24 +495,28 @@ class PlaybackTimeline:
                 self._remember_pending(*corroboration)
 
     def reset(self) -> None:
-        self._strong_match = None
-        self._visible_cue_end_ms = None
-        self._anchor_ms = None
+        self._anchor_ms: int | None = None
         self._anchor_at = 0.0
         self._supported_at = 0.0
         self._has_activity_evidence = False
-        self._uncertain_since = None
-        self._pending_freeze_until = None
-        self._playback_received_at = None
-        self._capture_pending_until = None
+        self._uncertain_since: float | None = None
+        self._pending_freeze_until: float | None = None
+        self._playback_received_at: float | None = None
+        self._capture_pending_until: float | None = None
         self._paused_s = 0.0
-        self._stopped_since = None
-        self._cue_since = None
-        self._cue_started_ms = None
-        self._hold_since = None
-        self._hold_started_ms = None
+        self._stopped_since: float | None = None
+        self._cue_since: float | None = None
+        self._cue_started_ms: int | None = None
+        self._hold_since: float | None = None
+        self._hold_started_ms: int | None = None
         self._cue_credited_s = 0.0
+        self._visible_cue_end_ms: int | None = None
         self._misses = 0
-        self._drift_ms = None
-        self._pending_offset_ms = None
-        self._recovering = False
+        self._drift_ms: int | None = None
+        self._pending_offset_ms: int | None = None
+        self._pending_index: int | None = None
+        self._pending_at = 0.0
+        self._pending_count = 0
+        self._pending_strong = False
+        self._recovering = self._require_confirmation
+        self._strong_match: tuple[int, int, float] | None = None

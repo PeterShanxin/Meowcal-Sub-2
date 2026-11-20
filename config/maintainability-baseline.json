@@ -8,7 +8,7 @@
     "src/meocosub2/engine/runtime.py": 211,
     "src/meocosub2/matcher.py": 550,
     "src/meocosub2/opensubtitles/client.py": 932,
-    "src/meocosub2/overlay/controller.py": 2199,
+    "src/meocosub2/overlay/controller.py": 2198,
     "src/meocosub2/overlay/ui/src/app.tsx": 1762,
     "src/meocosub2/overlay/ui/src/components/palette.tsx": 1613,
     "src/meocosub2/overlay/ui/src/components/primitives.tsx": 394,
@@ -17,8 +17,8 @@
     "src/meocosub2/overlay/ui/src/styles/theme.css": 719,
     "src/meocosub2/subtitle_sources/aggregator.py": 1481,
     "src/meocosub2/subtitle_sources/subdl.py": 649,
-    "src/meocosub2/sync.py": 983,
-    "src/meocosub2/timeline.py": 524
+    "src/meocosub2/sync.py": 963,
+    "src/meocosub2/timeline.py": 522
   },
   "lintBudgets": {
     "ruff": 0,
