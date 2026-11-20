@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import subprocess
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
@@ -13,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SUPPORTED = {"x64", "arm64"}
 
 
-def check_bundle(path: Path, commit: str) -> None:
+def check_bundle(path: Path, commit: str, makeappx: Path) -> None:
     template = (ROOT / "store/AppxManifest.xml").read_text(encoding="utf-8")
     version = json.loads((ROOT / "src-tauri/tauri.conf.json").read_text())["version"]
     with zipfile.ZipFile(path) as bundle, TemporaryDirectory() as tmp:
@@ -30,7 +31,8 @@ def check_bundle(path: Path, commit: str) -> None:
             name = entry.attrib["FileName"]
             if Path(name).name != name or not name.endswith(".msix"):
                 raise ValueError("Unexpected embedded package filename.")
-            with zipfile.ZipFile(bundle.extract(name, tmp)) as package:
+            package_path = bundle.extract(name, tmp)
+            with zipfile.ZipFile(package_path) as package:
                 identity = ET.fromstring(package.read("AppxManifest.xml")).find("{*}Identity")
                 if identity.attrib != {**expected, "ProcessorArchitecture": arch}:
                     raise ValueError(f"{arch} package identity differs from its manifest.")
@@ -43,14 +45,17 @@ def check_bundle(path: Path, commit: str) -> None:
                     "distribution": "microsoft-store",
                 }:
                     raise ValueError(f"{arch} package is from a different build.")
-                dest = Path(tmp) / arch
-                package.extractall(dest)
-                check_package(dest, arch)
+            # MSIX encodes spaces and other characters in its ZIP entry names.
+            # Verify the same decoded paths Windows presents to the installed app.
+            dest = Path(tmp) / arch
+            subprocess.run([makeappx, "unpack", "/p", package_path, "/d", dest], check=True)
+            check_package(dest, arch)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("bundle", type=Path)
     parser.add_argument("--commit", required=True)
+    parser.add_argument("--makeappx", type=Path, required=True)
     args = parser.parse_args()
-    check_bundle(args.bundle, args.commit)
+    check_bundle(args.bundle, args.commit, args.makeappx)

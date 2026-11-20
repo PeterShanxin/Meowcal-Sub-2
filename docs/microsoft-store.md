@@ -16,7 +16,7 @@ The [package manifest](../store/AppxManifest.xml) contains the full identity and
 
 1. Start **Microsoft Store package** in GitHub Actions for the source revision being released. The workflow builds and installs the app on separate x64 and ARM64 Windows machines.
 2. On each machine it signs a disposable test copy, starts Studio by its Start menu identity, opens the actual Studio window and saves a setting in its Windows package data. The workflow bundles the two original unsigned packages. It reopens the bundle and checks the Store identity, package and app versions, source commit, bundled files and native executables.
-3. Download the `store-submission` artifact and check its bundle against `SHA256SUMS.txt`. Upload the `.msixbundle` in the Packages section of the reserved Partner Center product. Microsoft runs certification and signs the package it distributes. Track the submission in Partner Center to confirm publication.
+3. Download the `store-submission` artifact and check its bundle against `SHA256SUMS.txt`. Upload the `.msixbundle` in the Packages section of the reserved Partner Center product. For the listing's square logo, use the 300 × 300 PNG in the `store-catalog` artifact. Microsoft runs certification and signs the package it distributes. Track the submission in Partner Center to confirm publication.
 
 For a single native build, use the [Windows build prerequisites](developer-guide.md#build-a-windows-distribution) and run `./scripts/build-store.ps1 -Architecture x64` or `-Architecture arm64` on the matching machine. Find the unsigned `.msix` under `dist/`. Store builds do not require the GitHub updater signing key.
 

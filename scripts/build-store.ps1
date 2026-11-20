@@ -15,7 +15,8 @@ $layout = Join-Path $repo "dist/meowcal-sub-2-v$version-windows-$Architecture"
 $manifest = (Get-Content "$repo/store/AppxManifest.xml" -Raw).Replace('@ARCHITECTURE@', $Architecture)
 [IO.File]::WriteAllText("$layout/AppxManifest.xml", $manifest)
 $assets = New-Item -ItemType Directory "$layout/Assets"
-& $Python "$PSScriptRoot/store_logos.py" "$repo/docs/assets/icon.png" $assets.FullName
+$catalog = Join-Path $repo 'dist/MeowcalSub2-StoreLogo-300.png'
+& $Python "$PSScriptRoot/store_logos.py" "$repo/docs/assets/icon.png" $assets.FullName $catalog
 if ($LASTEXITCODE) { throw 'Could not generate Store artwork.' }
 . "$PSScriptRoot/windows-sdk-tools.ps1"
 $makeAppx = Get-WindowsSdkTool 'makeappx.exe'

@@ -68,6 +68,13 @@ jobs:
         shell: powershell
         run: ./scripts/test-installed-store.ps1 -Package (Get-Item dist/*.msix) -Architecture ${{ matrix.arch }}
       - uses: actions/upload-artifact@v4
+        if: matrix.arch == 'x64'
+        with:
+          name: store-catalog
+          path: dist/MeowcalSub2-StoreLogo-300.png
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
         with:
           name: store-package-${{ matrix.arch }}
           path: dist/*.msix
@@ -93,9 +100,10 @@ jobs:
           . ./scripts/windows-sdk-tools.ps1
           $version = ([xml](Get-Content store/AppxManifest.xml -Raw)).Package.Identity.Version
           $output = "MeowcalSub2-$version.msixbundle"
-          & (Get-WindowsSdkTool 'makeappx.exe') bundle /d packages /p $output /bv $version /o
+          $makeAppx = Get-WindowsSdkTool 'makeappx.exe'
+          & $makeAppx bundle /d packages /p $output /bv $version /o
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          python scripts/verify_store_bundle.py $output --commit (git rev-parse HEAD)
+          python scripts/verify_store_bundle.py $output --commit (git rev-parse HEAD) --makeappx $makeAppx
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           "$((Get-FileHash $output).Hash.ToLowerInvariant())  $output" | Set-Content SHA256SUMS.txt
       - uses: actions/upload-artifact@v4

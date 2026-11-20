@@ -65,10 +65,10 @@ try again. Other checkouts and installed copies can keep running.
 
 ### Profile isolation
 
-Source and installed runs are not isolated by default. Every mode reads and
-writes the same configuration, runtime token, logs, corrected subtitles,
-subtitle cache, TMDb cache, BGE engine, and WebView2 data (see
-[Storage locations](#storage-locations)). They also use the same default port.
+Source runs, portable copies and GitHub installations share the configuration,
+runtime token, logs, corrected subtitles, subtitle cache, TMDb cache, BGE engine,
+WebView2 data and default port. The Store edition uses its own data and port.
+See [storage locations](#storage-locations) and [Microsoft Store edition](microsoft-store.md).
 
 Only Core storage has a profile switch. `run_app.vbs` sets
 `MEOWCAL_CORE_PROFILE=development`. A backend started directly with `serve`
@@ -553,6 +553,9 @@ key names are data and are not translated.
   updating `messages-zh.json` in the same change.
 
 ## Storage locations
+
+The table describes source runs and GitHub downloads. For the Store package's
+Windows-managed data directory, see [Microsoft Store edition](microsoft-store.md#where-user-data-lives).
 
 | Data | Location |
 | --- | --- |
