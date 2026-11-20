@@ -212,5 +212,55 @@
       12000
     ]
   ],
-  "end_ms": 26500
+  "end_ms": 26500,
+  "rendered_captions": [
+    {
+      "source": "Leave the lantern by the window.",
+      "read": "Leave the lantern by the window.",
+      "ms": 76,
+      "local_translation": "把灯笼放在窗边吧。",
+      "translation_ms": 3714,
+      "human_target": "把提灯留在窗边。"
+    },
+    {
+      "source": "Did someone close the garden gate?",
+      "read": "Did someone close the garden gate?",
+      "ms": 14,
+      "local_translation": "有人关上了花园的大门吗？",
+      "translation_ms": 4649,
+      "human_target": "有人把花园的大门关上了吗？"
+    },
+    {
+      "source": "The last train leaves at midnight.",
+      "read": "The last train leaves at midnight.",
+      "ms": 15,
+      "local_translation": "最后一班火车在午夜时刻出发。",
+      "translation_ms": 4977,
+      "human_target": "末班火车午夜出发。"
+    },
+    {
+      "source": "Look for the blue notebook.",
+      "read": "Look for the blue notebook.",
+      "ms": 14,
+      "local_translation": "请找一下那本蓝色的笔记本。",
+      "translation_ms": 4527,
+      "human_target": "找找那本蓝色的笔记本。"
+    },
+    {
+      "source": "Bring the map to the old station.",
+      "read": "Bring the map to the old station.",
+      "ms": 13,
+      "local_translation": "请把地图带到那个旧车站去。",
+      "translation_ms": 4216,
+      "human_target": "把地图带到老车站去。"
+    },
+    {
+      "source": "We have another hour before dawn.",
+      "read": "We have another hour before dawn.",
+      "ms": 15,
+      "local_translation": "在黎明来临之前，我们还有一小时的时间。",
+      "translation_ms": 3728,
+      "human_target": "离天亮还有一个小时。"
+    }
+  ]
 }

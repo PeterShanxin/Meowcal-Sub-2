@@ -92,7 +92,33 @@ def measure(method, data):
     }
 
 
+def measure_rendered(captions):
+    """Replay the six real OCR + translation results at six-second intervals."""
+    cues, reads = [], []
+    for index, item in enumerate(captions):
+        onset = index * 6000
+        cues.append((onset, onset + 5500, item["source"], item["human_target"]))
+        delay = item["ms"] + item["translation_ms"]
+        reads.append(
+            (onset, index, item["read"], item["local_translation"], delay, None, None, None, None)
+        )
+
+    follower = TargetTrackFollower(
+        [SubtitleLine(i, start, end, target) for i, (start, end, _, target) in enumerate(cues)],
+        AppConfig(),
+        lambda: 0,
+    )
+    hits = []
+    for item in captions:
+        follower.matcher.clear_cue()
+        match = follower.matcher.match(item["local_translation"])
+        hits.append(match.line_index if match else None)
+    data = {"cues": cues, "reads": reads, "scenes": [[0, 0]], "end_ms": len(captions) * 6000}
+    return {"cue_hits": hits, **measure("translated", data)}
+
+
 if __name__ == "__main__":
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     for method in ["translated", "multilingual"]:
         print(method, measure(method, fixture))
+    print("rendered", measure_rendered(fixture["rendered_captions"]))
