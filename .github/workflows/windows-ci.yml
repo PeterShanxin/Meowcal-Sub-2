@@ -37,9 +37,9 @@ jobs:
       - name: Compare frontend coverage scope with the PR base
         if: github.event_name == 'pull_request' && steps.scope.outputs.scope != 'docs'
         shell: pwsh
-        env:
-          COVERAGE_BASE: ${{ github.event.pull_request.base.sha }}
-        run: python -m scripts.check_coverage_scope $env:COVERAGE_BASE
+        # This checkout is GitHub's test merge. Its first parent is the exact
+        # base tested, including when the base moves after the event is sent.
+        run: python -m scripts.check_coverage_scope 'HEAD^1'
 
       - name: Verify CI routing contracts
         if: steps.scope.outputs.scope == 'docs'
