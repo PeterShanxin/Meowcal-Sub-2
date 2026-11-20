@@ -51,6 +51,7 @@ interface PaletteProps {
   onHydrateEpisode: (workId: string, season: number, episode: number) => void;
   onPickSource: (id: string) => void;
   onPickTarget: (id: string) => void;
+  onTranslateScreen: (() => void) | null;
   onPrimary: () => void;
   inputRef: RefObject<HTMLInputElement>;
   sourceLang: string;
@@ -105,6 +106,7 @@ export function Palette(props: PaletteProps): JSX.Element {
     onHydrateEpisode,
     onPickSource,
     onPickTarget,
+    onTranslateScreen,
     onPrimary,
     inputRef,
     sourceLang,
@@ -245,10 +247,7 @@ export function Palette(props: PaletteProps): JSX.Element {
   const sourceLabel = pickedSource?.file ?? null;
   const targetLabel = pickedTarget?.title ?? pickedTarget?.file ?? null;
   const canStart = phase === "prep" && !preparingReplacement && !preparing;
-  // The footer offers one step: the one after whichever list is open. Offering
-  // all three at once left the reader to work out which was the one to press.
-  // A prepared session outranks the tabs — otherwise browsing back to an
-  // earlier list took away the only way to start what is already ready.
+  const translateScreen = !hasSelectedEpisode && !canStart ? onTranslateScreen : null;
   const stage: "source" | "target" | "start" = canStart
     ? "start"
     : tab === "titles"
@@ -258,18 +257,16 @@ export function Palette(props: PaletteProps): JSX.Element {
         : "start";
   const primaryLabel = preparing
     ? t("Preparing")
-    : stage === "source"
-      ? t("Select source subtitle")
-      : stage === "target"
-        ? t("Select target subtitle")
-        : t("Start OCR and sync");
-  const primaryEnabled = preparing
-    ? false
-    : stage === "source"
-      ? true
-      : stage === "target"
-        ? !!sourceLabel
-        : canStart;
+    : translateScreen
+      ? t("Translate on-screen subtitles")
+      : stage === "source"
+        ? t("Select source subtitle")
+        : stage === "target"
+          ? t("Select target subtitle")
+          : t("Start OCR and sync");
+  const primaryEnabled =
+    !preparing &&
+    (!!translateScreen || stage === "source" || (stage === "target" ? !!sourceLabel : canStart));
   const startHint = preparing
     ? t("Downloading the subtitles you picked…")
     : stage === "source"
@@ -601,7 +598,7 @@ export function Palette(props: PaletteProps): JSX.Element {
           <span>{t("Select")}</span>
         </span>
         <div style={{ flex: 1 }} />
-        {hasSelectedEpisode || canStart ? (
+        {hasSelectedEpisode || canStart || translateScreen ? (
           <>
             {sourceLabel && (
               <PickedChip
@@ -622,9 +619,9 @@ export function Palette(props: PaletteProps): JSX.Element {
             <button
               type="button"
               className="accent-button"
-              onClick={onPrimary}
+              onClick={translateScreen ?? onPrimary}
               disabled={!primaryEnabled}
-              title={startHint}
+              title={translateScreen ? undefined : startHint}
               style={{
                 ...primaryStyle,
                 flexShrink: 0,
@@ -635,7 +632,7 @@ export function Palette(props: PaletteProps): JSX.Element {
             >
               {preparing && <span className="mini-spinner" aria-hidden />}
               {primaryLabel}
-              {primaryEnabled && <Kbd>Ctrl ↵</Kbd>}
+              {primaryEnabled && !translateScreen && <Kbd>Ctrl ↵</Kbd>}
             </button>
           </>
         ) : (

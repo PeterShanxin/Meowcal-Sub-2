@@ -249,13 +249,13 @@ class PlaybackTimeline:
             self._cue_credited_s = overrun
 
     def confirm_visible_cue(self, end_ms: int, seen_at: float | None = None) -> None:
-        """Retain identity from an exact reread without certifying later dialogue."""
+        """A repeated first caption fixes position; motion permits advancing within it."""
         now = monotonic()
         self._expire_stale_anchor(now)
         at = now if seen_at is None else min(now, seen_at)
         if self._anchor_ms is None or end_ms <= self._anchor_ms or now - at > UNCERTAIN_GRACE_S:
             return
-        self._visible_cue_end_ms = end_ms
+        self._visible_cue_end_ms = end_ms if self._has_activity_evidence else self._anchor_ms + 1
         self._supported_at = at
         if self._uncertain_since is not None:
             self._uncertain_since = at

@@ -155,7 +155,7 @@ function recommendedUpTo(total: number): number {
 export const OCR_SOURCE_ID = "__ocr_source__";
 
 const LOCAL_TRANSLATION_ID = "__local__";
-const OCR_ONLY_ID = "__ocr__";
+export const OCR_ONLY_ID = "__ocr__";
 
 export function prepareSelection(sourceId: string, targetId: string) {
   const ocr = sourceId === OCR_SOURCE_ID || targetId === OCR_ONLY_ID;

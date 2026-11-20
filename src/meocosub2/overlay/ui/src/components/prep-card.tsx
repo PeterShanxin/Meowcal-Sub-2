@@ -29,8 +29,13 @@ export function PrepCard({
   gapFill,
   onPickTarget,
 }: PrepCardProps): JSX.Element {
-  const sourceFile = prepared?.source_summary ?? prepared?.source_file_name ?? source?.file ?? "—";
-  const isAutoTranslation = prepared?.target_match_mode === "auto_live_translation";
+  const sourceFile =
+    prepared?.session_mode === "ocr_fallback"
+      ? t("On-screen subtitles")
+      : (prepared?.source_summary ?? prepared?.source_file_name ?? source?.file ?? "—");
+  const isAutoTranslation =
+    prepared?.target_match_mode === "auto_live_translation" ||
+    prepared?.target_match_mode === "direct_translation";
   const isLocalTranslation = prepared?.target_match_mode === "local_translation";
   // The source file is the target here, so naming it would read as an ordinary
   // pairing and hide where these translations actually come from.
@@ -86,7 +91,7 @@ export function PrepCard({
           letterSpacing: -0.3,
         }}
       >
-        {titleLabel ?? prepared?.title ?? t("Untitled")}
+        {titleLabel || prepared?.title || t("Live screen translation")}
       </div>
       <div
         style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 12, fontSize: 13 }}

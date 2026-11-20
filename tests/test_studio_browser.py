@@ -623,10 +623,24 @@ def test_episode_lookup_waits_for_progressive_title_search(search_server, monkey
         release_slow.set()
 
 
-def test_a_search_that_finds_nothing_says_so(search_server):
+@pytest.mark.parametrize("configured", [True, False])
+def test_live_screen_translation_needs_no_catalog_title(search_server, configured):
+    if not configured:
+        search_server.controller.config.subdl_api_key = ""
     with _studio(search_server, 1280, 900) as page:
-        _search(page, "nothing")
-        expect(page.get_by_text("No titles found for “nothing”")).to_be_visible()
+        translate = page.get_by_role("button", name="Translate on-screen subtitles")
+        if configured:
+            expect(translate).to_have_count(0)
+            _search(page, "nothing")
+            expect(page.get_by_text("No titles found for “nothing”")).to_be_visible()
+        with page.expect_response("**/api/session/prepare") as prepared:
+            translate.click()
+        session = prepared.value.json()["session"]
+        assert session["feature_id"] is None
+        assert session["target_match_mode"] == "direct_translation"
+        assert session["title"] == ("nothing" if configured else "")
+        expect(page.get_by_text("Session ready", exact=True)).to_be_visible()
+        expect(page.get_by_role("button", name="Start OCR and sync")).to_be_enabled()
 
 
 @pytest.mark.parametrize("tab", ["source", "target"])

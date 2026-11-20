@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from time import monotonic
@@ -20,6 +21,7 @@ from meocosub2.textnorm import clean_cjk_text, is_cjk_char
 
 logger = logging.getLogger(__name__)
 _OCR_PASS_TIMEOUT_SECONDS = 1.0
+_DETACHED_MARKS = re.compile(r"(?<=\w)[ \t]+[^\w\s](?:[ \t]+[^\w\s]){2,}(?=[ \t]+\w)")
 
 
 @dataclass(frozen=True)
@@ -150,12 +152,19 @@ def _should_try_raw_first(language: str) -> bool:
     return normalized.startswith("zh") or normalized.startswith("ja")
 
 
-def _ocr_score(text: str) -> tuple[int, int]:
-    if not text:
-        return (0, 0)
+def _ocr_score(text: str) -> tuple[int, int, int]:
     cleaned = clean_cjk_text(text)
     meaningful = sum(1 for ch in cleaned if ch.isalpha() or is_cjk_char(ch))
-    return (meaningful, len(cleaned))
+    noise = 0
+    if any(is_cjk_char(ch) for ch in cleaned):
+        # Scenery can break a reading into false letters and disconnected marks.
+        # Marks outside the dialogue can leave an otherwise complete read intact.
+        # Windows also spaces genuine ellipses, so count only mixed runs.
+        for run in _DETACHED_MARKS.findall(text):
+            kinds = len(set(run.split()))
+            if kinds >= 3:
+                noise += kinds - 1
+    return (max(1, meaningful - noise) if meaningful else 0, -noise, len(cleaned))
 
 
 async def _run_ocr(image: Image.Image, language: str) -> str:
@@ -215,7 +224,7 @@ async def ocr_image(
     passes.append(preprocess_white_text_for_ocr(image))
     pass_names.append("white-text")
     best_text = ""
-    best_score = (0, 0)
+    best_score = _ocr_score("")
     best_pass = "none"
     whole_scene_reads: list[str] = []
     t0 = monotonic()

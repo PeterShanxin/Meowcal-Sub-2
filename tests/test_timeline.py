@@ -154,22 +154,28 @@ def test_capture_invalidation_does_not_reuse_pre_loss_corroboration() -> None:
 
 
 @pytest.mark.parametrize("state_since", [None, 29.75])
-def test_motion_resumes_from_the_bounded_visible_cue_position(monkeypatch, state_since) -> None:
+@pytest.mark.parametrize("previous_motion", [False, True])
+def test_motion_resumes_from_the_bounded_visible_cue_position(
+    monkeypatch, state_since, previous_motion
+) -> None:
     import meocosub2.timeline as module
 
     now = 0.0
     monkeypatch.setattr(module, "monotonic", lambda: now)
     timeline = anchored_at(600_000)
+    if previous_motion:
+        timeline.observe_playback(PlaybackState.ADVANCING, now)
     for step in range(1, 121):
         now = step / 4
         timeline.observe_playback(PlaybackState.UNCERTAIN, now)
         timeline.saw_same_cue(now)
         timeline.confirm_visible_cue(608_000, now)
-    assert timeline.position_ms(now) == 607_999
+    expected = 607_999 if previous_motion else 600_000
+    assert timeline.position_ms(now) == expected
 
     now = 30.25
     timeline.observe_playback(PlaybackState.ADVANCING, now, state_since=state_since)
-    assert 607_999 <= timeline.position_ms(now) <= 608_499
+    assert expected <= timeline.position_ms(now) <= expected + 500
 
 
 def test_uncertainty_after_motion_withholds_timed_cues_without_claiming_pause() -> None:

@@ -80,8 +80,11 @@ Windows OCR compares the original image, an equalized image, and a neutral-white
 text mask. The mask can recover rows hidden by scene texture only when it retains
 at least 80% of the ordered letters from a whole-scene read with at least three
 letters. This preserves colored or dim subtitles when white scenery produces
-unrelated text. Eligible reads compete on cleaned text quality, not physical row
-count. Each pass waits at most one second. A timeout returns the best prior read
+unrelated text. Sub 2 ranks the eligible reads by recognized letters. In a CJK
+read, three or more different, separately spaced marks between letters count
+against that read. Scene edges can produce that pattern along with extra false
+letters. A spaced ellipsis or punctuation at the margin keeps its original
+weight. Each pass waits at most one second. A timeout returns the best prior read
 and terminates the owned OCR Core process; a new process handles later frames.
 Recognition never queues behind model inference.
 

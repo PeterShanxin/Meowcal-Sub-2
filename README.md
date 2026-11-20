@@ -26,18 +26,18 @@ it can translate locally through [Meowcal Core](docs/MEOWCAL_CORE.md).
 - Use OCR to match the subtitles visible in your player and anchor playback.
 - Present a target-language subtitle file with its own timings, overlaps, and
   silent gaps; use carried translations or local inference for uncovered cues.
-- On `main`, when only a target file is available, several matching screen
-  translations can place the video and start timed playback from that file.
+- From v0.4.0, if you have only a target file, the app translates a few
+  on-screen captions to find your place, then follows the file as you watch.
 - Fill untranslated gaps in partially translated subtitles before playback.
-  On main, a wholly untranslated source can start playing while the local
-  engine translates it. The finished target follows the current playback position.
+  In v0.4.0, you can start watching with only a source file while the local
+  engine translates the rest. The finished target follows the current playback position.
   Adjust subtitle timing from the live dock while watching.
 - Automatically order subtitle cues and remove exact duplicates during preparation;
   original files stay intact.
 - Edit SRT/WebVTT text and timing before sync, preview drift corrections, and use
   corrected copies directly in the prepared session.
 - Select a capture region and change subtitle appearance from the app.
-- On `main`, use the interface in English or Simplified Chinese. It follows the
+- Use the interface in English or Simplified Chinese. It follows the
   Windows display language unless you choose one in Settings.
 
 OCR and matching depend on the video, subtitle release, language, and selected

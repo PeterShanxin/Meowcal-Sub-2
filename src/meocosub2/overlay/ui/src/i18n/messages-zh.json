@@ -143,7 +143,6 @@
   "Searching subtitle sources...": "正在搜索字幕来源…",
   "Season hydration needs a title.": "查找这一季需要片名。",
   "Season hydration needs a valid season.": "查找这一季需要有效的季编号。",
-  "Select a matched title before preparing an OCR fallback session.": "准备文字识别会话前，请先选择匹配到的影视。",
   "Select a matched title before preparing an automatic session.": "准备自动会话前，请先选择匹配到的影视。",
   "Select a source subtitle before preparing a subtitle-pair session.": "准备双字幕会话前，请先选择原文字幕。",
   "Select the capture region before starting sync.": "开始同步前，请先框选捕获区域。",

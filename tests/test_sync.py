@@ -198,8 +198,10 @@ async def test_confirmed_visible_cue_survives_missing_motion_without_projecting_
         SubtitleLine(1, 8000, 11000, "Someone answers from the doorway"),
     ]
     target = [
-        SubtitleLine(0, 0, 8000, "Current target"),
-        SubtitleLine(1, 8000, 11000, "Next target"),
+        SubtitleLine(0, 0, 6500, "Current target"),
+        # The target changes before the source cue ends. Starting on a paused
+        # screen must retain the translation that first matched that screen.
+        SubtitleLine(1, 6500, 11000, "Next target"),
     ]
     candidate = make_candidate("a", source)
     candidate.pair.target_lines = target
