@@ -176,6 +176,9 @@ control; and a ceiling of 404 for `components/subtitle-editor/workspace.tsx`,
 which crossed the new-file limit by routing its labels and hints through the
 catalog.
 
+The shared preparation commit and typed catalog selections reduced
+`overlay/controller.py` from 2,199 to 2,156 lines.
+
 ## Lint budgets
 
 | Tool | Budget | State |

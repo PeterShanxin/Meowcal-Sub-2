@@ -150,6 +150,9 @@ for the next step. Arrow keys outside the palette keep their usual behavior.
 
 ### Choosing subtitle files
 
+On main, changing your subtitle choice during preparation keeps the newer choice.
+Checking a source and preparing it share the same download for that search.
+
 - **Release.** Prefer a file named for the same release as your video (for
   example the same streaming source or disc). Files for a different cut can
   drift or skip.
