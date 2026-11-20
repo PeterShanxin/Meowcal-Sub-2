@@ -149,6 +149,8 @@
   "Select the capture region before starting sync.": "开始同步前，请先框选捕获区域。",
   "Selected source subtitle could not be resolved.": "无法找到所选的原文字幕。",
   "Selected source subtitle was not found in the current search results.": "当前搜索结果中没有所选的原文字幕。",
+  "Selected source subtitle does not belong to the chosen title.": "所选的原文字幕不属于当前影视。",
+  "Subtitle selection changed. Use the current selection.": "字幕选择已更改，请使用当前选择。",
   "Selected target subtitle does not belong to the chosen title.": "所选的译文字幕不属于当前影视。",
   "Selected target subtitle was not found in the current search results.": "当前搜索结果中没有所选的译文字幕。",
   "Selected title was not found in the current search matches.": "当前搜索结果中没有所选的影视。",
