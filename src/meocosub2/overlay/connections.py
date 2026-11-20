@@ -6,6 +6,7 @@ import asyncio
 import json
 from contextlib import suppress
 
+from anyio import CancelScope
 from fastapi import WebSocket, WebSocketDisconnect
 
 SEND_TIMEOUT_S = 2.0
@@ -54,7 +55,10 @@ class StudioConnections:
             del self._writers[queue]
             reader.cancel()
             writer.cancel()
-            await asyncio.gather(reader, writer, return_exceptions=True)
-            with suppress(WebSocketDisconnect, OSError, RuntimeError, TimeoutError):
-                async with asyncio.timeout(SEND_TIMEOUT_S):
-                    await socket.close()
+            # The ASGI host may cancel this connection while the peer disconnects.
+            # Finish the bounded close and join both workers before leaving its scope.
+            with CancelScope(shield=True):
+                await asyncio.gather(reader, writer, return_exceptions=True)
+                with suppress(WebSocketDisconnect, OSError, RuntimeError, TimeoutError):
+                    async with asyncio.timeout(SEND_TIMEOUT_S):
+                        await socket.close()

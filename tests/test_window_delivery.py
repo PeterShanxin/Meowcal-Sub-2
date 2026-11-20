@@ -2,6 +2,7 @@ import asyncio
 import json
 
 import pytest
+from anyio import CancelScope
 from fastapi import WebSocketDisconnect
 
 from meocosub2.overlay import connections
@@ -69,3 +70,20 @@ async def test_initial_send_failure_unregisters_window_and_next_window_receives_
     assert await asyncio.wait_for(reconnected.writes.get(), 1) == {"text": "current"}
     reconnected.disconnected.set()
     await asyncio.wait_for(serving, 1)
+
+
+async def test_host_cancellation_finishes_connection_cleanup():
+    hub = StudioConnections()
+    window = Window(slow=True)
+
+    async def disconnect(scope):
+        await window.started.wait()
+        scope.cancel()
+
+    with CancelScope() as scope:
+        closer = asyncio.create_task(disconnect(scope))
+        await hub.serve(window, [{"type": "state"}])
+    await closer
+    assert scope.cancelled_caught
+    assert window.closed.is_set()
+    assert not hub._writers
