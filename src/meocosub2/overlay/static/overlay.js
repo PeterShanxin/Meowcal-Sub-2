@@ -49,6 +49,7 @@
   function connect() {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(`${proto}//${window.location.host}${withToken("/ws/app")}`);
+    let firstState = true;
     socket.onmessage = (event) => {
       let message;
       try {
@@ -61,6 +62,8 @@
       else if (message.type === "state") {
         setPreference(message.state?.config?.ui?.language);
         if (message.state?.status !== "running") show("", null);
+        else if (firstState) show(message.state.last_subtitle || "", message.state.last_subtitle_source);
+        firstState = false;
       }
     };
     // The overlay outlives a backend restart, so a dropped socket reconnects
