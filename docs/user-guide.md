@@ -284,6 +284,13 @@ two different cues in sequence to confirm the new position. If it loses the
 position, it clears the old line. With the local engine installed, live OCR
 translations can appear while the app finds its place again.
 
+Some films put a caption at the top of the picture. If you selected the bottom
+row, Sub 2 may read nothing there. Once it knows your place in a timed file,
+it can still show the next English line while the picture keeps moving. In Edge,
+sound can help confirm visible movement. Sound from another tab alone cannot
+keep the subtitles running. With no subtitle files, live translation needs
+readable text inside the selected area.
+
 ## Stored data and connections
 
 Configuration lives at `%APPDATA%\meowcal-sub-2\config.toml`.
