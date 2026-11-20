@@ -198,6 +198,8 @@ are independent: `config/meowcal-core.lock.json` pins Core for each build. When
 user-facing documentation describes a behavior that is on main but not in the
 latest published release, say so in that document.
 
+The [November 2026 maintainability review](reviews/2026-11-20-maintainability.zh-CN.md) records evidence from the pre-change source and links to its follow-up issues.
+
 ## Runtime map
 
 | Responsibility | Source |
@@ -262,18 +264,45 @@ a shell rebuild.
    runs one exact lookup for that episode. The studio then lists Source and
    Target results by opaque IDs. Choosing a Source reads it once to find a
    carried translation before the Target list is shown.
-5. **Download and validation.** Preparation downloads the chosen files and
+5. **Download and validation.** Preparation loads the chosen files and
    checks each one (see [Subtitle checks and editing](#subtitle-checks-and-editing)).
-6. **Preparation.** The backend builds the source candidates and the target
-   presentation track, calibrates the file-clock offset, weighs alternative
-   targets within a fixed budget, starts the translation engine when it is
-   needed, and begins idle prefill. The studio shows **Session ready**.
+6. **Preparation.** With both files, the backend builds the source candidates
+   and target presentation track, checks their clock offset, and weighs alternative
+   targets within a fixed budget. The [session mode](#session-modes) determines
+   engine requirements and whether there are gaps to fill. The studio shows
+   **Session ready**.
 7. **Capture.** In the shell, **Start OCR and sync** opens the capture selector,
    and confirming a region starts the session. Browser mode starts with the saved
    region. The backend resolves the OCR engine when the session starts.
-8. **Matching and display.** Each capture is read by OCR and matched against the
-   source candidates. Matches anchor the playback clock. The presentation track
-   and gap filling decide what the plate shows, and the shell draws it.
+8. **Matching and display.** With a source file, OCR matches anchor the playback
+   clock. Without one, the local engine translates screen text as it appears.
+   Both paths publish text to the same subtitle plate.
+
+The two-file path answers two timing questions. Preparation relates the clocks
+in the two files. During playback, OCR establishes where the viewer is on the
+source clock. For example, with a verified offset of +500 ms, source position
+12,000 ms selects the target cues active at 12,500 ms.
+
+```mermaid
+sequenceDiagram
+    participant OCR as Capture and OCR
+    participant Match as Source matcher
+    participant Clock as Playback clock
+    participant Track as Target scheduler
+    participant Plate as Strip
+    OCR->>Match: Text and capture time
+    Match->>Clock: Source cue and evidence
+    Track->>Clock: Read source position
+    Clock-->>Track: Position
+    Track-->>Plate: Active target cues
+    par Between OCR reads
+        Track-->>Plate: Show or clear at cue boundary
+    and On further captures
+        OCR->>Clock: Playback activity
+        OCR->>Match: New text
+        Match->>Clock: Confirm position or seek
+    end
+```
 
 ### Identifiers
 
@@ -325,8 +354,14 @@ not prove that no subtitle exists.
 ### Playback timing and presentation
 
 Source subtitles synchronize playback; target subtitles own presentation.
-OCR text and semantic matching anchor `PlaybackTimeline` against the selected
-source candidate. An anchor unconfirmed for 90 seconds is dropped and its plate
+The source matcher compares normalized OCR text with source cues using fuzzy
+text matching. A strong text hit is sufficient. For a locked candidate with a
+ready BGE embedding index, weaker reads can also be matched by meaning. The
+index is optional. A seek outside the expected window needs stronger evidence
+than an ordinary nearby match. See [the matcher](../src/meocosub2/matcher.py)
+and [the capture loop](../src/meocosub2/sync.py).
+
+An anchor unconfirmed for 90 seconds is dropped and its plate
 cleared. Recovery from an expired or repeatedly contradicted anchor needs two
 different, progressing cues, each supported by strong text or text/semantic
 agreement, whose observation times agree on the playback position. A single
@@ -353,7 +388,7 @@ are described in [playback evidence](PLAYBACK_EVIDENCE.md).
 
 With a separate target file, `PresentationTrack` retains every target cue's
 index, interval, ordering and text. Both immediate matches and the clock renderer
-resolve that same track. Its scheduler wakes at target boundaries even when OCR
+resolve that same track. Time lookups skip completed cue ranges using sorted starts and the latest end in each prefix. The scheduler binary-searches boundary times. It wakes even when OCR
 stalls. Intervals are half-open `[start, end)`; genuine target overlaps remain
 simultaneous, and target presentation has no source overlap threshold or stale-line
 grace. Each cue's typesetting is flattened independently, except explicit speaker
@@ -376,7 +411,7 @@ A source cue that has any projected target coverage does not fill the target's
 intentional gaps. Wholly uncovered source cues use their carried human translation,
 then a local model answer. `gapfill.py` reads target coverage and neighboring human
 answers through the presentation track without copying target strings onto source
-cues. Idle prefill and playback filling share that lookup; model answers remain
+cues. Each fill pass indexes initially unanswered cues and checks the next candidate again after a seek or a live answer. Idle prefill and playback filling share that lookup; model answers remain
 source-aligned and are read when their interval arrives. Without a source anchor,
 live OCR translation remains the fallback. Bilingual-only sessions retain their
 source-aligned presentation behavior.
@@ -387,12 +422,18 @@ source-aligned presentation behavior.
 | --- | --- | --- |
 | A target file | Source file plus target presentation | No. Without it, gaps stay empty and the studio shows a warning. |
 | Translation inside the source file | Source rows split into source and target | No. Rows without a carried translation need it to be filled. |
-| Local translation | Source file plus model answers | Yes, unless the source carries translations |
-| Automatic source candidates (no target file) | Several source candidates; the clock follows the one that locks | When no candidate carries a translation |
+| Local translation | Model answers follow source cues. A wholly untranslated file is translated on demand during playback. | Yes, unless the source carries translations |
+| Automatic source candidates (backend mode) | The clock follows the candidate that locks. A target file, when found, has a separate mapping for each candidate. | When there is no target file and no candidate carries a translation |
 | **Use on-screen OCR** source (no matching source file) | OCR fallback, optionally with a target file | Yes. OCR text is translated live. |
 | OCR fallback only | Live OCR translation | Yes |
 
-In OCR fallback the target file cannot be scheduled against a source clock.
+In OCR fallback, HY-MT translates the recognized text. If a target file is
+selected, `DirectTranslationSession` runs the fuzzy text matcher on that
+translation and substitutes the matched file wording. This path uses neither
+the source embedding index nor the matched cue's timestamp. The screen cue
+drives display. The [playback path diagrams](subtitle-fallback-design.md) show
+where target-track playback can rejoin the existing clock and where source-track
+translation can attach a generated track while the viewer keeps watching.
 Live OCR translation can read scene text that a source file would have rejected.
 
 ### Subtitle checks and editing
