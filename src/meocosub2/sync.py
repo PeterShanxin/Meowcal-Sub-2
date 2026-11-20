@@ -550,6 +550,14 @@ class _Screen:
     covers_until_ms: int | None = None
 
 
+async def wait_for_redraw(event: asyncio.Event, timeout: float) -> None:
+    # Keep the wait inside the renderer task so cancellation at the same
+    # instant as a capture wakeup cannot be lost (Python 3.11 wait_for race).
+    with suppress(TimeoutError):
+        async with asyncio.timeout(timeout):
+            await event.wait()
+
+
 async def run_session_loop(
     session: Session,
     config: AppConfig,
@@ -622,11 +630,9 @@ async def run_session_loop(
         nonlocal pending, pending_cue, pending_seq
         while True:
             waiting = session.seconds_to_next_line()
-            with suppress(TimeoutError):
-                await asyncio.wait_for(
-                    nudge.wait(),
-                    timeout=RETIME_CHECK_S if waiting is None else min(waiting, RETIME_CHECK_S),
-                )
+            await wait_for_redraw(
+                nudge, RETIME_CHECK_S if waiting is None else min(waiting, RETIME_CHECK_S)
+            )
             nudge.clear()
             if not session.anchored:
                 if target is not None:
