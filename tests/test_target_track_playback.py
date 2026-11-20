@@ -226,3 +226,42 @@ async def test_short_captions_keep_showing_live_answers_until_a_current_read_can
     await target.worker
     assert shown == [rows[0][3], rows[2][3], rows[4][3]]
     assert not session.anchored
+
+
+async def test_same_caption_can_be_translated_again_after_capture_fails(monkeypatch):
+    from meocosub2.playback_capture import PlaybackCaptureError
+
+    rows = [(3000, 4800, "The door is open.", "门开着。")]
+    session, config = session_for(2, rows)
+    opened = asyncio.Event()
+    twice = asyncio.Event()
+    seen = []
+
+    async def translate(text):
+        seen.append(text)
+        (opened if len(seen) == 1 else twice).set()
+        return rows[0][3]
+
+    frames = 0
+
+    async def next_frame(grab, region, at):
+        nonlocal frames
+        frames += 1
+        if frames == 3:
+            await opened.wait()
+            raise PlaybackCaptureError("test capture unavailable")
+        if frames == 6:
+            await twice.wait()
+            raise asyncio.CancelledError
+        return object(), PlaybackState.ADVANCING
+
+    capture = MagicMock()
+    capture.state_since = None
+    capture.capture = next_frame
+    capture.observe_text.side_effect = lambda text, at, state: state
+    monkeypatch.setattr(sync, "PlaybackCapture", lambda _: capture)
+    monkeypatch.setattr(sync, "ocr_image", AsyncMock(return_value=rows[0][2]))
+    monkeypatch.setattr(session, "translate_read", translate)
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(run_session_loop(session, config, AsyncMock()), 3)
+    assert seen == [rows[0][2], rows[0][2]]
