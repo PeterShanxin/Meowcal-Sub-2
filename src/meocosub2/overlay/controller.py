@@ -9,8 +9,8 @@ import os
 import subprocess
 import tempfile
 import time
-from collections.abc import Awaitable, Callable
-from contextlib import suppress
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict, replace
 from pathlib import Path
 from uuid import uuid4
@@ -21,7 +21,7 @@ from meocosub2.capture import available_ocr_languages, prepare_ocr
 from meocosub2.config import AppConfig, config_to_payload, overlay_style_payload, save_config
 from meocosub2.errors import TranslationError
 from meocosub2.event_log import log_event
-from meocosub2.gapfill import Answer, own_translation, unanswered
+from meocosub2.gapfill import unanswered
 from meocosub2.languages import (
     is_chinese_family,
     language_label,
@@ -30,6 +30,7 @@ from meocosub2.languages import (
     source_language_mode,
     source_result_matches_requested_language,
 )
+from meocosub2.live_translation import LiveTranslator, open_live_translator
 from meocosub2.models import (
     AppProgress,
     AppStateSnapshot,
@@ -43,6 +44,7 @@ from meocosub2.models import (
     SubtitlePair,
     TargetAlignment,
 )
+from meocosub2.overlay.source_downloads import SourceDownloads
 from meocosub2.overlay.subtitle_editor import (
     SaveEdits,
     editor_files,
@@ -71,8 +73,6 @@ from meocosub2.sync import (
     MATCHED,
     CandidateSession,
     DirectTranslationSession,
-    LiveTranslator,
-    open_live_translator,
     run_session_loop,
 )
 
@@ -227,16 +227,11 @@ class GuiController:
         # starts with fewer of them left to answer against the viewer's reads.
         self._prefill_task: asyncio.Task[None] | None = None
         self._prepared_runtime: PreparedRuntime | None = None
-        # The source the target step read, kept so preparation does not fetch it
-        # a second time. Only OpenSubtitles answers a repeat download from disk.
-        self._inspected_source: tuple[str, Path] | None = None
+        self._source_downloads = SourceDownloads()
+        self._prepare_owner: asyncio.Task | None = None
         self._runtime_port = config.overlay_port
         self._aggregator = SubtitleSearchAggregator(config)
         self._search_catalog: AggregatedSearchCatalog | None = None
-        # Which search a preparation was made from. Results are selectable
-        # before every provider has answered, so the last one landing must
-        # not throw away a session prepared from the same search's interim.
-        self._prepared_search_id: str | None = None
         # Guards progressive search updates: a slow provider from an earlier
         # search must not clobber the state of a search the user has since
         # retyped past.
@@ -359,6 +354,7 @@ class GuiController:
         self._aggregator = SubtitleSearchAggregator(new_config)
         if _search_inputs_changed(previous_config, new_config):
             self._clear_search_state()
+            await self._stop_prefill()
         self._state.source_language = new_config.source_language
         self._state.target_language = new_config.target_language
         await self._emit_app_state()
@@ -374,6 +370,10 @@ class GuiController:
         them fell through to OCR translation while reporting that no subtitle
         matched the language.
         """
+        self._active_search_id = None
+        self._start_generation += 1
+        self._prepare_owner = None
+        self._source_downloads.clear()
         self._search_catalog = None
         self._state.search_results = []
         self._state.search_matches = []
@@ -381,6 +381,12 @@ class GuiController:
         self._state.selected_feature_id = None
         self._state.selected_source_file_id = None
         self._state.selected_target_file_id = None
+        if self._sync_task is None or self._sync_task.done():
+            self._prepared_runtime = None
+            self._state.prepared_session = None
+            self._state.status = "idle"
+            self._state.progress = AppProgress()
+            self._state.gap_fill = None
 
     async def search(self, request: SearchRequest) -> dict[str, object]:
         correlation_id = request.correlation_id or f"search-{uuid4().hex[:12]}"
@@ -400,7 +406,8 @@ class GuiController:
             source_language=request.source_language,
             target_language=request.target_language,
         )
-        self._active_search_id = correlation_id
+        self._clear_search_state()
+        self._active_search_id = search_id = uuid4().hex
         async with self._lock:
             self._state.status = "searching"
             self._state.title = request.title
@@ -411,13 +418,14 @@ class GuiController:
             self._state.progress = AppProgress(
                 stage="search", message="Searching subtitle sources..."
             )
+        await self._stop_prefill()
         await self._emit_app_state()
         await self._emit_app_progress()
 
         async def on_provider_update(
             succeeded_codes: list[str], settled_codes: list[str], interim: AggregatedSearchCatalog
         ) -> None:
-            if self._active_search_id != correlation_id:
+            if self._active_search_id != search_id:
                 return  # A newer search has already replaced this one.
             done_labels = [
                 provider.provider_label
@@ -445,7 +453,7 @@ class GuiController:
             else:
                 message = f"Waiting on {', '.join(pending_labels)}…"
             async with self._lock:
-                if self._active_search_id != correlation_id:
+                if self._active_search_id != search_id:
                     return
                 # Stored with the results it describes, not when the search
                 # finishes. These results are selectable the moment they are
@@ -458,9 +466,10 @@ class GuiController:
                     search_match_payload(match) for match in interim.matches
                 ]
                 self._state.search_works = [search_work_payload(work) for work in interim.works]
-                self._state.progress = AppProgress(
-                    stage="search", message=message, current=len(settled_codes), total=total
-                )
+                if self._state.status == "searching":
+                    self._state.progress = AppProgress(
+                        stage="search", message=message, current=len(settled_codes), total=total
+                    )
             await self._emit_app_state()
             await self._emit_app_progress()
 
@@ -483,7 +492,7 @@ class GuiController:
                 error_type=type(exc).__name__,
                 error=str(exc),
             )
-            if self._active_search_id == correlation_id:
+            if self._active_search_id == search_id:
                 await self._set_error(str(exc))
             raise
 
@@ -492,27 +501,16 @@ class GuiController:
         works = [search_work_payload(work) for work in catalog.works]
         # A newer search may have already replaced this one's state; still hand
         # the caller its own results, just don't clobber the newer state with them.
-        if self._active_search_id == correlation_id:
-            prepared_here = self._prepared_search_id == correlation_id
-            if not prepared_here:
-                # These answers were for a session this search has just thrown
-                # away, and the engine has better things to do with the slot.
-                await self._stop_prefill()
+        if self._active_search_id == search_id:
             async with self._lock:
                 self._search_catalog = catalog
-                self._state.status = "idle"
                 self._state.search_results = payload
                 self._state.search_matches = matches
                 self._state.search_works = works
-                self._state.progress = AppProgress()
-                self._state.warning_message = _search_warning_message(request, catalog.warnings)
-                if not prepared_here:
-                    self._state.selected_feature_id = None
-                    self._state.selected_source_file_id = None
-                    self._state.selected_target_file_id = None
-                    self._state.prepared_session = None
-                    self._prepared_runtime = None
-                    self._state.gap_fill = None
+                if self._state.status == "searching":
+                    self._state.status = "idle"
+                    self._state.progress = AppProgress()
+                    self._state.warning_message = _search_warning_message(request, catalog.warnings)
             await self._emit_app_state()
             log_event(
                 "search.completed",
@@ -646,6 +644,7 @@ class GuiController:
                 search_work_payload(work) for work in self._search_catalog.works
             ]
             if match_id is not None:
+                self._prepare_owner = None
                 self._state.selected_feature_id = match_id
                 self._state.selected_source_file_id = None
                 self._state.selected_target_file_id = None
@@ -1008,32 +1007,76 @@ class GuiController:
         if self._sync_task and not self._sync_task.done():
             await self._set_error("Stop the active session before preparing another one.")
             raise RuntimeError("A session is already running.")
-        # Whatever it was filling belongs to the selection being replaced.
-        await self._stop_prefill()
-        async with self._lock:
-            self._state.gap_fill = None
-        if mode not in {"subtitle_pair", "ocr_fallback", "auto_candidates"}:
+        owner = asyncio.current_task()
+        self._prepare_owner = owner
+        self._start_generation += 1
+        try:
+            await self._stop_prefill()
+            async with self._prepare_write():
+                self._state.gap_fill = None
+            if mode == "subtitle_pair":
+                if source_file_id is None:
+                    raise ValueError(
+                        "Select a source subtitle before preparing a subtitle-pair session."
+                    )
+                return await self._prepare_subtitle_pair_session(
+                    feature_id, source_file_id, target_file_id
+                )
+            feature_id = feature_id or self._state.selected_feature_id
+            if mode == "auto_candidates":
+                return await self._prepare_auto_candidate_session(feature_id)
+            if mode == "ocr_fallback":
+                return await self._prepare_ocr_fallback_session(feature_id, target_file_id)
             raise ValueError(f"Unsupported session mode: {mode}")
-        if mode == "auto_candidates":
-            return await self._prepare_auto_candidate_session(
-                feature_id or self._state.selected_feature_id
-            )
-        if mode == "ocr_fallback":
-            return await self._prepare_ocr_fallback_session(
-                feature_id or self._state.selected_feature_id, target_file_id
-            )
-        if source_file_id is None:
-            raise ValueError("Select a source subtitle before preparing a subtitle-pair session.")
-        return await self._prepare_subtitle_pair_session(feature_id, source_file_id, target_file_id)
+        except Exception as exc:
+            self._require_current_prepare()
+            await self._set_error(str(exc), preparing=True)
+            raise
+        finally:
+            if self._prepare_owner is owner:
+                self._prepare_owner = None
 
-    async def _downloaded_source(
-        self, source_file_id: str, entry: AggregatedSubtitleResult
-    ) -> Path:
-        """The chosen source, reusing the copy the target step already fetched."""
-        inspected = self._inspected_source
-        if inspected is not None and inspected[0] == source_file_id and inspected[1].exists():
-            return inspected[1]
-        return await self._aggregator.download(entry)
+    def _require_current_prepare(self) -> None:
+        if self._prepare_owner is not asyncio.current_task():
+            raise RuntimeError("Subtitle selection changed. Use the current selection.")
+
+    @asynccontextmanager
+    async def _prepare_write(self) -> AsyncIterator[None]:
+        async with self._lock:
+            self._require_current_prepare()
+            yield
+
+    async def _begin_prepare(
+        self,
+        feature_id: str | None,
+        source_id: str | None,
+        target_id: str | None,
+        progress: AppProgress,
+    ) -> None:
+        async with self._prepare_write():
+            self._state.status = "preparing"
+            self._state.selected_feature_id = feature_id
+            self._state.selected_source_file_id = source_id
+            self._state.selected_target_file_id = target_id
+            self._state.error_message = ""
+            self._state.warning_message = ""
+            self._state.progress = progress
+        await self._emit_app_state()
+        await self._emit_app_progress()
+        self._require_current_prepare()
+
+    async def _commit_prepare(
+        self, session: PreparedSession, runtime: PreparedRuntime, message: str, warning: str
+    ) -> None:
+        async with self._prepare_write():
+            self._prepared_runtime = runtime
+            self._state.prepared_session = session
+            self._state.status = "idle"
+            self._state.progress = AppProgress(stage="ready", message=message, current=1, total=1)
+            self._state.warning_message = warning
+            self._prepare_owner = None
+        await self._emit_app_state()
+        await self._emit_app_progress()
 
     async def inspect_source(
         self, source_file_id: str, feature_id: str | None = None
@@ -1047,24 +1090,20 @@ class GuiController:
         anyway, so the answer costs nothing extra and nothing from a metered
         provider's daily allowance.
         """
-        source_result = self._find_search_result(source_file_id)
         entry = self._catalog_result(source_file_id)
-        if source_result is None or entry is None:
+        if entry is None:
             raise ValueError(
                 "Selected source subtitle was not found in the current search results."
             )
-        path = await self._aggregator.download(entry)
-        # Preparation asks for this same file moments later, and only
-        # OpenSubtitles answers a second time from disk - SubDL and ASSRT fetch
-        # it again. Keeping the path spares the viewer a download between
-        # choosing a target and the session starting.
-        self._inspected_source = (source_file_id, path)
+        if feature_id and entry.match_id != feature_id:
+            raise ValueError("Selected source subtitle does not belong to the chosen title.")
+        path = await self._source_downloads.get(entry, self._aggregator.download)
         lines = load_subtitle_file(path)
         report = split_bilingual(lines, self._state.source_language, self._state.target_language)
         return {
             "sourceFileId": source_file_id,
-            "fileName": str(source_result.get("fileName") or ""),
-            "featureId": feature_id or self._feature_id_for_result(source_result),
+            "fileName": entry.file_name,
+            "featureId": entry.match_id,
             "carriesTranslation": report.is_bilingual,
             "totalCues": report.total_cues,
             "translatedCues": report.split_cues,
@@ -1076,78 +1115,57 @@ class GuiController:
         source_file_id: str,
         target_file_id: str | None,
     ) -> dict[str, object]:
-        source_result = self._find_search_result(source_file_id)
-        if source_result is None:
+        source_entry = self._catalog_result(source_file_id)
+        if source_entry is None:
             raise ValueError(
                 "Selected source subtitle was not found in the current search results."
             )
+        effective_feature_id = feature_id or source_entry.match_id
+        if source_entry.match_id != effective_feature_id:
+            raise ValueError("Selected source subtitle does not belong to the chosen title.")
         own_translation = target_file_id == SOURCE_OWN_TRANSLATION
-        target_result = (
-            self._find_search_result(target_file_id)
-            if target_file_id and not own_translation
-            else None
-        )
-        if target_file_id is not None and not own_translation and target_result is None:
-            raise ValueError(
-                "Selected target subtitle was not found in the current search results."
-            )
-        effective_feature_id = feature_id or self._feature_id_for_result(source_result)
-
-        async with self._lock:
-            self._state.status = "preparing"
-            self._state.selected_feature_id = effective_feature_id
-            self._state.selected_source_file_id = source_file_id
-            self._state.selected_target_file_id = target_file_id
-            self._state.error_message = ""
-            self._state.warning_message = ""
-            self._state.progress = AppProgress(
-                stage="download", message="Downloading subtitle files...", current=0, total=2
-            )
-        await self._emit_app_state()
-        await self._emit_app_progress()
-
-        source_entry = self._catalog_result(source_file_id)
-        if source_entry is None:
-            raise ValueError("Selected source subtitle could not be resolved.")
         target_entry = (
-            self._catalog_result(target_file_id) if target_file_id and not own_translation else None
+            None if own_translation else self._selected_target(target_file_id, effective_feature_id)
         )
+        await self._begin_prepare(
+            effective_feature_id,
+            source_file_id,
+            target_file_id,
+            AppProgress(
+                stage="download", message="Downloading subtitle files...", current=0, total=2
+            ),
+        )
+        source_path = await self._source_downloads.get(source_entry, self._aggregator.download)
+        await self._set_progress("download", "Downloaded source subtitles.", 1, 2)
+        target_path: Path | None = None
+        if target_entry is not None:
+            target_path = await self._aggregator.download(target_entry)
+        await self._set_progress("download", "Downloaded subtitle files.", 2, 2)
 
-        try:
-            source_path = await self._downloaded_source(source_file_id, source_entry)
-            await self._set_progress("download", "Downloaded source subtitles.", 1, 2)
-            target_path: Path | None = None
-            if target_entry is not None:
-                target_path = await self._aggregator.download(target_entry)
-            await self._set_progress("download", "Downloaded subtitle files.", 2, 2)
+        checks: list[SubtitleCheck] = []
+        source_lines = load_subtitle_file(source_path, checks=checks)
+        target_lines = load_subtitle_file(target_path, checks=checks) if target_path else []
 
-            checks: list[SubtitleCheck] = []
-            source_lines = load_subtitle_file(source_path, checks=checks)
-            target_lines = load_subtitle_file(target_path, checks=checks) if target_path else []
+        # Split first, whatever the viewer chose. It leaves every cue's text
+        # in one language, which is what the plate draws and what the model
+        # is asked to translate - an unsplit bilingual cue put both scripts
+        # on the plate and handed the model a string containing its own
+        # answer. Carried translations remain source-aligned fallbacks;
+        # a separate target file keeps its own cue identity and timing.
+        bilingual = split_bilingual(
+            source_lines, self._state.source_language, self._state.target_language
+        )
+        # Taken before anything is paired, so it holds only what the file
+        # answers by itself - the floor every candidate is measured over,
+        # since each of them falls back to it alike.
+        carried = [line.translated for line in source_lines]
 
-            # Split first, whatever the viewer chose. It leaves every cue's text
-            # in one language, which is what the plate draws and what the model
-            # is asked to translate - an unsplit bilingual cue put both scripts
-            # on the plate and handed the model a string containing its own
-            # answer. Carried translations remain source-aligned fallbacks;
-            # a separate target file keeps its own cue identity and timing.
-            bilingual = split_bilingual(
-                source_lines, self._state.source_language, self._state.target_language
-            )
-            # Taken before anything is paired, so it holds only what the file
-            # answers by itself - the floor every candidate is measured over,
-            # since each of them falls back to it alike.
-            carried = [line.translated for line in source_lines]
-
-            # Matched lines are translated as they appear rather than up front:
-            # a local 1.8B model needs hours for a whole subtitle file. It is
-            # needed only where nothing else answered - neither a target file
-            # nor the source's own rows.
-            used_translation = not target_lines and not bilingual.split_cues
-            engine_warning = await self._start_translation_engine(required=used_translation)
-        except Exception as exc:
-            await self._set_error(str(exc))
-            raise
+        # Matched lines are translated as they appear rather than up front:
+        # a local 1.8B model needs hours for a whole subtitle file. It is
+        # needed only where nothing else answered - neither a target file
+        # nor the source's own rows.
+        used_translation = not target_lines and not bilingual.split_cues
+        engine_warning = await self._start_translation_engine(required=used_translation)
 
         # A file that answers itself has nothing to be compared against, and
         # weighing rivals would download them for advice that cannot apply.
@@ -1164,37 +1182,25 @@ class GuiController:
             title=self._state.title,
             source_language=self._state.source_language,
             target_language=self._state.target_language,
-            resolved_source_language=str(
-                source_result.get("language") or self._state.source_language
-            ),
+            resolved_source_language=source_entry.language or self._state.source_language,
             source_language_mode=source_language_mode(
                 self._state.source_language,
-                str(source_result.get("language") or self._state.source_language),
+                source_entry.language or self._state.source_language,
             ),
             session_mode="subtitle_pair",
             target_match_mode=_pair_target_mode(own_translation, target_lines),
             feature_id=effective_feature_id,
             source_file_id=source_file_id,
-            source_file_name=str(source_result.get("fileName") or ""),
-            source_provider=str(
-                source_result.get("providerLabel") or source_result.get("provider") or ""
-            ),
+            source_file_name=source_entry.file_name,
+            source_provider=source_entry.provider_label or source_entry.provider,
             source_path=str(source_path),
             source_line_count=len(source_lines),
-            target_file_id=SOURCE_OWN_TRANSLATION
+            target_file_id=target_file_id,
+            target_file_name=source_entry.file_name
             if own_translation
-            else (
-                str(target_result.get("resultId") or target_file_id)
-                if target_result is not None
-                else None
-            ),
-            target_file_name=str(source_result.get("fileName") or "")
-            if own_translation
-            else (str(target_result.get("fileName") or "") if target_result is not None else None),
-            target_provider=str(
-                target_result.get("providerLabel") or target_result.get("provider") or ""
-            )
-            if target_result is not None
+            else (target_entry.file_name if target_entry else None),
+            target_provider=(target_entry.provider_label or target_entry.provider)
+            if target_entry
             else None,
             target_path=str(target_path) if target_path is not None else None,
             target_line_count=bilingual.split_cues if own_translation else len(target_lines),
@@ -1208,44 +1214,31 @@ class GuiController:
             subtitle_checks=checks,
         )
 
-        async with self._lock:
-            self._prepared_search_id = self._active_search_id
-            self._prepared_runtime = PreparedRuntime(
-                session_mode="subtitle_pair",
-                target_lines=target_lines,
-                feature_id=effective_feature_id,
-                source_candidates=[
-                    SourceSubtitleCandidate(
-                        result_id=source_file_id,
-                        file_name=str(source_result.get("fileName") or ""),
-                        provider=str(
-                            source_result.get("providerLabel")
-                            or source_result.get("provider")
-                            or ""
-                        ),
-                        language=str(source_result.get("language") or ""),
-                        path=str(source_path),
-                        pair=pair,
-                    )
-                ],
-            )
-            self._state.prepared_session = session
-            self._state.status = "idle"
-            self._state.progress = AppProgress(
-                stage="ready", message="Session prepared.", current=1, total=1
-            )
-            warnings = []
-            if session.source_language_mode != "exact":
-                warnings.append(
-                    "Using a Chinese-family source subtitle fallback because no exact source language match was available."
+        runtime = PreparedRuntime(
+            session_mode="subtitle_pair",
+            target_lines=target_lines,
+            feature_id=effective_feature_id,
+            source_candidates=[
+                SourceSubtitleCandidate(
+                    result_id=source_file_id,
+                    file_name=source_entry.file_name,
+                    provider=source_entry.provider_label or source_entry.provider,
+                    language=source_entry.language,
+                    path=str(source_path),
+                    pair=pair,
                 )
-            if engine_warning:
-                warnings.append(engine_warning)
-            self._state.warning_message = " ".join(warnings)
-        await self._emit_app_state()
-        await self._emit_app_progress()
+            ],
+        )
+        warnings = []
+        if session.source_language_mode != "exact":
+            warnings.append(
+                "Using a Chinese-family source subtitle fallback because no exact source language match was available."
+            )
+        if engine_warning:
+            warnings.append(engine_warning)
+        await self._commit_prepare(session, runtime, "Session prepared.", " ".join(warnings))
         if not engine_warning:
-            await self._start_prefill(source_lines, pair.presentation.answer)
+            await self._start_prefill(pair, expected_runtime=runtime)
         return asdict(session)
 
     async def _prepare_auto_candidate_session(self, feature_id: str | None) -> dict[str, object]:
@@ -1274,78 +1267,68 @@ class GuiController:
             )
 
         total_downloads = len(source_entries) + (1 if target_entry is not None else 0)
-        async with self._lock:
-            self._state.status = "preparing"
-            self._state.selected_feature_id = feature_id
-            self._state.selected_source_file_id = None
-            self._state.selected_target_file_id = target_entry.result_id if target_entry else None
-            self._state.error_message = ""
-            self._state.warning_message = ""
-            self._state.progress = AppProgress(
+        await self._begin_prepare(
+            feature_id,
+            None,
+            target_entry.result_id if target_entry else None,
+            AppProgress(
                 stage="download",
                 message="Downloading subtitle candidates...",
                 current=0,
                 total=total_downloads,
-            )
-        await self._emit_app_state()
-        await self._emit_app_progress()
+            ),
+        )
 
-        try:
-            downloaded = 0
-            source_candidates: list[SourceSubtitleCandidate] = []
-            checks: list[SubtitleCheck] = []
-            target_path: Path | None = None
-            target_lines = []
+        downloaded = 0
+        source_candidates: list[SourceSubtitleCandidate] = []
+        checks: list[SubtitleCheck] = []
+        target_path: Path | None = None
+        target_lines = []
 
-            for entry in source_entries:
-                source_path = await self._aggregator.download(entry)
-                downloaded += 1
-                await self._set_progress(
-                    "download",
-                    "Downloaded source subtitle candidates.",
-                    downloaded,
-                    total_downloads,
+        for entry in source_entries:
+            source_path = await self._source_downloads.get(entry, self._aggregator.download)
+            downloaded += 1
+            await self._set_progress(
+                "download",
+                "Downloaded source subtitle candidates.",
+                downloaded,
+                total_downloads,
+            )
+            source_lines = load_subtitle_file(source_path, checks=checks)
+            # Every candidate gets the same reading a manually chosen source
+            # does: one language per cue before anything else looks at it,
+            # and its own translation kept where it carries one.
+            split_bilingual(source_lines, self._state.source_language, self._state.target_language)
+            source_candidates.append(
+                SourceSubtitleCandidate(
+                    result_id=entry.result_id,
+                    file_name=entry.file_name,
+                    provider=entry.provider_label or entry.provider,
+                    language=entry.language,
+                    path=str(source_path),
+                    pair=SubtitlePair(source_lines=source_lines),
                 )
-                source_lines = load_subtitle_file(source_path, checks=checks)
-                # Every candidate gets the same reading a manually chosen source
-                # does: one language per cue before anything else looks at it,
-                # and its own translation kept where it carries one.
-                split_bilingual(
-                    source_lines, self._state.source_language, self._state.target_language
-                )
-                source_candidates.append(
-                    SourceSubtitleCandidate(
-                        result_id=entry.result_id,
-                        file_name=entry.file_name,
-                        provider=entry.provider_label or entry.provider,
-                        language=entry.language,
-                        path=str(source_path),
-                        pair=SubtitlePair(source_lines=source_lines),
-                    )
-                )
+            )
 
-            if target_entry is not None:
-                target_path = await self._aggregator.download(target_entry)
-                downloaded += 1
-                await self._set_progress(
-                    "download", "Downloaded target subtitles.", downloaded, total_downloads
-                )
-                target_lines = load_subtitle_file(target_path, checks=checks)
-                for candidate in source_candidates:
-                    candidate.pair = align_subtitles(candidate.pair.source_lines, target_lines)
-            # A candidate that answered itself needs the model no more than a
-            # paired target file does.
-            answered = any(
-                line.translated
-                for candidate in source_candidates
-                for line in candidate.pair.source_lines
+        if target_entry is not None:
+            target_path = await self._aggregator.download(target_entry)
+            downloaded += 1
+            await self._set_progress(
+                "download", "Downloaded target subtitles.", downloaded, total_downloads
             )
-            engine_warning = await self._start_translation_engine(
-                required=not target_lines and not answered
-            )
-        except Exception as exc:
-            await self._set_error(str(exc))
-            raise
+            target_lines = load_subtitle_file(target_path, checks=checks)
+            for candidate in source_candidates:
+                candidate.pair = align_subtitles(candidate.pair.source_lines, target_lines)
+        # A candidate that answered itself needs the model no more than a
+        # paired target file does.
+        answered = any(
+            line.translated
+            for candidate in source_candidates
+            for line in candidate.pair.source_lines
+        )
+        engine_warning = await self._start_translation_engine(
+            required=not target_lines and not answered
+        )
 
         title = str(feature.get("displayLabel") or feature.get("title") or self._state.title)
         primary_source = source_entries[0]
@@ -1395,42 +1378,26 @@ class GuiController:
             subtitle_checks=checks,
         )
 
-        async with self._lock:
-            if str(self._state.selected_feature_id) != str(feature_id):
-                logger.debug(
-                    "Ignoring stale auto-prepare completion for feature_id=%s selected_feature_id=%s",
-                    feature_id,
-                    self._state.selected_feature_id,
-                )
-                raise RuntimeError(
-                    "Stale auto-prepare result ignored because another title is selected."
-                )
-            self._prepared_search_id = self._active_search_id
-            self._prepared_runtime = PreparedRuntime(
-                session_mode="auto_candidates",
-                target_lines=target_lines,
-                feature_id=feature_id,
-                source_candidates=source_candidates,
+        runtime = PreparedRuntime(
+            session_mode="auto_candidates",
+            target_lines=target_lines,
+            feature_id=feature_id,
+            source_candidates=source_candidates,
+        )
+        warnings = []
+        if session.source_language_mode != "exact":
+            warnings.append(
+                "Using Chinese-family source subtitle candidates because no exact source language match was available."
             )
-            self._state.prepared_session = session
-            self._state.status = "idle"
-            self._state.progress = AppProgress(
-                stage="ready", message="Automatic subtitle session prepared.", current=1, total=1
+        if target_entry is None:
+            warnings.append(
+                "No target subtitle matched the requested language. The session will translate matched source lines live."
             )
-            warnings = []
-            if session.source_language_mode != "exact":
-                warnings.append(
-                    "Using Chinese-family source subtitle candidates because no exact source language match was available."
-                )
-            if target_entry is None:
-                warnings.append(
-                    "No target subtitle matched the requested language. The session will translate matched source lines live."
-                )
-            if engine_warning:
-                warnings.append(engine_warning)
-            self._state.warning_message = " ".join(warnings)
-        await self._emit_app_state()
-        await self._emit_app_progress()
+        if engine_warning:
+            warnings.append(engine_warning)
+        await self._commit_prepare(
+            session, runtime, "Automatic subtitle session prepared.", " ".join(warnings)
+        )
         return asdict(session)
 
     async def _prepare_ocr_fallback_session(
@@ -1444,42 +1411,25 @@ class GuiController:
         if feature is None:
             raise ValueError("Selected title was not found in the current search matches.")
 
-        target_result = self._find_search_result(target_file_id) if target_file_id else None
-        if target_file_id is not None and target_result is None:
-            raise ValueError(
-                "Selected target subtitle was not found in the current search results."
-            )
-        if target_result is not None and not self._result_matches_feature(
-            target_result, feature_id
-        ):
-            raise ValueError("Selected target subtitle does not belong to the chosen title.")
-
-        async with self._lock:
-            self._state.status = "preparing"
-            self._state.selected_feature_id = feature_id
-            self._state.selected_source_file_id = None
-            self._state.selected_target_file_id = target_file_id
-            self._state.error_message = ""
-            self._state.warning_message = ""
-            self._state.progress = AppProgress(
+        target_entry = self._selected_target(target_file_id, feature_id)
+        await self._begin_prepare(
+            feature_id,
+            None,
+            target_file_id,
+            AppProgress(
                 stage="prepare", message="Preparing OCR fallback session...", current=0, total=1
-            )
-        await self._emit_app_state()
-        await self._emit_app_progress()
+            ),
+        )
 
-        try:
-            await self._start_translation_engine(required=True)
+        await self._start_translation_engine(required=True)
+        self._require_current_prepare()
 
-            checks: list[SubtitleCheck] = []
-            target_path: Path | None = None
-            target_lines = []
-            target_entry = self._catalog_result(target_file_id) if target_file_id else None
-            if target_entry is not None:
-                target_path = await self._aggregator.download(target_entry)
-                target_lines = load_subtitle_file(target_path, checks=checks)
-        except Exception as exc:
-            await self._set_error(str(exc))
-            raise
+        checks: list[SubtitleCheck] = []
+        target_path: Path | None = None
+        target_lines = []
+        if target_entry is not None:
+            target_path = await self._aggregator.download(target_entry)
+            target_lines = load_subtitle_file(target_path, checks=checks)
 
         title = str(feature.get("displayLabel") or feature.get("title") or self._state.title)
         session = PreparedSession(
@@ -1493,16 +1443,10 @@ class GuiController:
             target_match_mode="target_subtitle_match" if target_lines else "direct_translation",
             source_summary="On-screen OCR",
             feature_id=feature_id,
-            target_file_id=str(target_result.get("resultId") or target_file_id)
-            if target_result is not None
-            else None,
-            target_file_name=str(target_result.get("fileName") or "")
-            if target_result is not None
-            else None,
-            target_provider=str(
-                target_result.get("providerLabel") or target_result.get("provider") or ""
-            )
-            if target_result is not None
+            target_file_id=target_file_id,
+            target_file_name=target_entry.file_name if target_entry else None,
+            target_provider=(target_entry.provider_label or target_entry.provider)
+            if target_entry
             else None,
             target_path=str(target_path) if target_path is not None else None,
             target_line_count=len(target_lines),
@@ -1510,27 +1454,27 @@ class GuiController:
             subtitle_checks=checks,
         )
 
-        async with self._lock:
-            self._prepared_search_id = self._active_search_id
-            self._prepared_runtime = PreparedRuntime(
-                session_mode="ocr_fallback",
-                target_lines=target_lines,
-                feature_id=feature_id,
-            )
-            self._state.prepared_session = session
-            self._state.status = "idle"
-            self._state.progress = AppProgress(
-                stage="ready", message="OCR fallback session prepared.", current=1, total=1
-            )
-            self._state.warning_message = "No source subtitle matched the requested language. The session will use OCR plus live AI translation."
-        await self._emit_app_state()
-        await self._emit_app_progress()
+        runtime = PreparedRuntime(
+            session_mode="ocr_fallback",
+            target_lines=target_lines,
+            feature_id=feature_id,
+        )
+        await self._commit_prepare(
+            session,
+            runtime,
+            "OCR fallback session prepared.",
+            "No source subtitle matched the requested language. The session will use OCR plus live AI translation.",
+        )
         return asdict(session)
 
     async def start_session(self, session_id: str | None = None) -> dict[str, object]:
         logger.info("Start session: session_id=%s", session_id)
         log_event("session.start.requested", layer="backend", session_id=session_id)
-        if self._prepared_runtime is None or self._state.prepared_session is None:
+        if (
+            self._prepare_owner is not None
+            or self._prepared_runtime is None
+            or self._state.prepared_session is None
+        ):
             raise ValueError("Prepare a session before starting sync.")
         if session_id and session_id != self._state.prepared_session.session_id:
             raise ValueError("Prepared session does not match the requested session ID.")
@@ -1632,9 +1576,7 @@ class GuiController:
         await self._emit_app_event("subtitle", {"text": "", "source": MATCHED})
         if not engine_warning and len(rebuilt.source_candidates) == 1:
             pair = rebuilt.source_candidates[0].pair
-            await self._start_prefill(
-                pair.source_lines, pair.presentation.answer, expected_runtime=rebuilt
-            )
+            await self._start_prefill(pair, expected_runtime=rebuilt)
         return updated
 
     async def stop_session(self) -> dict[str, object]:
@@ -1705,6 +1647,8 @@ class GuiController:
         await self._emit_app_event("subtitle", {"text": subtitle_text, "source": source})
 
     async def shutdown(self) -> None:
+        self._prepare_owner = None
+        self._source_downloads.clear()
         await self._stop_prefill()
         task = self._sync_task
         if task is not None and not task.done():
@@ -1736,27 +1680,22 @@ class GuiController:
 
     async def _start_prefill(
         self,
-        lines: list[SubtitleLine],
-        answer: Answer = own_translation,
+        pair: SubtitlePair,
         *,
         expected_runtime: PreparedRuntime | None = None,
     ) -> None:
-        """Answer the target file's gaps while the viewer is still setting up.
-
-        Only where something already answers some of these cues - a paired
-        target file, or a bilingual source answering itself. Where nothing does,
-        every cue is a gap and this is a live-translation session: filling ahead
-        would spend the whole engine on the file's opening while the viewer
-        waits on the line in front of them.
-        """
-        if not any(answer(line) for line in lines):
+        """Use idle engine time to prepare the target or fill a partially covered track."""
+        answer = pair.presentation.answer
+        if pair.source_translation is None and not any(answer(line) for line in pair.source_lines):
             return
-        gaps = len(unanswered(lines, answer))
+        gaps = len(unanswered(pair.source_lines, answer))
         if not gaps:
             return
         async with self._lock:
             if expected_runtime is not None and (
-                self._prepared_runtime is not expected_runtime or self._state.status != "idle"
+                self._prepared_runtime is not expected_runtime
+                or self._state.status != "idle"
+                or self._prepare_owner is not None
             ):
                 return
             self._state.gap_fill = GapFillProgress(filled=0, total=gaps, active=True)
@@ -1767,16 +1706,16 @@ class GuiController:
         # the handle without cancelling would leave the earlier fill running
         # untracked, holding the engine's one slot for a file nobody chose.
         previous = self._prefill_task
-        self._prefill_task = asyncio.create_task(self._run_prefill(lines, answer))
+        self._prefill_task = asyncio.create_task(self._run_prefill(pair))
         if previous is not None and not previous.done():
             previous.cancel()
             with suppress(asyncio.CancelledError):
                 await previous
         await self._emit_app_state()
 
-    async def _run_prefill(self, lines: list[SubtitleLine], answer: Answer) -> None:
+    async def _run_prefill(self, pair: SubtitlePair) -> None:
         try:
-            await fill_before_the_session(lines, self.config, self._report_prefill, answer)
+            await fill_before_the_session(pair, self.config, self._report_prefill)
         except asyncio.CancelledError:
             # The state is settled by whoever cancelled, which can await this
             # task where a callback running under cancellation could not.
@@ -1790,7 +1729,7 @@ class GuiController:
     async def _report_prefill(self, filled: int) -> None:
         async with self._lock:
             current = self._state.gap_fill
-            if current is None:
+            if self._prefill_task is not asyncio.current_task() or current is None:
                 return
             self._state.gap_fill = replace(current, filled=filled)
         await self._emit_app_state()
@@ -1818,7 +1757,7 @@ class GuiController:
         with suppress(asyncio.CancelledError):
             await task
         async with self._lock:
-            if self._state.gap_fill is not None:
+            if self._prefill_task is None and self._state.gap_fill is not None:
                 self._state.gap_fill = replace(self._state.gap_fill, active=False)
         await self._emit_app_state()
 
@@ -1875,13 +1814,19 @@ class GuiController:
     def _catalog_result(self, result_id: str | None) -> AggregatedSubtitleResult | None:
         return self._search_catalog.find_result(result_id) if self._search_catalog else None
 
-    def _find_search_result(self, file_id: str | None) -> dict[str, object] | None:
+    def _selected_target(
+        self, file_id: str | None, feature_id: str
+    ) -> AggregatedSubtitleResult | None:
         if file_id is None:
             return None
-        for item in self._state.search_results:
-            if str(item.get("resultId") or item.get("id") or "") == str(file_id):
-                return item
-        return None
+        entry = self._catalog_result(file_id)
+        if entry is None:
+            raise ValueError(
+                "Selected target subtitle was not found in the current search results."
+            )
+        if entry.match_id != feature_id:
+            raise ValueError("Selected target subtitle does not belong to the chosen title.")
+        return entry
 
     def _find_search_match(self, feature_id: str | None) -> dict[str, object] | None:
         if feature_id is None:
@@ -1890,13 +1835,6 @@ class GuiController:
             if str(item.get("matchId") or item.get("id") or "") == str(feature_id):
                 return item
         return None
-
-    def _feature_id_for_result(self, result: dict[str, object]) -> str | None:
-        value = result.get("matchId") or result.get("id")
-        return str(value) if value not in {None, ""} else None
-
-    def _result_matches_feature(self, result: dict[str, object], feature_id: str) -> bool:
-        return str(result.get("matchId") or "") == str(feature_id)
 
     def _candidate_results_for_feature(
         self,
@@ -1966,6 +1904,7 @@ class GuiController:
         budget. A rival that will not arrive in time is simply not mentioned -
         preparation must not fail, or slow down noticeably, for advice.
         """
+        self._require_current_prepare()
         if not target_lines or chosen_entry is None:
             return []
         chosen = alignment_report(source_lines, target_lines, carried)
@@ -1992,6 +1931,7 @@ class GuiController:
 
         deadline = time.monotonic() + TARGET_ALIGNMENT_BUDGET_S
         for entry in rivals:
+            self._require_current_prepare()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
@@ -2022,19 +1962,24 @@ class GuiController:
         return weighed
 
     async def _set_progress(self, stage: str, message: str, current: int, total: int) -> None:
-        async with self._lock:
+        async with self._prepare_write():
             self._state.progress = AppProgress(
                 stage=stage, message=message, current=current, total=total
             )
         await self._emit_app_progress()
+        self._require_current_prepare()
 
-    async def _set_error(self, message: str) -> None:
+    async def _set_error(self, message: str, *, preparing: bool = False) -> None:
         async with self._lock:
+            if preparing:
+                self._require_current_prepare()
             self._state.status = "error"
             self._state.error_message = message
             self._state.warning_message = ""
             self._state.progress = AppProgress()
         await self._emit_app_state()
+        if preparing:
+            self._require_current_prepare()
         await self._emit_app_event("error", {"message": message})
 
     async def _emit_app_state(self) -> None:

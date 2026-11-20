@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections import OrderedDict, deque
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
@@ -19,6 +18,7 @@ from meocosub2.capture import capture_region, ocr_image
 from meocosub2.config import AppConfig
 from meocosub2.engine import EngineInstallError, EngineStartError
 from meocosub2.gapfill import fill_gaps
+from meocosub2.live_translation import LiveTranslator
 from meocosub2.matcher import BOTH, FOLLOW_GRACE_MS, SubtitleMatcher
 from meocosub2.models import MatchResult, SourceSubtitleCandidate, SubtitleLine
 from meocosub2.playback_capture import PlaybackCapture, PlaybackCaptureError
@@ -26,10 +26,11 @@ from meocosub2.playback_observation import PlaybackObserver
 from meocosub2.presentation import PresentationTrack
 from meocosub2.resolution import MATCHED, TRANSLATED, Resolution, display_position_ms, target_frame
 from meocosub2.semantic import SemanticError, SemanticIndex
+from meocosub2.source_track import SourceTrackTranslation
 from meocosub2.subtitle_gate import LineChange, SubtitleGate
 from meocosub2.target_follower import TargetTrackFollower
 from meocosub2.timeline import SEEK_SCORE, PlaybackState, PlaybackTimeline
-from meocosub2.translator import TranslationClient, is_untranslatable, open_translation_client
+from meocosub2.translator import is_untranslatable
 
 logger = logging.getLogger(__name__)
 
@@ -57,60 +58,15 @@ DISPLAY_LEAD_MS = -650
 # renderer has already worked out and nothing tells it so. Redrawing the line
 # already on the plate broadcasts nothing, so the extra wakes cost a comparison.
 RETIME_CHECK_S = 0.2
-TRANSLATION_CACHE_SIZE = 64
-CONTEXT_LINES = 3
 
 Broadcast = Callable[[str, str], Awaitable[None]]
 DebugBroadcast = Callable[[dict[str, object]], Awaitable[None]]
 RegionSource = Callable[[], tuple[int, ...]]
 BiasSource = Callable[[], int]
-TranslatorFactory = Callable[[], Awaitable["LiveTranslator"]]
+TranslatorFactory = Callable[[], Awaitable[LiveTranslator]]
 # Supplied by whoever starts the session rather than reached for here, so a
 # session can be run - and tested - without an embedding engine behind it.
 SemanticFactory = Callable[[], Awaitable[SemanticIndex]]
-
-
-class LiveTranslator:
-    """Caches translations and carries recent lines as context, like v1's session cache."""
-
-    def __init__(
-        self, client: TranslationClient, source_language: str, target_language: str
-    ) -> None:
-        self._client = client
-        self._source_language = source_language
-        self._target_language = target_language
-        self._cache: OrderedDict[str, str] = OrderedDict()
-        self._context: deque[str] = deque(maxlen=CONTEXT_LINES)
-
-    async def translate_from_file(self, text: str, pairs: list[tuple[str, str]]) -> str:
-        """Translate a line of the subtitle file, in the voice the file already uses.
-
-        Deliberately outside the cache and the rolling context: both describe
-        what has been on screen, and a cue being answered ahead of time has not.
-        The pairs carry their own echo context, so none is passed here.
-        """
-        return await self._client.translate(
-            text,
-            self._source_language,
-            self._target_language,
-            pairs=pairs,
-        )
-
-    async def translate(self, text: str) -> str:
-        key = SubtitleMatcher.normalize_text(text)
-        cached = self._cache.get(key)
-        if cached is not None:
-            self._cache.move_to_end(key)
-            return cached
-        translated = await self._client.translate(
-            text, self._source_language, self._target_language, list(self._context)
-        )
-        if translated:
-            self._cache[key] = translated
-            while len(self._cache) > TRANSLATION_CACHE_SIZE:
-                self._cache.popitem(last=False)
-            self._context.append(translated)
-        return translated
 
 
 class CandidateSession:
@@ -141,14 +97,7 @@ class CandidateSession:
             )
             for candidate in candidates
         }
-        self._presentations = {
-            candidate.result_id: candidate.pair.presentation for candidate in candidates
-        }
-        self.has_target_file = any(
-            candidate.pair.target_lines
-            or any(line.translated for line in candidate.pair.source_lines)
-            for candidate in candidates
-        )
+        self._pairs = {candidate.result_id: candidate.pair for candidate in candidates}
         self._open_translator = translator
         self._open_index = semantic
         # Read rather than captured: the viewer retimes the plate from the dock
@@ -167,7 +116,17 @@ class CandidateSession:
 
     @property
     def presentation(self) -> PresentationTrack | None:
-        return self._presentations.get(self._locked) if self._locked is not None else None
+        if self._locked is None:
+            return None
+        pair = self._pairs[self._locked]
+        generated = pair.source_translation
+        if generated is not None and generated.presentation is not None:
+            return generated.presentation
+        return pair.presentation
+
+    @property
+    def source_translation(self) -> SourceTrackTranslation | None:
+        return self._pairs[self._locked].source_translation if self._locked is not None else None
 
     @property
     def independent_target(self) -> bool:
@@ -387,6 +346,19 @@ class CandidateSession:
         translator = await self._open_translator()
         return await translator.translate(text)
 
+    async def translate_resolution(self, resolution: Resolution) -> str:
+        candidate = resolution.detail.get("candidateId")
+        index = resolution.detail.get("matchIdx")
+        if (
+            candidate == self._locked
+            and isinstance(index, int)
+            and index == resolution.covers_through
+        ):
+            generation = self.source_translation
+            if generation is not None:
+                return await generation.translate_cue(index, self.translate_from_file)
+        return await self.translate(resolution.translate)
+
     async def _match(self, ocr_text: str) -> tuple[str | None, MatchResult | None]:
         window = self._timeline.window_ms()
         position = self._timeline.cue_position_ms
@@ -578,11 +550,6 @@ class _Screen:
     covers_until_ms: int | None = None
 
 
-async def open_live_translator(config: AppConfig) -> tuple[TranslationClient, LiveTranslator]:
-    client = await open_translation_client(config)
-    return client, LiveTranslator(client, config.source_language, config.target_language)
-
-
 async def run_session_loop(
     session: Session,
     config: AppConfig,
@@ -675,7 +642,8 @@ async def run_session_loop(
                 continue
             covered, reached = screen.covers_through, line.covers_through
             if (
-                covered is not None
+                not session.independent_target
+                and covered is not None
                 and (reached is None or reached <= covered)
                 and position is not None
                 and screen.covers_until_ms is not None
@@ -718,7 +686,10 @@ async def run_session_loop(
 
     async def translate_into(resolution: Resolution, seq: int) -> None:
         try:
-            translated = await session.translate(resolution.translate)
+            if isinstance(session, CandidateSession):
+                translated = await session.translate_resolution(resolution)
+            else:
+                translated = await session.translate(resolution.translate)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -727,6 +698,9 @@ async def run_session_loop(
         if seq != screen.seq or asyncio.current_task() is not pending:
             return
         if resolution.matched and not session.anchored:
+            return
+        if session.independent_target and session.anchored:
+            nudge.set()
             return
         if not translated:
             await show("", MATCHED)
@@ -807,63 +781,55 @@ async def run_session_loop(
         pending = start_translation(resolution, screen.seq)
         return resolution.detail
 
-    async def fill_what_the_file_left_unpaired() -> None:
-        """Answer the cues the target file has nothing over, ahead of the clock.
-
-        Live reads come first: the viewer is waiting on those and the engine
-        answers one request at a time, so a fill only starts when no read is in
-        flight. It cannot stand aside for a read that arrives while it is
-        already asking, which costs that read the one completion it waits behind.
-
-        Only a session that has a target file has gaps to fill. Without one every
-        cue is unanswered, and filling them ahead would spend the single-slot
-        engine on the file's opening while the viewer waits on the read in front
-        of them - which is the whole of what a live-translation session does.
-
-        A session with several candidates can let one go and lock another, so the
-        file being followed is watched rather than taken once: each new one is
-        filled in its turn. What is remembered is which files were answered all
-        the way through, not which was answered last - a file the session left
-        partway and later comes back to still has the rest of its gaps.
-
-        Gaps are answered from wherever the video has reached, wrapping to the
-        ones behind it afterwards. A viewer who starts partway into an episode,
-        or seeks, would otherwise have the engine spend its pass on cues that
-        have already gone by.
-        """
-        if not isinstance(session, CandidateSession) or not session.has_target_file:
+    async def fill_ahead() -> None:
+        if not isinstance(session, CandidateSession):
             return
-        answered: set[int] = set()
+
+        def busy() -> bool:
+            return pending is not None and not pending.done()
+
+        finished: set[int] = set()
         while True:
             following = session.followed_lines
             track = session.presentation
-            if following and track is not None and id(following) not in answered:
-                outcome = await fill_gaps(
-                    lambda: session.followed_lines,
-                    session.translate_from_file,
-                    lambda: pending is not None and not pending.done(),
-                    redraw,
-                    lambda: session.followed_position,
-                    answer=track.answer,
-                    phase="session",
-                )
+            if following and track is not None and id(following) not in finished:
+                generation = session.source_translation
+                if generation is not None:
+                    # A first live read must get the only engine slot before background work.
+                    await first_capture.wait()
+                    outcome = await generation.fill(
+                        session.translate_from_file,
+                        busy,
+                        redraw,
+                        lambda: session.followed_position,
+                        lambda current=following: session.followed_lines is current,
+                    )
+                    if session.followed_lines is following:
+                        finished.add(id(following))
+                else:
+                    outcome = await fill_gaps(
+                        lambda: session.followed_lines,
+                        session.translate_from_file,
+                        busy,
+                        redraw,
+                        lambda: session.followed_position,
+                        answer=track.answer,
+                    )
                 if outcome.completed:
-                    answered.add(id(following))
+                    finished.add(id(following))
                 if outcome.engine_failed:
-                    # It will not answer the next file's gaps either, and asking
-                    # is what the viewer's own reads are queueing behind.
                     return
-                # The lock can have moved while that ran, which is what ended it.
                 continue
             await asyncio.sleep(FOLLOW_POLL_S)
 
+    first_capture = asyncio.Event()
     nudge = asyncio.Event()
 
     async def redraw() -> None:
         nudge.set()
 
     renderer = asyncio.create_task(render_from_the_clock())
-    filler = asyncio.create_task(fill_what_the_file_left_unpaired())
+    filler = asyncio.create_task(fill_ahead())
     try:
         while True:
             iteration += 1
@@ -937,6 +903,7 @@ async def run_session_loop(
                         await clear_plate()
                 logger.exception("Capture loop #%d failed (ocr=%r)", iteration, ocr_text[:60])
 
+            first_capture.set()
             nudge.set()
 
             if debug_broadcast is not None:

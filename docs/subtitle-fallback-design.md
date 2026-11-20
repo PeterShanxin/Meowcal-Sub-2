@@ -8,7 +8,7 @@ the video. The studio controls are listed in the [user guide](user-guide.md#choo
 | --- | --- | --- | --- |
 | **Path 1 · Dual-track playback** (双轨跟播) | Source and target | Match screen text to source cues, then show target cues on their own schedule. | This is the reference for timed playback. |
 | **Path 2 · Target-track playback** (译文跟播) | Target only | Compare translated screen reads with the target file. Once different cues agree on time, play the target file between reads. | See the [matching replay](target-track-replay.md) for tested limits. |
-| **Path 3 · Source-track translation** (原文补译) | Source only | Show translations carried by the source. Translate wholly untranslated sources on demand. Partially answered sources can fill gaps ahead. | Start watching immediately and build a complete timed target track in the background. |
+| **Path 3 · Source-track translation** (原文补译) | Source only | On main, watch with live answers while the local engine builds a timed target. The finished target joins Path 1 at the current position. A bilingual source uses its own translations. | Implemented on main. |
 | **Path 4 · Live screen translation** (屏幕直译) | Neither | Translate readable on-screen captions as they appear after title selection. | This also supplies text while another path is waiting for a reliable position or translation. |
 
 ## Where the paths meet
@@ -28,8 +28,8 @@ flowchart TD
     Source["Path 3 · Source-track translation"] --> Src
     Source --> Now["Translate current dialogue on demand"]
     Now --> Live
-    Source -. "While watching" .-> Build["Generate a timed target track"]
-    Build -. "Track ready for this session" .-> Display
+    Source -->|"While watching"| Build["Generate a timed target track"]
+    Build -->|"Track ready for this session"| Display
     Clock --> Display["Shared target scheduler"]
     Dual --> Display
     Display --> Strip["Subtitle strip"]
@@ -63,12 +63,10 @@ uses live answers while confirming the new position.
 
 ## Build a target track while the viewer watches
 
-Implementation is tracked in [Source-track translation, #165](https://github.com/PeterShanxin/Meowcal-Sub-2/issues/165).
-
-When a monolingual source has no translation, **Start** should work as soon
-as the live engine and capture are ready. Use the source clock when available
-and translate the current dialogue on demand. While still locating the source,
-use live screen translation. An existing bilingual translation takes precedence.
+On main, **Start** works as soon as the capture and translation engine are ready.
+If the source clock knows the position, the engine translates the matching file
+cue. While the app is looking for the position, it translates the screen text.
+An existing bilingual source uses its own translations.
 
 ```mermaid
 sequenceDiagram
@@ -88,18 +86,17 @@ sequenceDiagram
     T-->>V: Show the cue at the current position
 ```
 
-Prefer idle time on the installed engine as the first implementation. Give a
-current cue priority and move queued background work when the viewer seeks.
-A separate model process is an option if measurements show that it improves
-completion time without delaying live subtitles or exhausting memory. Compare
-live subtitle delay, total preparation time and peak memory on the same hardware.
-A second process would need the same cancellation and shutdown guarantees as
-the first. Waiting before pressing Start can give generation a head start.
+The app shares one local model. Watching gets priority over starting another
+background cue. A live request can wait for one translation already in progress.
+Skipping to another scene shifts the next background request to that part of
+the file. The model sees neighboring source lines alongside their translations
+when available. Waiting before pressing **Start** gives it a head start.
 
-Translate related cues together or provide neighboring dialogue when it helps
-resolve names and pronouns. Preserve an answer for each source cue and check for
-missing, duplicated or shifted answers. Keep accepted work separate from the
-source file. On completion, attach the generated track at the **current**
-position, including a blank interval or a paused frame. A late result from a
-stopped, replaced or edited session must never take over the strip. A failed or
-incomplete generation leaves live viewing available.
+Each answer belongs to one source cue. Once all cues have an answer, the app
+builds a separate in-memory target with their original start and end times.
+Path 1's scheduler reads the completed target on the same clock, preserving a
+pause or a moment with no text. The original file stays on disk as supplied.
+Stopping keeps completed answers in the prepared session. Editing the file or
+preparing another video gives the new session its own track. If the model
+declines a line, live viewing continues. The implementation and local timing
+measurements are in [PR #182](https://github.com/PeterShanxin/Meowcal-Sub-2/pull/182).

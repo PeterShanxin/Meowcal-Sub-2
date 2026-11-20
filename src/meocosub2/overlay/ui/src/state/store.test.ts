@@ -154,6 +154,16 @@ test("an identified OCR selection is retained but choosing a new title still rep
   expect(selectionChangesPreparedWork(prepared, "another", null, null)).toBe(true);
 });
 
+test("regrouping preserves the carried translation and distinguishes it from local translation", () => {
+  const prepared = { feature_id: "old", source_file_id: "source", target_file_id: "__source__" };
+  expect(selectionChangesPreparedWork(prepared, "new", "source", "__source__")).toBe(false);
+  expect(selectionChangesPreparedWork(prepared, "new", "source", "__local__")).toBe(true);
+  expect(selectionChangesPreparedWork(prepared, "new", "other", "__source__")).toBe(true);
+  const local = { ...prepared, target_file_id: null };
+  expect(selectionChangesPreparedWork(local, "new", "source", "__local__")).toBe(false);
+  expect(selectionChangesPreparedWork(local, "new", "source", "__source__")).toBe(true);
+});
+
 test("loading and an unchanged title do not replace a prepared work", () => {
   const prepared = { feature_id: "same", source_file_id: "source", target_file_id: "target" };
   expect(selectionChangesPreparedWork(null, "same", "source", "target")).toBe(false);

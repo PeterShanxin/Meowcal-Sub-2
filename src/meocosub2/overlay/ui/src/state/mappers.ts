@@ -154,6 +154,18 @@ function recommendedUpTo(total: number): number {
 
 export const OCR_SOURCE_ID = "__ocr_source__";
 
+const LOCAL_TRANSLATION_ID = "__local__";
+const OCR_ONLY_ID = "__ocr__";
+
+export function prepareSelection(sourceId: string, targetId: string) {
+  const ocr = sourceId === OCR_SOURCE_ID || targetId === OCR_ONLY_ID;
+  return {
+    mode: ocr ? ("ocr_fallback" as const) : ("subtitle_pair" as const),
+    sourceResultId: ocr ? null : sourceId,
+    targetResultId: targetId === LOCAL_TRANSLATION_ID || targetId === OCR_ONLY_ID ? null : targetId,
+  };
+}
+
 export function selectionChangesPreparedWork(
   prepared: Pick<BackendPreparedSession, "feature_id" | "source_file_id" | "target_file_id"> | null,
   matchId: string | null,
@@ -161,13 +173,11 @@ export function selectionChangesPreparedWork(
   targetId: string | null,
 ): boolean {
   if (!prepared || !matchId || prepared.feature_id === matchId) return false;
-  const sourceFile = sourceId === OCR_SOURCE_ID ? null : sourceId;
-  const targetFile = targetId?.startsWith("__") ? null : targetId;
-  return !(
-    sourceId &&
-    targetId &&
-    prepared.source_file_id === sourceFile &&
-    prepared.target_file_id === targetFile
+  if (!sourceId || !targetId) return true;
+  const selection = prepareSelection(sourceId, targetId);
+  return (
+    prepared.source_file_id !== selection.sourceResultId ||
+    prepared.target_file_id !== selection.targetResultId
   );
 }
 
@@ -261,14 +271,14 @@ export function mapResultsToTarget(
   // Neither fallback is a subtitle in the target language, so they sit after the
   // real files rather than competing with them for the top of the list.
   const local: TargetItem = {
-    id: "__local__",
+    id: LOCAL_TRANSLATION_ID,
     kind: "local",
     title: t("Local translation"),
     note: t("On-device model · translates the source lines"),
     recommended: false,
   };
   const ocr: TargetItem = {
-    id: "__ocr__",
+    id: OCR_ONLY_ID,
     kind: "ocr",
     title: t("OCR fallback only"),
     note: t("No subtitle file — OCR only"),

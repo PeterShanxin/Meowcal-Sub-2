@@ -97,7 +97,10 @@ class PresentationTrack:
         if lines:
             return PresentationFrame(
                 text=_join_target_text(lines),
-                cues=tuple(_cue(line, "target") for line in lines),
+                cues=tuple(
+                    _cue(line, "model" if line.translation_source == "model" else "target")
+                    for line in lines
+                ),
             )
 
         lines = [line for line in self._fallbacks.active_at(source_ms) if line.translated]
