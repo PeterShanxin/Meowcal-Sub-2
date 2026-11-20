@@ -933,6 +933,8 @@ async def run_session_loop(
             except Exception as error:
                 if isinstance(error, PlaybackCaptureError):
                     session.observe_playback(PlaybackState.INVALIDATED, started)
+                    if target is not None:
+                        await clear_plate()
                 logger.exception("Capture loop #%d failed (ocr=%r)", iteration, ocr_text[:60])
 
             nudge.set()
