@@ -147,15 +147,17 @@ class SubtitleGate:
         self._entries: deque[_Remembered] = deque()
         self._require_stable_read = require_stable_read
         self._previous_read = ""
+        self.first_seen = 0.0
 
     def classify(self, text: str, now: float | None = None) -> LineChange:
+        now = monotonic() if now is None else now
         if self._require_stable_read:
             previous, self._previous_read = self._previous_read, normalize(text)
             # A fade can produce plausible words that fuzzy deduplication then
             # keeps for the entire cue. Confirm the read before remembering it.
             if not self._previous_read or self._previous_read != previous:
+                self.first_seen = now
                 return LineChange.UNSTABLE
-        now = monotonic() if now is None else now
         self._forget_stale(now)
         if not self._entries:
             return LineChange.NEW

@@ -7,7 +7,7 @@ the video. The studio controls are listed in the [user guide](user-guide.md#choo
 | Path | Files at the start | Available today | Proposed addition |
 | --- | --- | --- | --- |
 | **Path 1 · Dual-track playback** (双轨跟播) | Source and target | Match screen text to source cues, then show target cues on their own schedule. | This is the reference for timed playback. |
-| **Path 2 · Target-track playback** (译文跟播) | Target only | Translate OCR, compare the translation with the file, and use its wording on a hit. | Use a confirmed match to follow the target clock between reads. |
+| **Path 2 · Target-track playback** (译文跟播) | Target only | Compare translated screen reads with the target file. Once different cues agree on time, play the target file between reads. | See the [matching replay](target-track-replay.md) for tested limits. |
 | **Path 3 · Source-track translation** (原文补译) | Source only | On main, watch with live answers while the local engine builds a timed target. The finished target joins Path 1 at the current position. A bilingual source uses its own translations. | Implemented on main. |
 | **Path 4 · Live screen translation** (屏幕直译) | Neither | Translate readable on-screen captions as they appear after title selection. | This also supplies text while another path is waiting for a reliable position or translation. |
 
@@ -24,7 +24,7 @@ flowchart TD
     Src --> Clock["Playback clock and pause / seek handling"]
     Target["Path 2 · Target-track playback"] --> OCR["Read screen cue and compare with target"]
     OCR --> Live["Display a live answer"]
-    OCR -. "Confirmed target position" .-> Clock
+    OCR -->|"Confirmed target position"| Clock
     Source["Path 3 · Source-track translation"] --> Src
     Source --> Now["Translate current dialogue on demand"]
     Now --> Live
@@ -45,27 +45,21 @@ two-file offset twice would move the subtitle away from the matched scene.
 
 ## Follow a target file using screen observations
 
-Implementation is tracked in [Target-track playback, #164](https://github.com/PeterShanxin/Meowcal-Sub-2/issues/164).
+Path 2 keeps the first capture time when the next read confirms the same
+words. The local translator supplies text to compare with the target file.
+Two near-exact single-cue matches, or three qualifying matches with less
+similar wording, can place the clock when their order and elapsed times agree.
+Repeated file wording can supply the displayed text. It cannot establish a
+position by itself. A result for a caption that has changed or disappeared
+cannot replace the current strip.
 
-Today `DirectTranslationSession.translate` returns the matched wording. The
-match already contains a cue index and start time. The missing connection is to
-retain its identity, the first capture time and the strength of the evidence.
-A late model answer must refer to the moment the viewer saw the cue.
-
-Use a short sequence of readings to distinguish two occurrences of “Thank you.”
-A paused reread counts as the same cue. Compare translate-then-match, direct
-multilingual matching and combinations on the same labeled scenes. Measure wrong
-locks, correctly located scenes, time to first lock and time to recover after
-a seek. Also measure when the *following* target cue actually appears.
-
-Once the position is reliable, feed target time to the existing
-[`PlaybackTimeline`](../src/meocosub2/timeline.py) and use the existing
-[`PresentationTrack`](../src/meocosub2/presentation.py) and boundary renderer.
-Carry the same motion, pause, seek and capture-loss evidence through that path.
-If the clock loses its place, clear the old scheduled line, show live answers
-when available and keep looking. A shared playback test should run both file
-paths through two overlapping cues, silence, a pause in silence, a backward
-seek and recovery. Only the way they establish the position should differ.
+The position is already in target-file time. From here Paths 1 and 2 use
+the same playback clock, capture observations, cue boundaries and strip
+renderer. For example, if two speakers' lines overlap for one second,
+both lines appear for that second. A pause where the target file has no text
+keeps the strip empty. After evidence of a jump or capture loss, the strip
+uses live answers while confirming the new position.
+[Matching measurements and replay](target-track-replay.md).
 
 ## Build a target track while the viewer watches
 
