@@ -1,4 +1,4 @@
-"""Keep the repository banner's PNG export current with its SVG artwork."""
+"""Keep the repository banners' PNG exports current with their SVG artwork."""
 
 from __future__ import annotations
 
@@ -9,9 +9,17 @@ from pathlib import Path
 
 from PIL import Image, PngImagePlugin
 
+BANNERS = ("banner.svg", "banner.zh-CN.svg")
+
 
 def update_branding(root: Path, *, check: bool = False) -> bool:
-    svg_path = root / "docs/assets/banner.svg"
+    changed = False
+    for name in BANNERS:
+        changed |= _update_banner(root / "docs/assets" / name, check=check)
+    return changed
+
+
+def _update_banner(svg_path: Path, *, check: bool) -> bool:
     png_path = svg_path.with_suffix(".png")
     source = svg_path.read_text(encoding="utf-8")
     digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
@@ -28,7 +36,8 @@ def update_branding(root: Path, *, check: bool = False) -> bool:
         return False
     if check:
         raise ValueError(
-            "Banner is stale. Run python scripts/update_branding.py and commit the PNG export."
+            f"Banner is stale: {svg_path.name}. "
+            "Run python scripts/update_branding.py and commit the PNG export."
         )
 
     # Playwright is already a development dependency; no runtime dependency or
@@ -59,4 +68,4 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     changed = update_branding(Path(__file__).resolve().parents[1], check=args.check)
-    print("Banner export updated." if changed else "Banner export matches the SVG artwork.")
+    print("Banner exports updated." if changed else "Banner exports match the SVG artwork.")

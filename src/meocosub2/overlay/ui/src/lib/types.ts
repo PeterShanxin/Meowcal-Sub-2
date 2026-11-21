@@ -1,4 +1,6 @@
-export type Phase = "home" | "prep" | "live" | "settings" | "empty" | "no-key";
+import type { UiLanguage } from "../i18n";
+
+export type Phase = "home" | "prep" | "live" | "settings" | "empty";
 
 export type BackendStatus = "idle" | "searching" | "preparing" | "running" | "stopping" | "error";
 
@@ -84,6 +86,7 @@ export interface BackendSubtitleCheck {
   file_name: string;
   duplicates_removed: number;
   empty_removed: number;
+  drawings_removed?: number;
   reordered: boolean;
 }
 
@@ -127,6 +130,7 @@ export interface BackendConfig {
     region: [number, number, number, number];
     intervalMs: number;
     ocrLanguage: string;
+    ocrEngine: "auto" | "windows" | "ppOcrV6";
   };
   matching: { fuzzyThreshold: number; windowSize: number };
   translation: {
@@ -135,6 +139,7 @@ export interface BackendConfig {
   sync: { biasMs: number };
   overlay: Record<string, unknown>;
   debug: { mode: boolean };
+  ui: { language: UiLanguage };
 }
 
 export interface BackendEpisode {
@@ -249,7 +254,9 @@ export interface SourceItem {
   hi: boolean;
   trusted: boolean;
   recommended: boolean;
-  raw: BackendResult;
+  note?: string;
+  detail?: string;
+  raw?: BackendResult;
 }
 
 export type TargetKind = "source" | "local" | "ocr" | "file";
@@ -272,6 +279,7 @@ export interface TargetItem {
   file?: string;
   provider?: string;
   downloads?: string;
+  detail?: string;
   recommended: boolean;
   raw?: BackendResult;
 }

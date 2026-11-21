@@ -15,7 +15,7 @@ def branding_root(tmp_path: Path) -> Path:
     assets = tmp_path / "docs/assets"
     assets.mkdir(parents=True)
     source = Path(__file__).resolve().parents[1]
-    for name in ("banner.svg", "banner.png"):
+    for name in ("banner.svg", "banner.png", "banner.zh-CN.svg", "banner.zh-CN.png"):
         shutil.copyfile(source / "docs/assets" / name, assets / name)
     return tmp_path
 
@@ -54,6 +54,13 @@ def test_artwork_edit_invalidates_png_export(branding_root: Path) -> None:
 
 def test_export_check_does_not_require_app_manifests(branding_root: Path) -> None:
     assert not update_branding(branding_root, check=True)
+
+
+def test_chinese_banner_export_is_checked(branding_root: Path) -> None:
+    svg = branding_root / "docs/assets/banner.zh-CN.svg"
+    svg.write_text(svg.read_text(encoding="utf-8").replace("开源", "开放源代码"), encoding="utf-8")
+    with pytest.raises(ValueError, match="banner.zh-CN.svg"):
+        update_branding(branding_root, check=True)
 
 
 @pytest.mark.parametrize("damage", ["invalid", "truncated"])

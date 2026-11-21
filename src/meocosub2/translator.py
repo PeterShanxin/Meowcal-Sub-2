@@ -312,7 +312,11 @@ class TranslationClient:
         below ask whether the model handed back something it was given, and the
         source halves are in the wrong language to ever look like an answer.
         """
-        if is_untranslatable(text):
+        if pairs is not None and not any(ch.isalpha() for ch in text):
+            # A countdown or music symbol in a subtitle file already reads the
+            # same in the target. Keep its timing without asking the model.
+            return text.strip()
+        if pairs is None and is_untranslatable(text):
             return ""
         context = echoable_targets(text, pairs) if pairs else list(context_lines or [])
         prompt = (

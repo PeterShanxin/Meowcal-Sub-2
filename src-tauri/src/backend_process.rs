@@ -57,6 +57,10 @@ fn packaged_backend_command(resources: &Path) -> Result<Command, String> {
     let mut command = Command::new(python);
     command.current_dir(directory);
     command.args(["-I", "-B", "-m", "meocosub2.cli", "serve"]);
+    #[cfg(feature = "microsoft-store")]
+    if let Some(root) = std::env::var_os("APPDATA") {
+        command.env("USERPROFILE", &root).env("LOCALAPPDATA", root);
+    }
     command.env(
         "MEOWCAL_CORE_EXE",
         resources.join("core").join("meowcal-core.exe"),
