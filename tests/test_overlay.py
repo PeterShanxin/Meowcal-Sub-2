@@ -1,4 +1,3 @@
-import asyncio
 import json
 from pathlib import Path
 
@@ -43,6 +42,15 @@ def test_dashboard_root_is_served(tmp_path: Path) -> None:
     # the command-palette redesign. Keep this shallow so we don't couple to the
     # React bundle content.
     assert '<div id="root"' in dashboard.text or "<div id='root'" in dashboard.text
+
+
+def test_served_pages_carry_the_interface_language(tmp_path: Path) -> None:
+    server = make_server(tmp_path / "config.toml")
+    server.controller.config.ui_language = "zh-CN"
+    with studio_client(server) as client:
+        pages = [client.get("/").text, client.get("/overlay").text]
+    for page in pages:
+        assert '"uiLanguage": "zh-CN"' in page
 
 
 def test_config_routes_return_compat_and_nested_payload(tmp_path: Path) -> None:
@@ -170,12 +178,25 @@ def test_put_config_with_language_only_merge_persists_languages_without_resettin
     assert 'target = "fr"' in config_path.read_text(encoding="utf-8")
 
 
+def test_invalid_ocr_engine_cannot_partially_save_config(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    server = make_server(path)
+    with studio_client(server) as client:
+        response = client.put(
+            "/api/config", json={"capture": {"ocrEngine": "unknown"}, "languages": {"source": "ko"}}
+        )
+        assert response.status_code == 400
+        assert "OCR engine" in response.json()["detail"]
+        assert client.get("/api/config").json()["capture"]["ocrEngine"] == "auto"
+    assert not path.exists()
+
+
 def test_app_websocket_receives_initial_state_and_subtitle_events(tmp_path: Path) -> None:
     server = make_server(tmp_path / "config.toml")
     with studio_client(server) as client, client.websocket_connect("/ws/app") as websocket:
         state_event = json.loads(websocket.receive_text())
         style_event = json.loads(websocket.receive_text())
-        asyncio.run(server.controller.broadcast_overlay_subtitle("hello"))
+        client.portal.call(server.controller.broadcast_overlay_subtitle, "hello")
         subtitle_event = json.loads(websocket.receive_text())
 
     assert state_event["type"] == "state"

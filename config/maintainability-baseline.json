@@ -2,22 +2,23 @@
   "measuredOn": "2026-09-06",
   "newFileMaxLines": 400,
   "legacyFileCeilings": {
-    "src-tauri/src/main.rs": 1175,
+    "src-tauri/src/main.rs": 1178,
     "src-tauri/src/overlay_window.rs": 443,
-    "src/meocosub2/config.py": 535,
+    "src/meocosub2/config.py": 567,
     "src/meocosub2/engine/runtime.py": 211,
     "src/meocosub2/matcher.py": 550,
     "src/meocosub2/opensubtitles/client.py": 932,
-    "src/meocosub2/overlay/controller.py": 2182,
-    "src/meocosub2/overlay/ui/src/app.tsx": 1732,
-    "src/meocosub2/overlay/ui/src/components/palette.tsx": 1592,
-    "src/meocosub2/overlay/ui/src/components/primitives.tsx": 391,
-    "src/meocosub2/overlay/ui/src/components/variants/settings.tsx": 1301,
+    "src/meocosub2/overlay/controller.py": 2141,
+    "src/meocosub2/overlay/ui/src/app.tsx": 1758,
+    "src/meocosub2/overlay/ui/src/components/palette.tsx": 1610,
+    "src/meocosub2/overlay/ui/src/components/primitives.tsx": 394,
+    "src/meocosub2/overlay/ui/src/components/subtitle-editor/workspace.tsx": 404,
+    "src/meocosub2/overlay/ui/src/components/variants/settings.tsx": 1382,
     "src/meocosub2/overlay/ui/src/styles/theme.css": 719,
-    "src/meocosub2/subtitle_sources/aggregator.py": 1458,
-    "src/meocosub2/subtitle_sources/subdl.py": 651,
-    "src/meocosub2/sync.py": 941,
-    "src/meocosub2/timeline.py": 455
+    "src/meocosub2/subtitle_sources/aggregator.py": 1481,
+    "src/meocosub2/subtitle_sources/subdl.py": 649,
+    "src/meocosub2/sync.py": 965,
+    "src/meocosub2/timeline.py": 520
   },
   "lintBudgets": {
     "ruff": 0,
@@ -31,12 +32,15 @@
     "frontend": {
       "scope": [
         "src/state/mappers.ts",
+        "src/state/store.ts",
         "src/lib/session.ts",
         "src/lib/subtitle-editor/types.ts",
         "src/lib/subtitle-editor/document.ts",
         "src/lib/subtitle-editor/diagnostics.ts",
         "src/lib/subtitle-editor/timing.ts",
-        "src/lib/subtitle-editor/history.ts"
+        "src/lib/subtitle-editor/history.ts",
+        "src/i18n/index.ts",
+        "src/i18n/coverage.ts"
       ],
       "floors": {
         "statements": 89,

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from bisect import bisect_left
 from collections.abc import Awaitable, Callable
 from typing import Literal, NamedTuple
 
@@ -77,29 +78,24 @@ def unanswered(lines: list[SubtitleLine], answer: Answer = own_translation) -> l
     return [index for index, line in enumerate(lines) if line.text and not answer(line)]
 
 
-def next_gap(
-    lines: list[SubtitleLine],
-    attempted: set[int],
-    reached: int | None,
-    answer: Answer = own_translation,
-) -> int | None:
-    """The cue to answer next: the first one still unpaired at or after `reached`.
+class PendingGaps:
+    """Unattempted cues in this pass; a seek changes which one is next."""
 
-    Wraps to the start once nothing is left ahead, so the cues the viewer has
-    already watched past are answered last rather than not at all. Asked afresh
-    for every cue, which is what lets a seek move the fill: an order chosen once
-    would keep working through the file from wherever the video was when the
-    pass began.
+    def __init__(self, lines: list[SubtitleLine], answer: Answer = own_translation) -> None:
+        self._lines = lines
+        self._answer = answer
+        self._indices = unanswered(lines, answer)
 
-    A cue the model declined counts as attempted. Asking again inside one pass
-    would spend the engine on the answer it has already refused to give.
-    """
-    gaps = [index for index in unanswered(lines, answer) if index not in attempted]
-    if not gaps:
+    def __len__(self) -> int:
+        return len(self._indices)
+
+    def pop(self, reached: int | None) -> int | None:
+        while self._indices:
+            position = bisect_left(self._indices, reached or 0)
+            index = self._indices.pop(position if position < len(self._indices) else 0)
+            if not self._answer(self._lines[index]):
+                return index
         return None
-    if reached is None:
-        return gaps[0]
-    return next((index for index in gaps if index >= reached), gaps[0])
 
 
 class FillOutcome(NamedTuple):
@@ -147,11 +143,12 @@ async def fill_gaps(
     `phase` identifies preparation and playback passes in numeric DEBUG traces.
     """
     lines = followed_lines()
-    if not unanswered(lines, answer):
+    pending = PendingGaps(lines, answer)
+    if not pending:
         return FillOutcome(0, True)
 
-    logger.debug("Gap fill %s starting: %d unpaired cue(s)", phase, len(unanswered(lines, answer)))
-    attempted: set[int] = set()
+    logger.debug("Gap fill %s starting: %d unpaired cue(s)", phase, len(pending))
+    attempted = 0
     filled = 0
     completed = False
     engine_failed = False
@@ -170,12 +167,12 @@ async def fill_gaps(
                 "Gap fill %s followed position changed %s -> %s", phase, last_reached, reached
             )
             last_reached = reached
-        index = next_gap(lines, attempted, reached, answer)
+        index = pending.pop(reached)
         if index is None:
             completed = True
             break
         logger.debug("Gap fill %s selected cue=%d reached=%s", phase, index, reached)
-        attempted.add(index)
+        attempted += 1
         line = lines[index]
         try:
             translation = await translate(line.text, context_pairs(lines, index, answer))
@@ -187,7 +184,7 @@ async def fill_gaps(
             logger.exception("Gap fill %s cue=%d failed; stopping", phase, index)
             engine_failed = True
             break
-        if not translation:
+        if not translation or answer(line):
             continue
         line.translated = translation
         line.translation_source = "model"
@@ -197,7 +194,7 @@ async def fill_gaps(
         "Gap fill %s finished: filled=%d attempted=%d completed=%s engine_failed=%s",
         phase,
         filled,
-        len(attempted),
+        attempted,
         completed,
         engine_failed,
     )

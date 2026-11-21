@@ -153,10 +153,10 @@ class SubtitleMatcher:
         )
         self._use_simplified = self._contains_cjk and target_language != "zht"
         self._normalized = [
-            self._normalize_for_match(_script_rows(line.text, True)) for line in subtitles
+            self.normalize_for_match(_script_rows(line.text, True)) for line in subtitles
         ]
         self._normalized_latin = [
-            self._normalize_for_match(_script_rows(line.text, False)) for line in subtitles
+            self.normalize_for_match(_script_rows(line.text, False)) for line in subtitles
         ]
         # Normalising CJK closes the spaces between characters, so a pair of
         # lines has to be joined the same way the lines themselves were.
@@ -170,7 +170,7 @@ class SubtitleMatcher:
         text = re.sub(r"[^\w\s]", " ", text.lower())
         return re.sub(r"\s+", " ", text).strip()
 
-    def _normalize_for_match(self, text: str) -> str:
+    def normalize_for_match(self, text: str) -> str:
         normalized = self.normalize_text(text)
         if self._contains_cjk or any(is_cjk_compactable_char(ch) for ch in normalized):
             cleaned = clean_cjk_text(normalized)
@@ -188,7 +188,7 @@ class SubtitleMatcher:
         return len(normalized_ocr) < min_length
 
     def is_repeated_frame(self, ocr_text: str) -> bool:
-        normalized_ocr = self._normalize_for_match(ocr_text)
+        normalized_ocr = self.normalize_for_match(ocr_text)
         if self._is_too_short(normalized_ocr):
             return False
         return self._hash_text(normalized_ocr) == self._last_frame_hash
@@ -425,7 +425,7 @@ class SubtitleMatcher:
         position_ms: int | None = None,
     ) -> MatchResult | None:
         """The best line by text alone."""
-        normalized_ocr = self._normalize_for_match(ocr_text)
+        normalized_ocr = self.normalize_for_match(ocr_text)
         if not self._worth_matching(normalized_ocr):
             return None
         best = self._fuzzy(normalized_ocr, window_ms, position_ms)
@@ -445,7 +445,7 @@ class SubtitleMatcher:
         that, meaning ranks the candidates and text is a second opinion -
         confirming the line, or taking precedence over a different one.
         """
-        normalized_ocr = self._normalize_for_match(ocr_text)
+        normalized_ocr = self.normalize_for_match(ocr_text)
         if not self._worth_matching(normalized_ocr):
             return None
 

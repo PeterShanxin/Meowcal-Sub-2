@@ -44,9 +44,14 @@ async def test_preparation_uses_checked_tracks_without_opening_editor(tmp_path, 
     assert not (tmp_path / "subtitles" / "corrected").exists()
     controller.config = replace(controller.config, capture_region=[0, 0, 500, 100])
     mocker.patch(
-        "meocosub2.overlay.controller.resolve_ocr_language",
+        "meocosub2.overlay.controller.prepare_ocr",
+        new_callable=mocker.AsyncMock,
         return_value=SimpleNamespace(
-            warning_message="", resolved_language="en-US", requested_language="en-US"
+            warning_message="",
+            resolved_language="en-US",
+            requested_language="en-US",
+            engine="windows",
+            available=True,
         ),
     )
     sync = mocker.patch.object(controller, "_run_sync_loop", new_callable=mocker.AsyncMock)

@@ -62,7 +62,10 @@ def test_config_write_failure_keeps_previous_session_and_bias(tmp_path, monkeypa
 
 
 @pytest.mark.parametrize("available", [False, True])
-def test_monolingual_replacement_requires_ready_engine(tmp_path, ready_engine, available):
+def test_monolingual_replacement_requires_ready_engine(
+    tmp_path, ready_engine, available, monkeypatch
+):
+    monkeypatch.setattr("meocosub2.overlay.controller.fill_before_the_session", AsyncMock())
     server = editor_server(tmp_path)
     controller = server.controller
     controller._state.prepared_session = replace(
@@ -114,8 +117,8 @@ async def test_save_restarts_prefill_on_rebuilt_track(tmp_path, monkeypatch):
     controller = editor_server(tmp_path).controller
     filled = []
 
-    async def fill(lines, config, on_progress, answer):
-        filled.extend(line.text for line in lines if not answer(line))
+    async def fill(pair, config, on_progress):
+        filled.extend(line.text for line in pair.source_lines if not pair.presentation.answer(line))
         await on_progress(len(filled))
 
     monkeypatch.setattr("meocosub2.overlay.controller.fill_before_the_session", fill)

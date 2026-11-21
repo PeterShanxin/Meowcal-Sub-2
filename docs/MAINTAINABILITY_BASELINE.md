@@ -52,6 +52,11 @@ Recorded ceiling changes and their reasons:
 
 | File | From | To | Why |
 | --- | ---: | ---: | --- |
+| `app.tsx` | 1747 | 1750 | distinguish a new work from catalog enrichment of the same prepared source and target files |
+| `aggregator.py` | 1468 | 1481 | retain provider title aliases independently of movie identity, resolve missing IDs only from an unambiguous title/year identity, and preserve discovery of yearless ASSRT members |
+| `sync.py` | 938 | 965 | route capture and overlay callbacks to the ordered OCR fallback only when no file track is present |
+| `sync.py` | 941 | 983 | match changed rereads against the file, retain strong cue support, discard rejected-read caches, preserve the onset through a first failed read, and timestamp similar new cues from their own capture |
+| `timeline.py` | 455 | 524 | bound visible-cue support to its interval, settle it before motion resumes, preserve its onset, retain recent strong corroboration through brief ambiguity, distinguish initial lock from recovery, and withhold the old scene while confirming a seek |
 | `timeline.py` | 399 | 407 | apply observed freeze/resume onset without accumulating confirmation delay, and retain a confirmed pause through source OCR reanchors |
 | `timeline.py` | 407 | 418 | preserve a reliable pending freeze through supported sparse capture intervals with a five-second lease, withdrawing it on unavailable evidence and resetting it on reanchor |
 | `timeline.py` | 418 | 455 | distinguish captured onset from frame receipt, bound an in-flight capture at the sampling deadline, and expire unsupported or stale confirmed pauses independently of subtitle identity |
@@ -147,6 +152,38 @@ No module is to be split to satisfy a number. A cohesive exception is better
 than fake decomposition; these are recorded because they are real, not because
 they are scheduled.
 
+Subtitle selection records these measured limits: `overlay/controller.py`
+2182 → 2183 for the OCR source label; `overlay/ui/src/app.tsx` 1732 → 1747 for
+explicit OCR selection, current language state and inspection resets;
+`overlay/ui/src/components/palette.tsx` 1592 → 1598 for the OCR source choice and readable file variants;
+`subtitle_sources/aggregator.py` 1458 → 1468 for unambiguous same-year movie
+aliases; and `subtitle_sources/subdl.py` 651 → 649 after removing the unintended
+hearing-impaired filter.
+
+PP-OCRv6 integration records `config.py` 535 → 549 for the persisted recognizer
+choice and validation; `overlay/controller.py` 2183 → 2201 for asynchronous
+recognizer readiness, resolved session settings and startup guards; and
+`overlay/ui/src/components/variants/settings.tsx` 1301 → 1328 for the
+keyboard-accessible recognizer choice.
+
+The interface localization records `src-tauri/src/main.rs` 1175 → 1184 for tray
+labels in the saved language and the keys and language the splash and selector
+show; `config.py` 549 → 567 for the persisted interface language;
+`overlay/ui/src/app.tsx` 1746 → 1762 for following the saved language, relabelling
+the tray and rebuilding mapped rows when the language changes;
+`overlay/ui/src/components/palette.tsx` 1598 → 1613, `primitives.tsx` 391 → 394
+and `variants/settings.tsx` 1328 → 1382 for translated copy and the language
+control; and a ceiling of 404 for `components/subtitle-editor/workspace.tsx`,
+which crossed the new-file limit by routing its labels and hints through the
+catalog.
+
+The shared preparation commit and typed catalog selections reduced
+`overlay/controller.py` from 2,199 to 2,156 lines.
+
+Source-track translation keeps file-generation state with its prepared pair and
+uses the same live translator during setup and playback. This reduces the
+controller from 2,156 to 2,144 lines and the capture loop from 983 to 950.
+
 ## Lint budgets
 
 | Tool | Budget | State |
@@ -206,9 +243,11 @@ by the manual Windows gate.
 
 ### Frontend — a named scope, not a percentage of everything
 
-`src/state/mappers.ts` is the only studio module under test today, at 89.94%
-statements, 78.33% branches, 71.42% functions, 89.94% lines. The floors are
-those figures rounded down.
+On pull requests, the x64 job also compares the proposed scope with its base commit. Modules still in the studio must stay covered, including detected renames. Removed files are reported by name. The local coverage check still works without Git history.
+
+The named scope includes studio mapping, session authentication, subtitle editing
+and UI state. Its floors remain 89% statements and lines, 78% branches and 71%
+functions.
 
 The scope is named in the baseline file rather than left implicit, because a
 coverage percentage is meaningless without saying what it is a percentage *of*.
@@ -219,6 +258,8 @@ cheapest way there is to make a coverage claim mean less than it says.
 A repository-wide frontend floor would be about 3% and would say nothing. Every
 module that gains tests joins the scope. The subtitle editor adds document IO,
 diagnostics, timing transforms, history, and their shared error types to this scope.
+The interface-language runtime (`src/i18n/index.ts`) and the translation coverage
+gate (`src/i18n/coverage.ts`) also belong to it.
 
 ## Proving the gates can fail
 

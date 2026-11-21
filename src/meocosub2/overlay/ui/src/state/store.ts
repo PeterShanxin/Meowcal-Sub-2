@@ -90,7 +90,45 @@ class Store {
 
   set = (patch: Partial<UIState> | ((s: UIState) => Partial<UIState>)): void => {
     const next = typeof patch === "function" ? patch(this.state) : patch;
-    this.state = { ...this.state, ...next };
+    const updated = { ...this.state, ...next };
+    if (
+      next.snapshot &&
+      this.state.snapshot &&
+      this.state.selectedEpisodeMatchId &&
+      next.selectedEpisodeMatchId === undefined
+    ) {
+      // Provider enrichment may identify a provisional title differently. File
+      // identities survive that merge and preserve the selection the user made.
+      const oldFiles = this.state.snapshot.search_results;
+      const chosen = next.snapshot.search_results.find(
+        (r) => r.resultId === updated.selectedSourceId,
+      );
+      const ids = new Set(
+        chosen
+          ? [chosen.resultId]
+          : oldFiles
+              .filter((r) => r.matchId === this.state.selectedEpisodeMatchId)
+              .map((r) => r.resultId),
+      );
+      const matches = new Set(
+        next.snapshot.search_results.filter((r) => ids.has(r.resultId)).map((r) => r.matchId),
+      );
+      if (matches.size === 1) {
+        const [matchId] = matches;
+        updated.selectedEpisodeMatchId = matchId;
+        const work = next.snapshot.search_works.find(
+          (w) =>
+            w.primaryMatchId === matchId ||
+            w.seasons.some((s) => s.episodes.some((e) => e.matchId === matchId)),
+        );
+        if (work) updated.selectedWorkId = work.id;
+        const target = next.snapshot.search_results.find(
+          (r) => r.resultId === updated.selectedTargetId,
+        );
+        if (target && target.matchId !== matchId) updated.selectedTargetId = null;
+      }
+    }
+    this.state = updated;
     this.listeners.forEach((fn) => fn());
   };
 

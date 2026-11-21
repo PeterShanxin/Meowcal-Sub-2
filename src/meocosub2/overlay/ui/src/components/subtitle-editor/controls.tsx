@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { localizeError, t } from "../../i18n";
 import { integerMs } from "../../lib/subtitle-editor/history";
 import type { Cue, Transform } from "../../lib/subtitle-editor/types";
 
@@ -56,10 +57,10 @@ export function CueForm({
         }
       }}
     >
-      <h3>Subtitle {cue.index}</h3>
+      <h3>{t("Subtitle {number}", { number: cue.index })}</h3>
       <div className="editor-fields">
         <label>
-          Start (ms)
+          {t("Start (ms)")}
           <input
             value={start}
             inputMode="numeric"
@@ -67,7 +68,7 @@ export function CueForm({
           />
         </label>
         <label>
-          End (ms)
+          {t("End (ms)")}
           <input
             value={end}
             inputMode="numeric"
@@ -76,9 +77,9 @@ export function CueForm({
         </label>
       </div>
       <label>
-        Subtitle text
+        {t("Subtitle text")}
         <textarea
-          aria-label="Subtitle text"
+          aria-label={t("Subtitle text")}
           rows={4}
           value={text}
           onChange={(event) => change(start, end, event.target.value)}
@@ -86,16 +87,16 @@ export function CueForm({
       </label>
       <div className="editor-actions">
         <button type="submit" disabled={!dirty}>
-          Keep edit
+          {t("Keep edit")}
         </button>
         <button
           type="button"
           disabled={!dirty}
           onClick={() => change(String(cue.startMs), String(cue.endMs), cue.text)}
         >
-          Discard edit
+          {t("Discard edit")}
         </button>
-        <span>{dirty ? "Uncommitted edit" : "Up to date"}</span>
+        <span>{dirty ? t("Uncommitted edit") : t("Up to date")}</span>
       </div>
     </form>
   );
@@ -136,20 +137,20 @@ export function TimingForm({
   }
   const inputs: [keyof Omit<TimingFields, "mode">, string][] =
     fields.mode === "offset"
-      ? [["offset", "Shift (ms)"]]
+      ? [["offset", t("Shift (ms)")]]
       : [
-          ["source1", "Subtitle time 1 (ms)"],
-          ["target1", "Video time 1 (ms)"],
-          ["source2", "Subtitle time 2 (ms)"],
-          ["target2", "Video time 2 (ms)"],
+          ["source1", t("Subtitle time 1 (ms)")],
+          ["target1", t("Video time 1 (ms)")],
+          ["source2", t("Subtitle time 2 (ms)")],
+          ["target2", t("Video time 2 (ms)")],
         ];
   return (
     <section className="editor-section">
-      <h3>Timing correction</h3>
+      <h3>{t("Timing correction")}</h3>
       <label>
-        Method
+        {t("Method")}
         <select
-          aria-label="Method"
+          aria-label={t("Method")}
           value={fields.mode}
           onChange={(event) => {
             setError("");
@@ -157,14 +158,14 @@ export function TimingForm({
           }}
           disabled={disabled}
         >
-          <option value="offset">Shift all subtitles</option>
-          <option value="anchors">Match two points</option>
+          <option value="offset">{t("Shift all subtitles")}</option>
+          <option value="anchors">{t("Match two points")}</option>
         </select>
       </label>
       <p>
         {fields.mode === "offset"
-          ? "Negative = earlier. Positive = later. 1000 ms = 1 second."
-          : "Match an early and a late subtitle to their video times to correct gradual drift."}
+          ? t("Negative = earlier. Positive = later. 1000 ms = 1 second.")
+          : t("Match an early and a late subtitle to their video times to correct gradual drift.")}
       </p>
       <div className="editor-fields">
         {inputs.map(([key, label]) => (
@@ -184,15 +185,15 @@ export function TimingForm({
       </div>
       <div className="editor-actions">
         <button type="button" disabled={disabled} onClick={preview}>
-          Preview timing
+          {t("Preview timing")}
         </button>
         <button type="button" disabled={disabled || !hasPreview} onClick={onApply}>
-          Apply timing
+          {t("Apply timing")}
         </button>
       </div>
       {error && (
         <p role="alert" className="editor-error">
-          {error}
+          {localizeError(error)}
         </p>
       )}
     </section>
