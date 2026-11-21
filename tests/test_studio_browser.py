@@ -2,15 +2,14 @@
 
 import asyncio
 import contextlib
+import json
 import re
-import socket
 import threading
-import time
 from dataclasses import replace
 from unittest.mock import AsyncMock
+from urllib.parse import urljoin
 
 import pytest
-import uvicorn
 from playwright.sync_api import expect, sync_playwright
 
 from meocosub2 import engine
@@ -24,6 +23,7 @@ from meocosub2.subtitle_sources.types import (
     ProviderSubtitleResult,
 )
 from tests.conftest import TEST_TOKEN
+from tests.studio_http import running_studio
 from tests.test_subtitle_editor import editor_server
 
 
@@ -71,35 +71,20 @@ async def _catalog(self, query, languages):
 
 
 @contextlib.contextmanager
-def _studio(app, width, height):
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = listener.getsockname()[1]
-        app._allowed_origins = {f"http://127.0.0.1:{port}"}
-        server = uvicorn.Server(uvicorn.Config(app.app, log_level="error"))
-        thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
-        thread.start()
+def _studio(app, width, height, locale="en-US"):
+    with running_studio(app) as url, sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
         try:
-            deadline = time.monotonic() + 10
-            while not server.started and thread.is_alive() and time.monotonic() < deadline:
-                time.sleep(0.02)
-            assert server.started
-            with sync_playwright() as playwright:
-                browser = playwright.chromium.launch()
-                try:
-                    page = browser.new_page(viewport={"width": width, "height": height})
-                    page.set_default_timeout(7000)
-                    page.route(
-                        "https://fonts.googleapis.com/**",
-                        lambda route: route.fulfill(status=200, content_type="text/css", body=""),
-                    )
-                    page.goto(f"http://127.0.0.1:{port}/?token={TEST_TOKEN}")
-                    yield page
-                finally:
-                    browser.close()
+            page = browser.new_page(viewport={"width": width, "height": height}, locale=locale)
+            page.set_default_timeout(7000)
+            page.route(
+                "https://fonts.googleapis.com/**",
+                lambda route: route.fulfill(status=200, content_type="text/css", body=""),
+            )
+            page.goto(f"{url}/?token={TEST_TOKEN}")
+            yield page
         finally:
-            server.should_exit = True
-            thread.join(timeout=10)
+            browser.close()
 
 
 @pytest.fixture(autouse=True)
@@ -139,6 +124,124 @@ def _search(page, title):
     search.fill(title)
     search.press("Enter")
     return search
+
+
+def test_language_switch_research_uses_the_saved_language_pair(search_server):
+    with _studio(search_server, 1280, 900) as page:
+        _search(page, "Paper")
+        expect(page.locator(".work-row")).to_have_count(2)
+        page.get_by_role("button", name="Source language: EN", exact=True).click()
+        with page.expect_request("**/api/search") as requested:
+            page.get_by_role("button", name="Chinese (Traditional) zht", exact=True).click()
+        assert requested.value.post_data_json["sourceLanguage"] == "zht"
+        assert requested.value.post_data_json["targetLanguage"] == "zh"
+        expect(page.get_by_role("button", name="Source language: ZHT", exact=True)).to_be_visible()
+
+
+def test_ocr_engine_choice_survives_settings_save_and_reload(search_server):
+    with _studio(search_server, 1280, 900) as page:
+        for value in ("ppOcrV6", "windows", "auto"):
+            page.get_by_role("button", name="Open settings", exact=True).click()
+            dialog = page.get_by_role("dialog", name="Settings", exact=True)
+            dialog.get_by_role("button", name="Capture", exact=True).click()
+            choice = dialog.get_by_role("combobox", name="OCR engine", exact=True)
+            choice.select_option(value)
+            with page.expect_response("**/api/config") as saved:
+                dialog.get_by_role("button", name="Save changes", exact=True).click()
+            assert saved.value.ok
+            assert saved.value.json()["capture"]["ocrEngine"] == value
+            assert search_server.controller.config.ocr_engine == value
+            page.goto(f"{page.url.split('?')[0]}?token={TEST_TOKEN}")
+            page.get_by_role("button", name="Open settings", exact=True).click()
+            dialog = page.get_by_role("dialog", name="Settings", exact=True)
+            dialog.get_by_role("button", name="Capture", exact=True).click()
+            expect(dialog.get_by_role("combobox", name="OCR engine", exact=True)).to_have_value(
+                value
+            )
+            dialog.get_by_role("button", name="Close settings", exact=True).click()
+
+
+@pytest.mark.parametrize("has_target", [True, False])
+def test_no_source_requires_explicit_ocr_choice_before_preparing_target(
+    search_server, monkeypatch, has_target
+):
+    search_server.controller.config.source_language = "zh"
+    search_server.controller.config.target_language = "en"
+    search_server.controller._state.source_language = "zh"
+    search_server.controller._state.target_language = "en"
+
+    async def catalog(self, query, languages):
+        movie = _match("movie", "Paper Lanterns", "movie")
+        return ProviderSearchCatalog(
+            [movie], [_result(movie, "Paper.en.srt")] if has_target else []
+        )
+
+    monkeypatch.setattr(SubdlProvider, "search_catalog", catalog)
+    with _studio(search_server, 1000, 800) as page:
+        _search(page, "Paper")
+        page.get_by_role("button", name=re.compile("Paper Lanterns.*2021")).click()
+        expect(page.get_by_role("button", name="Source 0", exact=True)).to_be_visible()
+        expect(page.get_by_text("No matching source file.", exact=False)).to_be_visible()
+        page.get_by_role("button", name=re.compile(r"^Target \d+$")).click()
+        page.get_by_text("Paper.en.srt" if has_target else "OCR fallback only", exact=True).click()
+        expect(page.get_by_text("Select a source subtitle first,", exact=False)).to_be_visible()
+        page.get_by_role("button", name="Source 0", exact=True).click()
+        page.get_by_role("button", name=re.compile("Use on-screen OCR")).click()
+        expect(page.get_by_text("Local translation", exact=True)).to_have_count(0)
+        with page.expect_request("**/api/session/prepare") as prepare:
+            page.get_by_text(
+                "Paper.en.srt" if has_target else "OCR fallback only", exact=True
+            ).click()
+        assert prepare.value.post_data_json["mode"] == "ocr_fallback"
+        assert prepare.value.post_data_json["sourceResultId"] is None
+        assert bool(prepare.value.post_data_json["targetResultId"]) is has_target
+        expect(page.get_by_text("Session ready", exact=True)).to_be_visible()
+
+
+def test_language_change_discards_old_inspection_of_the_same_file(search_server, monkeypatch):
+    started = threading.Event()
+    release = threading.Event()
+    calls = 0
+
+    async def inspect(source_file_id, feature_id=None):
+        nonlocal calls
+        calls += 1
+        old = calls == 1
+        if old:
+            started.set()
+            assert await asyncio.to_thread(release.wait, 15)
+        return {
+            "sourceFileId": source_file_id,
+            "fileName": "Paper.en.srt",
+            "featureId": feature_id,
+            "carriesTranslation": old,
+            "totalCues": 10,
+            "translatedCues": 10 if old else 0,
+        }
+
+    monkeypatch.setattr(search_server.controller, "inspect_source", inspect)
+    try:
+        with _studio(search_server, 1000, 800) as page:
+            _search(page, "Paper")
+            title = page.get_by_role("button", name=re.compile("Paper Lanterns.*2021"))
+            title.click()
+            page.get_by_text("Paper.Lanterns.2021.WEB-DL.1080p.en.srt", exact=True).click()
+            assert started.wait(3)
+            page.get_by_role("button", name="Target language: zh", exact=True).click()
+            page.get_by_role("button", name="Japanese ja", exact=True).click()
+            title.click()
+            page.get_by_text("Paper.Lanterns.2021.WEB-DL.1080p.en.srt", exact=True).click()
+            expect(page.get_by_text("Local translation", exact=True)).to_be_visible()
+            with page.expect_response("**/api/source/inspect"):
+                release.set()
+            page.evaluate(
+                "() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))"
+            )
+            expect(
+                page.get_by_text("Translation inside the source file", exact=True)
+            ).to_have_count(0)
+    finally:
+        release.set()
 
 
 def test_keyboard_reaches_an_episode_in_the_wide_title_grid(search_server):
@@ -520,10 +623,24 @@ def test_episode_lookup_waits_for_progressive_title_search(search_server, monkey
         release_slow.set()
 
 
-def test_a_search_that_finds_nothing_says_so(search_server):
+@pytest.mark.parametrize("configured", [True, False])
+def test_live_screen_translation_needs_no_catalog_title(search_server, configured):
+    if not configured:
+        search_server.controller.config.subdl_api_key = ""
     with _studio(search_server, 1280, 900) as page:
-        _search(page, "nothing")
-        expect(page.get_by_text("No titles found for “nothing”")).to_be_visible()
+        translate = page.get_by_role("button", name="Translate on-screen subtitles")
+        if configured:
+            expect(translate).to_have_count(0)
+            _search(page, "nothing")
+            expect(page.get_by_text("No titles found for “nothing”")).to_be_visible()
+        with page.expect_response("**/api/session/prepare") as prepared:
+            translate.click()
+        session = prepared.value.json()["session"]
+        assert session["feature_id"] is None
+        assert session["target_match_mode"] == "direct_translation"
+        assert session["title"] == ("nothing" if configured else "")
+        expect(page.get_by_text("Session ready", exact=True)).to_be_visible()
+        expect(page.get_by_role("button", name="Start OCR and sync")).to_be_enabled()
 
 
 @pytest.mark.parametrize("tab", ["source", "target"])
@@ -576,6 +693,41 @@ def test_a_narrow_window_keeps_the_prepared_session_usable(search_server):
         expect(page.get_by_role("dialog", name="Edit subtitles · Optional")).to_be_visible()
 
 
+def test_a_chinese_display_language_gets_the_chinese_studio(search_server):
+    with _studio(search_server, 1280, 900, locale="zh-CN") as page:
+        expect(page.get_by_role("heading", name="你在看什么？")).to_be_visible()
+        assert page.evaluate("document.documentElement.lang") == "zh-CN"
+        _search(page, "nothing")
+        expect(page.get_by_text("没有找到“nothing”")).to_be_visible()
+
+
+def test_the_interface_language_switches_live_and_is_kept(search_server):
+    with _studio(search_server, 1280, 900) as page:
+        page.get_by_role("button", name="Open settings", exact=True).click()
+        dialog = page.get_by_role("dialog", name="Settings", exact=True)
+        dialog.get_by_role("button", name="Appearance", exact=True).click()
+        with page.expect_response("**/api/config") as saved:
+            dialog.get_by_role("combobox", name="Interface language").select_option("zh-CN")
+        assert saved.value.json()["ui"] == {"language": "zh-CN"}
+        assert search_server.controller.config.ui_language == "zh-CN"
+        expect(page.get_by_role("dialog", name="设置", exact=True)).to_be_visible()
+        page.goto(f"{page.url.split('?')[0]}?token={TEST_TOKEN}")
+        expect(page.get_by_role("heading", name="你在看什么？")).to_be_visible()
+
+
+def test_a_narrow_chinese_window_keeps_the_prepared_session_usable(search_server):
+    search_server.controller.config.ui_language = "zh-CN"
+    with _studio(search_server, 390, 844) as page:
+        _search(page, "Paper")
+        page.get_by_text("Paper Lanterns").click()
+        page.get_by_text("Paper.Lanterns.2021.WEB-DL.1080p.en.srt").click()
+        page.get_by_text("Paper.Lanterns.2021.WEB-DL.1080p.zh.srt").click()
+        start = page.get_by_role("button", name="开始识别并同步")
+        expect(start).to_be_enabled()
+        box = start.bounding_box()
+        assert box is not None and box["x"] + box["width"] <= 390
+
+
 def test_tab_moves_on_from_the_palette_after_its_last_tab(tmp_path):
     with _studio(_prepared_server(tmp_path), 1280, 900) as page:
         search = page.locator('input[data-palette="true"]')
@@ -588,3 +740,52 @@ def test_tab_moves_on_from_the_palette_after_its_last_tab(tmp_path):
         # of those retries may take focus back from where Tab moved it.
         page.wait_for_timeout(1200)
         assert page.evaluate("document.activeElement.dataset.palette") is None
+
+
+def test_live_dock_shows_the_session_warning_and_keeps_it_after_stop(tmp_path):
+    server = _prepared_server(tmp_path)
+    warning = "PP-OCRv6 could not start. Using Windows OCR."
+    server.controller._state.status = "running"
+    server.controller._state.warning_message = warning
+    with _studio(server, 1280, 900) as page:
+        page.get_by_role("button", name="Show warning").press("Enter")
+        expect(page.get_by_text(warning)).to_be_visible()
+        expect(page.get_by_role("button", name="Stop sync")).to_have_count(0)
+
+        page.get_by_role("button", name="Hide warning").press("Enter")
+        expect(page.get_by_text(warning)).to_have_count(0)
+        page.get_by_role("button", name="Stop sync").press("Enter")
+
+        expect(page.get_by_role("button", name="Start OCR and sync")).to_be_visible()
+        expect(page.locator(".source-health-text")).to_have_text(warning)
+
+
+def test_plate_restores_the_current_line_and_silence_after_reconnecting(search_server):
+    snapshots = iter(["First cue", "", "Next cue"])
+    sockets = []
+
+    def connected(ws):
+        sockets.append(ws)
+        ws.send(
+            json.dumps(
+                {
+                    "type": "state",
+                    "state": {
+                        "status": "running",
+                        "last_subtitle": next(snapshots),
+                        "last_subtitle_source": "translated",
+                    },
+                }
+            )
+        )
+
+    with _studio(search_server, 900, 500) as page:
+        page.route_web_socket("**/ws/app*", connected)
+        page.goto(urljoin(page.url, f"/overlay?token={TEST_TOKEN}"))
+        line = page.locator("#line")
+        expect(line).to_have_text("First cue")
+        sockets[-1].close()
+        expect(page.locator("#plate")).to_have_class(re.compile("is-empty"))
+        sockets[-1].close()
+        expect(line).to_have_text("Next cue")
+        expect(line).to_have_class(re.compile("is-provisional"))

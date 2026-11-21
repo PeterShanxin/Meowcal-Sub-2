@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
-import type { EngineStatus, InfoChip } from "../lib/types";
+import { localizeMessage, t } from "../i18n";
+import type { EngineStatus, InfoChip, Phase } from "../lib/types";
 
 const ENGINE_LABELS: Record<EngineStatus["phase"], string> = {
   ready: "Translation ✓",
@@ -11,11 +12,11 @@ const ENGINE_LABELS: Record<EngineStatus["phase"], string> = {
 };
 
 function engineLabel(status: EngineStatus | null): string {
-  if (!status) return "Translation —";
+  if (!status) return t("Translation —");
   if (status.phase === "installing") {
-    return `Translation installing ${status.installPercent}%`;
+    return t("Translation installing {percent}%", { percent: status.installPercent });
   }
-  return ENGINE_LABELS[status.phase] ?? "Translation —";
+  return t(ENGINE_LABELS[status.phase] ?? "Translation —");
 }
 
 export function DisclosureChevron({ open }: { open: boolean }): JSX.Element {
@@ -97,7 +98,7 @@ export function InfoChipRow({
             whiteSpace: "nowrap",
           }}
         >
-          {chip.label}
+          {localizeMessage(chip.label)}
         </span>
       ))}
     </div>
@@ -108,10 +109,10 @@ export function Kbd({ children, dim }: { children: ReactNode; dim?: boolean }): 
   return <kbd data-dim={dim ? "true" : "false"}>{children}</kbd>;
 }
 
-export function CatMascot({ size = 56 }: { size?: number }): JSX.Element {
+export function BrandMark({ size = 56 }: { size?: number }): JSX.Element {
   return (
     <img
-      src="/static/shadow-cat-mark.svg"
+      src="/static/mark.svg"
       width={size}
       height={size}
       alt=""
@@ -198,7 +199,7 @@ export function TopBar({
   onOpenSettings,
   onClearSession,
 }: {
-  phase: "home" | "prep" | "live" | "settings" | "empty" | "no-key";
+  phase: Phase;
   wsConnected: boolean;
   engineStatus: EngineStatus | null;
   sourcesCount: number;
@@ -207,12 +208,12 @@ export function TopBar({
 }): JSX.Element {
   const label =
     phase === "live"
-      ? "Live"
+      ? t("Live")
       : phase === "prep"
-        ? "Prepared"
+        ? t("Prepared")
         : phase === "settings"
-          ? "Settings"
-          : "Idle";
+          ? t("Settings")
+          : t("Idle");
   const dotColor = phase === "live" ? "var(--accent-hex)" : "var(--ok-hex)";
   return (
     <div
@@ -245,23 +246,25 @@ export function TopBar({
         <span className="top-bar-detail" style={{ color: "#3a3a46" }}>
           ·
         </span>
-        <span className="top-bar-detail" title={engineStatus?.message ?? ""}>
+        <span className="top-bar-detail" title={localizeMessage(engineStatus?.message ?? "")}>
           {engineLabel(engineStatus)}
         </span>
         <span className="top-bar-detail" style={{ color: "#3a3a46" }}>
           ·
         </span>
         <span className="top-bar-detail">
-          {sourcesCount} {sourcesCount === 1 ? "source" : "sources"}
+          {sourcesCount === 1 ? t("1 source") : t("{count} sources", { count: sourcesCount })}
         </span>
         <span style={{ color: "#3a3a46" }}>·</span>
-        <span title={wsConnected ? "Connected" : "Reconnecting…"}>{wsConnected ? "●" : "○"}</span>
+        <span title={wsConnected ? t("Connected") : t("Reconnecting…")}>
+          {wsConnected ? "●" : "○"}
+        </span>
         {onClearSession && (
           <button
             type="button"
             onClick={onClearSession}
-            aria-label="Clear session"
-            title="Clear session (⇧⌫)"
+            aria-label={t("Clear session")}
+            title={t("Clear session (⇧⌫)")}
             style={topBarButtonStyle}
             onMouseEnter={highlight}
             onMouseLeave={unhighlight}
@@ -273,8 +276,8 @@ export function TopBar({
           <button
             type="button"
             onClick={onOpenSettings}
-            aria-label="Open settings"
-            title="Settings (,)"
+            aria-label={t("Open settings")}
+            title={t("Settings (,)")}
             style={topBarButtonStyle}
             onMouseEnter={highlight}
             onMouseLeave={unhighlight}
@@ -344,8 +347,8 @@ export function PaletteTabs({
         background: "rgba(255,255,255,0.015)",
       }}
     >
-      {tabs.map((t) => {
-        const isActive = active === t.id;
+      {tabs.map((tab) => {
+        const isActive = active === tab.id;
         const style: CSSProperties = {
           display: "flex",
           alignItems: "center",
@@ -360,8 +363,8 @@ export function PaletteTabs({
           fontWeight: 500,
         };
         return (
-          <button type="button" key={t.id} onClick={() => onChange(t.id)} style={style}>
-            {t.label}
+          <button type="button" key={tab.id} onClick={() => onChange(tab.id)} style={style}>
+            {tab.label}
             <span
               style={{
                 fontSize: 11,
@@ -369,7 +372,7 @@ export function PaletteTabs({
                 opacity: 0.75,
               }}
             >
-              {t.count}
+              {tab.count}
             </span>
           </button>
         );
@@ -384,7 +387,7 @@ export function PaletteTabs({
           gap: 6,
         }}
       >
-        <Kbd dim>Tab</Kbd> switch
+        <Kbd dim>Tab</Kbd> {t("switch")}
       </span>
     </div>
   );

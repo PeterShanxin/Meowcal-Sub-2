@@ -67,7 +67,7 @@ def test_the_studio_page_bootstraps_the_token_for_the_page_itself(tmp_path: Path
     with studio_client(make_server(tmp_path)) as client:
         response = client.get("/")
     assert response.status_code == 200
-    assert f'window.__MEOWCAL__={{"token": "{TEST_TOKEN}"}}' in response.text
+    assert f'window.__MEOWCAL__={{"token": "{TEST_TOKEN}", ' in response.text
 
 
 def test_a_foreign_origin_is_refused_even_with_a_valid_token(tmp_path: Path) -> None:

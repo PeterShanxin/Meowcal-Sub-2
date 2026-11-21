@@ -189,6 +189,11 @@ def media_type_category(media_type: str | None) -> str:
     return "movie"
 
 
+def canonical_imdb_id(value: str | None) -> str | None:
+    digits = (value or "").strip().casefold().removeprefix("tt").lstrip("0")
+    return f"tt{digits.zfill(7)}" if digits.isascii() and digits.isdecimal() else None
+
+
 def work_key(
     *,
     title: str,
@@ -209,8 +214,9 @@ def work_key(
         # carry the series IMDb id).
         series_title = parent_title or title
         return ("series", f"title:{canonical_title(series_title)}")
-    if media_type == "movie" and imdb_id:
-        return ("movie", f"imdb:{imdb_id}")
+    movie_id = canonical_imdb_id(imdb_id)
+    if media_type == "movie" and movie_id:
+        return ("movie", f"imdb:{movie_id}")
     return ("movie", f"title:{canonical_title(title)}|{year or 0}")
 
 
@@ -257,7 +263,11 @@ def match_group_key(
     season: int | None,
     episode: int | None,
     parent_title: str | None = None,
+    imdb_id: str | None = None,
 ) -> tuple[str, str, int, int, int]:
+    movie_id = canonical_imdb_id(imdb_id)
+    if media_type == "movie" and movie_id:
+        return (f"imdb:{movie_id}", media_type, 0, 0, 0)
     key_title = parent_title if media_type == "episode" and parent_title else title
     return (canonical_title(key_title), media_type, year or 0, season or 0, episode or 0)
 
@@ -297,29 +307,25 @@ def map_subdl_language(value: str) -> str:
     return normalize_source_language(value)
 
 
-def map_assrt_language(desc: str | None, langlist: dict[str, object] | None = None) -> str:
-    keys = {key.casefold() for key in (langlist or {})}
-    for key, code in ASSRT_LANG_MAP.items():
-        if key in keys:
-            return code
-    text = (desc or "").strip()
-    if "繁" in text or "big5" in text.casefold():
-        return "zht"
-    if "简" in text or "簡" in text:
-        return "zh"
-    if "英" in text:
-        return "en"
-    if "日" in text:
-        return "ja"
-    if "韩" in text or "韓" in text:
-        return "ko"
-    if "法" in text:
-        return "fr"
-    if "德" in text:
-        return "de"
-    if "西" in text:
-        return "es"
-    return "zh"
+def map_assrt_languages(
+    desc: str | None, langlist: dict[str, object] | None = None
+) -> tuple[str, ...]:
+    keys = {key.casefold() for key, enabled in (langlist or {}).items() if enabled}
+    codes = {code for key, code in ASSRT_LANG_MAP.items() if key in keys}
+    text = (desc or "").casefold()
+    for markers, code in (
+        (("繁", "big5"), "zht"),
+        (("简", "簡"), "zh"),
+        (("英",), "en"),
+        (("日",), "ja"),
+        (("韩", "韓"), "ko"),
+        (("法",), "fr"),
+        (("德",), "de"),
+        (("西",), "es"),
+    ):
+        if any(marker in text for marker in markers):
+            codes.add(code)
+    return tuple(sorted(codes))
 
 
 def choose_subtitle_path(paths: Iterable[Path]) -> Path:

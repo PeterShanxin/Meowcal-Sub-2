@@ -1,0 +1,116 @@
+name: Microsoft Store package
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/microsoft-store.yml'
+      - 'store/**'
+      - 'scripts/build-store.ps1'
+      - 'scripts/build-windows-release.ps1'
+      - 'scripts/windows-sdk-tools.ps1'
+      - 'scripts/inspect-installer-window.ps1'
+      - 'scripts/test-installed-store.ps1'
+      - 'scripts/verify_store_bundle.py'
+      - 'scripts/store_logos.py'
+      - 'src-tauri/src/store.rs'
+      - 'src-tauri/src/backend_process.rs'
+      - 'src-tauri/src/config_port.rs'
+      - 'src-tauri/src/updater.rs'
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Store ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: x64, runner: windows-2025}
+          - {arch: arm64, runner: windows-11-arm}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14.7'
+          architecture: ${{ matrix.arch }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/meocosub2/overlay/ui/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Install build tools
+        shell: pwsh
+        run: |
+          python -m pip install --require-hashes -r config/backend-requirements.txt
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m pip install -e '.[dev]'
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm --prefix src/meocosub2/overlay/ui ci
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m playwright install chromium
+      - name: Build Store edition
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/build-store.ps1 -Architecture ${{ matrix.arch }}
+      - name: Activate installed package and verify private Studio settings
+        shell: powershell
+        run: ./scripts/test-installed-store.ps1 -Package (Get-Item dist/*.msix) -Architecture ${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        if: matrix.arch == 'x64'
+        with:
+          name: store-catalog
+          path: dist/MeowcalSub2-StoreLogo-300.png
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: store-package-${{ matrix.arch }}
+          path: dist/*.msix
+          if-no-files-found: error
+          retention-days: 14
+  bundle:
+    name: Verify Store submission bundle
+    needs: package
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: store-package-*
+          path: packages
+          merge-multiple: true
+      - name: Bundle both native packages and check original payloads
+        shell: pwsh
+        run: |
+          . ./scripts/windows-sdk-tools.ps1
+          $version = ([xml](Get-Content store/AppxManifest.xml -Raw)).Package.Identity.Version
+          $output = "MeowcalSub2-$version.msixbundle"
+          $makeAppx = Get-WindowsSdkTool 'makeappx.exe'
+          & $makeAppx bundle /d packages /p $output /bv $version /o
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python scripts/verify_store_bundle.py $output --commit (git rev-parse HEAD) --makeappx $makeAppx
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          "$((Get-FileHash $output).Hash.ToLowerInvariant())  $output" | Set-Content SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: store-submission
+          path: |
+            *.msixbundle
+            SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
