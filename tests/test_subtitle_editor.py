@@ -65,6 +65,95 @@ def editor_server(tmp_path: Path) -> OverlayServer:
     return server
 
 
+@pytest.mark.asyncio
+async def test_start_cannot_use_a_session_replaced_while_ocr_loads(tmp_path, monkeypatch):
+    from meocosub2.capture import OcrResolution
+
+    controller = editor_server(tmp_path).controller
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def loading(*_args, **_kwargs):
+        entered.set()
+        await release.wait()
+        return OcrResolution("en-US", "en-US", engine="ppOcrV6")
+
+    monkeypatch.setattr("meocosub2.overlay.controller.prepare_ocr", loading)
+    run = AsyncMock()
+    monkeypatch.setattr(controller, "_run_sync_loop", run)
+    start = asyncio.create_task(controller.start_session("initial"))
+    await asyncio.wait_for(entered.wait(), 1)
+    controller._state.prepared_session = replace(
+        controller._state.prepared_session, session_id="new"
+    )
+    release.set()
+    with pytest.raises(ValueError, match="Subtitles changed"):
+        await start
+    run.assert_not_called()
+    await controller.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_stop_during_ocr_loading_prevents_capture_from_starting(tmp_path, monkeypatch):
+    from meocosub2.capture import OcrResolution
+
+    controller = editor_server(tmp_path).controller
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def loading(*_args, **_kwargs):
+        entered.set()
+        await release.wait()
+        return OcrResolution("en-US", "en-US", engine="ppOcrV6")
+
+    monkeypatch.setattr("meocosub2.overlay.controller.prepare_ocr", loading)
+    run = AsyncMock()
+    monkeypatch.setattr(controller, "_run_sync_loop", run)
+    start = asyncio.create_task(controller.start_session("initial"))
+    await asyncio.wait_for(entered.wait(), 1)
+    await controller.stop_session()
+    release.set()
+    with pytest.raises(ValueError):
+        await start
+    run.assert_not_called()
+    await controller.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_starts_only_launch_one_loop_and_keep_the_requested_engine(
+    tmp_path, monkeypatch
+):
+    from meocosub2.capture import OcrResolution
+
+    controller = editor_server(tmp_path).controller
+    entered, release, active = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    arrivals = 0
+    configs = []
+
+    async def loading(*_args, **_kwargs):
+        nonlocal arrivals
+        arrivals += 1
+        if arrivals == 2:
+            entered.set()
+        await release.wait()
+        return OcrResolution("en-US", "en-US", engine="ppOcrV6")
+
+    async def running(_runtime, config):
+        configs.append(config)
+        active.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr("meocosub2.overlay.controller.prepare_ocr", loading)
+    monkeypatch.setattr(controller, "_run_sync_loop", running)
+    starts = [asyncio.create_task(controller.start_session("initial")) for _ in range(2)]
+    await asyncio.wait_for(entered.wait(), 1)
+    release.set()
+    results = await asyncio.gather(*starts, return_exceptions=True)
+    await asyncio.wait_for(active.wait(), 1)
+    assert sum(isinstance(result, RuntimeError) for result in results) == 1
+    assert len(configs) == 1 and configs[0].ocr_engine == "ppOcrV6"
+    assert controller.config.ocr_engine == "auto"
+    await controller.shutdown()
+
+
 def edits(client, **contents):
     payload = client.get("/api/subtitle-editor/initial").json()
     return {
@@ -223,9 +312,15 @@ async def test_sync_receives_corrected_runtime(tmp_path, monkeypatch):
 
     monkeypatch.setattr(controller, "_run_sync_loop", sync)
     monkeypatch.setattr(
-        "meocosub2.overlay.controller.resolve_ocr_language",
-        lambda _: SimpleNamespace(
-            warning_message="", resolved_language="en-US", requested_language="en-US"
+        "meocosub2.overlay.controller.prepare_ocr",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                warning_message="",
+                resolved_language="en-US",
+                requested_language="en-US",
+                engine="windows",
+                available=True,
+            )
         ),
     )
     updated = await controller.save_subtitle_edits(
@@ -280,9 +375,15 @@ async def test_start_rechecks_session_after_waiting_for_prefill(tmp_path, monkey
 
     monkeypatch.setattr(controller, "_stop_prefill", wait_prefill)
     monkeypatch.setattr(
-        "meocosub2.overlay.controller.resolve_ocr_language",
-        lambda _: SimpleNamespace(
-            warning_message="", resolved_language="en-US", requested_language="en-US"
+        "meocosub2.overlay.controller.prepare_ocr",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                warning_message="",
+                resolved_language="en-US",
+                requested_language="en-US",
+                engine="windows",
+                available=True,
+            )
         ),
     )
     task = asyncio.create_task(controller.start_session("initial"))

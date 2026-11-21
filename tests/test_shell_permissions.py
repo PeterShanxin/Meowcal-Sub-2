@@ -52,6 +52,8 @@ def command_grants(
         ("main", "get_api_base", True),
         ("main", "check_app_update", True),
         ("main", "install_app_update", True),
+        ("main", "set_tray_locale", True),
+        ("main", "ui_language", False),
         ("selector", "set_capture_region", False),
         ("selector", "cancel_area_selector", False),
         ("selector", "get_capture_region", False),

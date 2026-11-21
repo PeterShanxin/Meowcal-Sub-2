@@ -1,4 +1,5 @@
 const TAURI = window.__TAURI__;
+const { t } = window.MeowcalI18n;
 const root = document.getElementById("overlay-root");
 const box = document.getElementById("selection-box");
 const toolbar = document.getElementById("selector-toolbar");
@@ -50,7 +51,7 @@ function renderSelection() {
   toolbar.style.left = `${region.left}px`;
   toolbar.style.top = `${Math.max(12, region.top - 54)}px`;
   dimensions.textContent = `${region.width} × ${region.height}`;
-  instructions.textContent = "Drag again to reselect, or confirm this area.";
+  instructions.textContent = t("selector.reselect");
 }
 
 // Pointer events on the root would also fire for the toolbar sitting inside it,
@@ -115,7 +116,7 @@ async function confirmSelection() {
   } catch (error) {
     // Silence here reads as a dead button: the window stays up, the area is not
     // saved, and nothing on screen says why.
-    instructions.textContent = `Could not save this area: ${error}`;
+    instructions.textContent = t("selector.saveFailed", { error });
   }
 }
 
@@ -131,7 +132,7 @@ nextDisplayButton.addEventListener("click", async () => {
     await TAURI.core.invoke("switch_area_selector");
     onOpened();
   } catch (error) {
-    instructions.textContent = `Could not switch display: ${error}`;
+    instructions.textContent = t("selector.switchFailed", { error });
   } finally {
     nextDisplayButton.disabled = false;
   }
@@ -195,4 +196,8 @@ function onOpened() {
 }
 
 onOpened();
-void TAURI.event.listen("selector-opened", () => onOpened());
+// The shell sends the saved interface language, which can change between opens.
+void TAURI.event.listen("selector-opened", (event) => {
+  window.MeowcalI18n.setPreference(event.payload);
+  onOpened();
+});

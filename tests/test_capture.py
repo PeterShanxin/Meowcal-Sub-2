@@ -59,7 +59,7 @@ async def test_ocr_image_calls_preprocess_before_run_ocr(mocker) -> None:
     run_ocr = mocker.patch("meocosub2.capture._run_ocr", new=mocker.AsyncMock(return_value="hello"))
     mocker.patch(
         "meocosub2.capture.resolve_ocr_language",
-        return_value=SimpleNamespace(resolved_language="en-US"),
+        return_value=SimpleNamespace(resolved_language="en-US", engine="windows"),
     )
     image = Image.new("RGB", (1, 1))
     result = await ocr_image(image, "en")
@@ -85,7 +85,7 @@ def test_ocr_output_is_cleaned_before_it_leaves_capture(monkeypatch) -> None:
     monkeypatch.setattr(
         capture_module,
         "resolve_ocr_language",
-        lambda language: capture_module.OcrResolution("zh-CN", "zh-Hans-CN"),
+        lambda language, engine: capture_module.OcrResolution("zh-CN", "zh-Hans-CN"),
     )
 
     async def fake_ocr(image, language):
@@ -113,6 +113,35 @@ async def test_white_text_pass_recovers_row_missing_from_whole_scene_passes(mock
     )
 
     assert await ocr_image(Image.new("RGB", (4, 2)), "zh-CN") == "大家好请坐下"
+
+
+@pytest.mark.asyncio
+async def test_mixed_detached_marks_do_not_outweigh_corroborated_caption(mocker) -> None:
+    mocker.patch(
+        "meocosub2.capture._run_ocr",
+        new=mocker.AsyncMock(
+            side_effect=["请 把 夕 灯 打 开 亠 · · 、 ． 丨", "请 把 灯 打 开", "请 把 台 灯 打 开"]
+        ),
+    )
+    assert await ocr_image(Image.new("RGB", (4, 2)), "zh-CN") == "请把台灯打开"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "original, shorter, expected",
+    [
+        ("再 等 . . . 一 下", "再 等 一", "再等 . . . 一下"),
+        ("= 《 = ， 请 记 下 地 址", "请 记 下 地", "= 《 = ，请记下地址"),
+    ],
+)
+async def test_ellipsis_and_margin_marks_preserve_complete_caption(
+    mocker, original, shorter, expected
+) -> None:
+    mocker.patch(
+        "meocosub2.capture._run_ocr",
+        new=mocker.AsyncMock(side_effect=[original, shorter, shorter]),
+    )
+    assert await ocr_image(Image.new("RGB", (4, 2)), "zh-CN") == expected
 
 
 @pytest.mark.asyncio

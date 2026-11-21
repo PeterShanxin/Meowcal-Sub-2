@@ -183,6 +183,12 @@
           "markdownDescription": "Read and confirm the capture region in the local selector window."
         },
         {
+          "description": "Read the saved interface language before the backend answers.",
+          "type": "string",
+          "const": "splash-language",
+          "markdownDescription": "Read the saved interface language before the backend answers."
+        },
+        {
           "description": "Studio controls for capture selection and the live subtitle session.",
           "type": "string",
           "const": "studio-shell",

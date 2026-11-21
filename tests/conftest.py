@@ -1,5 +1,4 @@
 import asyncio
-from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -36,34 +35,13 @@ def scheduler_clock(monkeypatch):
     monkeypatch.setattr(sync, "monotonic", lambda: now)
     monkeypatch.setattr(timeline, "monotonic", lambda: now)
 
-    class ClockEvent:
-        def __init__(self):
-            self._set = False
-
-        def set(self):
-            self._set = True
-
-        def clear(self):
-            self._set = False
-
-        def is_set(self):
-            return self._set
-
-        def wait(self):
-            return self
-
     async def advance_to_timeout(event, timeout):
         nonlocal now
         await asyncio.sleep(0)
-        if event.is_set():
-            return
-        now += timeout
-        raise TimeoutError
+        if not event.is_set():
+            now += timeout
 
-    clock_asyncio = SimpleNamespace(**vars(asyncio))
-    clock_asyncio.Event = ClockEvent
-    clock_asyncio.wait_for = advance_to_timeout
-    monkeypatch.setattr(sync, "asyncio", clock_asyncio)
+    monkeypatch.setattr(sync, "wait_for_redraw", advance_to_timeout)
 
     class Capture:
         confidence = 1.0

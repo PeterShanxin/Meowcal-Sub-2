@@ -341,3 +341,22 @@ async def test_target_context_and_human_fallback_leave_only_real_gaps_for_the_mo
     assert episode[2].translation_source == "model"
     assert track.resolve_at(2500).text == "model answer"
     assert track.resolve_at(2500).cues[0].kind == "model"
+
+
+def test_pending_gaps_recheck_live_answers_without_visiting_every_line_again():
+    from meocosub2.gapfill import PendingGaps
+
+    episode = lines(*[(f"s{i}", "" if i % 10 == 0 else "translated") for i in range(1000)])
+    checks = 0
+
+    def answer(line):
+        nonlocal checks
+        checks += 1
+        return line.translated
+
+    pending = PendingGaps(episode, answer)
+    episode[990].translated = "live answer"
+    assert pending.pop(989) == 0
+    assert pending.pop(508) == 510
+    assert pending.pop(503) == 520
+    assert checks == 1004

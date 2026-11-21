@@ -1,7 +1,9 @@
 from pathlib import Path
 
+import pysubs2
 import pytest
 
+from meocosub2.bilingual import split_bilingual
 from meocosub2.models import SubtitleLine
 from meocosub2.subtitles import (
     align_subtitles,
@@ -10,6 +12,47 @@ from meocosub2.subtitles import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+@pytest.mark.parametrize("suffix", ["srt", "ass"])
+@pytest.mark.parametrize(
+    "drawing",
+    ["m -1.5 0 l 20 0 20 10 0 10", "m 0 0 b 1 2 3 4 5 6 c", "n 0 0 s 1 2 3 4 5 6 p 7 8 c"],
+)
+def test_drawing_paths_do_not_pollute_bilingual_playback(
+    tmp_path: Path, suffix: str, drawing: str
+) -> None:
+    path = tmp_path / f"bilingual.{suffix}"
+    events = [
+        pysubs2.SSAEvent(start=1000, end=2000, text="欢迎回来\\NWelcome home."),
+        pysubs2.SSAEvent(start=2000, end=3000, text="请坐下来\\NTake a seat."),
+        pysubs2.SSAEvent(start=3000, end=4000, text="明天见面\\NSee you tomorrow."),
+        pysubs2.SSAEvent(start=4000, end=5000, text="只有原文"),
+        *[pysubs2.SSAEvent(start=1000 + i, end=2000 + i, text=drawing) for i in range(3)],
+    ]
+    document = pysubs2.SSAFile()
+    document.events = events
+    document.save(str(path), encoding="utf-8")
+    original = path.read_bytes()
+    checks = []
+    lines = load_subtitle_file(path, checks=checks)
+    report = split_bilingual(lines, "zht", "en")
+    assert report.is_bilingual and report.split_cues == 3
+    assert len(lines) == 4
+    assert lines[0].text == "欢迎回来"
+    assert lines[0].translated == "Welcome home."
+    assert checks[0].drawings_removed == 3
+    assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["m 0 0", "m 0 0 l 1", "m 0 0 b 1 2", "m 0 0 l 1 1 then speak", "0 0 l 1 1", "m = 1, l = 2"],
+)
+def test_text_and_incomplete_paths_are_not_discarded(tmp_path: Path, text: str) -> None:
+    path = tmp_path / "dialogue.srt"
+    path.write_text(f"1\n00:00:01,000 --> 00:00:02,000\n{text}\n", encoding="utf-8")
+    assert load_subtitle_file(path)[0].text == text
 
 
 def test_load_srt_parses_lines() -> None:

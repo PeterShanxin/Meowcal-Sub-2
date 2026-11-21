@@ -9,7 +9,17 @@ import {
   setFontScale,
   type FontPresetName,
 } from "../../lib/font-scale";
+import {
+  getUiLanguage,
+  localizeError,
+  localizeMessage,
+  normalizePreference,
+  setUiLanguage,
+  t,
+  type UiLanguage,
+} from "../../i18n";
 import { Kbd } from "../primitives";
+import { useSettingsDraft } from "./settings-draft";
 
 type SectionId =
   | "appearance"
@@ -26,15 +36,15 @@ interface Section {
   label: string;
 }
 
-const SECTIONS: Section[] = [
-  { id: "appearance", label: "Appearance" },
-  { id: "sources", label: "Subtitle sources" },
-  { id: "capture", label: "Capture" },
-  { id: "overlay", label: "Overlay style" },
-  { id: "translate", label: "Translation" },
-  { id: "matching", label: "Matching" },
-  { id: "updates", label: "Updates" },
-  { id: "debug", label: "Debug" },
+const sections = (): Section[] => [
+  { id: "appearance", label: t("Appearance") },
+  { id: "sources", label: t("Subtitle sources") },
+  { id: "capture", label: t("Capture") },
+  { id: "overlay", label: t("Overlay style") },
+  { id: "translate", label: t("Translation") },
+  { id: "matching", label: t("Matching") },
+  { id: "updates", label: t("Updates") },
+  { id: "debug", label: t("Debug") },
 ];
 
 const SETTINGS_CLOSE_ANIMATION_MS = 160;
@@ -62,9 +72,8 @@ export function SettingsView({
   onInstallEngine: () => void;
 }): JSX.Element {
   const [section, setSection] = useState<SectionId>("sources");
-  const [draft, setDraft] = useState<BackendConfig>(initialConfig);
+  const { draft, setDraft, dirty, setDirty } = useSettingsDraft(initialConfig);
   const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
   const [banner, setBanner] = useState<{
     kind: "ok" | "error";
     text: string;
@@ -112,11 +121,6 @@ export function SettingsView({
       el.removeAttribute("aria-hidden");
     }
   }, [motionState]);
-
-  useEffect(() => {
-    setDraft(initialConfig);
-    setDirty(false);
-  }, [initialConfig]);
 
   useEffect(() => {
     if (motionState === "hidden") return;
@@ -197,9 +201,9 @@ export function SettingsView({
       const next = await api.putConfig(draft);
       setDraft(next);
       setDirty(false);
-      setBanner({ kind: "ok", text: "Settings saved." });
+      setBanner({ kind: "ok", text: t("Settings saved.") });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Save failed";
+      const msg = err instanceof Error ? localizeError(err.message) : t("Save failed");
       setBanner({ kind: "error", text: msg });
     } finally {
       setSaving(false);
@@ -230,7 +234,7 @@ export function SettingsView({
         className="settings-dialog glass-panel"
         role="dialog"
         aria-modal="true"
-        aria-label="Settings"
+        aria-label={t("Settings")}
         onMouseDown={(event) => event.stopPropagation()}
         style={{
           position: "relative",
@@ -247,8 +251,8 @@ export function SettingsView({
           type="button"
           ref={closeButtonRef}
           onClick={onClose}
-          aria-label="Close settings"
-          title="Close settings"
+          aria-label={t("Close settings")}
+          title={t("Close settings")}
           style={{
             position: "absolute",
             top: 14,
@@ -290,34 +294,36 @@ export function SettingsView({
               padding: "8px 10px 4px",
             }}
           >
-            Settings
+            {t("Settings")}
           </div>
-          {SECTIONS.filter((s) => s.id !== "updates" || isTauri()).map((s) => {
-            const active = s.id === section;
-            return (
-              <button
-                type="button"
-                key={s.id}
-                onClick={() => setSection(s.id)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: "8px 10px",
-                  border: "none",
-                  borderRadius: 7,
-                  cursor: "pointer",
-                  fontSize: 13,
-                  background: active ? "var(--accent-tint)" : "transparent",
-                  color: active ? "var(--accent-text)" : "#a8a8b2",
-                  borderLeft: `2px solid ${active ? "var(--accent-hex)" : "transparent"}`,
-                  textAlign: "left",
-                }}
-              >
-                <span style={{ flex: 1 }}>{s.label}</span>
-              </button>
-            );
-          })}
+          {sections()
+            .filter((s) => s.id !== "updates" || isTauri())
+            .map((s) => {
+              const active = s.id === section;
+              return (
+                <button
+                  type="button"
+                  key={s.id}
+                  onClick={() => setSection(s.id)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "8px 10px",
+                    border: "none",
+                    borderRadius: 7,
+                    cursor: "pointer",
+                    fontSize: 13,
+                    background: active ? "var(--accent-tint)" : "transparent",
+                    color: active ? "var(--accent-text)" : "#a8a8b2",
+                    borderLeft: `2px solid ${active ? "var(--accent-hex)" : "transparent"}`,
+                    textAlign: "left",
+                  }}
+                >
+                  <span style={{ flex: 1 }}>{s.label}</span>
+                </button>
+              );
+            })}
         </aside>
 
         <main
@@ -402,7 +408,7 @@ export function SettingsView({
                 opacity: dirty ? 1 : 0.4,
               }}
             >
-              Reset
+              {t("Reset")}
             </button>
             <div style={{ display: "flex", gap: 10 }}>
               <button
@@ -418,7 +424,7 @@ export function SettingsView({
                   cursor: "pointer",
                 }}
               >
-                Close settings <Kbd dim>Esc</Kbd>
+                {t("Close settings")} <Kbd dim>Esc</Kbd>
               </button>
               <button
                 type="button"
@@ -436,7 +442,7 @@ export function SettingsView({
                   opacity: dirty ? 1 : 0.5,
                 }}
               >
-                {saving ? "Saving…" : "Save changes"}
+                {saving ? t("Saving…") : t("Save changes")}
               </button>
             </div>
           </div>
@@ -672,7 +678,7 @@ function SourcesSection({ draft, update }: SectionProps): JSX.Element {
     }));
   return (
     <>
-      <Heading eyebrow="Subtitle sources" title="Where should we fetch subtitles?" />
+      <Heading eyebrow={t("Subtitle sources")} title={t("Where should we fetch subtitles?")} />
 
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         <div className="glass-panel" style={{ padding: 18 }}>
@@ -690,11 +696,11 @@ function SourcesSection({ draft, update }: SectionProps): JSX.Element {
             <Toggle
               checked={os.enabled}
               onChange={(v) => setOs({ enabled: v })}
-              label={os.enabled ? "Enabled" : "Disabled"}
+              label={os.enabled ? t("Enabled") : t("Disabled")}
             />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-            <Field label="API key">
+            <Field label={t("API key")}>
               <TextInput
                 value={os.apiKey}
                 onChange={(v) => setOs({ apiKey: v })}
@@ -702,21 +708,21 @@ function SourcesSection({ draft, update }: SectionProps): JSX.Element {
                 placeholder="sk-xxx"
               />
             </Field>
-            <Field label="Username">
+            <Field label={t("Username")}>
               <TextInput value={os.username} onChange={(v) => setOs({ username: v })} />
             </Field>
-            <Field label="Password">
+            <Field label={t("Password")}>
               <TextInput
                 value={os.password}
                 onChange={(v) => setOs({ password: v })}
                 type="password"
               />
             </Field>
-            <Field label="Org fallback" hint="Use org endpoint if primary fails">
+            <Field label={t("Org fallback")} hint={t("Use org endpoint if primary fails")}>
               <Toggle
                 checked={os.enableOrgFallback}
                 onChange={(v) => setOs({ enableOrgFallback: v })}
-                label={os.enableOrgFallback ? "On" : "Off"}
+                label={os.enableOrgFallback ? t("On") : t("Off")}
               />
             </Field>
           </div>
@@ -734,16 +740,16 @@ function SourcesSection({ draft, update }: SectionProps): JSX.Element {
             <Toggle
               checked={sd.enabled}
               onChange={(v) => setSubdl({ enabled: v })}
-              label={sd.enabled ? "Enabled" : "Disabled"}
+              label={sd.enabled ? t("Enabled") : t("Disabled")}
             />
           </div>
           <div style={{ marginTop: 12 }}>
-            <Field label="API key">
+            <Field label={t("API key")}>
               <TextInput
                 value={sd.apiKey}
                 onChange={(v) => setSubdl({ apiKey: v })}
                 type="password"
-                placeholder="SubDL API key"
+                placeholder={t("SubDL API key")}
               />
             </Field>
           </div>
@@ -770,10 +776,10 @@ function SourcesSection({ draft, update }: SectionProps): JSX.Element {
                   },
                 }))
               }
-              label={as_.enabled ? "Enabled" : "Disabled"}
+              label={as_.enabled ? t("Enabled") : t("Disabled")}
             />
           </div>
-          <Field label="Token">
+          <Field label={t("Token")}>
             <TextInput
               value={as_.token}
               onChange={(v) =>
@@ -801,21 +807,23 @@ function SourcesSection({ draft, update }: SectionProps): JSX.Element {
           >
             <div>
               <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-heading)" }}>
-                TMDb cross-lingual merge
+                {t("TMDb cross-lingual merge")}
               </div>
               <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-                Collapses same show across languages (e.g. オーバーロード + Overlord) via TMDb IDs.
+                {t(
+                  "Collapses same show across languages (e.g. オーバーロード + Overlord) via TMDb IDs.",
+                )}
               </div>
             </div>
             <Toggle
               checked={tmdb.mergeEnabled}
               onChange={(v) => setTmdb({ mergeEnabled: v })}
-              label={tmdb.mergeEnabled ? "On" : "Off"}
+              label={tmdb.mergeEnabled ? t("On") : t("Off")}
             />
           </div>
           <Field
-            label="TMDb API key"
-            hint="Free at themoviedb.org → Settings → API. v3 auth. Leave blank to disable."
+            label={t("TMDb API key")}
+            hint={t("Free at themoviedb.org → Settings → API. v3 auth. Leave blank to disable.")}
           >
             <TextInput
               value={tmdb.apiKey}
@@ -835,11 +843,11 @@ function CaptureSection({ draft, update }: SectionProps): JSX.Element {
   const [x, y, w, h] = c.region;
   return (
     <>
-      <Heading eyebrow="Capture" title="Where should Meowcal watch?" />
+      <Heading eyebrow={t("Capture")} title={t("Where should Meowcal watch?")} />
 
       <div style={{ marginBottom: 24 }}>
         <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>
-          Capture region
+          {t("Capture region")}
         </div>
         <div
           style={{
@@ -877,7 +885,7 @@ function CaptureSection({ draft, update }: SectionProps): JSX.Element {
               fontWeight: 500,
             }}
           >
-            Subtitle zone
+            {t("Subtitle zone")}
           </div>
           <div
             className="mono"
@@ -911,12 +919,12 @@ function CaptureSection({ draft, update }: SectionProps): JSX.Element {
             alignItems: "center",
           }}
         >
-          Select new region <Kbd>C</Kbd>
+          {t("Select new region")} <Kbd>C</Kbd>
         </button>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-        <Field label="Interval (ms)" hint="Lower = more CPU">
+        <Field label={t("Interval (ms)")} hint={t("Lower = more CPU")}>
           <NumberInput
             value={c.intervalMs}
             onChange={(v) =>
@@ -929,7 +937,7 @@ function CaptureSection({ draft, update }: SectionProps): JSX.Element {
             step={50}
           />
         </Field>
-        <Field label="OCR language" hint="Usually mirrors source language">
+        <Field label={t("OCR language")} hint={t("Usually mirrors source language")}>
           <TextInput
             value={c.ocrLanguage}
             onChange={(v) =>
@@ -944,7 +952,35 @@ function CaptureSection({ draft, update }: SectionProps): JSX.Element {
       </div>
 
       <div style={{ marginTop: 18 }}>
-        <Field label="Languages (source → target)">
+        <Field label={t("OCR engine")} hint={t("Applies when you start a session")}>
+          <select
+            aria-label={t("OCR engine")}
+            value={c.ocrEngine}
+            onChange={(event) =>
+              update((cfg) => ({
+                ...cfg,
+                capture: {
+                  ...cfg.capture,
+                  ocrEngine: event.target.value as BackendConfig["capture"]["ocrEngine"],
+                },
+              }))
+            }
+            style={{ ...inputStyle, outline: undefined, colorScheme: "dark" }}
+          >
+            <option value="auto">{t("Automatic")}</option>
+            <option value="ppOcrV6">PP-OCRv6</option>
+            <option value="windows">Windows OCR</option>
+          </select>
+        </Field>
+        <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 0 }}>
+          {t(
+            "Automatic keeps the installed Windows OCR language and uses PP-OCRv6 for supported missing packs. Korean uses Windows OCR.",
+          )}
+        </p>
+      </div>
+
+      <div style={{ marginTop: 18 }}>
+        <Field label={t("Languages (source → target)")}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <TextInput
               value={draft.languages.source}
@@ -978,13 +1014,14 @@ function OverlaySection({ draft, update }: SectionProps): JSX.Element {
   const entries = Object.entries(overlay).filter(([k]) => k !== "port" && !k.startsWith("_"));
   return (
     <>
-      <Heading eyebrow="Overlay" title="How should subtitles look?" />
+      <Heading eyebrow={t("Overlay")} title={t("How should subtitles look?")} />
       <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -14, marginBottom: 18 }}>
-        In live mode the main window becomes the subtitle surface. These values tune font, color,
-        blur, animation, and position.
+        {t(
+          "In live mode the main window becomes the subtitle surface. These values tune font, color, blur, animation, and position.",
+        )}
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-        <Field label="Overlay port" hint="Read-only; restart to change">
+        <Field label={t("Overlay port")} hint={t("Read-only; restart to change")}>
           <TextInput value={String(overlay.port ?? "8765")} onChange={() => {}} />
         </Field>
         {entries.map(([key, value]) => (
@@ -1027,14 +1064,20 @@ function TranslateSection({
   engine,
   onInstallEngine,
 }: TranslateSectionProps): JSX.Element {
-  const t = draft.translation;
+  const translation = draft.translation;
   const installing = engine?.phase === "installing";
   return (
     <>
-      <Heading eyebrow="Translation" title="On-device translation" />
+      <Heading eyebrow={t("Translation")} title={t("On-device translation")} />
       <p style={{ margin: "0 0 18px", fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6 }}>
-        Subtitles are translated on this machine by {engine?.model || "a local model"}. Nothing
-        captured from your screen leaves the device.
+        {engine?.model
+          ? t(
+              "Subtitles are translated on this machine by {model}. Nothing captured from your screen leaves the device.",
+              { model: engine.model },
+            )
+          : t(
+              "Subtitles are translated on this machine by a local model. Nothing captured from your screen leaves the device.",
+            )}
       </p>
       <div
         style={{
@@ -1049,7 +1092,9 @@ function TranslateSection({
         }}
       >
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>{engine?.message ?? "Checking..."}</div>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>
+            {engine ? localizeMessage(engine.message) : t("Checking...")}
+          </div>
           {installing && (
             <div
               style={{ marginTop: 8, height: 4, borderRadius: 2, background: "var(--border-soft)" }}
@@ -1068,14 +1113,14 @@ function TranslateSection({
         </div>
         {engine?.phase === "needsSetup" || engine?.phase === "failed" ? (
           <button type="button" className="settings-primary" onClick={onInstallEngine}>
-            {engine.phase === "failed" ? "Retry download" : "Download engine"}
+            {engine.phase === "failed" ? t("Retry download") : t("Download engine")}
           </button>
         ) : null}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-        <Field label="Timeout (s)" hint="How long one line may take before it is dropped">
+        <Field label={t("Timeout (s)")} hint={t("How long one line may take before it is dropped")}>
           <NumberInput
-            value={t.timeoutS}
+            value={translation.timeoutS}
             onChange={(v) =>
               update((c) => ({ ...c, translation: { ...c.translation, timeoutS: v } }))
             }
@@ -1091,9 +1136,9 @@ function MatchingSection({ draft, update }: SectionProps): JSX.Element {
   const m = draft.matching;
   return (
     <>
-      <Heading eyebrow="Matching" title="How strict should OCR matching be?" />
+      <Heading eyebrow={t("Matching")} title={t("How strict should OCR matching be?")} />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-        <Field label="Fuzzy threshold" hint="0 – 100. Higher = stricter (default 65)">
+        <Field label={t("Fuzzy threshold")} hint={t("0 – 100. Higher = stricter (default 65)")}>
           <NumberInput
             value={m.fuzzyThreshold}
             onChange={(v) =>
@@ -1107,7 +1152,7 @@ function MatchingSection({ draft, update }: SectionProps): JSX.Element {
             step={1}
           />
         </Field>
-        <Field label="Window size" hint="Lookback for matching (lines)">
+        <Field label={t("Window size")} hint={t("Lookback for matching (lines)")}>
           <NumberInput
             value={m.windowSize}
             onChange={(v) =>
@@ -1159,25 +1204,25 @@ function UpdatesSection(): JSX.Element {
   return (
     <section style={{ display: "grid", gap: 16 }}>
       <div>
-        <h2 style={{ margin: "0 0 6px" }}>App updates</h2>
+        <h2 style={{ margin: "0 0 6px" }}>{t("App updates")}</h2>
         <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
-          Signed installer releases check for updates when the app opens.
+          {t("Signed installer releases check for updates when the app opens.")}
         </p>
       </div>
       {status && (
         <p style={{ margin: 0, fontSize: 13 }}>
-          Version {status.currentVersion}.{" "}
+          {t("Version {version}.", { version: status.currentVersion })}{" "}
           {status.availableVersion
-            ? `Version ${status.availableVersion} is ready to install.`
+            ? t("Version {version} is ready to install.", { version: status.availableVersion })
             : status.enabled
-              ? "You are up to date."
-              : status.reason}
+              ? t("You are up to date.")
+              : localizeMessage(status.reason ?? "")}
         </p>
       )}
-      {error && <p style={{ margin: 0, color: "var(--danger-text)" }}>{error}</p>}
+      {error && <p style={{ margin: 0, color: "var(--danger-text)" }}>{localizeError(error)}</p>}
       <div style={{ display: "flex", gap: 10 }}>
         <button type="button" disabled={checking || installing} onClick={() => void check()}>
-          {checking ? "Checking…" : "Check for updates"}
+          {checking ? t("Checking…") : t("Check for updates")}
         </button>
         {available && (
           <button
@@ -1185,7 +1230,7 @@ function UpdatesSection(): JSX.Element {
             disabled={checking || installing}
             onClick={() => void install(available)}
           >
-            {installing ? "Installing…" : "Install update"}
+            {installing ? t("Installing…") : t("Install update")}
           </button>
         )}
       </div>
@@ -1196,11 +1241,11 @@ function UpdatesSection(): JSX.Element {
 function DebugSection({ draft, update }: SectionProps): JSX.Element {
   return (
     <>
-      <Heading eyebrow="Debug" title="Developer options" />
+      <Heading eyebrow={t("Debug")} title={t("Developer options")} />
       <Toggle
         checked={draft.debug.mode}
         onChange={(v) => update((c) => ({ ...c, debug: { ...c.debug, mode: v } }))}
-        label="Enable debug overlay (OCR timing + match visualiser)"
+        label={t("Send per-capture OCR diagnostics, including recognized text, to developer tools")}
       />
     </>
   );
@@ -1215,9 +1260,9 @@ function AppearanceSection(): JSX.Element {
   };
   return (
     <>
-      <Heading eyebrow="Appearance" title="Interface size" />
+      <Heading eyebrow={t("Appearance")} title={t("Interface size")} />
       <p style={{ fontSize: 13, color: "var(--text-muted)", marginTop: -12, marginBottom: 18 }}>
-        Scale the entire app interface. Applies instantly and persists across launches.
+        {t("Scale the entire app interface. Applies instantly and persists across launches.")}
       </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {presets.map((name) => {
@@ -1272,12 +1317,12 @@ function AppearanceSection(): JSX.Element {
                         fontWeight: 600,
                       }}
                     >
-                      Recommended
+                      {t("Recommended")}
                     </span>
                   )}
                 </div>
                 <div style={{ fontSize: 12, color: "var(--text-label)", marginTop: 2 }}>
-                  Interface scale {pct}%
+                  {t("Interface scale {percent}%", { percent: pct })}
                 </div>
               </div>
               <div
@@ -1296,6 +1341,42 @@ function AppearanceSection(): JSX.Element {
           );
         })}
       </div>
+      <LanguageField />
     </>
+  );
+}
+
+/** Applies at once and is saved straight away, like the interface size above it. */
+function LanguageField(): JSX.Element {
+  const [language, setLanguage] = useState<UiLanguage>(getUiLanguage);
+  const [error, setError] = useState<string | null>(null);
+  const choose = async (next: UiLanguage): Promise<void> => {
+    const previous = language;
+    setLanguage(next);
+    setUiLanguage(next);
+    setError(null);
+    try {
+      await api.putConfig({ ui: { language: next } });
+    } catch (err: unknown) {
+      setLanguage(previous);
+      setUiLanguage(previous);
+      setError(err instanceof Error ? localizeError(err.message) : t("Save failed"));
+    }
+  };
+  return (
+    <div style={{ marginTop: 24 }}>
+      <Field label={t("Interface language")} hint={error ?? t("Applies immediately.")}>
+        <select
+          aria-label={t("Interface language")}
+          value={language}
+          onChange={(event) => void choose(normalizePreference(event.target.value))}
+          style={{ ...inputStyle, outline: undefined, colorScheme: "dark" }}
+        >
+          <option value="system">{t("System")}</option>
+          <option value="en">English</option>
+          <option value="zh-CN">简体中文</option>
+        </select>
+      </Field>
+    </div>
   );
 }

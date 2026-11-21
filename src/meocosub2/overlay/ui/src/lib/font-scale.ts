@@ -1,3 +1,5 @@
+import { t } from "../i18n";
+
 const STORAGE_KEY = "meocosub2.fontScale";
 
 export const FONT_PRESETS = {
@@ -17,7 +19,7 @@ const PRESET_LABELS: Record<FontPresetName, string> = {
 };
 
 export function presetLabel(name: FontPresetName): string {
-  return PRESET_LABELS[name];
+  return t(PRESET_LABELS[name]);
 }
 
 function apply(scale: number): void {

@@ -57,24 +57,32 @@
 </head>
 <body>
   <div class="wrap" id="loading">
-    <img src="shadow-cat-mark.svg" width="96" height="96" alt="" />
+    <img src="mark.svg" width="96" height="96" alt="" />
     <div class="spinner"></div>
-    <div class="title">Meowcal Sub 2</div>
-    <div class="sub" id="status">Starting backend...</div>
+    <div class="title" data-i18n="brand.name">Meowcal Sub 2</div>
+    <div class="sub" id="status" data-i18n="splash.starting">Starting backend...</div>
   </div>
   <div class="wrap" id="error">
     <div class="error">
-      <div class="title" style="color:#ffb3b3;">Backend did not start</div>
-      <div class="sub" style="margin-top:10px;">
+      <div class="title" style="color:#ffb3b3;" data-i18n="splash.failed">Backend did not start</div>
+      <div class="sub" style="margin-top:10px;" data-i18n="splash.failedDetail">
         Local Python backend failed to respond within the timeout.
       </div>
-      <button onclick="retryBackendBoot()">Retry</button>
+      <button onclick="retryBackendBoot()" data-i18n="splash.retry">Retry</button>
     </div>
   </div>
+  <script src="i18n.js"></script>
   <script>
+    const { t } = window.MeowcalI18n;
+    // The splash shows before the backend is up, so the shell reads the saved
+    // interface language from the config file.
+    window.__TAURI__?.core
+      ?.invoke('ui_language')
+      .then((preference) => window.MeowcalI18n.setPreference(preference))
+      .catch(() => undefined);
     function retryBackendBoot() {
       const s = document.getElementById('status');
-      if (s) s.textContent = 'Retrying...';
+      if (s) s.textContent = t('splash.retrying');
       document.getElementById('error').style.display = 'none';
       document.getElementById('loading').style.display = 'flex';
       window.__TAURI__?.event?.emit('splash-retry');
@@ -82,7 +90,7 @@
     if (window.__TAURI__?.event?.listen) {
       window.__TAURI__.event.listen('splash-status', (e) => {
         const s = document.getElementById('status');
-        if (s && e?.payload?.text) s.textContent = e.payload.text;
+        if (s && e?.payload?.key) s.textContent = t(e.payload.key);
       });
       window.__TAURI__.event.listen('splash-error', () => {
         document.getElementById('loading').style.display = 'none';

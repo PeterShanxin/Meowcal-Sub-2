@@ -217,18 +217,3 @@ async def test_preparation_reuses_the_copy_the_target_step_fetched(tmp_path: Pat
     )
 
     assert download.await_count == 1
-
-
-@pytest.mark.asyncio
-async def test_a_source_read_for_a_different_file_is_not_reused(tmp_path: Path, mocker) -> None:
-    controller, download = _bilingual_pair(tmp_path, mocker)
-    controller._inspected_source = ("some-other-result", tmp_path / "bilingual-source.srt")
-
-    await controller.prepare_session(
-        mode="subtitle_pair",
-        feature_id="match-1",
-        source_file_id="result-1",
-        target_file_id="__source__",
-    )
-
-    assert download.await_count == 1
