@@ -1,17 +1,4 @@
-"""Answering the target file's gaps in the window before a session starts.
-
-Between choosing a target file and pressing Start there is a stretch - reading
-the prep card, dragging the capture region over the player, finding the moment
-to start from - where the translation engine has nothing else to do. Every cue
-answered there is one the viewer never waits on later: during playback the
-engine serves one request at a time, so a fill and a live read compete for the
-same slot, and the read is the one somebody is watching for.
-
-Nothing is handed over when the session starts. The answers are written onto the
-same `SubtitleLine` objects the session's matchers wrap, and the session's own
-filler recomputes what is still unpaired - so an interrupted pass simply carries
-on from wherever it reached.
-"""
+"""Use the local translator while a prepared session is idle."""
 
 from __future__ import annotations
 
@@ -19,9 +6,9 @@ import logging
 from collections.abc import Awaitable, Callable
 
 from meocosub2.config import AppConfig
-from meocosub2.gapfill import Answer, FillOutcome, fill_gaps, own_translation
-from meocosub2.models import SubtitleLine
-from meocosub2.sync import open_live_translator
+from meocosub2.gapfill import FillOutcome, fill_gaps
+from meocosub2.live_translation import open_live_translator
+from meocosub2.models import SubtitlePair
 
 logger = logging.getLogger(__name__)
 
@@ -30,17 +17,10 @@ Progress = Callable[[int], Awaitable[None]]
 
 
 async def fill_before_the_session(
-    lines: list[SubtitleLine],
+    pair: SubtitlePair,
     config: AppConfig,
     on_progress: Progress,
-    answer: Answer = own_translation,
 ) -> FillOutcome:
-    """Answer what the target file left unpaired, reporting each cue as it lands.
-
-    Nothing is competing for the engine yet, so this never yields, and there is
-    no clock to order by - the file's own order is the order the viewer will
-    reach the cues in.
-    """
     client, translator = await open_live_translator(config)
     filled = 0
 
@@ -50,12 +30,17 @@ async def fill_before_the_session(
         await on_progress(filled)
 
     try:
+        generation = pair.source_translation
+        if generation is not None:
+            return await generation.fill(
+                translator.translate_from_file, lambda: False, one_more, lambda: None, lambda: True
+            )
         outcome = await fill_gaps(
-            lambda: lines,
+            lambda: pair.source_lines,
             translator.translate_from_file,
             lambda: False,
             one_more,
-            answer=answer,
+            answer=pair.presentation.answer,
             phase="preparation",
         )
     finally:

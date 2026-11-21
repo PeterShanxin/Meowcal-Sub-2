@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.0
+
+- Start live screen translation when no subtitle provider is configured or no title matches.
+- Follow a target subtitle file after several translated captions identify the scene.
+- Start watching with only a source file while the local model translates the rest.
+  The completed target track takes over at the current position.
+- Keep the latest subtitle selection when preparations finish out of order, and
+  restore the current caption when the floating strip reconnects.
+
+See the [release notes](docs/releases/v0.4.0.md) for downloads and upgrade guidance.
+
+## 0.3.0 — 2026-11-16
+
+- Add a Simplified Chinese interface and the subtitle-card icon.
+- Add PP-OCRv6 recognition with Meowcal Core v0.2.2.
+- Improve subtitle selection, movie matching and playback continuity.
+- Keep session warnings visible in the live dock.
+
+See the [release notes](docs/releases/v0.3.0.md) for downloads and upgrade guidance.
+
 ## 0.2.1 — 2026-10-04
 
 - Hold subtitles and playback timing during sustained pauses, including silent

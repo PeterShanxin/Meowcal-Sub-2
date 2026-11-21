@@ -35,6 +35,12 @@ example, can keep rendering zeros through its audio stream while paused. A
 stream becoming stopped is also ambiguous. It never supplies a video pause
 duration. Video motion can continue over silence or an inactive stream.
 
+When a session starts on a paused caption, its first match places the strip at
+that cue's start. Repeated reads hold that position while playback is uncertain.
+This matters when the next translated line starts before the current source
+cue ends. Observed progression releases the clock, and a new matching source
+caption can independently correct the position.
+
 Independent motion and confirmed OCR changes join sound/silence and repeated
 text/stillness in a temporal playing-confidence index. A first confirmed cue is
 not a text-change event. Strong evidence decays over one second, with separate
@@ -93,7 +99,9 @@ cache are cleared; live OCR/fallback remains available until source evidence
 reacquires timing. Target-only cues during unavailable captures cannot be timed
 exactly. Do not report fallback as seamless target timing or full #70 acceptance.
 
-Native validation still needs pause/resume, long dialogue-free playback, muted
-moving video, static content with audio, other-app sound, source changes and
-capture loss. Unit/replay evidence does not replace those runs. Do not close #70
-or #42 from the state-machine tests alone.
+Native controls in [OCR measurements](OCR_BENCHMARK.md#cue-continuity) covered
+one 30-second freeze, resume, and forward and backward seeks on one ARM64
+device. Native validation still needs long dialogue-free playback, muted moving
+video, static content with audio, other-app sound, source changes and capture
+loss. Unit/replay evidence does not replace those runs. Do not close #70 or #42
+from the state-machine tests alone.

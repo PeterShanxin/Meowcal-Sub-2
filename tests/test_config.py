@@ -1,6 +1,11 @@
+import os
+import subprocess
+import sys
 import tomllib
 from dataclasses import replace
 from pathlib import Path
+
+import pytest
 
 from meocosub2.config import (
     MAX_SYNC_BIAS_MS,
@@ -20,6 +25,43 @@ def test_default_config() -> None:
     assert cfg.capture_interval_ms == 250
     assert cfg.fuzzy_threshold == 65
     assert cfg.overlay_port == 8765
+
+
+@pytest.mark.parametrize("settings,port", [("", 8766), ("[overlay]\nport = 9040", 9040)])
+def test_store_uses_private_port_unless_configured(tmp_path, settings, port):
+    path = tmp_path / "config.toml"
+    if settings:
+        path.write_text(settings)
+    result = subprocess.check_output(
+        [
+            sys.executable,
+            "-c",
+            "import sys; from pathlib import Path; from meocosub2.config import load_config; "
+            "print(load_config(Path(sys.argv[1])).overlay_port)",
+            str(path),
+        ],
+        env={**os.environ, "MEOCOSUB2_DISTRIBUTION": "store"},
+        text=True,
+    )
+    assert int(result) == port
+
+
+@pytest.mark.parametrize("engine", ["auto", "windows", "ppOcrV6"])
+def test_ocr_engine_roundtrips_disk_and_partial_api_config(tmp_path, engine):
+    path = tmp_path / "config.toml"
+    config = config_from_payload({"capture": {"ocrEngine": engine}})
+    save_config(config, path)
+    assert load_config(path).ocr_engine == engine
+    assert config_to_payload(config)["capture"]["ocrEngine"] == engine
+    assert config_from_payload({"debug": {"mode": True}}, config).ocr_engine == engine
+
+
+@pytest.mark.parametrize("engine", ["unknown", "", 1, None])
+def test_invalid_ocr_engine_cannot_replace_existing_config(engine):
+    config = AppConfig(ocr_engine="ppOcrV6")
+    with pytest.raises(ValueError, match="OCR engine"):
+        config_from_payload({"capture": {"ocrEngine": engine}}, config)
+    assert config.ocr_engine == "ppOcrV6"
 
 
 def test_save_and_load_roundtrip(tmp_path: Path) -> None:
@@ -74,6 +116,7 @@ def test_config_example_contains_all_sections() -> None:
         "translation",
         "overlay",
         "debug",
+        "ui",
     }
     assert set(payload["subtitle_sources"]) == {"opensubtitles", "subdl", "assrt"}
     assert "api_key" in payload["subtitle_sources"]["subdl"]
@@ -185,3 +228,23 @@ def test_a_config_save_that_touches_nothing_else_still_carries_the_offset() -> N
     updated = config_from_payload({"sync": {"biasMs": 240}}, fallback=base)
     assert updated.sync_bias_ms == 200
     assert updated.fuzzy_threshold == 71
+
+
+def test_the_interface_language_survives_a_save_and_a_load(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    save_config(config_from_payload({"ui": {"language": "zh-CN"}}), path)
+    assert load_config(path).ui_language == "zh-CN"
+    assert config_to_payload(load_config(path))["ui"] == {"language": "zh-CN"}
+
+
+def test_the_interface_language_follows_the_system_by_default(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text('[ui]\nlanguage = "fr"\n', encoding="utf-8")
+    assert AppConfig().ui_language == "system"
+    assert load_config(path).ui_language == "system"
+    assert config_from_payload({"ui": {"language": 3}}).ui_language == "system"
+
+
+def test_a_save_that_omits_the_interface_language_keeps_it() -> None:
+    chosen = AppConfig(ui_language="en")
+    assert config_from_payload({"debug": {"mode": True}}, chosen).ui_language == "en"

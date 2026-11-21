@@ -549,6 +549,7 @@ async def test_subdl_search_uses_api_results_and_subtitles(monkeypatch) -> None:
     assert calls[0]["film_name"] == "from"
     assert calls[0]["languages"] == "EN,ZH"
     assert calls[0]["unpack"] == "1"
+    assert all("hi" not in call for call in calls)
     assert calls[1]["sd_id"] == "1656864"
     assert calls[1]["full_season"] == "1"
     assert calls[1]["unpack"] == "1"
@@ -2372,3 +2373,38 @@ async def test_switching_every_source_off_says_so_rather_than_reporting_failure(
     with pytest.raises(SubtitleSourceError) as excinfo:
         await aggregator.search_catalog("Rick and Morty", "en")
     assert "switched off" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("cancel_parent", [True, False])
+async def test_search_collects_pending_provider_on_early_exit(cancel_parent):
+    entered, finished = asyncio.Event(), asyncio.Event()
+
+    class Slow(FakeProvider):
+        async def search_catalog(self, query, languages):
+            entered.set()
+            try:
+                await asyncio.Future()
+            finally:
+                finished.set()
+
+    class Fast(FakeProvider):
+        async def search_catalog(self, query, languages):
+            await entered.wait()
+            return ProviderSearchCatalog(matches=[], results=[])
+
+    async def publish(*args):
+        if not cancel_parent:
+            raise RuntimeError("window closed")
+
+    aggregator = SubtitleSearchAggregator(AppConfig())
+    aggregator.providers = (Slow("slow", "Slow"), Fast("fast", "Fast"))
+    search = asyncio.create_task(
+        aggregator.search_catalog("Example", "en", on_provider_update=publish)
+    )
+    async with asyncio.timeout(2):
+        await entered.wait()
+        if cancel_parent:
+            search.cancel()
+        with pytest.raises(asyncio.CancelledError if cancel_parent else RuntimeError):
+            await search
+    assert finished.is_set()

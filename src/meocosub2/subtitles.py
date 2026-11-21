@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -9,6 +10,38 @@ import pysubs2
 
 from meocosub2.models import SubtitleCheck, SubtitleLine, SubtitlePair
 from meocosub2.presentation import PresentationTrack
+
+_DRAWING_NUMBER = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)")
+
+
+def _drawing_only(text: str) -> bool:
+    """Recognize ASS paths retained as plain text by some SRT conversions."""
+    tokens = text.casefold().split()
+    if not tokens or tokens[0] not in {"m", "n"}:
+        return False
+    position = 0
+    has_segment = False
+    while position < len(tokens):
+        command = tokens[position]
+        if command not in {"m", "n", "l", "b", "s", "p", "c"}:
+            return False
+        position += 1
+        start = position
+        while position < len(tokens) and _DRAWING_NUMBER.fullmatch(tokens[position]):
+            position += 1
+        count = position - start
+        if command in {"m", "n"} and count != 2:
+            return False
+        if command in {"l", "p"} and (count < 2 or count % 2):
+            return False
+        if command == "b" and (count < 6 or count % 6):
+            return False
+        if command == "s" and (count < 6 or count % 2):
+            return False
+        if command == "c" and count:
+            return False
+        has_segment |= command in {"l", "b", "s"}
+    return has_segment
 
 
 @dataclass(frozen=True)
@@ -41,6 +74,9 @@ def load_subtitle_file(
         text = event.plaintext.strip()
         if not text:
             report.empty_removed += 1
+            continue
+        if _drawing_only(text):
+            report.drawings_removed += 1
             continue
         if not 0 <= event.start < event.end <= 9007199254740991:
             raise ValueError(

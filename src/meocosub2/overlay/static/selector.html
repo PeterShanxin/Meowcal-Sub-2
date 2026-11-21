@@ -11,18 +11,19 @@
   <div id="overlay-root" class="selector-root">
     <img id="selector-backdrop" class="selector-backdrop hidden" alt="">
     <div class="selector-brand">
-      <span class="selector-brand-title">Meowcal Sub 2</span>
-      <span class="selector-brand-copy">Capture Selector</span>
+      <span class="selector-brand-title" data-i18n="brand.name">Meowcal Sub 2</span>
+      <span class="selector-brand-copy" data-i18n="selector.title">Capture Selector</span>
     </div>
-    <button id="selector-next-display" class="selector-next-display hidden" type="button">Switch display</button>
+    <button id="selector-next-display" class="selector-next-display hidden" type="button" data-i18n="selector.switchDisplay">Switch display</button>
     <div id="selection-box" class="selection-box hidden"></div>
     <div id="selector-toolbar" class="selector-toolbar hidden">
       <span id="selector-dimensions">0 × 0</span>
-      <button id="selector-confirm" type="button">Confirm</button>
-      <button id="selector-cancel" type="button">Cancel</button>
+      <button id="selector-confirm" type="button" data-i18n="selector.confirm">Confirm</button>
+      <button id="selector-cancel" type="button" data-i18n="selector.cancel">Cancel</button>
     </div>
-    <div id="selector-instructions" class="selector-instructions">Drag to select the subtitle capture area.</div>
+    <div id="selector-instructions" class="selector-instructions" data-i18n="selector.instructions">Drag to select the subtitle capture area.</div>
   </div>
+  <script src="i18n.js"></script>
   <script src="selector.js" type="module"></script>
 </body>
 </html>
