@@ -1,0 +1,266 @@
+{
+  "source_language": "en",
+  "target_language": "zh",
+  "cues": [
+    [
+      1000,
+      2500,
+      "The train is late.",
+      "火车晚点了。"
+    ],
+    [
+      3500,
+      4800,
+      "Where is my suitcase?",
+      "我的行李箱在哪里？"
+    ],
+    [
+      5000,
+      9000,
+      "It is under the table.",
+      "它在桌子下面。"
+    ],
+    [
+      8500,
+      10000,
+      "Thank you.",
+      "谢谢。"
+    ],
+    [
+      12000,
+      13500,
+      "Turn off the kitchen light.",
+      "关掉厨房的灯。"
+    ],
+    [
+      14500,
+      16000,
+      "The soup is ready.",
+      "汤做好了。"
+    ],
+    [
+      16500,
+      17800,
+      "Bring two bowls.",
+      "拿两个碗来。"
+    ],
+    [
+      18000,
+      19000,
+      "Thank you.",
+      "谢谢。"
+    ],
+    [
+      43000,
+      44800,
+      "The bridge is closed.",
+      "大桥已经封闭。"
+    ],
+    [
+      45500,
+      47000,
+      "Take the next exit.",
+      "从下一个出口出去。"
+    ],
+    [
+      48000,
+      50000,
+      "We have plenty of time.",
+      "我们还有很多时间。"
+    ],
+    [
+      53000,
+      55000,
+      "Did you hear that bell?",
+      "你听见铃声了吗？"
+    ]
+  ],
+  "reads": [
+    [
+      0,
+      0,
+      "The train is late.",
+      "火车晚点了。",
+      574,
+      0,
+      0.957312,
+      0.507122,
+      3
+    ],
+    [
+      2500,
+      1,
+      "Where is my suitcase?",
+      "我的行李箱在哪里？火车晚点了。",
+      759,
+      1,
+      0.974376,
+      0.700765,
+      4
+    ],
+    [
+      4000,
+      2,
+      "It is under the table.",
+      "它在桌子下面。",
+      896,
+      2,
+      0.962012,
+      0.663777,
+      3
+    ],
+    [
+      7500,
+      3,
+      "Thank you.",
+      "谢谢。",
+      554,
+      3,
+      0.964077,
+      0.0,
+      3
+    ],
+    [
+      10000,
+      8,
+      "The brldge is closed.",
+      "地铁站已经关闭了。火车延误了。",
+      1036,
+      8,
+      0.701749,
+      0.254476,
+      3
+    ],
+    [
+      12500,
+      9,
+      "Take the next exit.",
+      "请走下一个出口。",
+      812,
+      9,
+      0.890427,
+      0.46189,
+      4
+    ],
+    [
+      15000,
+      10,
+      "There is no need to hurry.",
+      "不必着急。",
+      739,
+      10,
+      0.326549,
+      0.11448,
+      4
+    ],
+    [
+      18000,
+      4,
+      "Turn off the kitchen light.",
+      "请关闭厨房的灯光。",
+      713,
+      4,
+      0.974837,
+      0.690807,
+      4
+    ],
+    [
+      20500,
+      5,
+      "The soup is ready.",
+      "汤已经准备好了。",
+      612,
+      5,
+      0.957644,
+      0.450363,
+      3
+    ],
+    [
+      22500,
+      6,
+      "Bring two bowls.",
+      "请拿两个碗来。",
+      659,
+      6,
+      0.837649,
+      0.322377,
+      3
+    ],
+    [
+      24000,
+      7,
+      "Thank you.",
+      "谢谢。",
+      0,
+      3,
+      0.964077,
+      0.0,
+      3
+    ]
+  ],
+  "scenes": [
+    [
+      0,
+      1000
+    ],
+    [
+      10000,
+      43000
+    ],
+    [
+      18000,
+      12000
+    ]
+  ],
+  "end_ms": 26500,
+  "rendered_captions": [
+    {
+      "source": "Leave the lantern by the window.",
+      "read": "Leave the lantern by the window.",
+      "ms": 76,
+      "local_translation": "把灯笼放在窗边吧。",
+      "translation_ms": 3714,
+      "human_target": "把提灯留在窗边。"
+    },
+    {
+      "source": "Did someone close the garden gate?",
+      "read": "Did someone close the garden gate?",
+      "ms": 14,
+      "local_translation": "有人关上了花园的大门吗？",
+      "translation_ms": 4649,
+      "human_target": "有人把花园的大门关上了吗？"
+    },
+    {
+      "source": "The last train leaves at midnight.",
+      "read": "The last train leaves at midnight.",
+      "ms": 15,
+      "local_translation": "最后一班火车在午夜时刻出发。",
+      "translation_ms": 4977,
+      "human_target": "末班火车午夜出发。"
+    },
+    {
+      "source": "Look for the blue notebook.",
+      "read": "Look for the blue notebook.",
+      "ms": 14,
+      "local_translation": "请找一下那本蓝色的笔记本。",
+      "translation_ms": 4527,
+      "human_target": "找找那本蓝色的笔记本。"
+    },
+    {
+      "source": "Bring the map to the old station.",
+      "read": "Bring the map to the old station.",
+      "ms": 13,
+      "local_translation": "请把地图带到那个旧车站去。",
+      "translation_ms": 4216,
+      "human_target": "把地图带到老车站去。"
+    },
+    {
+      "source": "We have another hour before dawn.",
+      "read": "We have another hour before dawn.",
+      "ms": 15,
+      "local_translation": "在黎明来临之前，我们还有一小时的时间。",
+      "translation_ms": 3728,
+      "human_target": "离天亮还有一个小时。"
+    }
+  ]
+}

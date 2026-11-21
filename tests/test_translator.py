@@ -78,6 +78,22 @@ async def test_translate_skips_the_engine_for_ocr_noise(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_verified_file_cues_keep_symbols_and_translate_single_letters(monkeypatch):
+    calls = []
+
+    def answer(request):
+        calls.append(request)
+        return {"choices": [{"message": {"content": "我"}}]}
+
+    client = _client(monkeypatch, answer)
+    for symbol in ["42", "♪", "…"]:
+        assert await client.translate(symbol, "en", "zh", pairs=[]) == symbol
+    assert await client.translate("I", "en", "zh") == ""
+    assert await client.translate("I", "en", "zh", pairs=[]) == "我"
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_translate_reports_an_unreachable_engine(monkeypatch) -> None:
     def handler(request: dict) -> dict:
         raise engine.EngineStartError("connection refused")

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type EditorFile } from "../../hooks/use-api";
+import { localizeError, localizeMessage, t } from "../../i18n";
 import { diagnose } from "../../lib/subtitle-editor/diagnostics";
 import { parseSubtitle, serializeSubtitle } from "../../lib/subtitle-editor/document";
 import {
@@ -106,7 +107,7 @@ export function SubtitleEditor({ sessionId }: { sessionId: string }): JSX.Elemen
     if (busy) return;
     if (
       pending &&
-      !window.confirm("Discard subtitle changes that have not been saved for this session?")
+      !window.confirm(t("Discard subtitle changes that have not been saved for this session?"))
     )
       return;
     setOpen(false);
@@ -202,11 +203,11 @@ export function SubtitleEditor({ sessionId }: { sessionId: string }): JSX.Elemen
   return (
     <>
       <button type="button" className="editor-launch" onClick={() => void begin()}>
-        Edit subtitles
+        {t("Edit subtitles")}
       </button>
       {!open && notice && (
         <p role="status" className="editor-saved">
-          {notice}
+          {localizeMessage(notice)}
         </p>
       )}
       <dialog
@@ -220,25 +221,29 @@ export function SubtitleEditor({ sessionId }: { sessionId: string }): JSX.Elemen
       >
         <header>
           <div>
-            <span className="editor-eyebrow">SUBTITLE WORKSPACE</span>
-            <h2 id="subtitle-editor-title">Edit subtitles · Optional</h2>
+            <span className="editor-eyebrow">{t("SUBTITLE WORKSPACE")}</span>
+            <h2 id="subtitle-editor-title">{t("Edit subtitles · Optional")}</h2>
           </div>
-          <button type="button" onClick={close} disabled={busy} aria-label="Close subtitle editor">
-            Close
+          <button
+            type="button"
+            onClick={close}
+            disabled={busy}
+            aria-label={t("Close subtitle editor")}
+          >
+            {t("Close")}
           </button>
         </header>
         <p className="editor-intro">
-          You usually do not need to edit subtitles. Meowcal checks them automatically and syncs
-          playback using on-screen subtitles, adjusting timing offsets when reliable matches are
-          available. Use this workspace for text changes or manual timing corrections. Original
-          files stay untouched.
+          {t(
+            "You usually do not need to edit subtitles. Meowcal checks them automatically and syncs playback using on-screen subtitles, adjusting timing offsets when reliable matches are available. Use this workspace for text changes or manual timing corrections. Original files stay untouched.",
+          )}
         </p>
         <fieldset disabled={busy} className="editor-body">
           <div className="editor-toolbar">
             <label>
-              Track
+              {t("Track")}
               <select
-                aria-label="Track"
+                aria-label={t("Track")}
                 value={active}
                 disabled={draft}
                 onChange={(event) => {
@@ -248,14 +253,14 @@ export function SubtitleEditor({ sessionId }: { sessionId: string }): JSX.Elemen
               >
                 {files.map((file, index) => (
                   <option key={file.file.key} value={index}>
-                    {file.file.role === "source" ? "Source" : "Target"} · {file.file.filename}
+                    {file.file.role === "source" ? t("Source") : t("Target")} · {file.file.filename}
                     {file.history && file.history.present !== file.original ? " *" : ""}
                   </option>
                 ))}
               </select>
             </label>
             <label className="editor-import">
-              Import replacement
+              {t("Import replacement")}
               <input
                 type="file"
                 accept=".srt,.vtt"
@@ -272,29 +277,29 @@ export function SubtitleEditor({ sessionId }: { sessionId: string }): JSX.Elemen
               disabled={draft || !history?.past.length}
               onClick={() => changeHistory(undo)}
             >
-              Undo
+              {t("Undo")}
             </button>
             <button
               type="button"
               disabled={draft || !history?.future.length}
               onClick={() => changeHistory(redo)}
             >
-              Redo
+              {t("Redo")}
             </button>
           </div>
           {current?.error && (
             <p role="alert" className="editor-error">
-              {current.error}
+              {localizeError(current.error)}
             </p>
           )}
           {doc && history && (
             <>
               <div className="editor-meta">
                 <span>
-                  {doc.filename} · {doc.format.toUpperCase()} · {doc.cues.length.toLocaleString()}{" "}
-                  subtitles
+                  {doc.filename} · {doc.format.toUpperCase()} ·{" "}
+                  {t("{count} subtitles", { count: doc.cues.length.toLocaleString() })}
                 </span>
-                <span>{history.past.length} undo steps (up to 50)</span>
+                <span>{t("{count} undo steps (up to 50)", { count: history.past.length })}</span>
               </div>
               <IssueList
                 issues={issues}
@@ -340,7 +345,7 @@ export function SubtitleEditor({ sessionId }: { sessionId: string }): JSX.Elemen
                       disabled={draft}
                       onClick={() => update({ history: { ...history, preview: null } })}
                     >
-                      Discard timing preview
+                      {t("Discard timing preview")}
                     </button>
                   )}
                 </div>
@@ -350,22 +355,24 @@ export function SubtitleEditor({ sessionId }: { sessionId: string }): JSX.Elemen
         </fieldset>
         {busy && (
           <p role="status">
-            {files.length ? "Saving or importing subtitles…" : "Reading prepared subtitles…"}
+            {files.length ? t("Saving or importing subtitles…") : t("Reading prepared subtitles…")}
           </p>
         )}
         {error && (
           <p role="alert" className="editor-error">
-            {error}
+            {localizeError(error)}
           </p>
         )}
-        {open && notice && <p role="status">{notice}</p>}
+        {open && notice && <p role="status">{localizeMessage(notice)}</p>}
         <footer>
           <p>
             {draft
-              ? "Keep or discard the current edit to continue."
+              ? t("Keep or discard the current edit to continue.")
               : hasPreview
-                ? "Apply or discard the timing preview before saving."
-                : "Save & use rebuilds the prepared tracks and resets the playback offset to 0 ms."}
+                ? t("Apply or discard the timing preview before saving.")
+                : t(
+                    "Save & use rebuilds the prepared tracks and resets the playback offset to 0 ms.",
+                  )}
           </p>
           <div className="editor-actions">
             <button
@@ -379,7 +386,7 @@ export function SubtitleEditor({ sessionId }: { sessionId: string }): JSX.Elemen
                 issues.some((issue) => issue.severity === "error")
               }
             >
-              Export copy
+              {t("Export copy")}
             </button>
             <button
               type="button"
@@ -387,7 +394,7 @@ export function SubtitleEditor({ sessionId }: { sessionId: string }): JSX.Elemen
               onClick={() => void save()}
               disabled={busy || draft || invalid || hasPreview || !changed.length}
             >
-              Save & use
+              {t("Save & use")}
             </button>
           </div>
         </footer>

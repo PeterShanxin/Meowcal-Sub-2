@@ -95,7 +95,6 @@ class SubdlProvider:
                         "subs_per_page": "30",
                         "comment": "1",
                         "releases": "1",
-                        "hi": "1",
                         "unpack": "1",
                     },
                 )
@@ -251,7 +250,6 @@ class SubdlProvider:
             "subs_per_page": "30",
             "comment": "1",
             "releases": "1",
-            "hi": "1",
             "unpack": "1",
         }
         # SubDL answers with zero subtitles when full_season accompanies a movie sd_id.

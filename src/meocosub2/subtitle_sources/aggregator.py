@@ -35,6 +35,7 @@ from meocosub2.subtitle_sources.types import (
 from meocosub2.subtitle_sources.utils import (
     EPISODE_PATTERN,
     PROVIDER_RANK,
+    canonical_imdb_id,
     canonical_title,
     extract_season_suffix,
     language_priority,
@@ -194,12 +195,7 @@ class SubtitleSearchAggregator:
             providers=[provider.provider_code for provider in self.providers],
             tmdb_enabled=bool(self._tmdb_client and self._tmdb_client.enabled),
         )
-        # SubDL typically answers in ~1-2s while ASSRT can take 5s+, so the
-        # slowest provider used to hold the whole card list behind one spinner.
-        # Providers are awaited as they land and merged in fixed provider order
-        # (never completion order), so a match/work id assigned in an early
-        # interim merge is exactly what the final merge assigns too — nothing
-        # the user clicked on while only some providers had answered goes stale.
+        # Merge settled providers in catalog order so interim selections keep their IDs.
         with event_correlation(correlation_id):
             tasks = {
                 asyncio.create_task(
@@ -211,32 +207,37 @@ class SubtitleSearchAggregator:
             errors: list[str] = []
             settled_codes: list[str] = []
             pending = set(tasks)
-            while pending:
-                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-                for task in done:
-                    provider = tasks[task]
-                    try:
-                        catalogs_by_provider[provider.provider_code] = task.result()
-                    except Exception as exc:
-                        errors.append(_provider_error_warning(provider.provider_label, exc))
-                    settled_codes.append(provider.provider_code)
-                    if on_provider_update is not None:
-                        ordered = [
-                            catalogs_by_provider[p.provider_code]
-                            for p in self.providers
-                            if p.provider_code in catalogs_by_provider
-                        ]
-                        interim = (
-                            self._merge_catalogs(ordered, languages, query_year, dispatch_query)
-                            if ordered
-                            else AggregatedSearchCatalog(matches=[], results=[])
-                        )
-                        # Succeeded and settled are reported separately: a provider
-                        # that fails is done (it must drop off "waiting on...") but
-                        # never appears in the interim results.
-                        await on_provider_update(
-                            list(catalogs_by_provider.keys()), list(settled_codes), interim
-                        )
+            try:
+                while pending:
+                    done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                    for task in done:
+                        provider = tasks[task]
+                        try:
+                            catalogs_by_provider[provider.provider_code] = task.result()
+                        except Exception as exc:
+                            errors.append(_provider_error_warning(provider.provider_label, exc))
+                        settled_codes.append(provider.provider_code)
+                        if on_provider_update is not None:
+                            ordered = [
+                                catalogs_by_provider[p.provider_code]
+                                for p in self.providers
+                                if p.provider_code in catalogs_by_provider
+                            ]
+                            interim = (
+                                self._merge_catalogs(ordered, languages, query_year, dispatch_query)
+                                if ordered
+                                else AggregatedSearchCatalog(matches=[], results=[])
+                            )
+                            # Succeeded and settled are reported separately: a provider
+                            # that fails is done (it must drop off "waiting on...") but
+                            # never appears in the interim results.
+                            await on_provider_update(
+                                list(catalogs_by_provider.keys()), list(settled_codes), interim
+                            )
+            finally:
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
 
         catalogs = [
             catalogs_by_provider[p.provider_code]
@@ -424,6 +425,12 @@ class SubtitleSearchAggregator:
         if not all_matches and not all_results:
             return AggregatedSearchCatalog(matches=[], results=[])
 
+        movie_ids: dict[tuple[str, int | None], set[str]] = {}
+        for item in (*all_matches, *all_results):
+            if item.media_type == "movie" and (movie_id := canonical_imdb_id(item.imdb_id)):
+                title_year = canonical_title(item.title), item.year
+                movie_ids.setdefault(title_year, set()).add(movie_id)
+
         group_order: dict[tuple[str, str, int, int, int], str] = {}
         groups: dict[str, dict[str, object]] = {}
 
@@ -442,9 +449,11 @@ class SubtitleSearchAggregator:
             subtitles_count: int,
             match_score: float,
         ) -> str:
-            key = match_group_key(title, media_type, year, season, episode, parent_title)
-            # Grouping by canonical title metadata keeps the UI stable even when
-            # different providers describe the same title with slightly different ids.
+            if media_type == "movie" and not canonical_imdb_id(imdb_id):
+                identities = movie_ids.get((canonical_title(title), year), set())
+                if len(identities) == 1:
+                    imdb_id = next(iter(identities))
+            key = match_group_key(title, media_type, year, season, episode, parent_title, imdb_id)
             if key in group_order:
                 group_id = group_order[key]
                 group = groups[group_id]
@@ -464,7 +473,9 @@ class SubtitleSearchAggregator:
                     "match_score": 0.0,
                     "providers": set(),
                     "provider_labels": set(),
+                    "aliases": set(),
                 }
+            group["aliases"].add(canonical_title(title))
             group["subtitles_count"] = int(group["subtitles_count"]) + max(subtitles_count, 0)
             group["match_score"] = max(float(group["match_score"]), match_score)
             group["providers"].add(provider)
@@ -490,6 +501,18 @@ class SubtitleSearchAggregator:
         aggregated_results: list[AggregatedSubtitleResult] = []
         for item in all_results:
             mapped_match_id = provider_match_map.get(item.match_id)
+            aliases = item.raw.get("title_aliases", [])
+            if mapped_match_id is None and item.media_type == "movie" and item.year and aliases:
+                alias_keys = {canonical_title(alias) for alias in aliases}
+                candidates = {
+                    group_id
+                    for group_id, group in groups.items()
+                    if alias_keys.intersection(group["aliases"])
+                    and group["media_type"] == "movie"
+                    and group["year"] == item.year
+                }
+                if len(candidates) == 1:
+                    mapped_match_id = candidates.pop()
             # If a result carries explicit episode metadata, route it to a per-
             # episode group instead of collapsing it into the parent tvshow group.
             # OpenSubtitles returns every episode result under the parent feature's
@@ -581,8 +604,8 @@ class SubtitleSearchAggregator:
             )[0]
             candidate_group_ids = [
                 group_id
-                for key, group_id in group_order.items()
-                if group_id != current_group_id and key[0] == orphan_title_key
+                for group_id, group in groups.items()
+                if group_id != current_group_id and orphan_title_key in group["aliases"]
             ]
             if not candidate_group_ids:
                 continue
