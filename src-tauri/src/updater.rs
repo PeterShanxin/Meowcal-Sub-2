@@ -23,6 +23,12 @@ fn updater(
     app: &AppHandle,
     timeout: Duration,
 ) -> Result<(Option<Updater>, Option<&'static str>), String> {
+    if cfg!(feature = "microsoft-store") {
+        return Ok((
+            None,
+            Some("Microsoft Store manages updates for this installation."),
+        ));
+    }
     if cfg!(debug_assertions) {
         return Ok((None, Some("Update checks are available in release builds.")));
     }

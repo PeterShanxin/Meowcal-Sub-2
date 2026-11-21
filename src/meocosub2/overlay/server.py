@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -22,6 +22,7 @@ from meocosub2.errors import SubtitleSourceError, TranslationError
 from meocosub2.event_log import log_event
 from meocosub2.languages import languages_payload
 from meocosub2.models import SearchRequest
+from meocosub2.overlay.connections import StudioConnections
 from meocosub2.overlay.controller import GuiController
 from meocosub2.overlay.subtitle_editor import editor_router
 
@@ -92,7 +93,7 @@ class OverlayServer:
         *,
         access_token: str,
     ) -> None:
-        self.app_connections: list[WebSocket] = []
+        self.app_connections = StudioConnections()
         self._access_token = access_token
         self._allowed_origins = {
             f"http://127.0.0.1:{config.overlay_port}",
@@ -172,7 +173,10 @@ class OverlayServer:
 
         @self.app.put("/api/config")
         async def api_put_config(payload: dict[str, object]) -> dict[str, object]:
-            return await self.controller.save_config_payload(payload)
+            try:
+                return await self.controller.save_config_payload(payload)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         @self.app.get("/api/state")
         async def api_get_state() -> dict[str, object]:
@@ -330,43 +334,21 @@ class OverlayServer:
     def _page_html(self, file_name: str) -> str:
         """A served page with this run's token, handed only to callers that already have it."""
         markup = (STATIC_DIR / file_name).read_text(encoding="utf-8")
-        bootstrap = (
-            "<script>window.__MEOWCAL__=" + json.dumps({"token": self._access_token}) + ";</script>"
-        )
+        # The interface language is read before the first paint, so a studio set to
+        # English on a Chinese system never flashes the wrong language.
+        context = {"token": self._access_token, "uiLanguage": self.config.ui_language}
+        bootstrap = "<script>window.__MEOWCAL__=" + json.dumps(context) + ";</script>"
         return markup.replace("</head>", f"{bootstrap}</head>", 1)
 
     async def _app_socket(self, websocket: WebSocket) -> None:
         await websocket.accept()
-        logger.debug("App WebSocket connected (total: %d)", len(self.app_connections) + 1)
-        self.app_connections.append(websocket)
-        await websocket.send_text(
-            json.dumps({"type": "state", "state": self.controller.state_snapshot()})
+        await self.app_connections.serve(
+            websocket,
+            [
+                {"type": "state", "state": self.controller.state_snapshot()},
+                {"type": "style", "style": overlay_style_payload(self.config)},
+            ],
         )
-        await websocket.send_text(
-            json.dumps({"type": "style", "style": overlay_style_payload(self.config)})
-        )
-        try:
-            while True:
-                await websocket.receive_text()
-        except WebSocketDisconnect:
-            pass
-        finally:
-            if websocket in self.app_connections:
-                self.app_connections.remove(websocket)
-            logger.debug("App WebSocket disconnected (remaining: %d)", len(self.app_connections))
 
     async def broadcast_app_event(self, event_type: str, payload: dict[str, object]) -> None:
-        message = {"type": event_type, **payload}
-        await self._broadcast(self.app_connections, message)
-
-    async def _broadcast(self, connections: list[WebSocket], message: dict[str, object]) -> None:
-        encoded = json.dumps(message)
-        dead: list[WebSocket] = []
-        for websocket in tuple(connections):
-            try:
-                await websocket.send_text(encoded)
-            except Exception:
-                dead.append(websocket)
-        for websocket in dead:
-            if websocket in connections:
-                connections.remove(websocket)
+        self.app_connections.publish({"type": event_type, **payload})

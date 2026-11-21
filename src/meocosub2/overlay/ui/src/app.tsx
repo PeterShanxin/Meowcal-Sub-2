@@ -4,13 +4,13 @@ import { Palette, paletteWorksNavRows } from "./components/palette";
 import { PrepCard, PreviewCard } from "./components/prep-card";
 import { LiveView } from "./components/live-dock";
 import { EmptyState } from "./components/variants/empty";
-import { NoApiKey } from "./components/variants/no-key";
 import { SettingsView } from "./components/variants/settings";
 import { UpdatePrompt } from "./components/update-prompt";
 import { api } from "./hooks/use-api";
 import { useAppWebSocket } from "./hooks/use-ws";
 import { useKeybinds } from "./hooks/use-keybinds";
 import { isTauri, tauri } from "./hooks/use-tauri";
+import { localizeError, localizeMessage, setUiLanguage, t, useLocale } from "./i18n";
 import { store, useStore } from "./state/store";
 import {
   applyLanguageChoice,
@@ -19,7 +19,11 @@ import {
   mapResultsToSource,
   mapResultsToTarget,
   mapWorksToItems,
+  OCR_ONLY_ID,
+  OCR_SOURCE_ID,
+  prepareSelection,
   seasonHydrateKey,
+  selectionChangesPreparedWork,
 } from "./state/mappers";
 import type {
   BackendConfig,
@@ -73,6 +77,7 @@ export function App(): JSX.Element {
   const liveLines = useStore((s) => s.liveLines);
   const languages = useStore((s) => s.languages);
   const wsConnected = useStore((s) => s.wsConnected);
+  const locale = useLocale();
 
   const settingsRequested = manualView === "settings";
   const showSettings = settingsRequested && !!config;
@@ -139,9 +144,12 @@ export function App(): JSX.Element {
   const episodeMatchId = selectedEpisodeMatchId;
   const searchStatusMessage =
     snapshot?.progress.stage === "search" ? snapshot.progress.message : null;
+  // The mapped rows carry labels in the interface language, so they are rebuilt
+  // when it changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: locale changes the mapped labels
   const works = useMemo<WorkItem[]>(
     () => mapWorksToItems(snapshot?.search_works ?? []),
-    [snapshot?.search_works],
+    [snapshot?.search_works, locale],
   );
   const mediaFilteredWorks = useMemo(
     () => filterWorks(works, titleMediaFilter, [], null),
@@ -166,6 +174,7 @@ export function App(): JSX.Element {
       ),
     [works, titleMediaFilter, selectedSeasonFilters, seasonFilterScopeWork?.id],
   );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: locale changes the mapped labels
   const sources = useMemo(
     () =>
       mapResultsToSource(
@@ -173,8 +182,9 @@ export function App(): JSX.Element {
         episodeMatchId,
         snapshot?.source_language ?? "en",
       ),
-    [snapshot?.search_results, episodeMatchId, snapshot?.source_language],
+    [snapshot?.search_results, episodeMatchId, snapshot?.source_language, locale],
   );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: locale changes the mapped labels
   const targets = useMemo(
     () =>
       mapResultsToTarget(
@@ -182,16 +192,26 @@ export function App(): JSX.Element {
         episodeMatchId,
         snapshot?.target_language ?? "zh",
         sourceInspection,
+        selectedSourceId === OCR_SOURCE_ID,
       ),
-    [snapshot?.search_results, episodeMatchId, snapshot?.target_language, sourceInspection],
+    [
+      snapshot?.search_results,
+      episodeMatchId,
+      snapshot?.target_language,
+      sourceInspection,
+      selectedSourceId,
+      locale,
+    ],
   );
 
-  // Selecting another episode leaves the old session prepared until the new one
-  // lands, so Start sync must not fire the episode the user just moved off.
-  const preparingReplacement =
-    !!selectedEpisodeMatchId &&
-    snapshot?.prepared_session != null &&
-    snapshot.prepared_session.feature_id !== selectedEpisodeMatchId;
+  // A different episode must not start the old session. Catalog enrichment can
+  // rename the same selection without changing its prepared files.
+  const preparingReplacement = selectionChangesPreparedWork(
+    snapshot?.prepared_session ?? null,
+    selectedEpisodeMatchId,
+    selectedSourceId,
+    selectedTargetId,
+  );
 
   useEffect(() => {
     if (selectedSeasonFilters.length === 0) return;
@@ -220,6 +240,17 @@ export function App(): JSX.Element {
   const targetListLength = inspectingSource ? 0 : targets.length;
   const activeListLength =
     tab === "titles" ? titleListLength : tab === "source" ? sources.length : targetListLength;
+
+  // The saved preference is the backend's; this keeps the studio following it
+  // when another window or a reload changes it.
+  const savedUiLanguage = config?.ui?.language;
+  useEffect(() => {
+    if (savedUiLanguage) setUiLanguage(savedUiLanguage);
+  }, [savedUiLanguage]);
+
+  useEffect(() => {
+    if (isTauri()) void tauri.setTrayLocale(locale).catch(() => undefined);
+  }, [locale]);
 
   // Enter live/exit live Tauri side-effects.
   // Only call exitLiveMode when transitioning OUT of live. Calling it on
@@ -271,100 +302,93 @@ export function App(): JSX.Element {
     inputRef.current?.focus();
   }, []);
 
-  const runSearch = useCallback(
-    async (title: string) => {
-      if (!title.trim()) return;
-      const trimmedTitle = title.trim();
-      const correlationId = clientEventId("search");
-      lastSearchedQuery.current = trimmedTitle;
-      selectionIntent.current += 1;
-      const requestEpoch = ++searchEpoch.current;
-      searchAbort.current?.abort();
-      const ctrl = new AbortController();
-      searchAbort.current = ctrl;
-      let completeSearch!: () => void;
-      const completion = new Promise<void>((resolve) => {
-        completeSearch = resolve;
-      });
-      titleSearchCompletion.current = completion;
-      setSearching(true);
+  const runSearch = useCallback(async (title: string) => {
+    if (!title.trim()) return;
+    const current = store.get();
+    const sourceLanguage = current.config?.languages.source ?? current.snapshot?.source_language;
+    const targetLanguage = current.config?.languages.target ?? current.snapshot?.target_language;
+    const trimmedTitle = title.trim();
+    const correlationId = clientEventId("search");
+    lastSearchedQuery.current = trimmedTitle;
+    selectionIntent.current += 1;
+    setPreparing(false);
+    const requestEpoch = ++searchEpoch.current;
+    searchAbort.current?.abort();
+    const ctrl = new AbortController();
+    searchAbort.current = ctrl;
+    let completeSearch!: () => void;
+    const completion = new Promise<void>((resolve) => {
+      completeSearch = resolve;
+    });
+    titleSearchCompletion.current = completion;
+    setSearching(true);
+    logClientEvent(
+      "ui.search.submitted",
+      {
+        title: trimmedTitle,
+        sourceLanguage,
+        targetLanguage,
+      },
+      correlationId,
+    );
+    // These keys track lookups belonging to the search being replaced. Work ids
+    // are content-derived, so a re-search of the same title mints the same keys
+    // and a leftover one would leave a row of the new catalog marked busy.
+    hydrateInFlight.current.clear();
+    seasonHydrationPromises.current.clear();
+    lookedUpEpisodes.current.clear();
+    episodeLookupIntents.current.clear();
+    store.set({
+      error: null,
+      cursorIndex: -1,
+      selectedWorkId: null,
+      expandedWorkId: null,
+      expandedSeasonNumber: null,
+      selectedEpisodeMatchId: null,
+      selectedSourceId: null,
+      selectedTargetId: null,
+      sourceInspection: null,
+      inspectingSource: false,
+      hydrating: [],
+      emptyLookups: [],
+    });
+    try {
+      const res = await api.search(trimmedTitle, sourceLanguage, targetLanguage, correlationId);
+      const fresh = await api.getState();
+      if (searchEpoch.current !== requestEpoch) return;
+      store.set({ snapshot: fresh, config: fresh.config });
       logClientEvent(
-        "ui.search.submitted",
+        "ui.search.completed",
         {
-          title: trimmedTitle,
-          sourceLanguage: config?.languages.source ?? snapshot?.source_language,
-          targetLanguage: config?.languages.target ?? snapshot?.target_language,
+          results: res.results.length,
+          matches: res.matches.length,
+          works: res.works.length,
+          warnings: res.warnings.length,
         },
         correlationId,
       );
-      // These keys track lookups belonging to the search being replaced. Work ids
-      // are content-derived, so a re-search of the same title mints the same keys
-      // and a leftover one would leave a row of the new catalog marked busy.
-      hydrateInFlight.current.clear();
-      seasonHydrationPromises.current.clear();
-      lookedUpEpisodes.current.clear();
-      episodeLookupIntents.current.clear();
-      store.set({
-        error: null,
-        cursorIndex: -1,
-        selectedWorkId: null,
-        expandedWorkId: null,
-        expandedSeasonNumber: null,
-        selectedEpisodeMatchId: null,
-        selectedSourceId: null,
-        selectedTargetId: null,
-        hydrating: [],
-        emptyLookups: [],
-      });
-      try {
-        const res = await api.search(
-          trimmedTitle,
-          config?.languages.source,
-          config?.languages.target,
-          correlationId,
-        );
-        const fresh = await api.getState();
-        if (searchEpoch.current !== requestEpoch) return;
-        store.set({ snapshot: fresh, config: fresh.config });
-        logClientEvent(
-          "ui.search.completed",
-          {
-            results: res.results.length,
-            matches: res.matches.length,
-            works: res.works.length,
-            warnings: res.warnings.length,
-          },
-          correlationId,
-        );
-      } catch (err) {
-        if (searchEpoch.current === requestEpoch) {
-          store.set({ error: err instanceof Error ? err.message : String(err) });
-        }
-        logClientEvent(
-          "ui.search.failed",
-          {
-            error: err instanceof Error ? err.message : String(err),
-          },
-          correlationId,
-        );
-      } finally {
-        completeSearch();
-        if (titleSearchCompletion.current === completion) titleSearchCompletion.current = null;
-        if (searchAbort.current === ctrl) {
-          searchAbort.current = null;
-          if (backgroundSearchCount.current === 0) {
-            setSearching(false);
-          }
+    } catch (err) {
+      if (searchEpoch.current === requestEpoch) {
+        store.set({ error: err instanceof Error ? err.message : String(err) });
+      }
+      logClientEvent(
+        "ui.search.failed",
+        {
+          error: err instanceof Error ? err.message : String(err),
+        },
+        correlationId,
+      );
+    } finally {
+      completeSearch();
+      if (titleSearchCompletion.current === completion) titleSearchCompletion.current = null;
+      if (searchAbort.current === ctrl) {
+        searchAbort.current = null;
+        if (backgroundSearchCount.current === 0) {
+          setSearching(false);
         }
       }
-    },
-    [
-      config?.languages.source,
-      config?.languages.target,
-      snapshot?.source_language,
-      snapshot?.target_language,
-    ],
-  );
+    }
+  }, []);
 
   const onQueryChange = useCallback((v: string) => {
     store.set({ query: v, cursorIndex: -1 });
@@ -421,9 +445,11 @@ export function App(): JSX.Element {
   // only the file itself says. Reading it is the target step's own loading: the
   // download it costs is one the session was going to make anyway.
   const readChosenSource = useCallback(async () => {
-    const { selectedSourceId, selectedEpisodeMatchId, sourceInspection } = store.get();
-    if (!selectedSourceId) return;
-    if (sourceInspection?.sourceFileId === selectedSourceId) return;
+    const { selectedSourceId, selectedEpisodeMatchId, sourceInspection, inspectingSource } =
+      store.get();
+    if (!selectedSourceId || selectedSourceId === OCR_SOURCE_ID) return;
+    if (inspectingSource || sourceInspection?.sourceFileId === selectedSourceId) return;
+    const requestEpoch = searchEpoch.current;
     store.set({ inspectingSource: true });
     try {
       const found = await api.inspectSource({
@@ -431,7 +457,8 @@ export function App(): JSX.Element {
         matchId: selectedEpisodeMatchId,
       });
       // The viewer can have moved on while this was in flight.
-      if (store.get().selectedSourceId !== selectedSourceId) return;
+      if (searchEpoch.current !== requestEpoch || store.get().selectedSourceId !== selectedSourceId)
+        return;
       store.set({ sourceInspection: found });
       logClientEvent("ui.source.inspected", {
         carriesTranslation: found.carriesTranslation,
@@ -447,7 +474,10 @@ export function App(): JSX.Element {
       // Only the read for the source still chosen may lift the wait. Changing
       // the source starts a second read, and letting the first one finish for
       // it opened the list while the answer that reorders it was still coming.
-      if (store.get().selectedSourceId === selectedSourceId) {
+      if (
+        searchEpoch.current === requestEpoch &&
+        store.get().selectedSourceId === selectedSourceId
+      ) {
         store.set({ inspectingSource: false });
       }
     }
@@ -466,12 +496,15 @@ export function App(): JSX.Element {
   // the screen, so it waits for the source and target the user picks next.
   const selectTitle = useCallback((workId: string, matchId: string) => {
     selectionIntent.current += 1;
+    setPreparing(false);
     logClientEvent("ui.title.selected", { workId, matchId });
     store.set({
       selectedWorkId: workId,
       selectedEpisodeMatchId: matchId,
       selectedSourceId: null,
       selectedTargetId: null,
+      sourceInspection: null,
+      inspectingSource: false,
       query: "",
       // Settling one step opens the next one's list, so the step the footer
       // names is the step the palette is showing.
@@ -769,6 +802,7 @@ export function App(): JSX.Element {
   const onPickEpisode = useCallback(
     (workId: string, matchId: string, season: number | null, episode: number | null) => {
       const intent = ++selectionIntent.current;
+      setPreparing(false);
       if (season !== null && episode !== null) {
         const key = episodeHydrateKey(workId, season, episode);
         if (hydrateInFlight.current.has(key)) {
@@ -802,6 +836,8 @@ export function App(): JSX.Element {
 
   const onPickSource = useCallback(
     (id: string) => {
+      selectionIntent.current += 1;
+      setPreparing(false);
       logClientEvent("ui.source.selected", { resultId: id });
       // The reading below is about this file, so anything known about the last
       // one goes with it rather than briefly describing the wrong source.
@@ -810,33 +846,36 @@ export function App(): JSX.Element {
         tab: "target",
         cursorIndex: -1,
         sourceInspection: null,
+        selectedTargetId: null,
+        inspectingSource: false,
+        error: null,
       });
       void readChosenSource();
     },
     [readChosenSource],
   );
 
-  const onPickTarget = useCallback(async (id: string) => {
+  const onPickTarget = useCallback(async (id: string | null) => {
     const correlationId = clientEventId("prepare");
-    // Staying on the pick that was just made keeps the last step settled.
-    // Dropping back to the title list read as "start over" and invited the
-    // reader to pick their way around a session that was already prepared.
-    store.set({ selectedTargetId: id, cursorIndex: -1 });
-    const currentEpisode = store.get().selectedEpisodeMatchId;
-    const currentSource = store.get().selectedSourceId;
-    if (!currentEpisode || !currentSource) return;
+    const { selectedEpisodeMatchId: currentEpisode, selectedSourceId: currentSource } = store.get();
+    if (id !== null && (!currentEpisode || !currentSource)) {
+      store.set({
+        error: "Select a source subtitle first, or choose on-screen OCR when no file matches.",
+      });
+      return;
+    }
+    store.set({ selectedTargetId: id, cursorIndex: -1, error: null });
     setPreparing(true);
-    // Backend accepts only "subtitle_pair" | "ocr_fallback". Local AI
-    // translation is triggered by subtitle_pair with no targetResultId —
-    // the controller falls back to local translation via target_match_mode.
-    const mode: "subtitle_pair" | "ocr_fallback" =
-      id === "__ocr__" ? "ocr_fallback" : "subtitle_pair";
-    const targetResultId = id === "__local__" || id === "__ocr__" ? null : id;
+    const intent = ++selectionIntent.current;
+    const { mode, sourceResultId, targetResultId } = prepareSelection(
+      currentSource ?? OCR_SOURCE_ID,
+      id ?? OCR_ONLY_ID,
+    );
     logClientEvent(
       "ui.target.selected",
       {
         matchId: currentEpisode,
-        sourceResultId: currentSource,
+        sourceResultId,
         targetResultId,
         mode,
       },
@@ -846,13 +885,15 @@ export function App(): JSX.Element {
       await api.prepareSession({
         mode,
         matchId: currentEpisode,
-        sourceResultId: currentSource,
+        sourceResultId,
         targetResultId,
       });
       const fresh = await api.getState();
+      if (selectionIntent.current !== intent) return;
       store.set({ snapshot: fresh, config: fresh.config });
       logClientEvent("ui.session.prepare_completed", { mode }, correlationId);
     } catch (err) {
+      if (selectionIntent.current !== intent) return;
       store.set({ error: err instanceof Error ? err.message : String(err) });
       logClientEvent(
         "ui.session.prepare_failed",
@@ -862,7 +903,7 @@ export function App(): JSX.Element {
         correlationId,
       );
     } finally {
-      setPreparing(false);
+      if (selectionIntent.current === intent) setPreparing(false);
     }
   }, []);
 
@@ -964,7 +1005,6 @@ export function App(): JSX.Element {
       const current = store.get().config;
       if (!current) return;
       const languages = applyLanguageChoice(current.languages, type, code);
-      const next: BackendConfig = { ...current, languages };
       logClientEvent("ui.language.changed", {
         type,
         code,
@@ -972,7 +1012,7 @@ export function App(): JSX.Element {
         target: languages.target,
       });
       try {
-        const saved = await api.putConfig(next);
+        const saved = await api.putConfig({ languages });
         store.set({ config: saved });
         store.resetSelection();
         // Languages are part of the query, so the previous results no longer
@@ -1251,12 +1291,9 @@ export function App(): JSX.Element {
 
   // --- Render ---
 
-  const noKey = shouldShowNoKey(config);
-  const isEmpty = isFirstLaunch(config) && !firstLaunchDismissed;
-  const sourceNotices = useMemo(
-    () => buildSourceNotices(config, snapshot?.warning_message ?? ""),
-    [config, snapshot?.warning_message],
-  );
+  const configuredSources = countEnabledSources(config);
+  const isEmpty = phase === "home" && isFirstLaunch(config) && !firstLaunchDismissed;
+  const sourceNotices = buildSourceNotices(config, snapshot?.warning_message ?? "");
 
   // One place for both: an action that failed in the studio and a failure the
   // backend is reporting. Neither had anywhere to appear before.
@@ -1269,7 +1306,7 @@ export function App(): JSX.Element {
   const prepTitleLabel = selectedWork?.title ?? null;
   const prepFoundLabel = selectedWork
     ? selectedWork.totalSubtitles > 0
-      ? `${selectedWork.totalSubtitles.toLocaleString()} subtitles`
+      ? t("{count} subtitles", { count: selectedWork.totalSubtitles.toLocaleString() })
       : selectedWork.type
     : "—";
   const palettePhase = settingsVisible ? "settings" : phase;
@@ -1323,7 +1360,7 @@ export function App(): JSX.Element {
             phase={phase}
             wsConnected={wsConnected}
             engineStatus={engineStatus}
-            sourcesCount={countEnabledSources(config)}
+            sourcesCount={configuredSources}
             onOpenSettings={openSettings}
             onClearSession={
               selectedEpisodeMatchId || snapshot?.prepared_session
@@ -1339,9 +1376,7 @@ export function App(): JSX.Element {
             onOpenSettings={openSettings}
           />
         )}
-        {noKey && phase === "home" && !query && <NoApiKey onOpenSettings={openSettings} />}
-
-        {!noKey && isEmpty && phase === "home" && !query && (
+        {isEmpty && !query && (
           <EmptyState
             sourceLabel={languageLabel(config?.languages.source)}
             targetLabel={languageLabel(config?.languages.target)}
@@ -1368,7 +1403,7 @@ export function App(): JSX.Element {
                 "top 520ms cubic-bezier(.22, 1.3, .36, 1), width 280ms cubic-bezier(.2,.7,.3,1)",
             }}
           >
-            {!isCompact && !noKey && !isEmpty && (
+            {!isCompact && !isEmpty && (
               <div style={{ textAlign: "center", marginBottom: 26 }}>
                 <div
                   style={{
@@ -1379,7 +1414,7 @@ export function App(): JSX.Element {
                     textTransform: "uppercase",
                   }}
                 >
-                  Meowcal Studio
+                  {t("Meowcal Studio")}
                 </div>
                 <h1
                   className="display-serif"
@@ -1392,11 +1427,11 @@ export function App(): JSX.Element {
                     color: "var(--text-heading)",
                   }}
                 >
-                  What are you watching?
+                  {t("What are you watching?")}
                 </h1>
               </div>
             )}
-            {!noKey && !isEmpty && (
+            {!isEmpty && (
               <Palette
                 phase={palettePhase}
                 compact={isCompact}
@@ -1432,6 +1467,14 @@ export function App(): JSX.Element {
                 }
                 onPickSource={onPickSource}
                 onPickTarget={(id) => void onPickTarget(id)}
+                onTranslateScreen={
+                  config &&
+                  !searching &&
+                  !works.length &&
+                  (!configuredSources || lastSearchedQuery.current)
+                    ? () => void onPickTarget(null)
+                    : null
+                }
                 onPrimary={() => void onPrimaryConfirm()}
                 inputRef={inputRef}
                 sourceLang={sourceLang}
@@ -1489,6 +1532,7 @@ export function App(): JSX.Element {
 
         {phase === "live" && (
           <LiveView
+            warning={snapshot?.warning_message.trim() ?? ""}
             biasMs={config?.sync.biasMs ?? 0}
             onAdjustBias={onAdjustBias}
             onStop={() => void clearSession()}
@@ -1525,7 +1569,7 @@ export function App(): JSX.Element {
             fontSize: 13,
           }}
         >
-          Bootstrap error: {bootstrapError}
+          {t("Could not load the studio: {details}", { details: localizeError(bootstrapError) })}
         </div>
       )}
     </div>
@@ -1556,7 +1600,7 @@ function SourceHealthStrip({
       </span>
       {notices.length > 1 && <span className="source-health-count">+{notices.length - 1}</span>}
       <button className="source-health-button" type="button" onClick={onOpenSettings}>
-        Settings
+        {t("Settings")}
       </button>
     </div>
   );
@@ -1566,60 +1610,42 @@ function buildSourceNotices(config: BackendConfig | null, warning: string): Sour
   const notices: SourceNotice[] = [];
   if (!config) return notices;
   const sources = config.subtitleSources;
-  const hasReadySource =
-    (sources.opensubtitles.enabled && !!sources.opensubtitles.apiKey) ||
-    (sources.subdl.enabled && !!sources.subdl.apiKey) ||
-    (sources.assrt.enabled && !!sources.assrt.token);
   if (sources.opensubtitles.enabled && !sources.opensubtitles.apiKey) {
     notices.push({
       id: "opensubtitles-key",
-      label: "OpenSubtitles key missing",
-      detail: "OpenSubtitles is enabled but skipped until an API key is saved.",
+      label: t("OpenSubtitles key missing"),
+      detail: t("OpenSubtitles is enabled but skipped until an API key is saved."),
       tone: "warn",
     });
   }
   if (sources.subdl.enabled && !sources.subdl.apiKey) {
     notices.push({
       id: "subdl-key",
-      label: "SubDL key missing",
-      detail: "SubDL now needs an API key, so searches may miss episode files.",
+      label: t("SubDL key missing"),
+      detail: t("SubDL now needs an API key, so searches may miss episode files."),
       tone: "warn",
     });
   }
   if (sources.assrt.enabled && !sources.assrt.token) {
     notices.push({
       id: "assrt-token",
-      label: "ASSRT token missing",
-      detail: "ASSRT is skipped; Chinese subtitle coverage can be thin.",
+      label: t("ASSRT token missing"),
+      detail: t("ASSRT is skipped; Chinese subtitle coverage can be thin."),
       tone: "warn",
     });
   }
-  if (!hasReadySource && notices.length === 0) {
+  if (countEnabledSources(config) === 0 && notices.length === 0) {
     notices.push({
       id: "no-source",
-      label: "No subtitle source ready",
-      detail: "Enable a source and save its key or token before searching.",
+      label: t("No subtitle source ready"),
+      detail: t("Enable a source and save its key or token before searching."),
       tone: "warn",
     });
   }
-  if (warning.trim()) {
-    notices.push({
-      id: "backend-warning",
-      label: "Provider warning",
-      detail: warning.trim(),
-      tone: "info",
-    });
-  }
+  // The strip shows one notice; the session's own warning is the current one.
+  const detail = localizeMessage(warning.trim());
+  if (detail) notices.unshift({ id: "backend-warning", label: t("Warning"), detail, tone: "info" });
   return notices;
-}
-
-function shouldShowNoKey(config: BackendConfig | null): boolean {
-  if (!config) return false;
-  const s = config.subtitleSources;
-  const osReady = s.opensubtitles.enabled && !!s.opensubtitles.apiKey;
-  const subdlReady = s.subdl.enabled && !!s.subdl.apiKey;
-  const assrtReady = s.assrt.enabled && !!s.assrt.token;
-  return !(osReady || subdlReady || assrtReady);
 }
 
 function isFirstLaunch(config: BackendConfig | null): boolean {
@@ -1652,7 +1678,7 @@ function languageLabel(code: string | undefined): string {
     fr: "French",
     de: "German",
   };
-  return map[code] ?? code;
+  return map[code] ? t(map[code]) : code;
 }
 
 function collectSeasonNumbers(works: WorkItem[]): number[] {

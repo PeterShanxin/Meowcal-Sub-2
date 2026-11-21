@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { localizeMessage, t } from "../../i18n";
 import { formatTimestamp } from "../../lib/subtitle-editor/timing";
 import type { Issue, SubtitleDocument } from "../../lib/subtitle-editor/types";
 
@@ -30,17 +31,20 @@ export function CueList({
           disabled={disabled || page === 0}
           onClick={() => onSelect((page - 1) * PAGE_SIZE)}
         >
-          Previous
+          {t("Previous")}
         </button>
         <span>
-          Page {page + 1} / {Math.max(1, Math.ceil(total / PAGE_SIZE))}
+          {t("Page {page} / {pages}", {
+            page: page + 1,
+            pages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
+          })}
         </span>
         <button
           type="button"
           disabled={disabled || (page + 1) * PAGE_SIZE >= total}
           onClick={() => onSelect((page + 1) * PAGE_SIZE)}
         >
-          Next
+          {t("Next")}
         </button>
         <form
           onSubmit={(event) => {
@@ -50,7 +54,7 @@ export function CueList({
           }}
         >
           <input
-            aria-label="Jump to subtitle"
+            aria-label={t("Jump to subtitle")}
             type="number"
             min={1}
             max={total}
@@ -61,22 +65,24 @@ export function CueList({
             required
           />
           <button type="submit" disabled={disabled}>
-            Go
+            {t("Go")}
           </button>
         </form>
       </div>
       {preview && (
         <p className="editor-preview-label">
-          Timing preview · all {total.toLocaleString()} subtitles checked · not applied
+          {t("Timing preview · all {count} subtitles checked · not applied", {
+            count: total.toLocaleString(),
+          })}
         </p>
       )}
       <div className="editor-table-scroll">
         <table>
           <thead>
             <tr>
-              <th>Subtitle</th>
-              <th>Current time</th>
-              {preview && <th>After correction</th>}
+              <th>{t("Subtitle")}</th>
+              <th>{t("Current time")}</th>
+              {preview && <th>{t("After correction")}</th>}
             </tr>
           </thead>
           <tbody>
@@ -86,11 +92,11 @@ export function CueList({
                   <button
                     type="button"
                     disabled={disabled}
-                    aria-label={`Edit subtitle ${cue.index}`}
+                    aria-label={t("Edit subtitle {number}", { number: cue.index })}
                     onClick={() => onSelect(cue.index - 1)}
                   >
                     <span>#{cue.index}</span>
-                    <span className="editor-cue-text">{cue.text || "(empty subtitle)"}</span>
+                    <span className="editor-cue-text">{cue.text || t("(empty subtitle)")}</span>
                   </button>
                 </td>
                 <td>
@@ -129,12 +135,16 @@ export function IssueList({
   return (
     <details className="editor-section editor-issues">
       <summary>
-        {errors} errors · {issues.length - errors} warnings
-        {!issues.length ? " · checks passed" : " · inspect"}
+        {t("{errors} errors · {warnings} warnings", {
+          errors,
+          warnings: issues.length - errors,
+        })}
+        {!issues.length ? ` · ${t("checks passed")}` : ` · ${t("inspect")}`}
       </summary>
       <p>
-        Errors block saving. Overlaps, duplicates and out-of-order cues are warnings; review them
-        before use.
+        {t(
+          "Errors block saving. Overlaps, duplicates and out-of-order cues are warnings; review them before use.",
+        )}
       </p>
       {issues.slice(current * 10, current * 10 + 10).map((issue) => (
         <div
@@ -146,15 +156,17 @@ export function IssueList({
             disabled={disabled}
             onClick={() => onSelect(issue.cueIndices[0] - 1)}
           >
-            Go to #{issue.cueIndices[0]}
+            {t("Go to #{number}", { number: issue.cueIndices[0] })}
           </button>{" "}
-          {issue.message}
+          {localizeMessage(issue.message)}
           {issue.cueIndices.length > 1 && (
             <span>
               {" "}
-              Cues: {issue.cueIndices.slice(0, 10).join(", ")}
+              {t("Cues: {list}", { list: issue.cueIndices.slice(0, 10).join(", ") })}
               {issue.cueIndices.length > 10
-                ? ` … (${issue.cueIndices.length} total; use the subtitle number to jump)`
+                ? ` ${t("… ({count} total; use the subtitle number to jump)", {
+                    count: issue.cueIndices.length,
+                  })}`
                 : ""}
             </span>
           )}
@@ -163,7 +175,7 @@ export function IssueList({
       {issues.length > 10 && (
         <div className="editor-actions">
           <button type="button" disabled={current === 0} onClick={() => setPage(current - 1)}>
-            Previous issues
+            {t("Previous issues")}
           </button>
           <span>
             {current + 1} / {Math.ceil(issues.length / 10)}
@@ -173,7 +185,7 @@ export function IssueList({
             disabled={(current + 1) * 10 >= issues.length}
             onClick={() => setPage(current + 1)}
           >
-            Next issues
+            {t("Next issues")}
           </button>
         </div>
       )}

@@ -3,7 +3,8 @@ param(
     [ValidateSet('auto', 'x64', 'arm64')][string]$Architecture = 'auto',
     [string]$Python = 'python',
     [string]$Tag,
-    [switch]$SignedUpdater
+    [switch]$SignedUpdater,
+    [switch]$StoreLayout
 )
 
 $ErrorActionPreference = 'Stop'
@@ -27,6 +28,7 @@ if ($LASTEXITCODE -ne 0) { throw 'App manifests or release tag do not match.' }
 $workingChanges = git -C $repositoryRoot status --porcelain
 if ($LASTEXITCODE -ne 0) { throw 'Could not inspect release source state.' }
 $sourceDirty = [bool]$workingChanges
+if ($StoreLayout -and $SignedUpdater) { throw 'The Store owns updates for MSIX builds.' }
 if ($SignedUpdater) {
     if (-not $Tag) { throw 'Signed updater builds require a release tag at HEAD.' }
     if ($sourceDirty) {
@@ -69,12 +71,17 @@ try {
         $previousRustFlags + [char]31 + $remap
     } else { $remap }
     $tauriConfigs = @('--config', 'tauri.release.conf.json')
+    $features = 'custom-protocol'
+    if ($StoreLayout) {
+        $features = 'custom-protocol,microsoft-store'
+        $tauriConfigs += @('--no-bundle', '--config', '{"identifier":"com.meowcal.sub2.store"}')
+    }
     if ($SignedUpdater) {
         $updaterKeyConfig = @{ plugins = @{ updater = @{ pubkey = $env:MEOWCAL_UPDATER_PUBLIC_KEY } } } |
             ConvertTo-Json -Compress -Depth 4
         $tauriConfigs += @('--config', 'tauri.updater.conf.json', '--config', $updaterKeyConfig)
     }
-    npx --yes @tauri-apps/cli@2.11.4 build --target $target --features custom-protocol @tauriConfigs
+    npx --yes @tauri-apps/cli@2.11.4 build --target $target --features $features @tauriConfigs
     if ($LASTEXITCODE -ne 0) { throw "Tauri release build failed: $LASTEXITCODE" }
 } finally {
     $env:CARGO_ENCODED_RUSTFLAGS = $previousRustFlags
@@ -96,12 +103,14 @@ Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') -Destination $porta
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'output/third-party-licenses') -Destination $portable -Recurse
 $commit = git -C $repositoryRoot rev-parse HEAD
 if ($LASTEXITCODE -ne 0) { throw 'Could not resolve release source commit.' }
-@{ version = $version; architecture = $Architecture; sourceCommit = $commit; sourceDirty = $sourceDirty } |
-    ConvertTo-Json | Set-Content (Join-Path $portable 'release.json') -Encoding utf8
+$metadata = @{ version = $version; architecture = $Architecture; sourceCommit = $commit; sourceDirty = $sourceDirty }
+if ($StoreLayout) { $metadata.distribution = 'microsoft-store' }
+$metadata | ConvertTo-Json | Set-Content (Join-Path $portable 'release.json') -Encoding utf8
 & $Python (Join-Path $PSScriptRoot 'check_windows_package.py') $portable $Architecture
 if ($LASTEXITCODE -ne 0) { throw "Windows package validation failed: $LASTEXITCODE" }
 & $Python (Join-Path $PSScriptRoot 'smoke_packaged_backend.py') $portable
 if ($LASTEXITCODE -ne 0) { throw "Packaged backend smoke failed: $LASTEXITCODE" }
+if ($StoreLayout) { return }
 Compress-Archive -LiteralPath $portable -DestinationPath (Join-Path $distribution "$releaseName-portable.zip") -Force
 $installers = @(Get-ChildItem -Path (Join-Path $releaseDirectory 'bundle/nsis') -Filter '*-setup.exe')
 if ($installers.Count -ne 1) { throw 'Expected exactly one NSIS installer.' }

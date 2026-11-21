@@ -50,3 +50,7 @@ animation_ms = 220
 
 [debug]
 mode = false
+
+# Interface language: "system" follows Windows, or "en" / "zh-CN".
+[ui]
+language = "system"

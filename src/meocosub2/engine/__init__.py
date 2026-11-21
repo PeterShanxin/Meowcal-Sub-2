@@ -69,7 +69,6 @@ _install_lock = threading.Lock()
 _repair_error = ""
 _translation_ready_lock = asyncio.Lock()
 _ready_generation: int | None = None
-_ready_endpoint: str | None = None
 _embedding_start_lock = asyncio.Lock()
 _embedding_install_lock = asyncio.Lock()
 
@@ -95,15 +94,11 @@ def _status_from_result(result: dict[str, Any]) -> EngineStatus:
     model = str(result.get("model") or "")
     if result.get("ready") is True:
         acceleration = str(result.get("acceleration") or "").upper()
-        managed = result.get("managedConfig")
-        port = managed.get("port") if isinstance(managed, dict) else None
-        endpoint = f"http://127.0.0.1:{port}" if isinstance(port, int) else None
         suffix = f" ({acceleration})" if acceleration else ""
         return EngineStatus(
             "ready",
             f"Local translation is ready{suffix}.",
             model,
-            endpoint=endpoint,
             install_percent=100,
             accelerator=acceleration,
         )
@@ -178,14 +173,14 @@ def install_engine() -> EngineStatus:
     return EngineStatus("installing", job.message, install_percent=job.percent)
 
 
-async def ensure_ready(timeout_s: float = STARTUP_TIMEOUT_S) -> str:
+async def ensure_ready(timeout_s: float = STARTUP_TIMEOUT_S) -> None:
     """Ask Core to verify, start, and health-check the pinned HY-MT model."""
-    global _ready_endpoint, _ready_generation, _repair_error
+    global _ready_generation, _repair_error
     client = _core()
     async with _translation_ready_lock:
         generation = client.process_generation
-        if generation is not None and generation == _ready_generation and _ready_endpoint:
-            return _ready_endpoint
+        if generation is not None and generation == _ready_generation:
+            return
         try:
             result = await client.request("ready", {}, timeout_s=timeout_s)
         except CoreError as error:
@@ -196,21 +191,14 @@ async def ensure_ready(timeout_s: float = STARTUP_TIMEOUT_S) -> str:
             raise EngineStartError(str(error)) from error
         except CoreClientError as error:
             raise EngineStartError(str(error)) from error
-        managed = result.get("managedConfig")
         generation = client.process_generation
-        if (
-            not isinstance(managed, dict)
-            or not isinstance(managed.get("port"), int)
-            or generation is None
-        ):
+        if result.get("ready") is not True or generation is None:
             raise EngineStartError("Core returned an invalid ready configuration.")
         _ready_generation = generation
-        _ready_endpoint = f"http://127.0.0.1:{managed['port']}"
         with _install_lock:
             _repair_error = ""
             if _install_job is not None and _install_job.done:
                 _install_job.error = ""
-        return _ready_endpoint
 
 
 async def complete(request: dict[str, Any], timeout_s: float) -> dict[str, Any]:
@@ -234,9 +222,8 @@ async def complete(request: dict[str, Any], timeout_s: float) -> dict[str, Any]:
 
 
 def _invalidate_ready() -> None:
-    global _ready_endpoint, _ready_generation
+    global _ready_generation
     _ready_generation = None
-    _ready_endpoint = None
 
 
 async def ensure_embedding_ready(timeout_s: float = STARTUP_TIMEOUT_S) -> str:

@@ -17,6 +17,22 @@ from meocosub2.languages import (
 )
 
 DEFAULT_CAPTURE_INTERVAL_MS = 250
+DEFAULT_OVERLAY_PORT = 8766 if os.environ.get("MEOCOSUB2_DISTRIBUTION") == "store" else 8765
+OCR_ENGINES = ("auto", "windows", "ppOcrV6")
+# "system" follows the Windows display language; the studio resolves it.
+UI_LANGUAGES = ("system", "en", "zh-CN")
+
+
+def normalize_ocr_engine(value: object) -> str:
+    if not isinstance(value, str) or value not in OCR_ENGINES:
+        raise ValueError("OCR engine must be auto, windows or ppOcrV6")
+    return value
+
+
+def normalize_ui_language(value: object) -> str:
+    return value if isinstance(value, str) and value in UI_LANGUAGES else "system"
+
+
 # How far the viewer may drag the plate off the clock, in milliseconds either
 # way. Past a few seconds the plate is describing a different scene, so a wider
 # range would only let a mis-tap look like a broken session.
@@ -46,12 +62,13 @@ class AppConfig:
     capture_region: list[int] = field(default_factory=list)
     capture_interval_ms: int = DEFAULT_CAPTURE_INTERVAL_MS
     ocr_language: str = "en-US"
+    ocr_engine: str = "auto"
     fuzzy_threshold: int = 65
     match_window_size: int = 30
     match_window_backward: int = 5
     translation_timeout_s: int = 30
     sync_bias_ms: int = 0
-    overlay_port: int = 8765
+    overlay_port: int = DEFAULT_OVERLAY_PORT
     overlay_font_size: int = 28
     overlay_font_family: str = "Aptos"
     overlay_text_color: str = "#FFFFFF"
@@ -66,6 +83,7 @@ class AppConfig:
     overlay_offset_pct: int = 10
     overlay_animation_ms: int = 220
     debug_mode: bool = False
+    ui_language: str = "system"
 
 
 def normalize_sync_bias_ms(value: Any, fallback: int = 0) -> int:
@@ -92,8 +110,7 @@ def _capture_interval_ms(stored: object) -> int:
 
 
 def default_config_path() -> Path:
-    appdata = os.environ.get("APPDATA", str(Path.home()))
-    return Path(appdata) / "meowcal-sub-2" / "config.toml"
+    return Path(os.environ.get("APPDATA", str(Path.home()))) / "meowcal-sub-2" / "config.toml"
 
 
 def load_config(path: Path | None = None) -> AppConfig:
@@ -167,12 +184,13 @@ def load_config(path: Path | None = None) -> AppConfig:
             data.get("capture", {}).get("interval_ms", DEFAULT_CAPTURE_INTERVAL_MS)
         ),
         ocr_language=derive_ocr_language(source_language, ocr_language),
+        ocr_engine=normalize_ocr_engine(data.get("capture", {}).get("ocr_engine", "auto")),
         fuzzy_threshold=data.get("matching", {}).get("fuzzy_threshold", 65),
         match_window_size=data.get("matching", {}).get("window_size", 30),
         match_window_backward=data.get("matching", {}).get("window_backward", 5),
         translation_timeout_s=data.get("translation", {}).get("timeout_s", 30),
         sync_bias_ms=normalize_sync_bias_ms(data.get("sync", {}).get("bias_ms", 0)),
-        overlay_port=data.get("overlay", {}).get("port", 8765),
+        overlay_port=data.get("overlay", {}).get("port", DEFAULT_OVERLAY_PORT),
         overlay_font_size=data.get("overlay", {}).get("font_size", 28),
         overlay_font_family=data.get("overlay", {}).get("font_family", "Aptos"),
         overlay_text_color=data.get("overlay", {}).get("text_color", "#FFFFFF"),
@@ -187,6 +205,7 @@ def load_config(path: Path | None = None) -> AppConfig:
         overlay_offset_pct=data.get("overlay", {}).get("offset_pct", 10),
         overlay_animation_ms=data.get("overlay", {}).get("animation_ms", 220),
         debug_mode=_coerce_bool(data.get("debug", {}).get("mode", False), False),
+        ui_language=normalize_ui_language(data.get("ui", {}).get("language")),
     )
 
 
@@ -231,6 +250,7 @@ def save_config(config: AppConfig, path: Path | None = None) -> None:
             "region": config.capture_region,
             "interval_ms": config.capture_interval_ms,
             "ocr_language": derive_ocr_language(config.source_language, config.ocr_language),
+            "ocr_engine": normalize_ocr_engine(config.ocr_engine),
         },
         "matching": {
             "fuzzy_threshold": config.fuzzy_threshold,
@@ -261,6 +281,9 @@ def save_config(config: AppConfig, path: Path | None = None) -> None:
         },
         "debug": {
             "mode": config.debug_mode,
+        },
+        "ui": {
+            "language": config.ui_language,
         },
     }
     with config_path.open("wb") as handle:
@@ -323,6 +346,7 @@ def config_to_payload(config: AppConfig) -> dict[str, object]:
             "region": list(config.capture_region),
             "intervalMs": config.capture_interval_ms,
             "ocrLanguage": derive_ocr_language(config.source_language, config.ocr_language),
+            "ocrEngine": config.ocr_engine,
         },
         "matching": {
             "fuzzyThreshold": config.fuzzy_threshold,
@@ -341,6 +365,9 @@ def config_to_payload(config: AppConfig) -> dict[str, object]:
         },
         "debug": {
             "mode": config.debug_mode,
+        },
+        "ui": {
+            "language": config.ui_language,
         },
     }
 
@@ -395,6 +422,7 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
     translation = payload.get("translation", {})
     sync = payload.get("sync", {})
     overlay = payload.get("overlay", {})
+    ui = payload.get("ui", {})
 
     if not isinstance(subtitle_sources, dict):
         subtitle_sources = {}
@@ -412,6 +440,8 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
         sync = {}
     if not isinstance(overlay, dict):
         overlay = {}
+    if not isinstance(ui, dict):
+        ui = {}
 
     # Payload merges are intentionally partial because the dashboard can persist
     # one subsection at a time, such as language-only saves.
@@ -483,6 +513,7 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
             str(languages.get("source", base.source_language)),
             str(capture.get("ocrLanguage", base.ocr_language)),
         ),
+        ocr_engine=normalize_ocr_engine(capture.get("ocrEngine", base.ocr_engine)),
         fuzzy_threshold=_coerce_int(
             matching.get("fuzzyThreshold", base.fuzzy_threshold), base.fuzzy_threshold
         ),
@@ -532,4 +563,5 @@ def config_from_payload(payload: dict[str, object], fallback: AppConfig | None =
         debug_mode=_coerce_bool(
             payload.get("debug", {}).get("mode", base.debug_mode), base.debug_mode
         ),
+        ui_language=normalize_ui_language(ui.get("language", base.ui_language)),
     )
