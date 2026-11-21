@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections import deque
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
@@ -12,17 +13,17 @@ from time import perf_counter
 
 from meocosub2.playback_capture import PlaybackCaptureError
 from meocosub2.subtitle_gate import LineChange
-from meocosub2.textnorm import collapse_whitespace, is_cjk_char
+from meocosub2.textnorm import collapse_whitespace, is_cjk_char, normalize_ocr_spaced_cjk
 from meocosub2.translator import is_untranslatable
 
 logger = logging.getLogger(__name__)
 
-CONFIRM_WITHIN_S = 2.0
 CLEAR_AFTER_EMPTY_READS = 3
 MAX_QUEUE_AGE_S = 15.0
 MAX_QUEUE_DEPTH = 32
 MAX_SUCCESSOR_WAIT_S = 4.0
 DISPLAY_TICK_S = 0.025
+_PUNCTUATION_NOISE = re.compile(r"(?<!\d)[.,:，。：]|[.,:，。：](?!\d)|[!?;！？；、…]")
 _IDENTITY_EQUIVALENTS = str.maketrans({"’": "'", "‘": "'", "凈": "净", "淨": "净"})
 
 
@@ -86,19 +87,18 @@ class _CueQueue:
                 self._end_active(self._empty_since)
             return None
 
-        key = collapse_whitespace(text).rstrip(".,!?;:。，！？… ").translate(_IDENTITY_EQUIVALENTS)
-        key = key.lower()
+        # Keep decimal and time separators inside numbers: 2.5 is not 25.
+        key = _PUNCTUATION_NOISE.sub(" ", text).translate(_IDENTITY_EQUIVALENTS)
+        key = normalize_ocr_spaced_cjk(collapse_whitespace(key)).lower()
         self._empty_since = None
         self._empty_reads = 0
         if self._active is not None and self._active.key == key:
             self._candidate = None
             return LineChange.REPEAT
         candidate = self._candidate
-        if (
-            candidate is None
-            or candidate[0] != key
-            or not 0 < at - candidate[1] <= CONFIRM_WITHIN_S
-        ):
+        # Consecutive reads can be far apart when capture or recognition is slow.
+        # Empty reads, capture loss and region changes break confirmation instead.
+        if candidate is None or candidate[0] != key or at <= candidate[1]:
             self._candidate = (key, at, sample_s)
             return LineChange.UNSTABLE
 

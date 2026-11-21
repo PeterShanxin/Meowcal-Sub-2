@@ -716,6 +716,34 @@ async def test_ocr_fallback_drops_backlog_after_a_severe_stall(monkeypatch, capl
     assert f"skipped {cue_count - 1} backlogged cues" in caplog.text
 
 
+@pytest.mark.parametrize("interval", [0.2, 2.5], ids=["delayed-read", "slow-setting"])
+async def test_ocr_fallback_confirms_consecutive_reads_after_a_long_sample(interval):
+    from meocosub2.ocr_fallback import _CueQueue
+    from meocosub2.subtitle_gate import LineChange
+
+    queue = _CueQueue(interval)
+    assert queue.observe("The train is late.", 100.0) is LineChange.UNSTABLE
+    assert queue.observe("The train is late.", 102.5) is LineChange.NEW
+
+
+@pytest.mark.parametrize(
+    ("with_mark", "plain"), [("Hello, there", "Hello there"), ("你好，朋友", "你好朋友")]
+)
+async def test_ocr_fallback_ignores_internal_punctuation_jitter(with_mark, plain):
+    translator = MagicMock(translate=AsyncMock(side_effect=lambda text: text))
+    session = DirectTranslationSession([], config(), translator_factory(translator))
+    reads = [with_mark] * 2 + [plain] * 2 + [with_mark] * 2
+    assert await drive(session, config(), reads) == [with_mark]
+    translator.translate.assert_awaited_once_with(with_mark)
+
+
+async def test_ocr_fallback_keeps_meaningful_numeric_punctuation():
+    translator = MagicMock(translate=AsyncMock(side_effect=lambda text: text))
+    session = DirectTranslationSession([], config(), translator_factory(translator))
+    reads = ["Take 2.5."] * 2 + ["Take 25."] * 2
+    assert await drive(session, config(), reads) == ["Take 2.5.", "Take 25."]
+
+
 async def test_ocr_fallback_distinguishes_changed_numbers_from_ocr_punctuation():
     translator = MagicMock(translate=AsyncMock(side_effect=lambda text: text))
     session = DirectTranslationSession([], config(), translator_factory(translator))
