@@ -31,10 +31,11 @@ export default defineConfig({
   plugins: [react(), cleanAssets],
   base: "/static/",
   build: {
+    target: ["chrome107", "edge107", "firefox104", "safari16"],
     outDir: staticDir,
     emptyOutDir: false,
     assetsDir: "assets",
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         entryFileNames: "assets/[name]-[hash].js",
         chunkFileNames: "assets/[name]-[hash].js",
