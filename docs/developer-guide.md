@@ -282,6 +282,10 @@ a shell rebuild.
    compares translated screen captions with the target file. Once located, Paths
    1 and 2 use the same timed display. Path 3 joins it when the generated track
    is ready. Path 4 displays live translations from the selected screen area.
+   It queues confirmed reads in capture order without blocking OCR on inference.
+   Late answers get a reading interval; after 15 seconds of backlog or 32 queued
+   cues, the queue skips older work to catch up. Region changes, capture loss,
+   and stopping discard pending work. This queue does not drive any file track.
 
 The two-file path answers two timing questions. Preparation relates the clocks
 in the two files. During playback, OCR establishes where the viewer is on the

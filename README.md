@@ -36,6 +36,8 @@ it can translate locally through [Meowcal Core](docs/MEOWCAL_CORE.md).
   original files stay intact.
 - Edit SRT/WebVTT text and timing before sync, preview drift corrections, and use
   corrected copies directly in the prepared session.
+- Without subtitle files, translate directly from the screen. The main branch
+  displays confirmed captions in order, skipping stale cues if it falls far behind.
 - Select a capture region and change subtitle appearance from the app.
 - Use the interface in English or Simplified Chinese. It follows the
   Windows display language unless you choose one in Settings.

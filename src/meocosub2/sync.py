@@ -21,6 +21,7 @@ from meocosub2.gapfill import fill_gaps
 from meocosub2.live_translation import LiveTranslator
 from meocosub2.matcher import BOTH, FOLLOW_GRACE_MS, SubtitleMatcher
 from meocosub2.models import MatchResult, SourceSubtitleCandidate, SubtitleLine
+from meocosub2.ocr_fallback import run_ocr_fallback
 from meocosub2.playback_capture import PlaybackCapture, PlaybackCaptureError
 from meocosub2.playback_observation import PlaybackObserver
 from meocosub2.presentation import PresentationTrack
@@ -568,6 +569,32 @@ async def run_session_loop(
     # Read the region every frame: the live dock can reselect it without stopping.
     read_region = region_source or (lambda: tuple(config.capture_region))
     interval_s = config.capture_interval_ms / 1000
+    if isinstance(session, DirectTranslationSession) and session.target is None:
+
+        async def read_text(region: tuple[int, ...]) -> str:
+            try:
+                image = await asyncio.to_thread(capture_region, region)
+            except Exception as error:
+                raise PlaybackCaptureError("OCR fallback capture unavailable") from error
+            return await ocr_image(image, config.ocr_language, engine=config.ocr_engine)
+
+        async def publish_fallback(text: str) -> None:
+            await broadcast(text, TRANSLATED if text else MATCHED)
+
+        try:
+            await run_ocr_fallback(
+                read_region,
+                read_text,
+                session.translate_read,
+                publish_fallback,
+                interval_s,
+                config.translation_timeout_s,
+                debug_broadcast,
+            )
+        finally:
+            session.close()
+        return
+
     gate = SubtitleGate(require_stable_read=isinstance(session, DirectTranslationSession))
     playback_capture = PlaybackCapture(PlaybackObserver())
     target = session.target if isinstance(session, DirectTranslationSession) else None
