@@ -10,6 +10,7 @@ import type {
   WorkItem,
   WorkSeasonItem,
 } from "../lib/types";
+import { localizeError, localizeMessage, t } from "../i18n";
 import { DisclosureChevron, InfoChipRow, Kbd, PaletteTabs } from "./primitives";
 import { episodeHydrateKey, seasonHydrateKey } from "../state/mappers";
 
@@ -50,6 +51,7 @@ interface PaletteProps {
   onHydrateEpisode: (workId: string, season: number, episode: number) => void;
   onPickSource: (id: string) => void;
   onPickTarget: (id: string) => void;
+  onTranslateScreen: (() => void) | null;
   onPrimary: () => void;
   inputRef: RefObject<HTMLInputElement>;
   sourceLang: string;
@@ -104,6 +106,7 @@ export function Palette(props: PaletteProps): JSX.Element {
     onHydrateEpisode,
     onPickSource,
     onPickTarget,
+    onTranslateScreen,
     onPrimary,
     inputRef,
     sourceLang,
@@ -220,30 +223,31 @@ export function Palette(props: PaletteProps): JSX.Element {
   // A row lookup marks its own row; only a query search speaks for the list.
   const listSearching = searching && hydrating.length === 0;
   const tabs = [
-    { id: "titles", label: "Titles", count: works.length },
-    { id: "source", label: "Source", count: hasSelectedEpisode ? sources.length : 0 },
-    { id: "target", label: "Target", count: hasSelectedEpisode ? targets.length : 0 },
+    { id: "titles", label: t("Titles"), count: works.length },
+    {
+      id: "source",
+      label: t("Source"),
+      count: hasSelectedEpisode ? sources.filter((item) => item.raw).length : 0,
+    },
+    { id: "target", label: t("Target"), count: hasSelectedEpisode ? targets.length : 0 },
   ];
 
   // With no episode picked there is nothing to filter, so the box is still the
   // title search however the tabs happen to be sitting.
   const placeholder = !hasSelectedEpisode
-    ? "Search for a title…"
+    ? t("Search for a title…")
     : tab === "source"
-      ? "Filter source subtitles…"
+      ? t("Filter source subtitles…")
       : tab === "target"
-        ? "Filter target subtitles…"
-        : "Search for a title…";
+        ? t("Filter target subtitles…")
+        : t("Search for a title…");
 
   const pickedSource = sources.find((item) => item.id === selectedSourceId) ?? null;
   const pickedTarget = targets.find((item) => item.id === selectedTargetId) ?? null;
   const sourceLabel = pickedSource?.file ?? null;
   const targetLabel = pickedTarget?.title ?? pickedTarget?.file ?? null;
   const canStart = phase === "prep" && !preparingReplacement && !preparing;
-  // The footer offers one step: the one after whichever list is open. Offering
-  // all three at once left the reader to work out which was the one to press.
-  // A prepared session outranks the tabs — otherwise browsing back to an
-  // earlier list took away the only way to start what is already ready.
+  const translateScreen = !hasSelectedEpisode && !canStart ? onTranslateScreen : null;
   const stage: "source" | "target" | "start" = canStart
     ? "start"
     : tab === "titles"
@@ -252,30 +256,28 @@ export function Palette(props: PaletteProps): JSX.Element {
         ? "target"
         : "start";
   const primaryLabel = preparing
-    ? "Preparing"
-    : stage === "source"
-      ? "Select source subtitle"
-      : stage === "target"
-        ? "Select target subtitle"
-        : "Start OCR and sync";
-  const primaryEnabled = preparing
-    ? false
-    : stage === "source"
-      ? true
-      : stage === "target"
-        ? !!sourceLabel
-        : canStart;
+    ? t("Preparing")
+    : translateScreen
+      ? t("Translate on-screen subtitles")
+      : stage === "source"
+        ? t("Select source subtitle")
+        : stage === "target"
+          ? t("Select target subtitle")
+          : t("Start OCR and sync");
+  const primaryEnabled =
+    !preparing &&
+    (!!translateScreen || stage === "source" || (stage === "target" ? !!sourceLabel : canStart));
   const startHint = preparing
-    ? "Downloading the subtitles you picked…"
+    ? t("Downloading the subtitles you picked…")
     : stage === "source"
-      ? "The subtitles burned into the picture"
+      ? t("The subtitles burned into the picture")
       : stage === "target"
         ? sourceLabel
-          ? "The language you want to read"
-          : "Pick a source subtitle first"
+          ? t("The language you want to read")
+          : t("Pick a source subtitle first")
         : canStart
-          ? "Draw the on-screen subtitle area, then sync starts"
-          : "Pick a target subtitle first";
+          ? t("Draw the on-screen subtitle area, then sync starts")
+          : t("Pick a target subtitle first");
 
   return (
     <div
@@ -349,7 +351,7 @@ export function Palette(props: PaletteProps): JSX.Element {
         >
           <button
             type="button"
-            aria-label={`Source language: ${sourceLang}`}
+            aria-label={t("Source language: {language}", { language: sourceLang })}
             aria-expanded={openDrop === "source"}
             onClick={() => setOpenDrop(openDrop === "source" ? null : "source")}
             style={{
@@ -380,7 +382,7 @@ export function Palette(props: PaletteProps): JSX.Element {
           </svg>
           <button
             type="button"
-            aria-label={`Target language: ${targetLang}`}
+            aria-label={t("Target language: {language}", { language: targetLang })}
             aria-expanded={openDrop === "target"}
             onClick={() => setOpenDrop(openDrop === "target" ? null : "target")}
             style={{
@@ -420,7 +422,7 @@ export function Palette(props: PaletteProps): JSX.Element {
                   letterSpacing: 1,
                 }}
               >
-                {openDrop === "source" ? "Source language" : "Target language"}
+                {openDrop === "source" ? t("Source language") : t("Target language")}
               </div>
               {langOptions.map((opt) => {
                 const active =
@@ -457,7 +459,7 @@ export function Palette(props: PaletteProps): JSX.Element {
                       if (!active) e.currentTarget.style.background = "transparent";
                     }}
                   >
-                    <span>{opt.label}</span>
+                    <span>{t(opt.label)}</span>
                     <span
                       style={{
                         fontSize: 10,
@@ -535,11 +537,11 @@ export function Palette(props: PaletteProps): JSX.Element {
                 emptyLookups={emptyLookups}
                 emptyHint={
                   totalWorksCount > 0
-                    ? "No titles match these filters"
+                    ? t("No titles match these filters")
                     : errorMessage
-                      ? "No results — the search did not finish"
+                      ? t("No results — the search did not finish")
                       : searchedQuery
-                        ? `No titles found for “${searchedQuery}”`
+                        ? t("No titles found for “{query}”", { query: searchedQuery })
                         : undefined
                 }
               />
@@ -555,16 +557,16 @@ export function Palette(props: PaletteProps): JSX.Element {
               onPick={onPickSource}
             />
           ) : (
-            <EmptyTab hint="Pick a title (and episode) first" />
+            <EmptyTab hint={t("Pick a title (and episode) first")} />
           ))}
         {tab === "target" &&
           (!hasSelectedEpisode ? (
-            <EmptyTab hint="Pick a title (and episode) first" />
+            <EmptyTab hint={t("Pick a title (and episode) first")} />
           ) : inspectingSource ? (
             // The chosen source may answer itself, and only reading it says so.
             // Offering the list before the answer lands would invite a choice
             // that the row about to appear at the top of it makes unnecessary.
-            <EmptyTab hint="Reading the source subtitles…" />
+            <EmptyTab hint={t("Reading the source subtitles…")} />
           ) : (
             <TargetList
               items={targets}
@@ -591,16 +593,16 @@ export function Palette(props: PaletteProps): JSX.Element {
         {/* The step button is the one thing here a narrow window cannot lose. */}
         <span className="palette-key-hints">
           <Kbd dim>↑↓←→</Kbd>
-          <span>Navigate</span>
+          <span>{t("Navigate")}</span>
           <Kbd dim>↵</Kbd>
-          <span>Select</span>
+          <span>{t("Select")}</span>
         </span>
         <div style={{ flex: 1 }} />
-        {hasSelectedEpisode || canStart ? (
+        {hasSelectedEpisode || canStart || translateScreen ? (
           <>
             {sourceLabel && (
               <PickedChip
-                label="Source"
+                label={t("Source")}
                 value={sourceLabel}
                 active={tab === "source"}
                 onClick={() => onTabChange("source")}
@@ -608,7 +610,7 @@ export function Palette(props: PaletteProps): JSX.Element {
             )}
             {targetLabel && (
               <PickedChip
-                label="Target"
+                label={t("Target")}
                 value={targetLabel}
                 active={tab === "target"}
                 onClick={() => onTabChange("target")}
@@ -617,9 +619,9 @@ export function Palette(props: PaletteProps): JSX.Element {
             <button
               type="button"
               className="accent-button"
-              onClick={onPrimary}
+              onClick={translateScreen ?? onPrimary}
               disabled={!primaryEnabled}
-              title={startHint}
+              title={translateScreen ? undefined : startHint}
               style={{
                 ...primaryStyle,
                 flexShrink: 0,
@@ -630,11 +632,11 @@ export function Palette(props: PaletteProps): JSX.Element {
             >
               {preparing && <span className="mini-spinner" aria-hidden />}
               {primaryLabel}
-              {primaryEnabled && <Kbd>Ctrl ↵</Kbd>}
+              {primaryEnabled && !translateScreen && <Kbd>Ctrl ↵</Kbd>}
             </button>
           </>
         ) : (
-          <span>Pick a title to continue</span>
+          <span>{t("Pick a title to continue")}</span>
         )}
       </div>
     </div>
@@ -656,17 +658,17 @@ function ErrorBar({
       <span className="palette-error-mark" aria-hidden>
         !
       </span>
-      <span className="palette-error-text">{message}</span>
+      <span className="palette-error-text">{localizeError(message)}</span>
       {onRetry && (
         <button className="palette-error-action" type="button" onClick={onRetry}>
-          Try again
+          {t("Try again")}
         </button>
       )}
       <button
         className="palette-error-dismiss"
         type="button"
         onClick={onDismiss}
-        aria-label="Dismiss this message"
+        aria-label={t("Dismiss this message")}
       >
         ×
       </button>
@@ -707,7 +709,7 @@ function PickedChip({
       }}
     >
       <span style={{ color: "var(--ok-hex)" }}>✓</span>
-      <span style={{ color: "var(--text-label)" }}>{label}</span>
+      <span style={{ color: "var(--text-label)", whiteSpace: "nowrap" }}>{label}</span>
       <span
         style={{
           overflow: "hidden",
@@ -736,7 +738,7 @@ function RecommendedBadge(): JSX.Element {
         flexShrink: 0,
       }}
     >
-      RECOMMENDED
+      {t("RECOMMENDED")}
     </span>
   );
 }
@@ -779,10 +781,10 @@ function TitleFilters({
   onClearSeasons: () => void;
 }): JSX.Element {
   const filters: Array<{ id: TitleMediaFilter; label: string }> = [
-    { id: "all", label: "All" },
-    { id: "series", label: "TV Shows" },
-    { id: "movie", label: "Movies" },
-    { id: "specials", label: "OVA / Specials" },
+    { id: "all", label: t("All") },
+    { id: "series", label: t("TV Shows") },
+    { id: "movie", label: t("Movies") },
+    { id: "specials", label: t("OVA / Specials") },
   ];
   const showSeasons =
     availableSeasons.length > 0 && (mediaFilter === "series" || selectedSeasons.length > 0);
@@ -811,12 +813,12 @@ function TitleFilters({
         </div>
         <div style={{ flex: 1 }} />
         {searching ? (
-          <RowBusy label={statusMessage || "Searching"} />
+          <RowBusy label={statusMessage ? localizeMessage(statusMessage) : t("Searching")} />
         ) : (
           <span style={{ fontSize: 11.5, color: "var(--text-dim)", whiteSpace: "nowrap" }}>
             {filteredCount === totalCount
-              ? `${totalCount} shown`
-              : `${filteredCount} of ${totalCount}`}
+              ? t("{count} shown", { count: totalCount })
+              : t("{shown} of {total}", { shown: filteredCount, total: totalCount })}
           </span>
         )}
       </div>
@@ -830,18 +832,18 @@ function TitleFilters({
               letterSpacing: 1,
             }}
           >
-            Seasons
+            {t("Seasons")}
           </span>
           <FilterChip
             active={selectedSeasons.length === 0}
-            label="All seasons"
+            label={t("All seasons")}
             onClick={onClearSeasons}
           />
           {availableSeasons.map((season) => (
             <FilterChip
               key={season}
               active={selectedSeasons.includes(season)}
-              label={season > 0 ? `S${season}` : "SP"}
+              label={season > 0 ? t("S{number}", { number: season }) : t("SP")}
               onClick={() => onToggleSeason(season)}
             />
           ))}
@@ -974,12 +976,14 @@ function WorkList({
         <div className="empty-searching">
           <div className="empty-searching-card">
             <span className="empty-searching-spinner" aria-hidden />
-            <span>{searchStatusMessage || "Searching"}</span>
+            <span>
+              {searchStatusMessage ? localizeMessage(searchStatusMessage) : t("Searching")}
+            </span>
           </div>
         </div>
       );
     }
-    return <EmptyTab hint={emptyHint ?? "Type a title and press ↵ to search"} />;
+    return <EmptyTab hint={emptyHint ?? t("Type a title and press ↵ to search")} />;
   }
 
   const busy = new Set(hydrating);
@@ -1156,7 +1160,7 @@ function WorkRow({
             onError={() => setPosterFailed(true)}
           />
         )}
-        {!posterUrl && <span>{work.mediaType === "movie" ? "MOV" : "TV"}</span>}
+        {!posterUrl && <span>{work.mediaType === "movie" ? t("MOV") : t("TV")}</span>}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
@@ -1176,7 +1180,9 @@ function WorkRow({
         </div>
         <div style={{ fontSize: 12.5, color: "var(--text-label)", marginTop: 3 }}>
           {work.year} · {work.type}
-          {work.totalSubtitles > 0 ? ` · ${work.totalSubtitles.toLocaleString()} subs` : ""}
+          {work.totalSubtitles > 0
+            ? ` · ${t("{count} subs", { count: work.totalSubtitles.toLocaleString() })}`
+            : ""}
         </div>
         <InfoChipRow chips={work.chips} max={4} />
       </div>
@@ -1224,10 +1230,12 @@ function SeasonRow({
       <DisclosureChevron open={open} />
       <div style={{ flex: 1, fontSize: 13.5, color: "var(--text-body)" }}>{season.label}</div>
       {busy ? (
-        <RowBusy label="Looking up episodes" />
+        <RowBusy label={t("Looking up episodes")} />
       ) : (
         <span style={{ fontSize: 11, color: "var(--text-label)" }}>
-          {season.episodes.length} ep{season.episodes.length === 1 ? "" : "s"}
+          {season.episodes.length === 1
+            ? t("1 ep")
+            : t("{count} eps", { count: season.episodes.length })}
         </span>
       )}
       {focused && !busy && <Kbd>↵</Kbd>}
@@ -1300,16 +1308,20 @@ function EpisodeRow({
         {label}
       </span>
       {subtitles > 0 && !busy && (
-        <span style={{ fontSize: 10.5, color: "var(--text-label)" }}>{subtitles} subs</span>
+        <span style={{ fontSize: 10.5, color: "var(--text-label)" }}>
+          {t("{count} subs", { count: subtitles })}
+        </span>
       )}
-      {busy && <RowBusy label="Searching" />}
+      {busy && <RowBusy label={t("Searching")} />}
       {skeleton && hydratable && !busy && !focused && (
-        <span style={{ fontSize: 10.5, color: "var(--accent-text)" }}>Search</span>
+        <span style={{ fontSize: 10.5, color: "var(--accent-text)" }}>{t("Search")}</span>
       )}
       {exhausted && !busy && (
-        <span style={{ fontSize: 10.5, color: "var(--text-label)" }}>No subtitles found</span>
+        <span style={{ fontSize: 10.5, color: "var(--text-label)" }}>
+          {t("No subtitles found")}
+        </span>
       )}
-      {focused && !busy && !exhausted && <Kbd>{skeleton ? "Search" : "↵"}</Kbd>}
+      {focused && !busy && !exhausted && <Kbd>{skeleton ? t("Search") : "↵"}</Kbd>}
     </button>
   );
 }
@@ -1334,7 +1346,7 @@ function SubList({
   cursorIndex: number;
   onPick: (id: string) => void;
 }): JSX.Element {
-  if (items.length === 0) return <EmptyTab hint="No subtitles for this episode" />;
+  if (items.length === 0) return <EmptyTab hint={t("No subtitles for this episode")} />;
   return (
     <div style={{ padding: "6px 0" }}>
       {items.map((r, i) => {
@@ -1372,6 +1384,7 @@ function SubList({
             <div style={{ flex: 1, minWidth: 0 }}>
               <div
                 className="mono"
+                title={r.file}
                 style={{
                   fontSize: 14,
                   color: "var(--text-body)",
@@ -1383,11 +1396,14 @@ function SubList({
                 {r.file}
               </div>
               <div style={{ fontSize: 12, color: "var(--text-label)", marginTop: 3 }}>
-                {r.provider} · {r.downloads} downloads
+                {r.note ??
+                  `${r.detail} · ${r.provider} · ${t("{count} downloads", { count: r.downloads })}`}
                 {r.trusted && (
-                  <span style={{ color: "var(--accent-text)", marginLeft: 8 }}>✓ Trusted</span>
+                  <span style={{ color: "var(--accent-text)", marginLeft: 8 }}>
+                    {t("✓ Trusted")}
+                  </span>
                 )}
-                {r.hi && <span style={{ marginLeft: 8 }}>HI</span>}
+                {r.hi && <span style={{ marginLeft: 8 }}>{t("HI")}</span>}
               </div>
             </div>
             {r.recommended && <RecommendedBadge />}
@@ -1410,7 +1426,7 @@ function TargetList({
   cursorIndex: number;
   onPick: (id: string) => void;
 }): JSX.Element {
-  if (items.length === 0) return <EmptyTab hint="No targets available" />;
+  if (items.length === 0) return <EmptyTab hint={t("No targets available")} />;
   return (
     <div style={{ padding: "6px 0" }}>
       {items.map((r, i) => {
@@ -1480,6 +1496,7 @@ function TargetList({
             <div style={{ flex: 1, minWidth: 0 }}>
               <div
                 className={isSpecial ? "" : "mono"}
+                title={r.file}
                 style={{
                   fontSize: 14,
                   color: "var(--text-body)",
@@ -1492,7 +1509,8 @@ function TargetList({
                 {r.title ?? r.file}
               </div>
               <div style={{ fontSize: 12, color: "var(--text-label)", marginTop: 3 }}>
-                {r.note ?? `${r.provider} · ${r.downloads} downloads`}
+                {r.note ??
+                  `${r.detail} · ${r.provider} · ${t("{count} downloads", { count: r.downloads ?? "—" })}`}
               </div>
             </div>
             {r.recommended && <RecommendedBadge />}
@@ -1509,7 +1527,7 @@ function TargetList({
                   flexShrink: 0,
                 }}
               >
-                AUTO
+                {t("AUTO")}
               </span>
             )}
             {focused && <Kbd>↵</Kbd>}

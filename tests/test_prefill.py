@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from meocosub2.config import AppConfig
-from meocosub2.models import SubtitleLine
+from meocosub2.models import SubtitleLine, SubtitlePair
 from meocosub2.prefill import fill_before_the_session
 
 
@@ -46,7 +46,7 @@ async def test_the_unpaired_cues_are_answered_and_each_one_reported(mocker, capl
         reported.append(filled)
 
     with caplog.at_level(logging.DEBUG, logger="meocosub2.gapfill"):
-        outcome = await fill_before_the_session(episode, AppConfig(), progress)
+        outcome = await fill_before_the_session(SubtitlePair(episode), AppConfig(), progress)
 
     assert outcome.filled == 2
     assert [line.translated for line in episode] == ["t0", "answered s1", "t2", "answered s3"]
@@ -79,7 +79,9 @@ async def test_the_engine_client_is_let_go_when_the_session_starts(mocker) -> No
     async def progress(filled: int) -> None:
         return None
 
-    task = asyncio.create_task(fill_before_the_session(episode, AppConfig(), progress))
+    task = asyncio.create_task(
+        fill_before_the_session(SubtitlePair(episode), AppConfig(), progress)
+    )
     await asking.wait()
     task.cancel()
     with pytest.raises(asyncio.CancelledError):

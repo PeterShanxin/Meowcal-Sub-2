@@ -107,13 +107,25 @@ def main(
     _setup_logging(verbose=verbose)
 
 
+def studio_http_server(overlay: OverlayServer) -> uvicorn.Server:
+    # Windows can keep waiting for a reset browser transport even after every
+    # request is finished. Let teardown proceed to the studio's lifespan cleanup.
+    return uvicorn.Server(
+        uvicorn.Config(
+            overlay.app,
+            host="127.0.0.1",
+            port=overlay.config.overlay_port,
+            log_level="error",
+            timeout_graceful_shutdown=5,
+        )
+    )
+
+
 async def _serve_studio(config: AppConfig) -> None:
     _ensure_websocket_runtime()
     token = auth.generate_token()
     overlay = OverlayServer(config, access_token=token)
-    server = uvicorn.Server(
-        uvicorn.Config(overlay.app, host="127.0.0.1", port=config.overlay_port, log_level="error")
-    )
+    server = studio_http_server(overlay)
     serving = asyncio.create_task(server.serve())
     published = False
     try:

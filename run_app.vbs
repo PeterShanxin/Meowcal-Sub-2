@@ -9,7 +9,6 @@ repoRoot = fso.GetParentFolderName(WScript.ScriptFullName)
 shellPath = repoRoot & "\src-tauri\target\debug\meowcal-sub-2-shell.exe"
 corePath = repoRoot & "\src-tauri\resources\core\meowcal-core.exe"
 coreLockPath = repoRoot & "\config\meowcal-core.lock.json"
-webviewDataPath = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\com.meowcal.sub2\EBWebView"
 eventLogOverride = WshShell.ExpandEnvironmentStrings("%MEOCOSUB2_EVENT_LOG_PATH%")
 If eventLogOverride <> "" And eventLogOverride <> "%MEOCOSUB2_EVENT_LOG_PATH%" Then
   eventLogPath = eventLogOverride
@@ -114,70 +113,26 @@ Sub LogEvent(eventName, fieldsJson)
   On Error GoTo 0
 End Sub
 
-Sub RunCleanup()
-  Dim command
-  LogEvent "launcher.cleanup.start", """repoRoot"":""" & JsonEscape(repoRoot) & """"
-  command = "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command " & Chr(34) & _
-    "$ErrorActionPreference='SilentlyContinue'; " & _
-    "for($i = 0; $i -lt 2; $i++) { " & _
-    "Get-Process -Name 'meowcal-sub-2-shell' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; " & _
-    "Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') -and ($_.CommandLine -like '*meocosub2.cli serve*') } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; " & _
-    "Get-NetTCPConnection -State Listen -LocalPort 8765 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }; " & _
-    "Start-Sleep -Milliseconds 300 " & _
-    "}" & Chr(34)
-  WshShell.Run command, 0, True
-  LogEvent "launcher.cleanup.done", """port"":8765"
+Sub StopCheckoutShell()
+  Dim result
+  result = WshShell.Run("powershell -NoProfile -ExecutionPolicy Bypass -File """ & repoRoot & "\scripts\prepare-checkout-launch.ps1""", 0, True)
+  If result <> 0 Then
+    MsgBox "The previous development window could not be stopped. Close it and try again.", vbExclamation, "Meowcal Sub 2"
+    WScript.Quit result
+  End If
 End Sub
 
-Function CheckFolderNewer(folderPath, exeTime)
-  CheckFolderNewer = False
-  If Not fso.FolderExists(folderPath) Then Exit Function
-  Dim folder, file, subFolder
-  Set folder = fso.GetFolder(folderPath)
-  For Each file In folder.Files
-    If LCase(Right(file.Name, 3)) = ".rs" Then
-      If file.DateLastModified > exeTime Then
-        CheckFolderNewer = True
-        Exit Function
-      End If
-    End If
-  Next
-  For Each subFolder In folder.SubFolders
-    If CheckFolderNewer(subFolder.Path, exeTime) Then
-      CheckFolderNewer = True
-      Exit Function
-    End If
-  Next
-End Function
-
-Function IsRebuildNeeded()
-  If Not fso.FileExists(shellPath) Then
-    IsRebuildNeeded = True
-    Exit Function
+Sub CheckStudioPort()
+  Dim python, result
+  python = processEnv("MEOWCAL_PYTHON")
+  If Not fso.FileExists(python) Then python = repoRoot & "\.venv\Scripts\python.exe"
+  If Not fso.FileExists(python) Then python = "python"
+  result = WshShell.Run(Chr(34) & python & Chr(34) & " """ & repoRoot & "\scripts\check_checkout_port.py""", 0, True)
+  If result <> 0 Then
+    MsgBox "Could not start the studio on the configured port. Close the program using that port or change [overlay] port in config.toml. Check that the development Python environment is installed.", vbExclamation, "Meowcal Sub 2"
+    WScript.Quit result
   End If
-  Dim exeTime
-  exeTime = fso.GetFile(shellPath).DateLastModified
-  Dim f
-  For Each f In Array( _
-    repoRoot & "\src-tauri\Cargo.toml", _
-    repoRoot & "\src-tauri\tauri.conf.json", _
-    repoRoot & "\src-tauri\build.rs", _
-    corePath, _
-    repoRoot & "\Cargo.lock" _
-  )
-    If fso.FileExists(f) Then
-      If fso.GetFile(f).DateLastModified > exeTime Then
-        IsRebuildNeeded = True
-        Exit Function
-      End If
-    End If
-  Next
-  If CheckFolderNewer(repoRoot & "\src-tauri\src", exeTime) Then
-    IsRebuildNeeded = True
-    Exit Function
-  End If
-  IsRebuildNeeded = False
-End Function
+End Sub
 
 Function CheckUIFolderNewer(folderPath, refTime)
   CheckUIFolderNewer = False
@@ -186,7 +141,7 @@ Function CheckUIFolderNewer(folderPath, refTime)
   Set folder = fso.GetFolder(folderPath)
   For Each file In folder.Files
     ext = LCase(fso.GetExtensionName(file.Name))
-    If ext = "ts" Or ext = "tsx" Or ext = "js" Or ext = "jsx" Or ext = "css" Or ext = "html" Then
+    If ext = "ts" Or ext = "tsx" Or ext = "js" Or ext = "jsx" Or ext = "css" Or ext = "html" Or ext = "json" Then
       If file.DateLastModified > refTime Then
         CheckUIFolderNewer = True
         Exit Function
@@ -215,6 +170,7 @@ Function IsUIRebuildNeeded()
     uiDir & "\index.html", _
     uiDir & "\vite.config.ts", _
     uiDir & "\package.json", _
+    uiDir & "\package-lock.json", _
     uiDir & "\tsconfig.json" _
   )
     If fso.FileExists(f) Then
@@ -233,7 +189,8 @@ End Function
 
 WshShell.CurrentDirectory = repoRoot
 LogEvent "launcher.start", """repoRoot"":""" & JsonEscape(repoRoot) & """,""forceRebuild"":" & LCase(CStr(forceRebuild))
-RunCleanup
+StopCheckoutShell
+WshShell.Environment("PROCESS")("MEOWCAL_CORE_PROFILE") = "development"
 
 LogEvent "launcher.core.prepare.start", """lockPath"": """ & JsonEscape(coreLockPath) & """"
 coreResult = WshShell.Run( _
@@ -248,31 +205,29 @@ If coreResult <> 0 Then
 End If
 LogEvent "launcher.core.prepare.done", """path"": """ & JsonEscape(corePath) & """"
 
-' Only wipe WebView cache on explicit --rebuild (forces full WebView reinit otherwise)
-If forceRebuild And fso.FolderExists(webviewDataPath) Then
-  On Error Resume Next
-  fso.DeleteFolder webviewDataPath, True
-  On Error GoTo 0
-  LogEvent "launcher.webview_cache.deleted", """path"":""" & JsonEscape(webviewDataPath) & """"
-End If
-
 If forceRebuild Or IsUIRebuildNeeded() Then
   WshShell.CurrentDirectory = uiDir
   LogEvent "launcher.ui_build.start", """cwd"":""" & JsonEscape(uiDir) & """"
-  WshShell.Run "cmd /c npm run build", 1, True
+  uiResult = WshShell.Run("cmd /c npm run build", 1, True)
+  If uiResult <> 0 Then
+    MsgBox "The studio build failed. Check the build output before launching again.", vbCritical, "Meowcal Sub 2"
+    WScript.Quit uiResult
+  End If
   LogEvent "launcher.ui_build.done", """cwd"":""" & JsonEscape(uiDir) & """"
 End If
 
-If forceRebuild Or IsRebuildNeeded() Then
-  WshShell.CurrentDirectory = repoRoot & "\src-tauri"
-  LogEvent "launcher.shell_build.start", """cwd"":""" & JsonEscape(WshShell.CurrentDirectory) & """"
-  buildResult = WshShell.Run("cmd /c cargo build 2>&1 && echo BUILD_OK || echo BUILD_FAILED", 1, True)
-  LogEvent "launcher.shell_build.done", """exitCode"":" & CStr(buildResult)
+WshShell.CurrentDirectory = repoRoot & "\src-tauri"
+LogEvent "launcher.shell_build.start", """cwd"":""" & JsonEscape(WshShell.CurrentDirectory) & """"
+buildResult = WshShell.Run("cargo build --locked", 0, True)
+LogEvent "launcher.shell_build.done", """exitCode"":" & CStr(buildResult)
+If buildResult <> 0 Then
+  MsgBox "The desktop build failed. Run cargo build --locked in src-tauri to see the error.", vbCritical, "Meowcal Sub 2"
+  WScript.Quit buildResult
 End If
 
+CheckStudioPort
 If fso.FileExists(shellPath) Then
   LogEvent "launcher.shell.launch", """path"":""" & JsonEscape(shellPath) & """"
-  WshShell.Environment("PROCESS")("MEOWCAL_CORE_PROFILE") = "development"
   WshShell.Run Chr(34) & shellPath & Chr(34), 0, False
 Else
   LogEvent "launcher.shell.missing", """path"":""" & JsonEscape(shellPath) & """"
