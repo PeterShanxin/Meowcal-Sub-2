@@ -135,7 +135,7 @@ try {
 
     if ($Wanted -contains 'typescript') {
         Start-Stage 'typescript'
-        Invoke-Check 'tsc' { npx --prefix $UiDir tsc -b $UiDir }
+        Invoke-Check 'tsc' { npm --prefix $UiDir run typecheck }
         # The served bundle is committed, so a source or lockfile change must ship
         # with a rebuild. Vite output is byte-reproducible from the same inputs.
         Invoke-Check 'served studio bundle is current' {
