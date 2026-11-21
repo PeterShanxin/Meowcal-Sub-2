@@ -343,3 +343,10 @@ def test_long_target_overlap_work_scales_with_actual_pairs() -> None:
     # Count comparisons, not wall time: one long cue must not trigger a scan
     # across all expired dialogue for every source. This allows sorting cost.
     assert comparisons < count * 100
+
+
+def test_nested_intervals_and_backward_seeks_keep_every_active_cue():
+    cues = [line(0, 10, 800, "long"), line(1, 20, 40, "short"), line(2, 50, 70, "next")]
+    track = PresentationTrack([], cues)
+    for ms, expected in [(55, "long\nnext"), (800, ""), (30, "long\nshort"), (40, "long"), (9, "")]:
+        assert track.resolve_at(ms).text == expected

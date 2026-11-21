@@ -24,17 +24,22 @@ it can translate locally through [Meowcal Core](docs/MEOWCAL_CORE.md).
 
 - Search **OpenSubtitles, SubDL, and ASSRT** from one studio.
 - Use OCR to match the subtitles visible in your player and anchor playback.
-- In builds from `main`, show translations in screen order when you use
-  **Use on-screen OCR** without a source subtitle file.
 - Present a target-language subtitle file with its own timings, overlaps, and
   silent gaps; use carried translations or local inference for uncovered cues.
-- Prepare translations before playback and adjust subtitle timing while watching.
+- From v0.4.0, if you have only a target file, the app translates a few
+  on-screen captions to find your place, then follows the file as you watch.
+- Fill untranslated gaps in partially translated subtitles before playback.
+  In v0.4.0, you can start watching with only a source file while the local
+  engine translates the rest. The finished target follows the current playback position.
+  Adjust subtitle timing from the live dock while watching.
 - Automatically order subtitle cues and remove exact duplicates during preparation;
   original files stay intact.
 - Edit SRT/WebVTT text and timing before sync, preview drift corrections, and use
   corrected copies directly in the prepared session.
+- Without subtitle files, translate directly from the screen. The main branch
+  displays confirmed captions in order, skipping stale cues if it falls far behind.
 - Select a capture region and change subtitle appearance from the app.
-- On `main`, use the interface in English or Simplified Chinese. It follows the
+- Use the interface in English or Simplified Chinese. It follows the
   Windows display language unless you choose one in Settings.
 
 OCR and matching depend on the video, subtitle release, language, and selected
@@ -99,6 +104,8 @@ same Windows account. See the [security policy](SECURITY.md).
 ## Documentation
 
 - [User guide](docs/user-guide.md): setup, the watch workflow, settings, and troubleshooting.
+- [Playback sequence](docs/developer-guide.md#end-to-end-sequence) and
+  [the four playback paths](docs/subtitle-fallback-design.md), including how the paths share timed playback.
 - [Developer guide](docs/developer-guide.md): setup from source, run modes, runtime
   contracts, storage, releases, and verification.
 - [Meowcal Core](docs/MEOWCAL_CORE.md): OCR engines, the Core protocol, and

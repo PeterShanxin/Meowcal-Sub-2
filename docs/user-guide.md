@@ -9,9 +9,7 @@ own presentation timings. When a cue has no human translation, the local
 translation engine can fill it. Without a matching source, OCR reads can be
 translated directly.
 
-This guide describes v0.3.0, including the Simplified Chinese interface,
-PP-OCRv6 and subtitle selection and playback improvements. See the
-[release notes](releases/v0.3.0.md) for what changed.
+This guide covers v0.4.0. See the [release notes](releases/v0.4.0.md) for downloads and upgrade instructions.
 
 ## Install and first launch
 
@@ -62,7 +60,7 @@ error that the app does not recognize is shown in its original wording.
 
 ### Subtitle sources
 
-Open **Settings → Subtitle sources** and turn on at least one source:
+To search for subtitle files, open **Settings → Subtitle sources** and turn on at least one source:
 
 | Source | Credential |
 | --- | --- |
@@ -111,19 +109,22 @@ subtitles remain available after a match, but untranslated gaps cannot be
 filled." These choices need the engine: **Local translation**, **OCR fallback only**, and
 **Use on-screen OCR**.
 
+On main, **Local translation** lets you start watching as soon as the session
+is ready. With a monolingual source, the app translates the current line first
+and works on other lines in the background. When every line is ready, playback
+uses their saved times automatically, even if you have paused or skipped
+ahead. Stopping and restarting the same prepared session keeps its answers.
+
 ## Watch with subtitles
 
 1. Start your video in its player and open Meowcal Sub 2.
 2. Search for the title. Choose the movie, or the series, season, and episode.
    Choosing an episode runs one exact search for that episode, which can add
    subtitle versions; the results from the title search stay available.
-3. Choose **Select source subtitle** and pick a file in the source language.
-   Then choose **Select target subtitle** and pick one target. The Target list
-   can offer:
-   - **Translation inside the source file**, when the chosen source is bilingual;
-   - target-language files;
-   - **Local translation**, which translates the source lines on this device;
-   - **OCR fallback only**, which translates OCR text live without a file.
+3. Open **Select source subtitle**, then **Select target subtitle**. Choose
+   according to the [available files](#choose-by-available-files). The source
+   language must match the subtitles visible in the player, even if the audio
+   is in another language.
 4. Wait while the studio shows **Preparing**. When **Session ready** appears,
    check the **Source**, **Target**, **Lines**, and **Coverage** rows. A different
    release can use different timings. Open **Subtitles checked automatically** to
@@ -132,9 +133,9 @@ filled." These choices need the engine: **Local translation**, **OCR fallback on
    opens on the screen. Drag a box around the player's subtitle area and choose
    **Confirm**. Choose **Switch display** if the player is on another screen, or
    **Cancel** to return without starting.
-6. The studio becomes the subtitle strip with a live dock. Play the video. OCR
-   matches establish the playback position; target-file cues then appear
-   according to their own intervals, including silent gaps.
+6. The studio becomes the subtitle strip with a live dock. Use your player to
+   play, pause, or seek. The app uses visible captions to check the position when
+   following a file. With no files, the next readable cue triggers translation.
 7. Choose **Stop sync** in the dock when finished. The prepared session stays
    available to start again.
 
@@ -153,6 +154,9 @@ for the next step. Arrow keys outside the palette keep their usual behavior.
 
 ### Choosing subtitle files
 
+On main, changing your subtitle choice during preparation keeps the newer choice.
+Checking a source and preparing it share the same download for that search.
+
 - **Release.** Prefer a file named for the same release as your video (for
   example the same streaming source or disc). Files for a different cut can
   drift or skip.
@@ -170,17 +174,21 @@ for the next step. Arrow keys outside the palette keep their usual behavior.
   subtitle text confirmed that the source and target files use the same clock.
   Watch the first minutes and correct the target file in the editor if needed.
 
-### When no source file matches
+### Choose by available files
 
-If the chosen title has no file in the source language, the Source list offers
-**Use on-screen OCR**. This reads the screen and translates live, with an
-optional target file. It is slower than the source-file workflow, needs the
-translation engine, and can translate scene text that is not dialogue. Target
-file timing cannot follow a source clock in this mode.
+These choices appear after you select a movie or an episode.
 
-In builds from `main`, **Use on-screen OCR** shows translations in the order
-the original lines appear. If translation falls far behind, the strip skips
-older lines to catch up. Selecting a new capture region clears the old lines.
+| Path | Source file | Target file | What to choose | What appears during playback |
+| --- | --- | --- | --- | --- |
+| Path 1 · Dual-track playback | Yes | Yes | Choose both files, preferably for the same cut. | After the screen text matches the source, the strip follows the target file's start and end times. One source line can span two successive target cues with a blank interval between them. |
+| Path 2 · Target-track playback | No | Yes | Choose **Use on-screen OCR**, then the target file. | The strip translates what you see while it looks for your place. Once several different lines agree on where you are, it plays the target file from that point. For example, the next line can appear even if the screen reader misses it. After a jump it checks the new scene and shows live answers until it finds your place again. |
+| Path 3 · Source-track translation | Yes | No | For a bilingual source, choose **Translation inside the source file**. For a monolingual source, choose **Local translation**. | Carried translations use source timings. You can watch immediately with live translations while the app translates the remaining lines. The finished target follows Path 1 from your current position. |
+| Path 4 · Live screen translation | No | No | Choose **Use on-screen OCR**, then **OCR fallback only**. | The local engine translates readable text in the selected region. On main, confirmed captions appear in order, with time to read late translations. A large backlog skips old captions to catch up. After a seek, the strip needs text from the new scene. |
+
+Both modes without a source file need the local translation engine. Signs and
+title cards inside the region can also be translated. If no subtitle source is
+configured or a search returns no title, choose **Translate on-screen subtitles**
+in the search panel, then **Start OCR and sync**.
 
 ### Empty results and source failures
 
@@ -269,10 +277,19 @@ replaces the controls with the warning text; select it again to return to the
 controls. After **Stop sync**, the warning stays on the prepared-session screen
 until a later search, preparation, subtitle save, start, or error replaces it.
 
-Seeking or resuming playback may need new visible cues before matching recovers.
-If the app cannot confirm its playback position for a prolonged period, it clears
-the old line rather than keeping a stale subtitle indefinitely. While no source
-match is current, live OCR translation can appear in place of the file cue.
+When following a file, the app uses picture changes and audio activity it can
+attribute to the player to infer whether playback continues. A confirmed pause
+holds the current subtitle or blank interval. After a seek, the app may need
+two different cues in sequence to confirm the new position. If it loses the
+position, it clears the old line. With the local engine installed, live OCR
+translations can appear while the app finds its place again.
+
+Some films put a caption at the top of the picture. If you selected the bottom
+row, Sub 2 may read nothing there. Once it knows your place in a timed file,
+it can still show the next English line while the picture keeps moving. In Edge,
+sound can help confirm visible movement. Sound from another tab alone cannot
+keep the subtitles running. With no subtitle files, live translation needs
+readable text inside the selected area.
 
 ## Stored data and connections
 

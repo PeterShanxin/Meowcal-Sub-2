@@ -36,20 +36,18 @@ use the bundled `backend/python.exe` and do not fall back to a developer install
 | Mode | Start | What runs |
 | --- | --- | --- |
 | Browser mode | `python -m meocosub2.cli serve`, then open the printed token-bearing URL | Source backend and the committed studio bundle in a browser. No capture selector, subtitle plate, live dock, tray, or updater. |
-| Tauri debug | `run_app.vbs` (`--rebuild` forces a rebuild) | Debug shell from `src-tauri/target/debug`, source backend, committed studio bundle. |
+| Tauri debug | `run_app.vbs` (`--rebuild` rebuilds the studio bundle) | Debug shell from `src-tauri/target/debug`, source backend, committed studio bundle. |
 | Optimized build | `.\scripts\build-windows-release.ps1` | Release shell with a bundled CPython backend, Core, and a rebuilt studio bundle in `dist/`. |
 | Installer | `…-setup.exe` from a build or release | Per-user NSIS installation of the optimized build. Signed releases can update in place. |
 | Portable | `…-portable.zip` from a build or release | The same payload as the installer, run from its extracted folder. Updates are manual. |
 
-`run_app.vbs` prepares the pinned Core resource, rebuilds the studio bundle when
-its sources are newer than `static/index.html`, and rebuilds the debug shell
-when its Rust sources, manifests, or Tauri configuration are newer than the
-executable.
-Before it starts, it force-stops every `meowcal-sub-2-shell` process, every
-Python process running `meocosub2.cli serve`, and any process listening on port
-8765. This includes an installed copy that is running. Afterwards, check for
-surviving Core children as described in
-[the agent guide](AGENT_GUIDE.md#stopping-the-app-without-leaking-the-engine).
+`run_app.vbs` stops the debug shell whose executable belongs to this checkout.
+Windows releases that shell's owned backend processes. The launcher prepares
+Core, rebuilds a stale studio bundle, then runs Cargo with the checked-in lock.
+Cargo tracks embedded window assets and reuses a current desktop build.
+A build failure stops launch. If the configured studio port is unavailable,
+the launcher reports a conflict. Close its owner or choose another port and
+try again. Other checkouts and installed copies can keep running.
 
 ### Stale code under test
 
@@ -59,8 +57,7 @@ surviving Core children as described in
   change under `overlay/ui/src/` is not visible until
   `npm --prefix src\meocosub2\overlay\ui run build` rewrites that bundle.
 - `selector.*` and `splash.html` are compiled into the shell binary. A change to
-  them needs a shell rebuild, and `run_app.vbs` does not detect it: use
-  `run_app.vbs --rebuild`.
+  them triggers an incremental Cargo build on the next development launch.
 - WebView2 can show an older bundle after a rebuild. The shell adds a
   `desktopLaunch` cache-buster and the server marks `index.html` as `no-store`.
 - An installed or portable build runs its own bundled backend. Testing that build
@@ -68,10 +65,10 @@ surviving Core children as described in
 
 ### Profile isolation
 
-Source and installed runs are not isolated by default. Every mode reads and
-writes the same configuration, runtime token, logs, corrected subtitles,
-subtitle cache, TMDb cache, BGE engine, and WebView2 data (see
-[Storage locations](#storage-locations)). They also use the same default port.
+Source runs, portable copies and GitHub installations share the configuration,
+runtime token, logs, corrected subtitles, subtitle cache, TMDb cache, BGE engine,
+WebView2 data and default port. The Store edition uses its own data and port.
+See [storage locations](#storage-locations) and [Microsoft Store edition](microsoft-store.md).
 
 Only Core storage has a profile switch. `run_app.vbs` sets
 `MEOWCAL_CORE_PROFILE=development`. A backend started directly with `serve`
@@ -86,6 +83,9 @@ tests against the real profile or real provider credentials. Provider downloads
 spend metered allowances, and a test can overwrite the viewer's configuration.
 
 ## Build a Windows distribution
+
+For the Partner Center package, Store updates and private data locations, see
+[Microsoft Store edition](microsoft-store.md).
 
 Set the same `X.Y.Z` version in
 `tauri.conf.json`, `Cargo.toml`, `Cargo.lock`, `pyproject.toml`, and the studio's
@@ -198,6 +198,8 @@ are independent: `config/meowcal-core.lock.json` pins Core for each build. When
 user-facing documentation describes a behavior that is on main but not in the
 latest published release, say so in that document.
 
+The [November 2026 maintainability review](reviews/2026-11-20-maintainability.zh-CN.md) records evidence from the pre-change source and links to its follow-up issues.
+
 ## Runtime map
 
 | Responsibility | Source |
@@ -210,6 +212,8 @@ latest published release, say so in that document.
 | Subtitle editor documents | `src/meocosub2/overlay/subtitle_editor.py` |
 | OCR engine selection and passes | `src/meocosub2/capture.py`, `src/meocosub2/native_ocr.py` |
 | Capture loop and session strategies | `src/meocosub2/sync.py` |
+| Path 2 screen translations and target-file position | [target_follower.py](../src/meocosub2/target_follower.py) |
+| Path 3 current and background translations, completion and handoff | [source_track.py](../src/meocosub2/source_track.py), [live_translation.py](../src/meocosub2/live_translation.py) |
 | Playback clock | `src/meocosub2/timeline.py` |
 | Target cue presentation | `src/meocosub2/presentation.py` |
 | Gap filling and idle prefill | `src/meocosub2/gapfill.py`, `src/meocosub2/prefill.py` |
@@ -261,19 +265,53 @@ a shell rebuild.
 4. **Selection.** The viewer picks a work and an episode. Selecting an episode
    runs one exact lookup for that episode. The studio then lists Source and
    Target results by opaque IDs. Choosing a Source reads it once to find a
-   carried translation before the Target list is shown.
-5. **Download and validation.** Preparation downloads the chosen files and
+   carried translation before the Target list is shown. If no source is
+   configured or no title is found, **Translate on-screen subtitles** prepares
+   Path 4 directly with no catalog or file IDs.
+5. **Download and validation.** Preparation loads the chosen files and
    checks each one (see [Subtitle checks and editing](#subtitle-checks-and-editing)).
-6. **Preparation.** The backend builds the source candidates and the target
-   presentation track, calibrates the file-clock offset, weighs alternative
-   targets within a fixed budget, starts the translation engine when it is
-   needed, and begins idle prefill. The studio shows **Session ready**.
+6. **Preparation.** With both files, the backend builds the source candidates
+   and target presentation track, checks their clock offset, and weighs alternative
+   targets within a fixed budget. The [session mode](#session-modes) determines
+   engine requirements and whether there are gaps to fill. The studio shows
+   **Session ready**.
 7. **Capture.** In the shell, **Start OCR and sync** opens the capture selector,
    and confirming a region starts the session. Browser mode starts with the saved
    region. The backend resolves the OCR engine when the session starts.
-8. **Matching and display.** Each capture is read by OCR and matched against the
-   source candidates. Matches anchor the playback clock. The presentation track
-   and gap filling decide what the plate shows, and the shell draws it.
+8. **Matching and display.** A source-file match locates Paths 1 and 3. Path 2
+   compares translated screen captions with the target file. Once located, Paths
+   1 and 2 use the same timed display. Path 3 joins it when the generated track
+   is ready. Path 4 displays live translations from the selected screen area.
+   It queues confirmed reads in capture order without blocking OCR on inference.
+   Late answers get a reading interval; after 15 seconds of backlog or 32 queued
+   cues, the queue skips older work to catch up. Region changes, capture loss,
+   and stopping discard pending work. This queue does not drive any file track.
+
+The two-file path answers two timing questions. Preparation relates the clocks
+in the two files. During playback, OCR establishes where the viewer is on the
+source clock. For example, with a verified offset of +500 ms, source position
+12,000 ms selects the target cues active at 12,500 ms.
+
+```mermaid
+sequenceDiagram
+    participant OCR as Capture and OCR
+    participant Match as Source matcher
+    participant Clock as Playback clock
+    participant Track as Target scheduler
+    participant Plate as Strip
+    OCR->>Match: Text and capture time
+    Match->>Clock: Source cue and evidence
+    Track->>Clock: Read source position
+    Clock-->>Track: Position
+    Track-->>Plate: Active target cues
+    par Between OCR reads
+        Track-->>Plate: Show or clear at cue boundary
+    and On further captures
+        OCR->>Clock: Playback activity
+        OCR->>Match: New text
+        Match->>Clock: Confirm position or seek
+    end
+```
 
 ### Identifiers
 
@@ -296,6 +334,14 @@ follows a regrouping. A target assigned to a different group is cleared.
 Catalog identification alone does not replace unchanged prepared files;
 choosing another work still blocks starting the previous session.
 
+Preparing a choice belongs to the search and request that selected it. Manual
+source and target files must belong to the chosen title before any download.
+A newer choice or search supersedes earlier work, including its progress,
+errors and idle translation. Inspection and preparation share a single source
+download per result within the search. A failed download can be retried.
+The studio preserves a bilingual file's carried translation when catalog
+enrichment identifies the same title under a new ID.
+
 Episode results carry season and episode numbers. SubDL episode searches use the
 series title with season and episode filters. An unpacked SubDL file that reports
 season zero takes its pack's season unless its name says `S00`. SubDL's `hi`
@@ -317,8 +363,14 @@ not prove that no subtitle exists.
 ### Playback timing and presentation
 
 Source subtitles synchronize playback; target subtitles own presentation.
-OCR text and semantic matching anchor `PlaybackTimeline` against the selected
-source candidate. An anchor unconfirmed for 90 seconds is dropped and its plate
+The source matcher compares normalized OCR text with source cues using fuzzy
+text matching. A strong text hit is sufficient. For a locked candidate with a
+ready BGE embedding index, weaker reads can also be matched by meaning. The
+index is optional. A seek outside the expected window needs stronger evidence
+than an ordinary nearby match. See [the matcher](../src/meocosub2/matcher.py)
+and [the capture loop](../src/meocosub2/sync.py).
+
+An anchor unconfirmed for 90 seconds is dropped and its plate
 cleared. Recovery from an expired or repeatedly contradicted anchor needs two
 different, progressing cues, each supported by strong text or text/semantic
 agreement, whose observation times agree on the playback position. A single
@@ -345,7 +397,7 @@ are described in [playback evidence](PLAYBACK_EVIDENCE.md).
 
 With a separate target file, `PresentationTrack` retains every target cue's
 index, interval, ordering and text. Both immediate matches and the clock renderer
-resolve that same track. Its scheduler wakes at target boundaries even when OCR
+resolve that same track. Time lookups skip completed cue ranges using sorted starts and the latest end in each prefix. The scheduler binary-searches boundary times. It wakes even when OCR
 stalls. Intervals are half-open `[start, end)`; genuine target overlaps remain
 simultaneous, and target presentation has no source overlap threshold or stale-line
 grace. Each cue's typesetting is flattened independently, except explicit speaker
@@ -368,10 +420,26 @@ A source cue that has any projected target coverage does not fill the target's
 intentional gaps. Wholly uncovered source cues use their carried human translation,
 then a local model answer. `gapfill.py` reads target coverage and neighboring human
 answers through the presentation track without copying target strings onto source
-cues. Idle prefill and playback filling share that lookup; model answers remain
+cues. Each fill pass indexes initially unanswered cues and checks the next candidate again after a seek or a live answer. Idle prefill and playback filling share that lookup; model answers remain
 source-aligned and are read when their interval arrives. Without a source anchor,
 live OCR translation remains the fallback. Bilingual-only sessions retain their
 source-aligned presentation behavior.
+
+On main, Path 3 (Source-track translation) builds an in-memory target when a
+source has no target-language rows. Idle preparation can start it. During
+playback, the first capture gets priority, then a single background request at
+a time selects unanswered cues near the current playback position and supplies
+neighboring source/target examples. A live request may wait for one completion
+already in progress. A live and a background request for the same source cue
+share its answer. Combined multi-cue reads can be shown live and are translated
+as individual cues for the target track.
+
+The generated target preserves each source cue's identity, start and end. Only
+a fully answered source joins Path 1 (Dual-track playback). The existing
+scheduler reads the same clock with zero file offset, including paused positions
+and blank intervals. An incomplete pass keeps live translation available.
+Stopping retains completed answers for the same prepared source. Editing or
+replacing it creates a new track. Generated answers stay in session memory.
 
 ### Session modes
 
@@ -379,23 +447,20 @@ source-aligned presentation behavior.
 | --- | --- | --- |
 | A target file | Source file plus target presentation | No. Without it, gaps stay empty and the studio shows a warning. |
 | Translation inside the source file | Source rows split into source and target | No. Rows without a carried translation need it to be filled. |
-| Local translation | Source file plus model answers | Yes, unless the source carries translations |
-| Automatic source candidates (no target file) | Several source candidates; the clock follows the one that locks | When no candidate carries a translation |
+| Local translation | Source file plus model answers while the timed target is being generated | Yes, unless the source carries translations |
+| Automatic source candidates (backend mode) | The clock follows the candidate that locks. A target file, when found, has a separate mapping for each candidate. | When there is no target file and no candidate carries a translation |
 | **Use on-screen OCR** source (no matching source file) | OCR fallback, optionally with a target file | Yes. OCR text is translated live. |
 | OCR fallback only | Live OCR translation | Yes |
 
-In OCR fallback the target file cannot be scheduled against a source clock.
+With a target file and an OCR source (Path 2), the local translator supplies
+text for the target matcher. Each still-current match keeps its cue identity
+and first capture time. Progressing matches that agree on the position start
+the same clock and target renderer used by Path 1, directly in target time.
+While looking for the scene, the strip can show a live translation or matching
+file wording. Paths 2 and 4 use the same local translation model.
+[Playback paths](subtitle-fallback-design.md) · [Matching replay](target-track-replay.md).
+
 Live OCR translation can read scene text that a source file would have rejected.
-Two consecutive usable reads of the same cue within two seconds confirm it for
-the queue. Pause rereads keep the current cue and new cues translate and appear
-in capture order. A late answer has at least 350 ms on the overlay, with its hold
-bounded by the observed source duration. After a cue ends, its translation can
-stay visible for up to four seconds while the next answer is pending. A backlog
-of 32 cues or an oldest queued cue aged 15 seconds skips old work and resumes
-from the current cue. Each queued translation has up to 15 seconds, or the
-configured translation timeout if it is shorter. Reselecting the region or
-losing capture discards the queue. When a target file is available, its wording
-can replace a matching model answer.
 
 ### Subtitle checks and editing
 
@@ -422,6 +487,15 @@ the session after stopping idle prefill so an old start cannot use a changed tra
 
 ### Cancellation and stale results
 
+A catalog search cancels and joins unfinished provider lookups when it exits.
+A normal provider failure still allows the other sources to finish.
+Each studio window receives state, style and later events in order through
+its own bounded queue. A stalled or disconnected window reconnects to a
+fresh snapshot without delaying subtitle changes in another window.
+On shutdown, the local HTTP server allows five seconds for active connections
+and requests to finish before proceeding to application cleanup. The browser
+tests use the same server settings and verify that its thread and requests exit.
+
 - **Search.** Each search has an ID. A result that arrives after a newer search
   started returns to its caller but does not change the newer state. Episode and
   season lookups apply only while their own search catalog is current.
@@ -436,8 +510,7 @@ the session after stopping idle prefill so an old start cannot use a changed tra
 - **Stop.** Stop sets the state to stopping, cancels the sync task, and returns
   to idle with the prepared session kept.
 - **Translation.** A cancelled translation discards its answer. Answers for a cue
-  that is no longer current are discarded in sessions with a source file.
-  In OCR fallback, admitted cues can still display after their source cue ends.
+  that is no longer current are not shown.
 
 ### Process ownership
 
@@ -484,6 +557,9 @@ key names are data and are not translated.
   updating `messages-zh.json` in the same change.
 
 ## Storage locations
+
+The table describes source runs and GitHub downloads. For the Store package's
+Windows-managed data directory, see [Microsoft Store edition](microsoft-store.md#where-user-data-lives).
 
 | Data | Location |
 | --- | --- |

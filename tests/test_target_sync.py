@@ -343,7 +343,7 @@ async def test_distinct_failed_reads_still_unlock_automatic_candidate():
     assert session.status()["lockedCandidateId"] is None
 
 
-async def test_automatic_session_plays_later_targets_under_stable_ocr(monkeypatch):
+async def test_automatic_session_plays_later_targets_under_stable_ocr(monkeypatch, scheduler_clock):
     import meocosub2.sync as sync
 
     monkeypatch.setattr(sync, "DISPLAY_LEAD_MS", 0)

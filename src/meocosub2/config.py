@@ -17,6 +17,7 @@ from meocosub2.languages import (
 )
 
 DEFAULT_CAPTURE_INTERVAL_MS = 250
+DEFAULT_OVERLAY_PORT = 8766 if os.environ.get("MEOCOSUB2_DISTRIBUTION") == "store" else 8765
 OCR_ENGINES = ("auto", "windows", "ppOcrV6")
 # "system" follows the Windows display language; the studio resolves it.
 UI_LANGUAGES = ("system", "en", "zh-CN")
@@ -67,7 +68,7 @@ class AppConfig:
     match_window_backward: int = 5
     translation_timeout_s: int = 30
     sync_bias_ms: int = 0
-    overlay_port: int = 8765
+    overlay_port: int = DEFAULT_OVERLAY_PORT
     overlay_font_size: int = 28
     overlay_font_family: str = "Aptos"
     overlay_text_color: str = "#FFFFFF"
@@ -109,8 +110,7 @@ def _capture_interval_ms(stored: object) -> int:
 
 
 def default_config_path() -> Path:
-    appdata = os.environ.get("APPDATA", str(Path.home()))
-    return Path(appdata) / "meowcal-sub-2" / "config.toml"
+    return Path(os.environ.get("APPDATA", str(Path.home()))) / "meowcal-sub-2" / "config.toml"
 
 
 def load_config(path: Path | None = None) -> AppConfig:
@@ -190,7 +190,7 @@ def load_config(path: Path | None = None) -> AppConfig:
         match_window_backward=data.get("matching", {}).get("window_backward", 5),
         translation_timeout_s=data.get("translation", {}).get("timeout_s", 30),
         sync_bias_ms=normalize_sync_bias_ms(data.get("sync", {}).get("bias_ms", 0)),
-        overlay_port=data.get("overlay", {}).get("port", 8765),
+        overlay_port=data.get("overlay", {}).get("port", DEFAULT_OVERLAY_PORT),
         overlay_font_size=data.get("overlay", {}).get("font_size", 28),
         overlay_font_family=data.get("overlay", {}).get("font_family", "Aptos"),
         overlay_text_color=data.get("overlay", {}).get("text_color", "#FFFFFF"),

@@ -110,7 +110,7 @@ async def read(
             passes.reverse()
         passes.append(capture.preprocess_white_text_for_ocr(image))
         best = ""
-        score = (0, 0)
+        score = capture._ocr_score("")
         whole = []
         for i, candidate in enumerate(passes):
             text = await native_ocr.recognize(

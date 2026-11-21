@@ -54,7 +54,7 @@ Recorded ceiling changes and their reasons:
 | --- | ---: | ---: | --- |
 | `app.tsx` | 1747 | 1750 | distinguish a new work from catalog enrichment of the same prepared source and target files |
 | `aggregator.py` | 1468 | 1481 | retain provider title aliases independently of movie identity, resolve missing IDs only from an unambiguous title/year identity, and preserve discovery of yearless ASSRT members |
-| `sync.py` | 983 | 954 | give OCR-only capture, queueing, and display timing their own owner |
+| `sync.py` | 938 | 965 | route capture and overlay callbacks to the ordered OCR fallback only when no file track is present |
 | `sync.py` | 941 | 983 | match changed rereads against the file, retain strong cue support, discard rejected-read caches, preserve the onset through a first failed read, and timestamp similar new cues from their own capture |
 | `timeline.py` | 455 | 524 | bound visible-cue support to its interval, settle it before motion resumes, preserve its onset, retain recent strong corroboration through brief ambiguity, distinguish initial lock from recovery, and withhold the old scene while confirming a seek |
 | `timeline.py` | 399 | 407 | apply observed freeze/resume onset without accumulating confirmation delay, and retain a confirmed pause through source OCR reanchors |
@@ -177,6 +177,13 @@ control; and a ceiling of 404 for `components/subtitle-editor/workspace.tsx`,
 which crossed the new-file limit by routing its labels and hints through the
 catalog.
 
+The shared preparation commit and typed catalog selections reduced
+`overlay/controller.py` from 2,199 to 2,156 lines.
+
+Source-track translation keeps file-generation state with its prepared pair and
+uses the same live translator during setup and playback. This reduces the
+controller from 2,156 to 2,144 lines and the capture loop from 983 to 950.
+
 ## Lint budgets
 
 | Tool | Budget | State |
@@ -235,6 +242,8 @@ function over a process table for exactly this reason — and the rest is covere
 by the manual Windows gate.
 
 ### Frontend — a named scope, not a percentage of everything
+
+On pull requests, the x64 job also compares the proposed scope with its base commit. Modules still in the studio must stay covered, including detected renames. Removed files are reported by name. The local coverage check still works without Git history.
 
 The named scope includes studio mapping, session authentication, subtitle editing
 and UI state. Its floors remain 89% statements and lines, 78% branches and 71%

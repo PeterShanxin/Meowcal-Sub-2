@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import { localizeMessage, t } from "../i18n";
-import type { EngineStatus, InfoChip } from "../lib/types";
+import type { EngineStatus, InfoChip, Phase } from "../lib/types";
 
 const ENGINE_LABELS: Record<EngineStatus["phase"], string> = {
   ready: "Translation ✓",
@@ -199,7 +199,7 @@ export function TopBar({
   onOpenSettings,
   onClearSession,
 }: {
-  phase: "home" | "prep" | "live" | "settings" | "empty" | "no-key";
+  phase: Phase;
   wsConnected: boolean;
   engineStatus: EngineStatus | null;
   sourcesCount: number;

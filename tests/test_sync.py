@@ -6,11 +6,11 @@ import pytest
 
 from meocosub2.config import AppConfig
 from meocosub2.engine import EngineStartError
+from meocosub2.live_translation import LiveTranslator
 from meocosub2.models import SourceSubtitleCandidate, SubtitleLine, SubtitlePair
 from meocosub2.sync import (
     CandidateSession,
     DirectTranslationSession,
-    LiveTranslator,
     run_session_loop,
 )
 
@@ -57,13 +57,13 @@ async def drive_with_source(session, config, reads: list[str], debug=None) -> li
     """Run the capture loop over a fixed list of OCR reads and collect broadcasts."""
     broadcasts: list[tuple[str, str]] = []
     remaining = list(reads)
+    pure_ocr = isinstance(session, DirectTranslationSession) and session.target is None
 
     async def ocr(_image, _language, *, engine="auto") -> str:
-        if isinstance(session, DirectTranslationSession):
-            # Play the short reads faster than real capture while leaving the
-            # queue time to publish and give each finished cue its display time.
-            await asyncio.sleep(0.03 if remaining else 0.9)
         if not remaining:
+            if pure_ocr:
+                await asyncio.sleep(1.0)
+                raise asyncio.CancelledError()
             # Translations run as tasks beside the loop. Giving them a few turns
             # before it unwinds is what a session gets from its next capture.
             for _ in range(3):
@@ -202,8 +202,10 @@ async def test_confirmed_visible_cue_survives_missing_motion_without_projecting_
         SubtitleLine(1, 8000, 11000, "Someone answers from the doorway"),
     ]
     target = [
-        SubtitleLine(0, 0, 8000, "Current target"),
-        SubtitleLine(1, 8000, 11000, "Next target"),
+        SubtitleLine(0, 0, 6500, "Current target"),
+        # The target changes before the source cue ends. Starting on a paused
+        # screen must retain the translation that first matched that screen.
+        SubtitleLine(1, 6500, 11000, "Next target"),
     ]
     candidate = make_candidate("a", source)
     candidate.pair.target_lines = target
@@ -342,10 +344,11 @@ async def test_repeated_phrase_after_silence_follows_the_nearest_occurrence(
 
 
 @pytest.mark.asyncio
-async def test_direct_translation_reuses_target_text_for_distinct_cues() -> None:
+async def test_direct_translation_reuses_target_text_after_the_phrase_disappears() -> None:
     target = [SubtitleLine(0, 0, 3000, "Please close the door.")]
     session = DirectTranslationSession(target, config(), fake_translator("Please close door"))
     assert await session.translate("关门") == "Please close the door."
+    session.clear_cue()
     assert await session.translate("关门") == "Please close the door."
 
 
@@ -383,7 +386,7 @@ async def test_translation_cannot_fill_a_plate_after_its_match_expires(monkeypat
     ready = asyncio.Event()
     client = MagicMock()
 
-    async def translate(*args):
+    async def translate(*args, **kwargs):
         await ready.wait()
         return "late target"
 
@@ -567,13 +570,14 @@ async def test_ocr_fallback_keeps_dialogue_captured_during_a_slow_translation(mo
     assert shown_at[1] - shown_at[0] >= 0.35
 
 
-async def test_ocr_fallback_region_change_discards_pending_and_late_work(monkeypatch):
+@pytest.mark.parametrize("loss", [False, True], ids=["region-change", "capture-loss"])
+async def test_ocr_fallback_reset_discards_pending_and_late_work(monkeypatch, loss):
     import meocosub2.sync as sync_module
 
     old_region, new_region = (0, 0, 100, 20), (10, 20, 30, 40)
     selected = old_region
     stale, queued, current = "Waiting by the window", "Let us walk home", "The train has left"
-    reads = iter([stale, stale, queued, queued, current, current])
+    reads = iter([stale, stale, queued, queued, *([None] if loss else []), current, current])
     started = asyncio.Event()
     cancelled = asyncio.Event()
     new_caption = asyncio.Event()
@@ -593,18 +597,22 @@ async def test_ocr_fallback_region_change_discards_pending_and_late_work(monkeyp
         return "火车已经离站。"
 
     async def ocr(*args, **kwargs):
-        if (text := next(reads, None)) is not None:
-            return text
-        await asyncio.wait_for(new_caption.wait(), timeout=2)
-        raise asyncio.CancelledError()
+        try:
+            text = next(reads)
+        except StopIteration:
+            await asyncio.wait_for(new_caption.wait(), timeout=2)
+            raise asyncio.CancelledError() from None
+        if text is None:
+            raise sync_module.PlaybackCaptureError("capture lost")
+        return text
 
     async def debug(frame):
         nonlocal selected
         if frame["iteration"] == 2:
             await asyncio.wait_for(started.wait(), timeout=2)
-        elif frame["iteration"] == 4:
+        elif frame["iteration"] == 4 and not loss:
             selected = new_region
-        elif frame["iteration"] == 6:
+        elif frame["iteration"] == 6 + loss:
             await asyncio.wait_for(cancelled.wait(), timeout=2)
             release_stale.set()
 
@@ -624,6 +632,37 @@ async def test_ocr_fallback_region_change_discards_pending_and_late_work(monkeyp
 
     assert [call.args[0] for call in translator.translate.await_args_list] == [stale, current]
     assert shown == ["火车已经离站。"]
+
+
+async def test_stopping_ocr_fallback_cancels_the_translation(monkeypatch):
+    import meocosub2.sync as sync_module
+
+    started = asyncio.Event()
+    stopped = asyncio.Event()
+
+    async def translate(_text):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            stopped.set()
+
+    session = DirectTranslationSession(
+        [], config(), translator_factory(MagicMock(translate=translate))
+    )
+    monkeypatch.setattr(sync_module, "capture_region", lambda _region: MagicMock())
+    monkeypatch.setattr(sync_module, "ocr_image", AsyncMock(return_value="The train has left"))
+    broadcast = AsyncMock()
+    task = asyncio.create_task(run_session_loop(session, config(), broadcast))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2)
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    assert stopped.is_set()
+    broadcast.assert_not_awaited()
 
 
 @pytest.mark.parametrize("cue_count", [2, 32], ids=["oldest-age", "depth"])
@@ -709,8 +748,11 @@ async def test_direct_translation_reconfirms_a_phrase_after_silence() -> None:
     translator = MagicMock()
     translator.translate = AsyncMock(return_value="你好")
     session = DirectTranslationSession([], config(), translator_factory(translator))
-    reads = ["Hello there"] * 2 + [""] * 15 + ["Hello there"] * 2
-    assert await drive(session, config(), reads) == ["你好", "", "你好"]
+    silent = [""] * 8
+    app_config = config()
+    app_config.capture_interval_ms = 100
+    reads = ["Hello there"] * 3 + silent + ["Hello there"] * 2
+    assert await drive(session, app_config, reads) == ["你好", "", "你好"]
     assert translator.translate.await_count == 2
 
 
@@ -1425,21 +1467,18 @@ async def test_a_session_with_a_target_file_fills_what_it_left_unpaired() -> Non
     assert translator.filled == ["Goodbye now"]
 
 
-async def test_a_session_without_a_target_file_never_fills_ahead() -> None:
-    """Without a target file every cue is unanswered, so there is no gap to fill.
+async def test_source_only_starts_with_the_current_line_then_builds_a_target(monkeypatch) -> None:
+    import meocosub2.source_track as source_track
 
-    Treating them as gaps would spend the single-slot engine on the opening of
-    the file while the viewer waits on the read in front of them - which is the
-    whole of what a session with no target file is doing.
-    """
+    monkeypatch.setattr(source_track, "YIELD_POLL_S", 0)
     translator = _FakeTranslator()
-    session = CandidateSession(
-        [_gapped_candidate("a", with_target=False)], config(), lambda: _ready(translator)
-    )
-
-    await drive(session, config(), ["Hello there"])
-
-    assert translator.filled == []
+    source = _gapped_candidate("a", with_target=False)
+    session = CandidateSession([source], config(), lambda: _ready(translator))
+    assert await drive(session, config(), ["Goodbye now"]) == ["filled Goodbye now"]
+    assert translator.filled == ["Goodbye now", "Hello there"]
+    assert session.independent_target
+    assert session.presentation.resolve_at(3500).text == "filled Goodbye now"
+    assert session.presentation.resolve_at(6000).text == ""
 
 
 async def test_filling_moves_to_the_candidate_the_session_locks_onto_next() -> None:

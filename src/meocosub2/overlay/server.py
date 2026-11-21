@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -22,6 +22,7 @@ from meocosub2.errors import SubtitleSourceError, TranslationError
 from meocosub2.event_log import log_event
 from meocosub2.languages import languages_payload
 from meocosub2.models import SearchRequest
+from meocosub2.overlay.connections import StudioConnections
 from meocosub2.overlay.controller import GuiController
 from meocosub2.overlay.subtitle_editor import editor_router
 
@@ -92,7 +93,7 @@ class OverlayServer:
         *,
         access_token: str,
     ) -> None:
-        self.app_connections: list[WebSocket] = []
+        self.app_connections = StudioConnections()
         self._access_token = access_token
         self._allowed_origins = {
             f"http://127.0.0.1:{config.overlay_port}",
@@ -341,36 +342,13 @@ class OverlayServer:
 
     async def _app_socket(self, websocket: WebSocket) -> None:
         await websocket.accept()
-        logger.debug("App WebSocket connected (total: %d)", len(self.app_connections) + 1)
-        self.app_connections.append(websocket)
-        await websocket.send_text(
-            json.dumps({"type": "state", "state": self.controller.state_snapshot()})
+        await self.app_connections.serve(
+            websocket,
+            [
+                {"type": "state", "state": self.controller.state_snapshot()},
+                {"type": "style", "style": overlay_style_payload(self.config)},
+            ],
         )
-        await websocket.send_text(
-            json.dumps({"type": "style", "style": overlay_style_payload(self.config)})
-        )
-        try:
-            while True:
-                await websocket.receive_text()
-        except WebSocketDisconnect:
-            pass
-        finally:
-            if websocket in self.app_connections:
-                self.app_connections.remove(websocket)
-            logger.debug("App WebSocket disconnected (remaining: %d)", len(self.app_connections))
 
     async def broadcast_app_event(self, event_type: str, payload: dict[str, object]) -> None:
-        message = {"type": event_type, **payload}
-        await self._broadcast(self.app_connections, message)
-
-    async def _broadcast(self, connections: list[WebSocket], message: dict[str, object]) -> None:
-        encoded = json.dumps(message)
-        dead: list[WebSocket] = []
-        for websocket in tuple(connections):
-            try:
-                await websocket.send_text(encoded)
-            except Exception:
-                dead.append(websocket)
-        for websocket in dead:
-            if websocket in connections:
-                connections.remove(websocket)
+        self.app_connections.publish({"type": event_type, **payload})

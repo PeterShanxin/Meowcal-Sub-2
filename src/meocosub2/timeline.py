@@ -14,9 +14,9 @@ position says which of them is the one on screen.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from enum import Enum
 from time import monotonic
+
+from meocosub2.playback_state import PlaybackState, TimelineStatus
 
 logger = logging.getLogger(__name__)
 
@@ -58,23 +58,6 @@ CAPTURE_DELIVERY_GRACE_S = 1.0
 CUE_HOLD_S = 6.0
 
 
-class PlaybackState(Enum):
-    ADVANCING = "advancing"
-    STOPPED = "stopped"
-    UNCERTAIN = "uncertain"
-    INVALIDATED = "invalidated"
-
-
-@dataclass
-class TimelineStatus:
-    """What the clock believes, for the debug events and the event log."""
-
-    predicted_ms: int | None
-    drift_ms: int | None
-    anchored: bool
-    misses: int
-
-
 class PlaybackTimeline:
     """The playback position implied by the subtitle lines that have matched.
 
@@ -82,30 +65,9 @@ class PlaybackTimeline:
     cue can hold the clock unless observed video motion refreshes its hold time.
     """
 
-    def __init__(self) -> None:
-        self._anchor_ms: int | None = None
-        self._anchor_at = 0.0
-        self._supported_at = 0.0
-        self._has_activity_evidence = False
-        self._uncertain_since: float | None = None
-        self._pending_freeze_until: float | None = None
-        self._playback_received_at: float | None = None
-        self._capture_pending_until: float | None = None
-        self._paused_s = 0.0
-        self._stopped_since: float | None = None
-        self._cue_since: float | None = None
-        self._cue_started_ms: int | None = None
-        self._hold_since: float | None = None
-        self._hold_started_ms: int | None = None
-        self._cue_credited_s = 0.0
-        self._visible_cue_end_ms: int | None = None
-        self._misses = 0
-        self._drift_ms: int | None = None
-        self._pending_offset_ms: int | None = None
-        self._pending_index: int | None = None
-        self._pending_at = 0.0
-        self._recovering = False
-        self._strong_match: tuple[int, int, float] | None = None
+    def __init__(self, *, require_confirmation: bool = False) -> None:
+        self._require_confirmation = require_confirmation
+        self.reset()
 
     @property
     def anchored(self) -> bool:
@@ -232,6 +194,7 @@ class PlaybackTimeline:
                 self._stopped_since = transition
             return
         if self._stopped_since is not None:
+            self._last_completed_stop = self._stopped_since, transition
             self._paused_s += max(0.0, transition - self._stopped_since)
             self._stopped_since = None
         # Keep the OCR cue's first-seen time for matching. Only its pause hold
@@ -246,6 +209,11 @@ class PlaybackTimeline:
         now = monotonic() if now is None else now
         self._release_visible_cue(now)
         self._cue_since = now
+        self._pause_before_cue = self._paused_s
+        if self._last_completed_stop:
+            start, end = self._last_completed_stop
+            # A stable OCR cue can be confirmed one frame after this resume.
+            self._pause_before_cue -= max(0.0, end - max(start, now))
         # Taken from the running clock rather than the reported one, so that
         # walking back to a pause does not leave the clock walked back forever.
         self._cue_started_ms = self._running_ms(now)
@@ -281,13 +249,13 @@ class PlaybackTimeline:
             self._cue_credited_s = overrun
 
     def confirm_visible_cue(self, end_ms: int, seen_at: float | None = None) -> None:
-        """Retain identity from an exact reread without certifying later dialogue."""
+        """A repeated first caption fixes position; motion permits advancing within it."""
         now = monotonic()
         self._expire_stale_anchor(now)
         at = now if seen_at is None else min(now, seen_at)
         if self._anchor_ms is None or end_ms <= self._anchor_ms or now - at > UNCERTAIN_GRACE_S:
             return
-        self._visible_cue_end_ms = end_ms
+        self._visible_cue_end_ms = end_ms if self._has_activity_evidence else self._anchor_ms + 1
         self._supported_at = at
         if self._uncertain_since is not None:
             self._uncertain_since = at
@@ -349,6 +317,17 @@ class PlaybackTimeline:
             else self.predicted_ms(at)
         )
         if predicted is None:
+            if self._require_confirmation:
+                # Translated cues can use different wording. Three consistent
+                # observations can establish time even if none is near-exact.
+                agrees = self._agrees_with_pending(offset_ms, line_index, at)
+                if agrees and (self._pending_count >= 2 or (strong and self._pending_strong)):
+                    self._anchor(line_start_ms, line_index, at, drift=None, strong=strong)
+                    return True
+                self._pending_count = self._pending_count + 1 if agrees else 1
+                self._pending_strong = strong
+                self._remember_pending(offset_ms, line_index, at)
+                return False
             if self._recovering and not strong:
                 self._pending_offset_ms = None
                 return False
@@ -361,16 +340,20 @@ class PlaybackTimeline:
             return False
 
         in_window = predicted - WINDOW_BACK_MS <= line_start_ms <= predicted + WINDOW_FORWARD_MS
-        if abs(line_start_ms - predicted) <= AGREEING_OFFSET_MS or (in_window and strong):
+        if abs(line_start_ms - predicted) <= AGREEING_OFFSET_MS or (
+            in_window and strong and not self._require_confirmation
+        ):
             self._anchor(
                 line_start_ms, line_index, at, drift=line_start_ms - predicted, strong=strong
             )
             return True
 
-        if strong and not in_window:
+        if (strong and not in_window) or self._require_confirmation:
             # Do not keep playing the old scene while a whole-file seek waits
             # for another progressing cue to corroborate its new position.
             self.invalidate()
+            self._pending_count = 1
+            self._pending_strong = strong
             self._remember_pending(offset_ms, line_index, at)
             return False
 
@@ -419,7 +402,11 @@ class PlaybackTimeline:
         self._supported_at = at
         self._uncertain_since = None
         self._pending_freeze_until = None
-        self._paused_s = 0.0
+        # A model answer is anchored at first sight. Pauses already observed
+        # between that sighting and this answer still belong to this cue.
+        same_cue = self._require_confirmation and at == self._cue_since
+        self._paused_s = max(0.0, self._paused_s - self._pause_before_cue) if same_cue else 0.0
+        self._pause_before_cue = 0.0
         # A source match can describe a seek on a still-paused frame. Preserve
         # that stop until independent player progression releases the clock.
         if self._stopped_since is not None:
@@ -429,9 +416,12 @@ class PlaybackTimeline:
         # measures from there too.
         self._cue_since = at
         self._cue_started_ms = line_start_ms
-        self._hold_since = at
-        self._hold_started_ms = line_start_ms
-        self._cue_credited_s = 0.0
+        if same_cue and self._hold_since is not None:
+            self._hold_started_ms = self._running_ms(self._hold_since)
+        else:
+            self._hold_since = at
+            self._hold_started_ms = line_start_ms
+            self._cue_credited_s = 0.0
         self._drift_ms = drift
         self._misses = 0
         self._pending_offset_ms = None
@@ -501,24 +491,30 @@ class PlaybackTimeline:
                 self._remember_pending(*corroboration)
 
     def reset(self) -> None:
-        self._strong_match = None
-        self._visible_cue_end_ms = None
-        self._anchor_ms = None
+        self._anchor_ms: int | None = None
         self._anchor_at = 0.0
         self._supported_at = 0.0
         self._has_activity_evidence = False
-        self._uncertain_since = None
-        self._pending_freeze_until = None
-        self._playback_received_at = None
-        self._capture_pending_until = None
+        self._uncertain_since: float | None = None
+        self._pending_freeze_until: float | None = None
+        self._playback_received_at: float | None = None
+        self._capture_pending_until: float | None = None
         self._paused_s = 0.0
-        self._stopped_since = None
-        self._cue_since = None
-        self._cue_started_ms = None
-        self._hold_since = None
-        self._hold_started_ms = None
+        self._pause_before_cue = 0.0
+        self._last_completed_stop: tuple[float, float] | None = None
+        self._stopped_since: float | None = None
+        self._cue_since: float | None = None
+        self._cue_started_ms: int | None = None
+        self._hold_since: float | None = None
+        self._hold_started_ms: int | None = None
         self._cue_credited_s = 0.0
+        self._visible_cue_end_ms: int | None = None
         self._misses = 0
-        self._drift_ms = None
-        self._pending_offset_ms = None
-        self._recovering = False
+        self._drift_ms: int | None = None
+        self._pending_offset_ms: int | None = None
+        self._pending_index: int | None = None
+        self._pending_at = 0.0
+        self._pending_count = 0
+        self._pending_strong = False
+        self._recovering = self._require_confirmation
+        self._strong_match: tuple[int, int, float] | None = None

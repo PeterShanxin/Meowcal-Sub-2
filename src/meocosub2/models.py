@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from meocosub2.presentation import PresentationTrack
+    from meocosub2.source_track import SourceTrackTranslation
 
 
 @dataclass
@@ -28,6 +29,20 @@ class SubtitlePair:
         from meocosub2.presentation import PresentationTrack
 
         return PresentationTrack(self.source_lines, self.target_lines)
+
+    @cached_property
+    def source_translation(self) -> "SourceTrackTranslation | None":
+        from meocosub2.source_track import SourceTrackTranslation
+
+        if (
+            not self.source_lines
+            or self.target_lines
+            or any(
+                line.translated and line.translation_source == "human" for line in self.source_lines
+            )
+        ):
+            return None
+        return SourceTrackTranslation(self.source_lines)
 
 
 @dataclass
@@ -166,6 +181,7 @@ class AppStateSnapshot:
     prepared_session: PreparedSession | None = None
     progress: AppProgress = field(default_factory=AppProgress)
     last_subtitle: str = ""
+    last_subtitle_source: str = "matched"
     error_message: str = ""
     warning_message: str = ""
     gap_fill: GapFillProgress | None = None

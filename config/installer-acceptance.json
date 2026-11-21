@@ -1,18 +1,5 @@
 {
   "receiver": {
-    "version": "0.2.2",
-    "release": "v0.2.2",
-    "commit": "a46e37392e42b0f7edaa464cc3c67a549f227c22",
-    "x64": {
-      "installer": "e3996ef278900892b5255345eeb3263e2d8493604ba3b4977702f0a3827a9714",
-      "portable": "a3c476829316da9de8c70010e53f84740382fa0b7d969139ecef8e12fe8bd992"
-    },
-    "arm64": {
-      "installer": "e62289334acccc475de0554acd2231764cf1407306807acae40923f2d6cca19f",
-      "portable": "6db862e9bee02ca339b5b0510288d6c0a68fc22ba711f4f143fcedd69242f198"
-    }
-  },
-  "target": {
     "version": "0.3.0",
     "release": "v0.3.0",
     "commit": "a86e707e7e134659f41763077338d5ee3a2965f4",
@@ -23,6 +10,19 @@
     "arm64": {
       "installer": "e349b78442788dce21e10ce49563214e230a70ad397c5ef1126f9faf042a7634",
       "portable": "a805ba3a262ba9be2f05ba0984c735786b9ee1ff1ed63ac3a8519c95f36e0dd1"
+    }
+  },
+  "target": {
+    "version": "0.4.0",
+    "release": "v0.4.0",
+    "commit": "f2d59171788ca781179893ded411245c2c3f2352",
+    "x64": {
+      "installer": "e8e4dafb3dfd06a7c660eb937ef6300ad59d504e1fa029fb3ab752303dbbf4cc",
+      "portable": "1ee24f9e3c34a4ac603aaba141f6fc9d8e5bb1a6f064a6783d97cf17d2fae822"
+    },
+    "arm64": {
+      "installer": "f325c6b3997887d97ab0ddd36be4d538cc8d64e8c9d0dbbb9ce11a2adc899f0f",
+      "portable": "029bd4fc13586670094d194547ecf7717d80e9ef8601686cf230bf6b982e59f7"
     }
   }
 }

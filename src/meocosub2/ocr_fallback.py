@@ -60,7 +60,6 @@ class _CueQueue:
         self._empty_reads = 0
         self._visible: _Cue | None = None
         self._shown_at = 0.0
-        self._reset_matcher = False
         self.displayed = ""
 
     def reset(self) -> None:
@@ -68,7 +67,6 @@ class _CueQueue:
         self._active = self._candidate = self._visible = None
         self._last_read_at = self._empty_since = None
         self._empty_reads = 0
-        self._reset_matcher = True
         self._wake.set()
 
     def interrupt_read(self) -> None:
@@ -155,7 +153,6 @@ class _CueQueue:
         self,
         translate: Callable[[str], Awaitable[str]],
         publish: Callable[[str], Awaitable[None]],
-        reset_matcher: Callable[[], None],
         timeout_s: float,
     ) -> None:
         async def translate_cue(cue: _Cue) -> str:
@@ -181,10 +178,6 @@ class _CueQueue:
                     # Core owns one slot. Let cancellation settle before starting the next cue.
                     task.cancel()
                 if task is None:
-                    if self._reset_matcher:
-                        # Late work may have touched the matcher while unwinding.
-                        reset_matcher()
-                        self._reset_matcher = False
                     request = next((cue for cue in self._waiting if cue.answer is None), None)
                     if request is not None:
                         task = asyncio.create_task(translate_cue(request))
@@ -213,14 +206,13 @@ async def run_ocr_fallback(
     read_text: Callable[[tuple[int, ...]], Awaitable[str]],
     translate: Callable[[str], Awaitable[str]],
     publish: Callable[[str], Awaitable[None]],
-    reset_matcher: Callable[[], None],
     interval_s: float,
     translation_timeout_s: float,
     debug: Callable[[dict[str, object]], Awaitable[None]] | None,
 ) -> None:
     queue = _CueQueue(interval_s)
     presenter = asyncio.create_task(
-        queue.run(translate, publish, reset_matcher, min(translation_timeout_s, MAX_QUEUE_AGE_S))
+        queue.run(translate, publish, min(translation_timeout_s, MAX_QUEUE_AGE_S))
     )
     previous_region: tuple[int, ...] | None = None
     iteration = 0
