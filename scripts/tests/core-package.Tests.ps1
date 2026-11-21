@@ -282,7 +282,7 @@ try {
     }
     $launcher = Get-Content -LiteralPath (Join-Path $repositoryRoot "run_app.vbs") -Raw
     if ($launcher -notmatch 'fetch-meowcal-core\.ps1' -or
-        $launcher -notmatch 'corePath, _' -or
+        $launcher.IndexOf('cargo build --locked') -lt $launcher.IndexOf('fetch-meowcal-core.ps1') -or
         $launcher -notmatch 'MEOWCAL_CORE_PROFILE"\) = "development"') {
         throw "The supported development launcher must prepare Core under the development profile."
     }

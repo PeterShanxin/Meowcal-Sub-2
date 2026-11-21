@@ -54,5 +54,6 @@ export const tauri = {
   checkAppUpdate: () => invokeTauri<AppUpdateCheck>("check_app_update"),
   installAppUpdate: (expectedVersion: string) =>
     invokeTauri<void>("install_app_update", { expectedVersion }),
+  setTrayLocale: (locale: string) => invokeTauri<void>("set_tray_locale", { locale }),
   listen: listenTauri,
 };

@@ -1,3 +1,4 @@
+import { getLocale, localizeMessage, t } from "../i18n";
 import type {
   BackendGapFill,
   BackendPreparedSession,
@@ -28,21 +29,26 @@ export function PrepCard({
   gapFill,
   onPickTarget,
 }: PrepCardProps): JSX.Element {
-  const sourceFile = prepared?.source_summary ?? prepared?.source_file_name ?? source?.file ?? "—";
-  const isAutoTranslation = prepared?.target_match_mode === "auto_live_translation";
+  const sourceFile =
+    prepared?.session_mode === "ocr_fallback"
+      ? t("On-screen subtitles")
+      : (prepared?.source_summary ?? prepared?.source_file_name ?? source?.file ?? "—");
+  const isAutoTranslation =
+    prepared?.target_match_mode === "auto_live_translation" ||
+    prepared?.target_match_mode === "direct_translation";
   const isLocalTranslation = prepared?.target_match_mode === "local_translation";
   // The source file is the target here, so naming it would read as an ordinary
   // pairing and hide where these translations actually come from.
   const isOwnTranslation = prepared?.target_match_mode === "source_own_translation";
   const targetLabel = isAutoTranslation
-    ? "Live translation (on device)"
+    ? t("Live translation (on device)")
     : isLocalTranslation
-      ? "Local translation (on device)"
+      ? t("Local translation (on device)")
       : isOwnTranslation
-        ? "Translation inside the source file"
+        ? t("Translation inside the source file")
         : (prepared?.target_file_name ?? target?.title ?? target?.file ?? "—");
   const lines = prepared?.source_line_count
-    ? `${prepared.source_line_count.toLocaleString()} prepared`
+    ? t("{count} prepared", { count: prepared.source_line_count.toLocaleString() })
     : "—";
   const alignment = prepared?.target_alignment ?? [];
   const chosenAlignment = alignment.find((entry) => entry.chosen) ?? null;
@@ -75,7 +81,7 @@ export function PrepCard({
           textTransform: "uppercase",
         }}
       >
-        Session ready
+        {t("Session ready")}
       </div>
       <div
         style={{
@@ -85,51 +91,58 @@ export function PrepCard({
           letterSpacing: -0.3,
         }}
       >
-        {titleLabel ?? prepared?.title ?? "Untitled"}
+        {titleLabel || prepared?.title || t("Live screen translation")}
       </div>
       <div
         style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 12, fontSize: 13 }}
       >
-        <Row label="Source" value={sourceFile} mono />
+        <Row label={t("Source")} value={sourceFile} mono />
         <Row
-          label="Target"
+          label={t("Target")}
           value={targetLabel}
           tag={isAutoTranslation || isLocalTranslation ? "AUTO" : null}
         />
-        <Row label="Found" value={foundLabel} />
-        <Row label="Lines" value={lines} />
+        <Row label={t("Found")} value={foundLabel} />
+        <Row label={t("Lines")} value={lines} />
         {(chosenAlignment || gapFill) && (
-          <Row label="Coverage" value={coverageLabel(chosenAlignment, gapFill)} />
+          <Row label={t("Coverage")} value={coverageLabel(chosenAlignment, gapFill)} />
         )}
       </div>
       {prepared?.target_clock_unverified && (
         <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: "var(--text-label)" }}>
-          Target timing is unverified. No consistent shared human subtitle text confirmed the file
-          clocks, so matching timestamps are assumed. Check synchronization during playback and
-          correct the target file in the editor if needed.
+          {t(
+            "Target timing is unverified. No consistent shared human subtitle text confirmed the file clocks, so matching timestamps are assumed. Check synchronization during playback and correct the target file in the editor if needed.",
+          )}
         </p>
       )}
       {!!prepared?.subtitle_checks?.length && (
         <details style={{ fontSize: 12, color: "var(--text-label)" }}>
-          <summary style={{ cursor: "pointer" }}>Subtitles checked automatically</summary>
+          <summary style={{ cursor: "pointer" }}>{t("Subtitles checked automatically")}</summary>
           <p style={{ whiteSpace: "pre-line", lineHeight: 1.6 }}>
             {prepared.subtitle_checks
               .map((check) =>
                 [
                   `${check.file_name}:`,
-                  check.reordered ? "sorted by time;" : "",
+                  check.reordered ? t("sorted by time;") : "",
                   check.duplicates_removed > 0
-                    ? `duplicates removed: ${check.duplicates_removed};`
+                    ? t("duplicates removed: {count};", { count: check.duplicates_removed })
                     : "",
-                  check.empty_removed > 0 ? `empty cues skipped: ${check.empty_removed};` : "",
-                  "ready for sync.",
+                  check.empty_removed > 0
+                    ? t("empty cues skipped: {count};", { count: check.empty_removed })
+                    : "",
+                  (check.drawings_removed ?? 0) > 0
+                    ? t("drawing cues skipped: {count};", { count: check.drawings_removed ?? 0 })
+                    : "",
+                  t("ready for sync."),
                 ]
                   .filter(Boolean)
-                  .join(" "),
+                  .join(getLocale() === "zh-CN" ? "" : " "),
               )
               .join("\n")}
           </p>
-          <p>Changes apply to playback. Original files are unchanged. Editing is optional.</p>
+          <p>
+            {t("Changes apply to playback. Original files are unchanged. Editing is optional.")}
+          </p>
         </details>
       )}
       {better && (
@@ -143,8 +156,9 @@ export function PrepCard({
           }}
         >
           <span style={{ flex: 1 }}>
-            {better.file_name} answers {better.unpaired_cues === 0 ? "all of them" : "more of them"}
-            .
+            {better.unpaired_cues === 0
+              ? t("{file} answers all of them.", { file: better.file_name })
+              : t("{file} answers more of them.", { file: better.file_name })}
           </span>
           <button
             type="button"
@@ -160,7 +174,7 @@ export function PrepCard({
               whiteSpace: "nowrap",
             }}
           >
-            Use it
+            {t("Use it")}
           </button>
         </div>
       )}
@@ -178,7 +192,7 @@ export function PrepCard({
           color: "var(--text-label)",
         }}
       >
-        Press <Kbd>Ctrl ↵</Kbd> to start sync · <Kbd>,</Kbd> for settings
+        {t("Press")} <Kbd>Ctrl ↵</Kbd> {t("to start sync")} · <Kbd>,</Kbd> {t("for settings")}
       </div>
     </div>
   );
@@ -273,7 +287,9 @@ export function PreviewCard({
           textTransform: "uppercase",
         }}
       >
-        <span>Preview {line?.tc ? `· ${line.tc}` : ""}</span>
+        <span>
+          {t("Preview")} {line?.tc ? `· ${localizeMessage(line.tc)}` : ""}
+        </span>
         <span style={{ color: "var(--accent-text)" }}>{targetLanguage}</span>
       </div>
       <div style={{ flex: 1 }} />
@@ -287,7 +303,7 @@ export function PreviewCard({
           minHeight: 32,
         }}
       >
-        {line?.text ?? "Waiting for first subtitle…"}
+        {line?.text ?? t("Waiting for first subtitle…")}
       </div>
     </div>
   );
