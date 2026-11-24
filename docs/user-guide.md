@@ -13,8 +13,11 @@ This guide covers v0.4.0. See the [release notes](releases/v0.4.0.md) for downlo
 
 ## Install and first launch
 
-Get the Windows package matching your architecture from
-[Latest release](https://github.com/PeterShanxin/Meowcal-Sub-2/releases/latest). Choose `arm64`
+Install from the [Microsoft Store](https://apps.microsoft.com/detail/9NH782JNLWJP) on Windows 11. The Store
+selects the matching architecture and manages app updates.
+
+Alternatively, get the Windows package matching your architecture from
+[GitHub Releases](https://github.com/PeterShanxin/Meowcal-Sub-2/releases/latest). Choose `arm64`
 for Windows on ARM, or `x64` for Intel/AMD Windows. Windows **Settings → System →
 About → System type** identifies your architecture.
 
@@ -22,15 +25,15 @@ Run `meowcal-sub-2-v*-windows-{arm64,x64}-setup.exe` for a per-user
 installation. Alternatively, extract the complete
 `meowcal-sub-2-v*-windows-{arm64,x64}-portable.zip` and open
 **Meowcal Sub 2.exe** inside the extracted folder. Keep the `backend` and `core`
-folders beside the executable. Both packages include Python and the Core
+folders beside the executable. All editions include Python and the Core
 executable; translation models are installed separately through Settings.
 
 The published v0.1.0 and v0.2.0 cannot check for app updates. Install v0.2.1 or
-later manually. Signed installer releases check for updates when the app opens
+later manually. Signed GitHub installer releases check for updates when the app opens
 and offer **Install update** in the app and under **Settings → Updates**
 (**Check for updates** asks again). Portable copies must be replaced manually.
 
-Each architecture has a `meowcal-sub-2-v*-windows-{arm64,x64}-SHA256SUMS.txt`
+For GitHub downloads, each architecture has a `meowcal-sub-2-v*-windows-{arm64,x64}-SHA256SUMS.txt`
 file; the release also provides an aggregate checksum list. To check a downloaded
 package in PowerShell, compare its result with the matching entry:
 
@@ -96,8 +99,8 @@ language** shows it.
 Open **Settings → Translation** and choose **Download engine**. This downloads
 about 1.1 GB of model data plus the runtime. If the download fails, choose
 **Retry download**. Meowcal Core verifies and stores the translation engine
-separately from the app. Matching verified artifacts from an earlier Meowcal
-installation can be imported; Sub 1 is not required.
+separately from the app. In the GitHub edition, matching verified artifacts from an earlier Meowcal
+installation can be imported. Sub 1 is not required.
 
 Without the translation engine, these sessions work:
 
@@ -256,7 +259,7 @@ consecutive SRT numbering. Files must be UTF-8 and at most 4 MiB.
 If saving fails, the new copies are removed and the previous prepared session
 stays unchanged. Correct the reported problem and save again. Original files stay
 untouched. Corrected session copies live under
-`%APPDATA%\meowcal-sub-2\subtitles\corrected`. Export a copy to keep it somewhere
+`%APPDATA%\meowcal-sub-2\subtitles\corrected` in the GitHub edition, or under `meowcal-sub-2\subtitles\corrected` in the Store data directory described below. Export a copy to keep it somewhere
 else or import it into another session.
 
 ## Adjust while watching
@@ -293,10 +296,16 @@ readable text inside the selected area.
 
 ## Stored data and connections
 
-Configuration lives at `%APPDATA%\meowcal-sub-2\config.toml`.
+In the GitHub edition, configuration lives at `%APPDATA%\meowcal-sub-2\config.toml`.
 [config.example.toml](../config.example.toml) shows the configuration format;
 Settings is the usual way to edit it. Changing the studio port requires a restart.
 Downloaded subtitles are cached under `%USERPROFILE%\.cache\meowcal-sub-2`.
+
+The Store edition keeps separate settings, credentials, subtitle cache, models
+and WebView data under
+`%LOCALAPPDATA%\Packages\ShanxinLi.MeowcalSub2_hs4jcn39rmtjt\LocalState`.
+Enter provider credentials again when switching from the GitHub edition. The
+Store edition uses port 8766 by default; the GitHub edition uses 8765.
 
 OCR and local translation inference run on the machine. Enabled subtitle
 providers receive searches and download requests. Optional TMDb lookups, studio
@@ -304,7 +313,7 @@ fonts from Google Fonts, and runtime/model installation also use the network.
 
 ## Logs and diagnostics
 
-Logs are in `%APPDATA%\meowcal-sub-2\logs`:
+Logs are in `%APPDATA%\meowcal-sub-2\logs` in the GitHub edition, or `meowcal-sub-2\logs` inside the Store data directory:
 
 - `meowcal-sub-2.log` records the app at INFO level. A new file starts each day,
   and seven previous files are kept.
@@ -326,7 +335,10 @@ screenshots of private viewing content.
 
 ## Uninstall
 
-Uninstall the installed app from Windows **Settings → Apps**. Check **Delete
+Uninstall the Store edition from Windows **Settings → Apps**. Windows removes
+its local package data. Export any corrected subtitles you want to keep first.
+
+Uninstall the GitHub installed app from Windows **Settings → Apps**. Check **Delete
 the application data** to also remove the folders below. Earlier versions kept
 the translation engine in `%LOCALAPPDATA%\Meowcal\Core\production`, which
 Meowcal Sub shares; the uninstaller removes it only when Meowcal Sub has never
@@ -398,7 +410,7 @@ For a reproducible app problem, [open an issue](https://github.com/PeterShanxin/
 Include:
 
 - the app version, from **Settings → Updates** or the release you installed;
-- whether you use the installer, the portable package, or a source build;
+- whether you use Microsoft Store, the GitHub installer, the portable package, or a source build;
 - the Windows version and architecture;
 - the steps, the OCR engine setting, and which sources were enabled;
 - the exact error text, with titles and personal details removed.

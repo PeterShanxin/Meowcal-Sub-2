@@ -8,7 +8,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/PeterShanxin/Meowcal-Sub-2/releases/latest">下载</a> ·
+  <a href="https://apps.microsoft.com/detail/9NH782JNLWJP">Microsoft Store</a> ·
+  <a href="https://github.com/PeterShanxin/Meowcal-Sub-2/releases/latest">GitHub 下载</a> ·
   <a href="https://petershanxin.github.io/Meowcal-Sub/zh-CN/sub-2/">官网</a> ·
   <a href="README.md">English</a> ·
   <a href="docs/user-guide.zh-CN.md">用户指南</a> ·
@@ -42,12 +43,14 @@
 
 ## 开始使用
 
-从 [Latest release](https://github.com/PeterShanxin/Meowcal-Sub-2/releases/latest) 下载安装包。Windows on ARM 选择 `arm64`，Intel/AMD 处理器的 Windows 选择 `x64`：
+在 Windows 11 上，可以通过 [Microsoft Store](https://apps.microsoft.com/detail/9NH782JNLWJP) 安装。商店自动匹配处理器架构，并管理应用更新。
+
+也可以从 [GitHub 发布页](https://github.com/PeterShanxin/Meowcal-Sub-2/releases/latest) 下载安装包。Windows on ARM 选择 `arm64`，Intel/AMD 处理器的 Windows 选择 `x64`：
 
 - **安装版：**`meowcal-sub-2-v*-windows-{arm64,x64}-setup.exe`。
 - **便携版：**`meowcal-sub-2-v*-windows-{arm64,x64}-portable.zip`。请完整解压，然后打开文件夹中的 **Meowcal Sub 2.exe**。
 
-两种安装包都包含 Python 后台和 Meowcal Core 可执行文件。模型在设置中安装。发布页同时提供 SHA-256 校验和。v0.1.0 和 v0.2.0 需要手动安装，才能升级到第一个已签名的版本。已签名的安装版之后可以在应用内更新；便携版需要手动更新。首次启动的设置方法见[用户指南](docs/user-guide.zh-CN.md)。
+各版本均包含 Python 后台和 Meowcal Core 可执行文件。模型在设置中安装。GitHub 发布页提供 SHA-256 校验和。v0.1.0 和 v0.2.0 需要手动安装，才能升级到第一个已签名的版本。GitHub 已签名安装版之后可以在应用内更新；便携版需要手动更新。Microsoft Store 版独立保存设置和应用数据。首次启动的设置方法见[用户指南](docs/user-guide.zh-CN.md)。
 
 你需要 Windows 和 Microsoft WebView2。使用 Windows OCR 时，还需要屏幕上那种语言的 Windows OCR 语言包。从 v0.3.0 起，PP-OCRv6 无需 Windows OCR 语言包即可识别英语、中文、日语、西班牙语、法语和德语。搜索字幕至少需要一个字幕来源的凭据：OpenSubtitles API 密钥、SubDL API 密钥或 ASSRT 令牌。各来源的可用性和下载额度以其服务为准。
 
@@ -57,7 +60,7 @@
 
 ## 数据和网络
 
-文字识别和翻译推理都在本机运行。搜索和下载字幕会连接已启用的字幕来源；可选的 TMDb 元数据、Google Fonts 以及引擎和模型的安装也会使用网络。配置、字幕文件和日志保存在用户目录中。普通日志使用 INFO 级别；只有明确开启详细模式时，才会记录详细的文字识别和字幕跟踪信息。日志中仍可能出现片名、错误信息等敏感内容，分享前请先删除。
+文字识别和翻译推理都在本机运行。搜索和下载字幕会连接已启用的字幕来源；可选的 TMDb 元数据、Google Fonts 以及引擎和模型的安装也会使用网络。配置、字幕文件和日志均保存在本机。Microsoft Store 版使用独立的应用包数据目录。普通日志使用 INFO 级别；只有明确开启详细模式时，才会记录详细的文字识别和字幕跟踪信息。日志中仍可能出现片名、错误信息等敏感内容，分享前请先删除。
 
 工作室在 `127.0.0.1` 上提供本地页面，每次运行都需要访问令牌。这并不能隔离同一 Windows 账户下有访问权限的其他软件。详见[安全策略](SECURITY.md)（英文）。
 

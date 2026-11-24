@@ -8,7 +8,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/PeterShanxin/Meowcal-Sub-2/releases/latest">Download</a> ·
+  <a href="https://apps.microsoft.com/detail/9NH782JNLWJP">Microsoft Store</a> ·
+  <a href="https://github.com/PeterShanxin/Meowcal-Sub-2/releases/latest">GitHub Releases</a> ·
   <a href="https://petershanxin.github.io/Meowcal-Sub/sub-2/">Website</a> ·
   <a href="README.zh-CN.md">简体中文</a> ·
   <a href="docs/user-guide.md">User guide</a> ·
@@ -56,19 +57,23 @@ player or title. Protected video surfaces can prevent screen capture.
 
 ## Get started
 
-Download a package from
-[Latest release](https://github.com/PeterShanxin/Meowcal-Sub-2/releases/latest), choosing
+Install from the [Microsoft Store](https://apps.microsoft.com/detail/9NH782JNLWJP) on Windows 11. The Store
+selects the architecture and manages app updates.
+
+Alternatively, download a package from
+[GitHub Releases](https://github.com/PeterShanxin/Meowcal-Sub-2/releases/latest), choosing
 `arm64` for Windows on ARM or `x64` for Intel/AMD Windows:
 
 - **Installer:** `meowcal-sub-2-v*-windows-{arm64,x64}-setup.exe`.
 - **Portable:** `meowcal-sub-2-v*-windows-{arm64,x64}-portable.zip`.
   Extract the complete archive, then open **Meowcal Sub 2.exe** inside its folder.
 
-Both packages include the Python backend and Meowcal Core executable. Models
-are installed through Settings. SHA-256 checksums accompany the release.
+All editions include the Python backend and Meowcal Core executable. Models
+are installed through Settings. SHA-256 checksums accompany GitHub releases.
 Versions v0.1.0 and v0.2.0 need a manual install to upgrade to the first signed
-release. Signed installed copies can receive later updates in the app; portable
-copies are updated manually.
+release. Signed GitHub installer releases can receive later updates in the app;
+portable copies are updated manually. The Store edition keeps its own settings
+and app data.
 See the [user guide](docs/user-guide.md) for first-launch setup.
 
 You need Windows, Microsoft WebView2, and a Windows OCR language pack for the
@@ -93,7 +98,7 @@ translation model, but untranslated gaps then remain unavailable.
 OCR and translation inference run on the machine. Subtitle search and download
 contact enabled providers; optional TMDb metadata, Google Fonts, and engine/model
 installation also use the network. Configuration, subtitle files, and logs are
-stored in the user profile. Normal logs use INFO; explicit verbose mode adds
+stored locally. The Store edition uses its own package data directory. Normal logs use INFO; explicit verbose mode adds
 detailed OCR and subtitle traces. Titles, errors, and other sensitive details
 can still appear in logs. Redact them before sharing.
 
