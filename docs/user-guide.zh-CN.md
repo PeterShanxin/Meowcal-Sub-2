@@ -8,13 +8,15 @@
 
 ## 安装与首次启动
 
-从 [Latest release](https://github.com/PeterShanxin/Meowcal-Sub-2/releases/latest) 下载与你的处理器架构匹配的 Windows 安装包。Windows on ARM 选择 `arm64`，Intel/AMD 处理器的 Windows 选择 `x64`。可以在 Windows **设置 → 系统 → 系统信息 → 系统类型**中查看架构。
+在 Windows 11 上，可以通过 [Microsoft Store](https://apps.microsoft.com/detail/9NH782JNLWJP) 安装。商店自动匹配处理器架构，并管理应用更新。
 
-运行 `meowcal-sub-2-v*-windows-{arm64,x64}-setup.exe`，为当前用户安装。也可以完整解压 `meowcal-sub-2-v*-windows-{arm64,x64}-portable.zip`，然后打开解压文件夹中的 **Meowcal Sub 2.exe**。请让 `backend` 和 `core` 文件夹保留在可执行文件旁边。两种安装包都包含 Python 和 Core 可执行文件；翻译模型需要在设置中另行安装。
+也可以从 [GitHub 发布页](https://github.com/PeterShanxin/Meowcal-Sub-2/releases/latest) 下载与你的处理器架构匹配的 Windows 安装包。Windows on ARM 选择 `arm64`，Intel/AMD 处理器的 Windows 选择 `x64`。可以在 Windows **设置 → 系统 → 系统信息 → 系统类型**中查看架构。
 
-已发布的 v0.1.0 和 v0.2.0 无法检查应用更新，请手动安装 v0.2.1 或更高版本。通过已签名安装包安装的版本会在打开应用时检查更新，并在应用内和**设置 → 更新**中提供**安装更新**（**检查更新**会重新检查）。便携版需要手动替换。
+运行 `meowcal-sub-2-v*-windows-{arm64,x64}-setup.exe`，为当前用户安装。也可以完整解压 `meowcal-sub-2-v*-windows-{arm64,x64}-portable.zip`，然后打开解压文件夹中的 **Meowcal Sub 2.exe**。请让 `backend` 和 `core` 文件夹保留在可执行文件旁边。各版本均包含 Python 和 Core 可执行文件；翻译模型需要在设置中另行安装。
 
-每种架构都有一个 `meowcal-sub-2-v*-windows-{arm64,x64}-SHA256SUMS.txt` 文件，发布页还提供一份汇总的校验和列表。要在 PowerShell 中校验下载的安装包，请把下面命令的结果与对应条目比较：
+已发布的 v0.1.0 和 v0.2.0 无法检查应用更新，请手动安装 v0.2.1 或更高版本。通过 GitHub 已签名安装包安装的版本会在打开应用时检查更新，并在应用内和**设置 → 更新**中提供**安装更新**（**检查更新**会重新检查）。便携版需要手动替换。
+
+GitHub 发布页为每种架构提供一个 `meowcal-sub-2-v*-windows-{arm64,x64}-SHA256SUMS.txt` 文件，发布页还提供一份汇总的校验和列表。要在 PowerShell 中校验下载的安装包，请把下面命令的结果与对应条目比较：
 
 ```powershell
 Get-FileHash .\meowcal-sub-2-v*-windows-arm64-portable.zip -Algorithm SHA256
@@ -52,7 +54,7 @@ Get-FileHash .\meowcal-sub-2-v*-windows-arm64-portable.zip -Algorithm SHA256
 
 ### 本地翻译
 
-打开**设置 → 翻译**，选择**下载翻译引擎**。这会下载约 1.1 GB 的模型数据和运行时。下载失败时，请选择**重新下载**。Meowcal Core 会校验翻译引擎，并把它与应用分开存放。早先的 Meowcal 安装中经过校验且版本匹配的文件可以直接导入；不需要安装 Sub 1。
+打开**设置 → 翻译**，选择**下载翻译引擎**。这会下载约 1.1 GB 的模型数据和运行时。下载失败时，请选择**重新下载**。Meowcal Core 会校验翻译引擎，并把它与应用分开存放。GitHub 版可以导入早先的 Meowcal 安装中经过校验且版本匹配的文件。不需要安装 Sub 1。
 
 没有翻译引擎时，以下会话仍可使用：
 
@@ -162,7 +164,7 @@ PP-OCRv6 包含在 Core 中，不需要 Windows 语言包。在记录的测试�
 
 空字幕、无效的时间段或无法安全编码的文字等错误会阻止保存。重叠、重复和顺序错乱属于警告，因为其中有些是有意为之。不支持的 WebVTT 结构（包括 STYLE 和 REGION 块）会被拒绝，而不是被丢弃。受支持的注释、字幕标识、设置和文字都会保留；输出使用 LF 换行和连续的 SRT 编号。文件必须是 UTF-8 编码，且不超过 4 MiB。
 
-保存失败时，新副本会被删除，之前准备好的会话保持不变。请修正提示的问题后再次保存。原始文件不会被改动。修正后的会话副本存放在 `%APPDATA%\meowcal-sub-2\subtitles\corrected`。如果想把副本保存到其他位置或导入另一个会话，请导出副本。
+保存失败时，新副本会被删除，之前准备好的会话保持不变。请修正提示的问题后再次保存。原始文件不会被改动。GitHub 版的修正后会话副本存放在 `%APPDATA%\meowcal-sub-2\subtitles\corrected`；Microsoft Store 版则存放在下文所述商店数据目录中的 `meowcal-sub-2\subtitles\corrected`。如果想把副本保存到其他位置或导入另一个会话，请导出副本。
 
 ## 观看时调整
 
@@ -181,13 +183,15 @@ PP-OCRv6 包含在 Core 中，不需要 Windows 语言包。在记录的测试�
 
 ## 存储的数据和网络连接
 
-配置文件位于 `%APPDATA%\meowcal-sub-2\config.toml`。[config.example.toml](../config.example.toml) 展示了配置格式；通常通过设置修改即可。更改工作室端口需要重启。下载的字幕缓存在 `%USERPROFILE%\.cache\meowcal-sub-2`。
+GitHub 版的配置文件位于 `%APPDATA%\meowcal-sub-2\config.toml`。[config.example.toml](../config.example.toml) 展示了配置格式；通常通过设置修改即可。更改工作室端口需要重启。下载的字幕缓存在 `%USERPROFILE%\.cache\meowcal-sub-2`。
+
+Microsoft Store 版独立保存设置、凭据、字幕缓存、模型和 WebView 数据，根目录为 `%LOCALAPPDATA%\Packages\ShanxinLi.MeowcalSub2_hs4jcn39rmtjt\LocalState`。从 GitHub 版切换时，请重新填写字幕来源凭据。商店版默认端口为 8766，GitHub 版为 8765。
 
 文字识别和本地翻译推理都在本机运行。已启用的字幕来源会收到搜索和下载请求。可选的 TMDb 查询、来自 Google Fonts 的工作室字体，以及运行时和模型的安装也会使用网络。
 
 ## 日志和诊断
 
-日志位于 `%APPDATA%\meowcal-sub-2\logs`：
+GitHub 版的日志位于 `%APPDATA%\meowcal-sub-2\logs`；Microsoft Store 版的日志位于商店数据目录中的 `meowcal-sub-2\logs`：
 
 - `meowcal-sub-2.log` 以 INFO 级别记录应用运行情况。每天新建一个文件，保留之前的七个文件。
 - `meowcal-sub-2.events.jsonl` 记录应用事件，每行一条。文件达到 5 MiB 时会改名为 `meowcal-sub-2.events.jsonl.1`，并替换之前的那个文件。
@@ -200,7 +204,9 @@ PP-OCRv6 包含在 Core 中，不需要 Windows 语言包。在记录的测试�
 
 ## 卸载
 
-在 Windows **设置 → 应用**中卸载已安装的应用。勾选 **Delete the application data** 可以同时删除下面列出的文件夹。早期版本把翻译引擎放在 `%LOCALAPPDATA%\Meowcal\Core\production`，Meowcal Sub（妙影）也会使用这个位置；只有在这台电脑从未运行过 Meowcal Sub 时，卸载程序才会删除它。
+在 Windows **设置 → 应用**中卸载 Microsoft Store 版。Windows 会移除该版本的本地应用包数据。请先导出要保留的修正后字幕。
+
+在 Windows **设置 → 应用**中卸载 GitHub 安装版。勾选 **Delete the application data** 可以同时删除下面列出的文件夹。早期版本把翻译引擎放在 `%LOCALAPPDATA%\Meowcal\Core\production`，Meowcal Sub（妙影）也会使用这个位置；只有在这台电脑从未运行过 Meowcal Sub 时，卸载程序才会删除它。
 
 便携版没有卸载程序。请关闭应用，删除解压出的文件夹，然后删除以下文件夹：
 
@@ -248,7 +254,7 @@ PP-OCRv6 包含在 Core 中，不需要 Windows 语言包。在记录的测试�
 对于可以重现的应用问题，请[提交 issue](https://github.com/PeterShanxin/Meowcal-Sub-2/issues)。请写明：
 
 - 应用版本：见**设置 → 更新**，或你安装的发布版本；
-- 你使用的是安装版、便携版还是源代码构建；
+- 你使用的是 Microsoft Store 版、GitHub 安装版、便携版还是源代码构建；
 - Windows 版本和架构；
 - 操作步骤、文字识别引擎设置，以及启用了哪些来源；
 - 完整的错误文字，并去掉片名和个人信息。
