@@ -131,7 +131,7 @@ def alignment_report(
         for index, line in enumerate(source)
     ]
     presentation = PresentationTrack(trial, target)
-    unpaired = [line for line in trial if line.text and not presentation.answer(line)]
+    unpaired = [line for line in trial if line.text and not presentation.has_answer(line)]
     return AlignmentReport(
         total_cues=len(trial),
         unpaired_cues=len(unpaired),

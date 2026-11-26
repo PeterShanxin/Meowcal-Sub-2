@@ -83,6 +83,15 @@ class PresentationTrack:
             | {ms for line in self._fallbacks.lines for ms in (line.start_ms, line.end_ms)}
         )
 
+    def has_answer(self, line: SubtitleLine) -> bool:
+        """Check coverage without rendering the overlapping target dialogue."""
+        targets = self._overlapping_targets.get(id(line))
+        if not targets:
+            return bool(line.translated)
+        if len(targets) == 1:
+            return bool(targets[0][0].text.strip())
+        return bool(self.answer(line))
+
     def answer(self, line: SubtitleLine) -> str:
         """Return target text overlapping this source cue, else its own translation."""
         targets = self._overlapping_targets.get(id(line), ())

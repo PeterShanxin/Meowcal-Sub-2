@@ -83,6 +83,20 @@ def test_uncovered_source_uses_current_human_then_model_translation() -> None:
     assert frame.cues[0].kind == "model"
 
 
+@pytest.mark.parametrize("texts", [[], [" \t"], ["甲\n乙"], ["- One\n- Two"], ["", "second"]])
+def test_coverage_agrees_with_the_current_playback_answer(texts: list[str]) -> None:
+    cue = line(0, 0, 1000, "source")
+    targets = [line(i, 0, 1000, text) for i, text in enumerate(texts)]
+    track = PresentationTrack([cue], targets)
+
+    for translation in ("", "new answer"):
+        cue.translated = translation
+        assert track.has_answer(cue) == bool(track.answer(cue))
+    if targets:
+        targets[0].text = "updated target"
+        assert track.has_answer(cue) == bool(track.answer(cue))
+
+
 def test_overlapping_source_fallbacks_keep_each_cue_formatting_and_a_row_between_cues() -> None:
     source = [
         line(0, 0, 2000, "first", "first\nwrapped"),

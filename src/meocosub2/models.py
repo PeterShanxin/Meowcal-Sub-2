@@ -206,7 +206,7 @@ class PreparedRuntime:
         if not self.source_candidates:
             return True
         return any(
-            not candidate.pair.presentation.answer(line)
+            not candidate.pair.presentation.has_answer(line)
             for candidate in self.source_candidates
             for line in candidate.pair.source_lines
         )
