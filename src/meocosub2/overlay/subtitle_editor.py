@@ -190,7 +190,7 @@ def stage_tracks(
             if candidates
             else session.used_translation,
             translated_line_count=sum(
-                bool(c.pair.presentation.answer(line))
+                c.pair.presentation.has_answer(line)
                 for c in candidates
                 for line in c.pair.source_lines
             ),

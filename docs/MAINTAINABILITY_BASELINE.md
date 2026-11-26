@@ -184,6 +184,9 @@ Source-track translation keeps file-generation state with its prepared pair and
 uses the same live translator during setup and playback. This reduces the
 controller from 2,156 to 2,144 lines and the capture loop from 983 to 950.
 
+Checking translation coverage directly reduces the controller ceiling from
+2,141 lines to 2,139.
+
 ## Lint budgets
 
 | Tool | Budget | State |

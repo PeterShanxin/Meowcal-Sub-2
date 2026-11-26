@@ -1204,9 +1204,7 @@ class GuiController:
             else None,
             target_path=str(target_path) if target_path is not None else None,
             target_line_count=bilingual.split_cues if own_translation else len(target_lines),
-            translated_line_count=sum(
-                bool(pair.presentation.answer(line)) for line in source_lines
-            ),
+            translated_line_count=sum(pair.presentation.has_answer(line) for line in source_lines),
             used_translation=used_translation,
             target_alignment=alignment,
             target_clock_unverified=bool(target_lines)
@@ -1365,7 +1363,7 @@ class GuiController:
                 1
                 for candidate in source_candidates
                 for line in candidate.pair.source_lines
-                if candidate.pair.presentation.answer(line)
+                if candidate.pair.presentation.has_answer(line)
             ),
             used_translation=not bool(target_lines),
             source_candidate_count=len(source_candidates),
@@ -1629,7 +1627,7 @@ class GuiController:
         if runtime is None or current is None or len(runtime.source_candidates) != 1:
             return
         pair = runtime.source_candidates[0].pair
-        remaining = len(unanswered(pair.source_lines, pair.presentation.answer))
+        remaining = len(unanswered(pair.source_lines, pair.presentation.has_answer))
         self._state.gap_fill = replace(current, filled=current.total - remaining, active=False)
 
     def _make_debug_broadcast(self) -> Callable[[dict[str, object]], Awaitable[None]]:
@@ -1683,10 +1681,10 @@ class GuiController:
         expected_runtime: PreparedRuntime | None = None,
     ) -> None:
         """Use idle engine time to prepare the target or fill a partially covered track."""
-        answer = pair.presentation.answer
-        if pair.source_translation is None and not any(answer(line) for line in pair.source_lines):
+        has_answer = pair.presentation.has_answer
+        if pair.source_translation is None and not any(map(has_answer, pair.source_lines)):
             return
-        gaps = len(unanswered(pair.source_lines, answer))
+        gaps = len(unanswered(pair.source_lines, has_answer))
         if not gaps:
             return
         async with self._lock:

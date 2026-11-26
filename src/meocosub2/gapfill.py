@@ -73,7 +73,9 @@ def context_pairs(
     return earlier + later
 
 
-def unanswered(lines: list[SubtitleLine], answer: Answer = own_translation) -> list[int]:
+def unanswered(
+    lines: list[SubtitleLine], answer: Callable[[SubtitleLine], str | bool] = own_translation
+) -> list[int]:
     """Positions of the cues that carry text with nothing paired to them."""
     return [index for index, line in enumerate(lines) if line.text and not answer(line)]
 
