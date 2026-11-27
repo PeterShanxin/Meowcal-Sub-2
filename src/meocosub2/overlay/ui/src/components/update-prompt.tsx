@@ -1,7 +1,7 @@
 import { type JSX, useEffect, useState } from "react";
-import { type AppUpdateCheck, isTauri } from "../hooks/use-tauri";
+import { type AppUpdateCheck, isTauri, tauri } from "../hooks/use-tauri";
 import { localizeError, t } from "../i18n";
-import { checkStartupUpdate, requestAppUpdate } from "../lib/app-updates";
+import { requestAppUpdate } from "../lib/app-updates";
 
 export function UpdatePrompt({ visible }: { visible: boolean }): JSX.Element | null {
   const [status, setStatus] = useState<AppUpdateCheck | null>(null);
@@ -12,21 +12,26 @@ export function UpdatePrompt({ visible }: { visible: boolean }): JSX.Element | n
   useEffect(() => {
     if (!isTauri()) return;
     let cancelled = false;
-    void Promise.resolve()
-      .then(() => {
-        if (cancelled) return null;
-        return checkStartupUpdate(window.localStorage, Date.now());
-      })
-      .then((result) => {
-        if (!cancelled) setStatus(result);
-      })
-      .catch(() => undefined);
+    const timer = window.setTimeout(() => {
+      void tauri
+        .checkAppUpdate(true)
+        .then((result) => {
+          if (!cancelled) setStatus(result);
+        })
+        .catch(() => undefined);
+    }, 2000);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
   }, []);
 
-  if (!visible || dismissed || !status || !(status.storeUpdateAvailable || status.portableUpdateVersion || status.availableVersion))
+  if (
+    !visible ||
+    dismissed ||
+    !status ||
+    !(status.storeUpdateAvailable || status.portableUpdateVersion || status.availableVersion)
+  )
     return null;
   const store = status.storeUpdateAvailable;
   const portable = status.portableUpdateVersion;
@@ -63,7 +68,9 @@ export function UpdatePrompt({ visible }: { visible: boolean }): JSX.Element | n
       <div role="status" style={{ fontWeight: 700 }}>
         {store
           ? t("A Microsoft Store update is available.")
-          : t("Meowcal Sub 2 v{version} is available", { version: portable ?? status.availableVersion ?? "" })}
+          : t("Meowcal Sub 2 v{version} is available", {
+              version: portable ?? status.availableVersion ?? "",
+            })}
       </div>
       {!store && !portable && (
         <p style={{ margin: "8px 0 12px", fontSize: 12, color: "var(--text-muted)" }}>
@@ -75,7 +82,13 @@ export function UpdatePrompt({ visible }: { visible: boolean }): JSX.Element | n
       {error && <p style={{ color: "var(--danger-text)", fontSize: 12 }}>{localizeError(error)}</p>}
       <div style={{ display: "flex", gap: 8, marginTop: store || portable ? 12 : 0 }}>
         <button type="button" disabled={installing} onClick={() => void install()}>
-          {store ? t("Open Microsoft Store") : portable ? t("Open GitHub Releases") : installing ? t("Installing…") : t("Install update")}
+          {store
+            ? t("Open Microsoft Store")
+            : portable
+              ? t("Open GitHub Releases")
+              : installing
+                ? t("Installing…")
+                : t("Install update")}
         </button>
         <button type="button" disabled={installing} onClick={() => setDismissed(true)}>
           {t("Later")}

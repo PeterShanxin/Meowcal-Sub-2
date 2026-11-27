@@ -34,7 +34,8 @@ export function UpdatesSection(): JSX.Element {
       setInstalling(false);
     }
   };
-  const available = status?.storeUpdateAvailable || status?.portableUpdateVersion || status?.availableVersion;
+  const available =
+    status?.storeUpdateAvailable || status?.portableUpdateVersion || status?.availableVersion;
 
   return (
     <section style={{ display: "grid", gap: 16 }}>
@@ -50,14 +51,20 @@ export function UpdatesSection(): JSX.Element {
           {status.storeUpdateAvailable
             ? t("A Microsoft Store update is available.")
             : status.portableUpdateVersion
-              ? t("Portable version {version} is available.", { version: status.portableUpdateVersion })
+              ? t("Portable version {version} is available.", {
+                  version: status.portableUpdateVersion,
+                })
               : status.availableVersion
-              ? t("Version {version} is ready to install.", { version: status.portableUpdateVersion
-              ? t("Portable version {version} is available.", { version: status.portableUpdateVersion })
-              : status.availableVersion })
-              : status.enabled
-                ? t("You are up to date.")
-                : localizeMessage(status.reason ?? "")}
+                ? t("Version {version} is ready to install.", {
+                    version: status.portableUpdateVersion
+                      ? t("Portable version {version} is available.", {
+                          version: status.portableUpdateVersion,
+                        })
+                      : status.availableVersion,
+                  })
+                : status.enabled
+                  ? t("You are up to date.")
+                  : localizeMessage(status.reason ?? "")}
         </p>
       )}
       {error && <p style={{ margin: 0, color: "var(--danger-text)" }}>{localizeError(error)}</p>}
@@ -76,8 +83,8 @@ export function UpdatesSection(): JSX.Element {
               : status.portableUpdateVersion
                 ? t("Open GitHub Releases")
                 : installing
-                ? t("Installing…")
-                : t("Install update")}
+                  ? t("Installing…")
+                  : t("Install update")}
           </button>
         )}
       </div>

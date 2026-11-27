@@ -64,14 +64,18 @@ fn is_portable() -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub(crate) async fn check_app_update(app: AppHandle) -> Result<UpdateCheck, String> {
+pub(crate) async fn check_app_update(
+    app: AppHandle,
+    automatic: Option<bool>,
+) -> Result<Option<UpdateCheck>, String> {
+    if automatic == Some(true) && !claim_automatic_check()? {
+        return Ok(None);
+    }
     let current_version = app.package_info().version.to_string();
     #[cfg(feature = "microsoft-store")]
-    {
-        check_store_update(&app, current_version).await
-    }
+    let result = check_store_update(&app, current_version).await;
     #[cfg(not(feature = "microsoft-store"))]
-    if !cfg!(debug_assertions) && is_portable()? {
+    let result = if !cfg!(debug_assertions) && is_portable()? {
         super::portable_updates::check(app.package_info().version.clone())
             .await
             .map(|portable_update_version| UpdateCheck {
@@ -84,7 +88,53 @@ pub(crate) async fn check_app_update(app: AppHandle) -> Result<UpdateCheck, Stri
             })
     } else {
         check_github_update(&app, current_version).await
+    };
+    result.map(Some)
+}
+
+const CHECK_AGAIN_AFTER: u64 = 24 * 60 * 60;
+static AUTOMATIC_CHECK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn automatic_check_due(last: Option<u64>, now: u64) -> bool {
+    last.and_then(|then| now.checked_sub(then))
+        .is_none_or(|elapsed| elapsed >= CHECK_AGAIN_AFTER)
+}
+
+fn claim_automatic_check() -> Result<bool, String> {
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    if cfg!(debug_assertions) {
+        return Ok(false);
     }
+    let channel = if cfg!(feature = "microsoft-store") {
+        "store"
+    } else if is_portable()? {
+        "portable"
+    } else {
+        "github"
+    };
+    let directory = PathBuf::from(std::env::var_os("APPDATA").ok_or("App data unavailable")?)
+        .join("meowcal-sub-2");
+    let path = directory.join(format!("last-update-check-{channel}"));
+    let _guard = AUTOMATIC_CHECK.lock().map_err(|error| error.to_string())?;
+    let last = fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| text.parse().ok());
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_secs();
+    if !automatic_check_due(last, now) {
+        return Ok(false);
+    }
+    // Claim the check before starting network work, even if it later fails.
+    fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+    fs::write(path, now.to_string()).map_err(|error| error.to_string())?;
+    Ok(true)
 }
 
 #[cfg(feature = "microsoft-store")]
@@ -193,5 +243,19 @@ pub(crate) async fn open_update_page(portable_version: Option<String>) -> Result
             return Ok(());
         }
         Err("Could not open Microsoft Store.".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn automatic_checks_have_a_daily_cooldown_and_tolerate_a_clock_rollback() {
+        assert!(automatic_check_due(None, 100));
+        assert!(!automatic_check_due(Some(100), 100));
+        assert!(!automatic_check_due(Some(100), 100 + CHECK_AGAIN_AFTER - 1));
+        assert!(automatic_check_due(Some(100), 100 + CHECK_AGAIN_AFTER));
+        assert!(automatic_check_due(Some(100), 99));
     }
 }
