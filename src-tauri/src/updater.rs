@@ -68,7 +68,7 @@ pub(crate) async fn check_app_update(app: AppHandle) -> Result<UpdateCheck, Stri
     let current_version = app.package_info().version.to_string();
     #[cfg(feature = "microsoft-store")]
     {
-        check_store_update(current_version).await
+        check_store_update(&app, current_version).await
     }
     #[cfg(not(feature = "microsoft-store"))]
     if !cfg!(debug_assertions) && is_portable()? {
@@ -88,9 +88,12 @@ pub(crate) async fn check_app_update(app: AppHandle) -> Result<UpdateCheck, Stri
 }
 
 #[cfg(feature = "microsoft-store")]
-async fn check_store_update(current_version: String) -> Result<UpdateCheck, String> {
+async fn check_store_update(
+    app: &AppHandle,
+    current_version: String,
+) -> Result<UpdateCheck, String> {
     let store_update_available =
-        tokio::time::timeout(Duration::from_secs(15), super::store::update_available())
+        tokio::time::timeout(Duration::from_secs(15), super::store::update_available(app))
             .await
             .ok()
             .and_then(Result::ok)
