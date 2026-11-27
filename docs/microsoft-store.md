@@ -1,6 +1,6 @@
 # Microsoft Store edition
 
-The Store edition runs on Windows 11 on Intel, AMD and ARM PCs. Microsoft Store installs the matching build and handles updates. Studio shows the app version. Partner Center uses a separate four-part package version and requires each update to increase it.
+The Store edition runs on Windows 11 on Intel, AMD and ARM PCs. Microsoft Store installs the matching build and applies updates. Studio checks for an update for its installed package and opens the Store listing when the user chooses to update. Studio shows the app version. Partner Center uses a separate four-part package version and requires each update to increase it.
 
 | Partner Center field | Value |
 | --- | --- |

@@ -42,6 +42,8 @@ export interface AppUpdateCheck {
   enabled: boolean;
   currentVersion: string;
   availableVersion: string | null;
+  storeUpdateAvailable: boolean;
+  portableUpdateVersion: string | null;
   reason: string | null;
 }
 
@@ -52,6 +54,8 @@ export const tauri = {
   stopTranslation: () => invokeTauri<void>("stop_translation"),
   getApiBase: () => invokeTauri<string>("get_api_base"),
   checkAppUpdate: () => invokeTauri<AppUpdateCheck>("check_app_update"),
+  openStoreUpdate: () => invokeTauri<void>("open_update_page"),
+  openPortableUpdate: (portableVersion: string) => invokeTauri<void>("open_update_page", { portableVersion }),
   installAppUpdate: (expectedVersion: string) =>
     invokeTauri<void>("install_app_update", { expectedVersion }),
   setTrayLocale: (locale: string) => invokeTauri<void>("set_tray_locale", { locale }),

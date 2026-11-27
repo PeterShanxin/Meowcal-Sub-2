@@ -214,7 +214,9 @@
   "Window size": "窗口大小",
   "Lookback for matching (lines)": "匹配时向回查找的行数",
   "App updates": "应用更新",
-  "Signed installer releases check for updates when the app opens.": "通过已签名安装包安装的版本会在打开应用时检查更新。",
+  "Installed copies check for updates at most once a day when the app opens.": "安装版启动时会检查更新，每天最多一次。",
+  "A Microsoft Store update is available.": "Microsoft Store 有可用更新。",
+  "Open Microsoft Store": "打开 Microsoft Store",
   "Version {version}.": "当前版本 {version}。",
   "Version {version} is ready to install.": "版本 {version} 可以安装了。",
   "You are up to date.": "已是最新版本。",
@@ -311,5 +313,8 @@
   "Previous issues": "上一组问题",
   "Next issues": "下一组问题",
   "Chinese (Simplified)": "简体中文",
-  "Chinese (Traditional)": "繁体中文"
+  "Chinese (Traditional)": "繁体中文",
+  "The app checks for updates at most once a day when it opens.": "应用启动时最多每天检查一次更新。",
+  "Open GitHub Releases": "打开 GitHub 发布页",
+  "Portable version {version} is available.": "便携版 {version} 已发布。"
 }

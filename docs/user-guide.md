@@ -28,10 +28,13 @@ installation. Alternatively, extract the complete
 folders beside the executable. All editions include Python and the Core
 executable; translation models are installed separately through Settings.
 
-The published v0.1.0 and v0.2.0 cannot check for app updates. Install v0.2.1 or
-later manually. Signed GitHub installer releases check for updates when the app opens
-and offer **Install update** in the app and under **Settings → Updates**
-(**Check for updates** asks again). Portable copies must be replaced manually.
+All editions check at most once a day when you open the app. To check
+again, go to **Settings → Updates → Check for updates**. The Store edition
+checks Microsoft Store and opens its listing for available updates. Signed
+GitHub installer releases offer **Install update** in the app. Portable copies
+open the GitHub release page when a newer ZIP for your PC is available.
+Download and extract that ZIP yourself; the app does not replace any files. GitHub releases v0.1.0 and v0.2.0 need a one-time
+manual update to v0.2.1 or later.
 
 For GitHub downloads, each architecture has a `meowcal-sub-2-v*-windows-{arm64,x64}-SHA256SUMS.txt`
 file; the release also provides an aggregate checksum list. To check a downloaded
