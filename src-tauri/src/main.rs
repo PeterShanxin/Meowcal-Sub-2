@@ -3,6 +3,8 @@
 mod backend_process;
 mod config_port;
 mod overlay_window;
+#[cfg(not(feature = "microsoft-store"))]
+mod portable_updates;
 mod process_lifetime;
 #[cfg(feature = "microsoft-store")]
 mod store;
@@ -1034,6 +1036,7 @@ fn main() {
             set_capture_region,
             get_api_token,
             updater::check_app_update,
+            updater::open_update_page,
             updater::install_app_update,
             ui_language::ui_language,
             ui_language::set_tray_locale,

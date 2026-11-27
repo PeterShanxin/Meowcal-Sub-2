@@ -3,6 +3,8 @@
   "Update checks are available in release builds.": "发布版才能检查更新。",
   "Updates are not configured for this build.": "此版本未配置更新。",
   "Microsoft Store manages updates for this installation.": "这个版本由 Microsoft Store 提供更新。",
+  "Could not check Microsoft Store for updates. Try again later.": "无法检查 Microsoft Store 更新，请稍后再试。",
+  "Could not open Microsoft Store.": "无法打开 Microsoft Store。",
   "Portable copies must be updated manually.": "便携版需要手动更新。",
   "An update is already being installed.": "已有更新正在安装。",
   "Updates are unavailable for this build.": "此版本无法更新。",
@@ -204,5 +206,7 @@
   "Downloaded archive does not contain a supported subtitle file.": "下载的压缩包中没有支持的字幕文件。",
   "Unauthorized": "未授权",
   "Forbidden origin": "来源不被允许",
-  "Local translation is not installed. Human subtitles remain available after a match, but untranslated gaps cannot be filled. Run setup from Settings to add it.": "本地翻译尚未安装。匹配成功后仍可显示人工字幕，但无法补译缺失的行。请在设置中安装。"
+  "Local translation is not installed. Human subtitles remain available after a match, but untranslated gaps cannot be filled. Run setup from Settings to add it.": "本地翻译尚未安装。匹配成功后仍可显示人工字幕，但无法补译缺失的行。请在设置中安装。",
+  "Could not check GitHub for portable updates. Try again later.": "暂时无法在 GitHub 检查便携版更新，请稍后再试。",
+  "Could not open GitHub Releases.": "无法打开 GitHub 发布页。"
 }

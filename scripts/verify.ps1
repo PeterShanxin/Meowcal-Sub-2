@@ -213,6 +213,9 @@ try {
             cargo clippy --manifest-path src-tauri\Cargo.toml --all-targets -- -D warnings
         }
         if ($Failures.Count -eq 0) { $LintCounts['clippy'] = 0 }
+        Invoke-Check 'cargo clippy (Microsoft Store)' {
+            cargo clippy --manifest-path src-tauri\Cargo.toml --features microsoft-store --all-targets -- -D warnings
+        }
         Invoke-Check 'cargo test' { cargo test --manifest-path src-tauri\Cargo.toml }
     }
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { BackendConfig, EngineStatus } from "../../lib/types";
 import { api } from "../../hooks/use-api";
-import { isTauri, tauri, type AppUpdateCheck } from "../../hooks/use-tauri";
+import { isTauri, tauri } from "../../hooks/use-tauri";
 import {
   FONT_PRESETS,
   loadFontScale,
@@ -20,6 +20,7 @@ import {
 } from "../../i18n";
 import { Kbd } from "../primitives";
 import { useSettingsDraft } from "./settings-draft";
+import { UpdatesSection } from "./updates-section";
 
 type SectionId =
   | "appearance"
@@ -1166,75 +1167,6 @@ function MatchingSection({ draft, update }: SectionProps): JSX.Element {
         </Field>
       </div>
     </>
-  );
-}
-
-function UpdatesSection(): JSX.Element {
-  const [status, setStatus] = useState<AppUpdateCheck | null>(null);
-  const [checking, setChecking] = useState(false);
-  const [installing, setInstalling] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const check = async (): Promise<void> => {
-    setChecking(true);
-    setError(null);
-    try {
-      const result = await tauri.checkAppUpdate();
-      if (result) setStatus(result);
-    } catch (caught: unknown) {
-      setError(String(caught));
-    } finally {
-      setChecking(false);
-    }
-  };
-
-  const install = async (version: string): Promise<void> => {
-    setInstalling(true);
-    setError(null);
-    try {
-      await tauri.installAppUpdate(version);
-    } catch (caught: unknown) {
-      setError(String(caught));
-    } finally {
-      setInstalling(false);
-    }
-  };
-  const available = status?.availableVersion;
-
-  return (
-    <section style={{ display: "grid", gap: 16 }}>
-      <div>
-        <h2 style={{ margin: "0 0 6px" }}>{t("App updates")}</h2>
-        <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
-          {t("Signed installer releases check for updates when the app opens.")}
-        </p>
-      </div>
-      {status && (
-        <p style={{ margin: 0, fontSize: 13 }}>
-          {t("Version {version}.", { version: status.currentVersion })}{" "}
-          {status.availableVersion
-            ? t("Version {version} is ready to install.", { version: status.availableVersion })
-            : status.enabled
-              ? t("You are up to date.")
-              : localizeMessage(status.reason ?? "")}
-        </p>
-      )}
-      {error && <p style={{ margin: 0, color: "var(--danger-text)" }}>{localizeError(error)}</p>}
-      <div style={{ display: "flex", gap: 10 }}>
-        <button type="button" disabled={checking || installing} onClick={() => void check()}>
-          {checking ? t("Checking…") : t("Check for updates")}
-        </button>
-        {available && (
-          <button
-            type="button"
-            disabled={checking || installing}
-            onClick={() => void install(available)}
-          >
-            {installing ? t("Installing…") : t("Install update")}
-          </button>
-        )}
-      </div>
-    </section>
   );
 }
 

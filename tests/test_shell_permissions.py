@@ -51,6 +51,7 @@ def command_grants(
         ("main", "stop_translation", True),
         ("main", "get_api_base", True),
         ("main", "check_app_update", True),
+        ("main", "open_update_page", True),
         ("main", "install_app_update", True),
         ("main", "set_tray_locale", True),
         ("main", "ui_language", False),
