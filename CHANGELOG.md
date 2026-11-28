@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1
+
+- Check for updates at startup at most once per day, or manually in Settings.
+- GitHub installations keep signed in-app updates. Portable copies open the GitHub release page for a matching ZIP without running an installer.
+- Microsoft Store builds check for Store updates and open the Store to install them.
+
+See the [release notes](docs/releases/v0.4.1.md).
+
 ## 0.4.0
 
 - Start live screen translation when no subtitle provider is configured or no title matches.

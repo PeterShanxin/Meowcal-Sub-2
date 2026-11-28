@@ -9,7 +9,7 @@ own presentation timings. When a cue has no human translation, the local
 translation engine can fill it. Without a matching source, OCR reads can be
 translated directly.
 
-This guide covers v0.4.0. See the [release notes](releases/v0.4.0.md) for downloads and upgrade instructions.
+This guide covers v0.4.1. See the [release notes](releases/v0.4.1.md) for downloads and upgrade instructions.
 
 ## Install and first launch
 
