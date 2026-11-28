@@ -1,0 +1,115 @@
+"""Verify the Store upload gate with synthetic package data and no credentials."""
+
+import hashlib
+import io
+import json
+import sys
+import unittest
+import zipfile
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from check_store_release_payload import NAME, PUBLISHER, verify_payload  # noqa: E402
+
+COMMIT = "a" * 40
+STORE_VERSION = "1.0.2.0"
+APP_VERSION = "0.4.2"
+RELEASE_ID = 7
+
+
+def fixture(
+    directory: Path,
+    *,
+    arm_commit: str = COMMIT,
+    publisher: str = PUBLISHER,
+    extra_member: bool = False,
+    bad_digest: bool = False,
+) -> tuple[Path, bytes, str]:
+    identity = f'Name="{NAME}" Publisher="{publisher}" Version="{STORE_VERSION}"'
+    name = f"MeowcalSub2-{STORE_VERSION}.msixbundle"
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as bundle:
+        bundle.writestr(
+            "AppxMetadata/AppxBundleManifest.xml",
+            f"<Bundle><Identity {identity}/><Packages>"
+            '<Package Architecture="x64" FileName="x64.msix"/>'
+            '<Package Architecture="arm64" FileName="arm64.msix"/></Packages></Bundle>',
+        )
+        for arch, commit in (("x64", COMMIT), ("arm64", arm_commit)):
+            data = io.BytesIO()
+            with zipfile.ZipFile(data, "w") as package:
+                package.writestr(
+                    "AppxManifest.xml",
+                    f'<Package><Identity {identity} ProcessorArchitecture="{arch}"/></Package>',
+                )
+                package.writestr(
+                    "release.json",
+                    json.dumps(
+                        {
+                            "architecture": arch,
+                            "version": APP_VERSION,
+                            "sourceCommit": commit,
+                            "sourceDirty": False,
+                            "distribution": "microsoft-store",
+                        }
+                    ),
+                )
+            bundle.writestr(f"{arch}.msix", data.getvalue())
+    package = output.getvalue()
+    digest = "0" * 64 if bad_digest else hashlib.sha256(package).hexdigest()
+    artifact = directory / "store-submission.zip"
+    with zipfile.ZipFile(artifact, "w") as transport:
+        transport.writestr("SHA256SUMS.txt", f"{digest}  {name}\n")
+        transport.writestr(name, package)
+        transport.writestr(
+            "release-provenance.json",
+            json.dumps({"commit": COMMIT, "releaseId": RELEASE_ID, "appVersion": APP_VERSION}),
+        )
+        if extra_member:
+            transport.writestr("unrelated.txt", "not part of the release")
+    return artifact, package, name
+
+
+class TestStoreReleasePayload(unittest.TestCase):
+    def test_wraps_only_the_verified_bundle(self):
+        with TemporaryDirectory() as tmp:
+            upload = Path(tmp) / "upload.zip"
+            artifact, original, name = fixture(Path(tmp))
+            self.assertEqual(
+                verify_payload(artifact, APP_VERSION, COMMIT, RELEASE_ID, STORE_VERSION, upload),
+                STORE_VERSION,
+            )
+            with self.assertRaisesRegex(ValueError, "different GitHub release"):
+                verify_payload(artifact, APP_VERSION, COMMIT, RELEASE_ID + 1, STORE_VERSION, upload)
+            with zipfile.ZipFile(upload) as result:
+                self.assertEqual(result.namelist(), [name])
+                self.assertEqual(result.read(name), original)
+
+    def test_rejects_wrong_publisher_and_wrong_embedded_commit(self):
+        for changes, error in (
+            ({"publisher": "wrong"}, "bundle identity"),
+            ({"arm_commit": "b" * 40}, "package provenance"),
+        ):
+            with self.subTest(changes=changes), TemporaryDirectory() as tmp:
+                upload = Path(tmp) / "upload.zip"
+                artifact, _, _ = fixture(Path(tmp), **changes)
+                with self.assertRaisesRegex(ValueError, error):
+                    verify_payload(artifact, APP_VERSION, COMMIT, RELEASE_ID, STORE_VERSION, upload)
+                self.assertFalse(upload.exists())
+
+    def test_rejects_tampering_and_extra_files(self):
+        for options, message in (
+            ({"bad_digest": True}, "digest mismatch"),
+            ({"extra_member": True}, "Unexpected files"),
+        ):
+            with self.subTest(options=options), TemporaryDirectory() as tmp:
+                artifact, _, _ = fixture(Path(tmp), **options)
+                upload = Path(tmp) / "upload.zip"
+                with self.assertRaisesRegex(ValueError, message):
+                    verify_payload(artifact, APP_VERSION, COMMIT, RELEASE_ID, STORE_VERSION, upload)
+                self.assertFalse(upload.exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

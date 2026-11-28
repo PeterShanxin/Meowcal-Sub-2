@@ -20,6 +20,44 @@ The [package manifest](../store/AppxManifest.xml) contains the full identity and
 
 For a single native build, use the [Windows build prerequisites](developer-guide.md#build-a-windows-distribution) and run `./scripts/build-store.ps1 -Architecture x64` or `-Architecture arm64` on the matching machine. Find the unsigned `.msix` under `dist/`. Store builds do not require the GitHub updater signing key.
 
+## Release automation
+
+When enabled, publishing the latest stable GitHub release from `main` as a
+maintainer starts **Microsoft Store package** from the exact tagged revision.
+The submitted Store bundle is the one tested on both Windows architectures.
+A separate **Sync GitHub release to Microsoft Store** workflow on `main`
+checks the build and package identities before sending it to certification
+with publication after approval. It does not change listing copy, availability
+or pricing. An unrelated or unfinished Partner Center submission is left alone.
+GitHub releases and Store package versions are independent: bump the
+four-part version in `store/AppxManifest.xml` before tagging, higher than
+every currently published package version and any used flight version.
+
+### Enable it for a future release
+
+- Create the `store-submission` GitHub Actions environment and restrict it
+  to deployments from the `main` **branch**, not tags. Keep the repository's
+  release tags and `main` restricted to maintainers.
+- Authorize a Microsoft Entra application for this product in Partner Center.
+  Set the environment secrets `AZURE_AD_TENANT_ID`, `AZURE_AD_APPLICATION_CLIENT_ID`,
+  `AZURE_AD_APPLICATION_SECRET` and `SELLER_ID`. Do not put these in repository
+  secrets used by tagged builds. [Store Submission API setup](https://learn.microsoft.com/windows/uwp/monetize/create-and-manage-submissions-using-windows-store-services)
+- Run **Sync GitHub release to Microsoft Store** with `inventory` checked
+  from `main`. It reads the current package versions and pending status
+  without creating a submission. Confirm the product ID above.
+- Set repository variables `STORE_FIRST_RELEASE_TAG` to the first **future**
+  stable tag (`v0.4.2` or later; `v0.4.1` remains manual) and
+  `STORE_RELEASE_NOT_BEFORE` to a UTC
+  ISO timestamp after the last manual release and before the next release.
+  Set `STORE_RELEASE_AUTOMATION_ENABLED=true` only after the inventory check.
+  Existing GitHub releases are not replayed; leave the flag unset to disable
+  automatic Store submission.
+
+If upload or commit fails, read inventory and inspect the reported submission
+ID before retrying. Do not delete or overwrite a pending submission to unblock
+the workflow. A GitHub release can succeed while the Store submission is still
+in certification; use Partner Center or inventory to confirm publication.
+
 ## Where user data lives
 
 Windows provides a writable directory at `%LOCALAPPDATA%\Packages\ShanxinLi.MeowcalSub2_hs4jcn39rmtjt\LocalState`. Studio saves settings, subtitle provider credentials and logs under `meowcal-sub-2` there. Core uses `Core` for its data, and the embedded browser uses `WebView2`. Windows removes local package data when the user uninstalls the Store edition.
