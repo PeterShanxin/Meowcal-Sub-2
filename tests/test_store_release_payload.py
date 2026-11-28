@@ -18,9 +18,17 @@ APP_VERSION = "0.4.2"
 RELEASE_ID = 7
 
 
-def fixture(directory: Path, *, arm_commit: str = COMMIT, publisher: str = PUBLISHER) -> Path:
+def fixture(
+    directory: Path,
+    *,
+    arm_commit: str = COMMIT,
+    publisher: str = PUBLISHER,
+    extra_member: bool = False,
+    bad_digest: bool = False,
+) -> tuple[Path, bytes, str]:
     identity = f'Name="{NAME}" Publisher="{publisher}" Version="{STORE_VERSION}"'
-    output = directory / f"MeowcalSub2-{STORE_VERSION}.msixbundle"
+    name = f"MeowcalSub2-{STORE_VERSION}.msixbundle"
+    output = io.BytesIO()
     with zipfile.ZipFile(output, "w") as bundle:
         bundle.writestr(
             "AppxMetadata/AppxBundleManifest.xml",
@@ -48,33 +56,35 @@ def fixture(directory: Path, *, arm_commit: str = COMMIT, publisher: str = PUBLI
                     ),
                 )
             bundle.writestr(f"{arch}.msix", data.getvalue())
-    digest = hashlib.sha256(output.read_bytes()).hexdigest()
-    (directory / "SHA256SUMS.txt").write_text(f"{digest}  {output.name}\n", encoding="utf-8")
-    (directory / "release-provenance.json").write_text(
-        json.dumps({"commit": COMMIT, "releaseId": RELEASE_ID, "appVersion": APP_VERSION}),
-        encoding="utf-8",
-    )
-    return output
+    package = output.getvalue()
+    digest = "0" * 64 if bad_digest else hashlib.sha256(package).hexdigest()
+    artifact = directory / "store-submission.zip"
+    with zipfile.ZipFile(artifact, "w") as transport:
+        transport.writestr("SHA256SUMS.txt", f"{digest}  {name}\n")
+        transport.writestr(name, package)
+        transport.writestr(
+            "release-provenance.json",
+            json.dumps({"commit": COMMIT, "releaseId": RELEASE_ID, "appVersion": APP_VERSION}),
+        )
+        if extra_member:
+            transport.writestr("unrelated.txt", "not part of the release")
+    return artifact, package, name
 
 
 class TestStoreReleasePayload(unittest.TestCase):
     def test_wraps_only_the_verified_bundle(self):
         with TemporaryDirectory() as tmp:
             upload = Path(tmp) / "upload.zip"
-            directory = Path(tmp) / "artifact"
-            directory.mkdir()
-            original = fixture(directory)
+            artifact, original, name = fixture(Path(tmp))
             self.assertEqual(
-                verify_payload(directory, APP_VERSION, COMMIT, RELEASE_ID, STORE_VERSION, upload),
+                verify_payload(artifact, APP_VERSION, COMMIT, RELEASE_ID, STORE_VERSION, upload),
                 STORE_VERSION,
             )
             with self.assertRaisesRegex(ValueError, "different GitHub release"):
-                verify_payload(
-                    directory, APP_VERSION, COMMIT, RELEASE_ID + 1, STORE_VERSION, upload
-                )
+                verify_payload(artifact, APP_VERSION, COMMIT, RELEASE_ID + 1, STORE_VERSION, upload)
             with zipfile.ZipFile(upload) as result:
-                self.assertEqual(result.namelist(), [original.name])
-                self.assertEqual(result.read(original.name), original.read_bytes())
+                self.assertEqual(result.namelist(), [name])
+                self.assertEqual(result.read(name), original)
 
     def test_rejects_wrong_publisher_and_wrong_embedded_commit(self):
         for changes, error in (
@@ -83,24 +93,22 @@ class TestStoreReleasePayload(unittest.TestCase):
         ):
             with self.subTest(changes=changes), TemporaryDirectory() as tmp:
                 upload = Path(tmp) / "upload.zip"
-                fixture(Path(tmp), **changes)
+                artifact, _, _ = fixture(Path(tmp), **changes)
                 with self.assertRaisesRegex(ValueError, error):
-                    verify_payload(
-                        Path(tmp), APP_VERSION, COMMIT, RELEASE_ID, STORE_VERSION, upload
-                    )
+                    verify_payload(artifact, APP_VERSION, COMMIT, RELEASE_ID, STORE_VERSION, upload)
                 self.assertFalse(upload.exists())
 
     def test_rejects_tampering_and_extra_files(self):
-        with TemporaryDirectory() as tmp:
-            directory = Path(tmp)
-            package = fixture(directory)
-            package.write_bytes(package.read_bytes() + b"tamper")
-            upload = directory / "upload.zip"
-            with self.assertRaisesRegex(ValueError, "digest mismatch"):
-                verify_payload(directory, APP_VERSION, COMMIT, RELEASE_ID, STORE_VERSION, upload)
-            (directory / "extra.msix").touch()
-            with self.assertRaisesRegex(ValueError, "Unexpected files"):
-                verify_payload(directory, APP_VERSION, COMMIT, RELEASE_ID, STORE_VERSION, upload)
+        for options, message in (
+            ({"bad_digest": True}, "digest mismatch"),
+            ({"extra_member": True}, "Unexpected files"),
+        ):
+            with self.subTest(options=options), TemporaryDirectory() as tmp:
+                artifact, _, _ = fixture(Path(tmp), **options)
+                upload = Path(tmp) / "upload.zip"
+                with self.assertRaisesRegex(ValueError, message):
+                    verify_payload(artifact, APP_VERSION, COMMIT, RELEASE_ID, STORE_VERSION, upload)
+                self.assertFalse(upload.exists())
 
 
 if __name__ == "__main__":

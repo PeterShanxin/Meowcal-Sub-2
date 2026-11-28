@@ -4,6 +4,8 @@ import { requireCondition, safeFailure } from "./store-submission.mjs";
 
 const REPO = "PeterShanxin/Meowcal-Sub-2";
 const MAINTAINERS = new Set(["PeterShanxin", "ianmeowmeow"]);
+// v0.4.1 is the last release handled outside this automation.
+const FIRST_AUTOMATED_TAG = "v0.4.2";
 const TAG = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
 function tagParts(tag) {
@@ -40,9 +42,14 @@ export function verifyRelease(event, latest, env) {
 
 function assertCurrentRelease(release, env) {
   const candidate = tagParts(release.tag_name);
-  const first = tagParts(env.STORE_FIRST_RELEASE_TAG);
-  const component = candidate.findIndex((number, i) => number !== first[i]);
-  requireCondition(component < 0 || candidate[component] > first[component], "release_before_activation");
+  for (const tag of [FIRST_AUTOMATED_TAG, env.STORE_FIRST_RELEASE_TAG]) {
+    const first = tagParts(tag);
+    const component = candidate.findIndex((number, i) => number !== first[i]);
+    requireCondition(
+      component < 0 || candidate[component] > first[component],
+      "release_before_activation",
+    );
+  }
   requireCondition(
     release.draft === false &&
       release.prerelease === false &&

@@ -46,7 +46,8 @@ every currently published package version and any used flight version.
   from `main`. It reads the current package versions and pending status
   without creating a submission. Confirm the product ID above.
 - Set repository variables `STORE_FIRST_RELEASE_TAG` to the first **future**
-  stable tag (for example, `v0.4.2`) and `STORE_RELEASE_NOT_BEFORE` to a UTC
+  stable tag (`v0.4.2` or later; `v0.4.1` remains manual) and
+  `STORE_RELEASE_NOT_BEFORE` to a UTC
   ISO timestamp after the last manual release and before the next release.
   Set `STORE_RELEASE_AUTOMATION_ENABLED=true` only after the inventory check.
   Existing GitHub releases are not replayed; leave the flag unset to disable

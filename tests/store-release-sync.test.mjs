@@ -40,6 +40,13 @@ test("only the latest trusted stable release after both cutoffs qualifies", () =
   ]) {
     assert.throws(() => verifyRelease(event, release, { ...env, ...change }));
   }
+  const manualRelease = { ...release, tag_name: "v0.4.1" };
+  assert.throws(
+    () => verifyRelease({ ...event, release: manualRelease }, manualRelease, {
+      ...env, GITHUB_REF: "refs/tags/v0.4.1", STORE_FIRST_RELEASE_TAG: "v0.4.1",
+    }),
+    /release_before_activation/,
+  );
   assert.throws(() => verifyRelease(event, { ...release, id: 99 }, env), /identity_mismatch/);
   assert.throws(() => verifyRelease({ ...event, action: "edited" }, release, env), /not_authorized/);
   assert.throws(() =>
