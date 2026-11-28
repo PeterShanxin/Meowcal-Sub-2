@@ -1,0 +1,130 @@
+name: Sync GitHub release to Microsoft Store
+
+on:
+  workflow_run:
+    workflows: ['Microsoft Store package']
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      inventory:
+        description: Read published package versions and pending submission status
+        type: boolean
+        required: true
+        default: true
+  pull_request:
+    paths:
+      - '.github/workflows/store-release-sync.yml'
+      - '.github/workflows/microsoft-store.yml'
+      - 'scripts/store-*.mjs'
+      - 'scripts/check_store_release_payload.py'
+      - 'tests/store-release-sync.test.mjs'
+      - 'tests/test_store_release_payload.py'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    if: github.event_name == 'pull_request'
+    name: Test Store submission without credentials
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - run: node --test tests/store-release-sync.test.mjs
+      - run: python3 tests/test_store_release_payload.py
+
+  submit:
+    name: Submit verified Store release
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.repository == 'PeterShanxin/Meowcal-Sub-2' && github.ref == 'refs/heads/main' &&
+      github.event.workflow_run.event == 'release' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      (github.event.workflow_run.actor.login == 'PeterShanxin' || github.event.workflow_run.actor.login == 'ianmeowmeow') &&
+      (github.event.workflow_run.triggering_actor.login == 'PeterShanxin' || github.event.workflow_run.triggering_actor.login == 'ianmeowmeow') &&
+      vars.STORE_RELEASE_AUTOMATION_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    environment: store-submission
+    concurrency:
+      group: meowcal-sub2-store-submission
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - name: Verify the upstream build and current release
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          STORE_RELEASE_AUTOMATION_ENABLED: ${{ vars.STORE_RELEASE_AUTOMATION_ENABLED }}
+          STORE_FIRST_RELEASE_TAG: ${{ vars.STORE_FIRST_RELEASE_TAG }}
+          STORE_RELEASE_NOT_BEFORE: ${{ vars.STORE_RELEASE_NOT_BEFORE }}
+        run: node scripts/store-release-gate.mjs
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ steps.release.outputs.artifact }}
+          path: ${{ runner.temp }}/store-payload
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.release.outputs.run_id }}
+      - name: Inspect bundle and embedded source
+        id: bundle
+        env:
+          BUILD_TAG: ${{ steps.release.outputs.tag }}
+          BUILD_COMMIT: ${{ steps.release.outputs.commit }}
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse "refs/tags/${BUILD_TAG}^{commit}")" = "$BUILD_COMMIT"
+          git merge-base --is-ancestor "$BUILD_COMMIT" HEAD
+          git show "$BUILD_COMMIT:store/AppxManifest.xml" > "$RUNNER_TEMP/store-source-manifest.xml"
+          store_version=$(python3 scripts/check_store_release_payload.py \
+            "$RUNNER_TEMP/store-payload" "${BUILD_TAG#v}" "$BUILD_COMMIT" "$RELEASE_ID" \
+            "$RUNNER_TEMP/store-source-manifest.xml" "$RUNNER_TEMP/store-api-upload.zip")
+          echo "store_version=$store_version" >> "$GITHUB_OUTPUT"
+      - name: Send the package for Microsoft certification
+        env:
+          STORE_VERSION: ${{ steps.bundle.outputs.store_version }}
+          AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+          SELLER_ID: ${{ secrets.SELLER_ID }}
+        run: node scripts/store-submission-cli.mjs submit "$STORE_VERSION" "$RUNNER_TEMP/store-api-upload.zip"
+
+  inventory:
+    name: Read Store package inventory
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.inventory &&
+      github.repository == 'PeterShanxin/Meowcal-Sub-2' && github.ref == 'refs/heads/main' &&
+      (github.actor == 'PeterShanxin' || github.actor == 'ianmeowmeow') &&
+      (github.triggering_actor == 'PeterShanxin' || github.triggering_actor == 'ianmeowmeow')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: store-submission
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - name: Read current published and pending submissions
+        env:
+          AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+          SELLER_ID: ${{ secrets.SELLER_ID }}
+        run: node scripts/store-submission-cli.mjs inventory
