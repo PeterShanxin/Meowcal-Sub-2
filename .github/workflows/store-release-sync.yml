@@ -15,6 +15,7 @@ on:
     paths:
       - '.github/workflows/store-release-sync.yml'
       - '.github/workflows/microsoft-store.yml'
+      - '.github/workflows/microsoft-store-native.yml'
       - 'scripts/store-*.mjs'
       - 'scripts/check_store_release_payload.py'
       - 'tests/store-release-sync.test.mjs'
@@ -75,7 +76,7 @@ jobs:
         run: node scripts/store-release-gate.mjs
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          name: ${{ steps.release.outputs.artifact }}
+          artifact-ids: ${{ steps.release.outputs.artifact_id }}
           skip-decompress: true
           digest-mismatch: error
           path: ${{ runner.temp }}/store-payload
@@ -87,6 +88,7 @@ jobs:
           BUILD_TAG: ${{ steps.release.outputs.tag }}
           BUILD_COMMIT: ${{ steps.release.outputs.commit }}
           RELEASE_ID: ${{ steps.release.outputs.release_id }}
+          ARTIFACT_DIGEST: ${{ steps.release.outputs.artifact_digest }}
         run: |
           set -euo pipefail
           test "$(git rev-parse "refs/tags/${BUILD_TAG}^{commit}")" = "$BUILD_COMMIT"
@@ -96,6 +98,7 @@ jobs:
           artifacts=("$RUNNER_TEMP/store-payload"/*)
           test "${#artifacts[@]}" -eq 1
           test -f "${artifacts[0]}" && test ! -L "${artifacts[0]}"
+          printf '%s  %s\n' "$ARTIFACT_DIGEST" "${artifacts[0]}" | sha256sum --check --status
           store_version=$(python3 scripts/check_store_release_payload.py \
             "${artifacts[0]}" "${BUILD_TAG#v}" "$BUILD_COMMIT" "$RELEASE_ID" \
             "$RUNNER_TEMP/store-source-manifest.xml" "$RUNNER_TEMP/store-api-upload.zip")

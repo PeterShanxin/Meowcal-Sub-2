@@ -71,6 +71,7 @@ export function verifyBuildRun(event, run, workflow, latest, env) {
     env.GITHUB_REPOSITORY === REPO &&
       env.GITHUB_EVENT_NAME === "workflow_run" &&
       env.GITHUB_REF === "refs/heads/main" &&
+      (env.GITHUB_RUN_ATTEMPT === "1" || MAINTAINERS.has(env.GITHUB_TRIGGERING_ACTOR)) &&
       env.STORE_RELEASE_AUTOMATION_ENABLED === "true" &&
       event.action === "completed" &&
       Number.isSafeInteger(run.id) &&
@@ -105,6 +106,28 @@ export function verifyBuildRun(event, run, workflow, latest, env) {
   };
 }
 
+export function verifyBuildArtifact(assets, build) {
+  const matches = assets.filter((asset) => asset.name === build.artifact);
+  const artifact = matches[0];
+  requireCondition(
+    matches.length === 1 &&
+      artifact.expired === false &&
+      Number.isSafeInteger(artifact.id) &&
+      artifact.id > 0 &&
+      Number.isSafeInteger(artifact.size_in_bytes) &&
+      artifact.size_in_bytes > 1000 &&
+      artifact.size_in_bytes < 300_000_000 &&
+      artifact.workflow_run?.id === build.run_id &&
+      artifact.workflow_run.head_sha === build.commit &&
+      /^sha256:[a-f0-9]{64}$/.test(artifact.digest ?? ""),
+    "release_artifact_invalid",
+  );
+  return {
+    artifact_id: artifact.id,
+    artifact_digest: artifact.digest.slice(7),
+  };
+}
+
 async function github(path) {
   const response = await fetch(`https://api.github.com/repos/${REPO}${path}`, {
     headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}`, Accept: "application/vnd.github+json" },
@@ -128,8 +151,12 @@ async function main() {
     github(`/actions/runs/${runId}`),
     github("/actions/workflows/microsoft-store.yml"),
   ]);
-  const result = verifyBuildRun(event, run, workflow, latest, process.env);
-  for (const [key, value] of Object.entries(result)) {
+  const build = verifyBuildRun(event, run, workflow, latest, process.env);
+  const output = await github(
+    `/actions/runs/${build.run_id}/artifacts?name=${encodeURIComponent(build.artifact)}`,
+  );
+  const artifact = verifyBuildArtifact(output.artifacts, build);
+  for (const [key, value] of Object.entries({ ...build, ...artifact })) {
     appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${value}\n`);
   }
 }

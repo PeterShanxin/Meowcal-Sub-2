@@ -287,6 +287,22 @@ export function submissionStatus(status) {
   return status;
 }
 
+export async function confirmCommit(
+  client,
+  id,
+  initialStatus,
+  wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+) {
+  let status = initialStatus;
+  for (let attempt = 0; attempt < 12; attempt++) {
+    if (!["PendingCommit", "CommitStarted"].includes(status)) return submissionStatus(status);
+    await wait(5000);
+    status = (await client.getStatus(id)).status;
+  }
+  requireCondition(!["PendingCommit", "CommitStarted"].includes(status), "store_commit_timeout");
+  return submissionStatus(status);
+}
+
 export async function submitRelease(client, release, bundle, onCreated = () => {}) {
   await client.authenticate();
   const app = await client.getApp();
@@ -302,7 +318,9 @@ export async function submitRelease(client, release, bundle, onCreated = () => {
       "existing_submission_protected",
     );
     const current = await client.getStatus(pending.id);
-    return { submissionId: pending.id, status: submissionStatus(current.status), reused: true };
+    // Never commit somebody else's unfinished draft, even if the filename matches.
+    requireCondition(current.status !== "PendingCommit", "existing_submission_protected");
+    return { submissionId: pending.id, status: await confirmCommit(client, pending.id, current.status), reused: true };
   }
   const published = await client.getSubmission(app.lastPublishedApplicationSubmission?.id);
   requireCondition(published.status === "Published", "published_submission_not_ready");
@@ -332,7 +350,7 @@ export async function submitRelease(client, release, bundle, onCreated = () => {
   }
   return {
     submissionId: staged.submissionId,
-    status: submissionStatus(committed.status),
+    status: await confirmCommit(client, staged.submissionId, committed.status),
     reused: false,
   };
 }

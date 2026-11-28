@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { verifyBuildRun, verifyRelease } from "../scripts/store-release-gate.mjs";
-import { PRODUCT_ID, STORE_IDENTITY, submitRelease, updateSubmission } from "../scripts/store-submission.mjs";
+import { verifyBuildArtifact, verifyBuildRun, verifyRelease } from "../scripts/store-release-gate.mjs";
+import { confirmCommit, createStoreClient, PRODUCT_ID, STORE_IDENTITY, submitRelease, updateSubmission } from "../scripts/store-submission.mjs";
 
 const sha = "a".repeat(40);
 const repo = "PeterShanxin/Meowcal-Sub-2";
@@ -69,10 +69,18 @@ test("the default-branch submitter accepts only the authorized release build and
   };
   const notification = { action: "completed", workflow_run: { id: 42, run_attempt: 2 } };
   const workflow = { id: 5, path: ".github/workflows/microsoft-store.yml" };
-  const next = { ...env, GITHUB_REF: "refs/heads/main", GITHUB_EVENT_NAME: "workflow_run" };
+  const next = {
+    ...env,
+    GITHUB_REF: "refs/heads/main",
+    GITHUB_EVENT_NAME: "workflow_run",
+    GITHUB_RUN_ATTEMPT: "1",
+  };
   assert.deepEqual(verifyBuildRun(notification, run, workflow, release, next), {
     run_id: 42, artifact: "store-submission-2", tag: "v0.4.2", commit: sha, release_id: 7,
   });
+  assert.throws(() => verifyBuildRun(notification, run, workflow, release, {
+    ...next, GITHUB_RUN_ATTEMPT: "2", GITHUB_TRIGGERING_ACTOR: "stranger",
+  }), /release_build_not_authorized/);
   for (const change of [
     { run_attempt: 3 },
     { workflow_id: 6 },
@@ -83,6 +91,24 @@ test("the default-branch submitter accepts only the authorized release build and
   ]) {
     assert.throws(() => verifyBuildRun(notification, { ...run, ...change }, workflow, release, next));
   }
+});
+
+test("require the exact unexpired run artifact and its server digest", () => {
+  const digest = "1".repeat(64);
+  const build = { artifact: "store-submission-2", run_id: 42, commit: sha };
+  const asset = {
+    id: 103, name: build.artifact, expired: false, size_in_bytes: 120_000_000,
+    digest: `sha256:${digest}`, workflow_run: { id: 42, head_sha: sha },
+  };
+  assert.deepEqual(verifyBuildArtifact([asset], build), {
+    artifact_id: 103, artifact_digest: digest,
+  });
+  for (const assets of [
+    [asset, asset],
+    [{ ...asset, expired: true }],
+    [{ ...asset, digest: null }],
+    [{ ...asset, workflow_run: { id: 43, head_sha: sha } }],
+  ]) assert.throws(() => verifyBuildArtifact(assets, build), /release_artifact_invalid/);
 });
 
 const candidate = { storeVersion: "1.0.2.0" };
@@ -128,7 +154,7 @@ test("wrong product and an existing draft cannot trigger any write", async () =>
     /identity_mismatch/,
   );
   const client = { ...readOnly, getApp: async () => ({ ...app, pendingApplicationSubmission: { id: "202" } }) };
-  await assert.rejects(submitRelease(client, candidate, {}), /status_unexpected/);
+  await assert.rejects(submitRelease(client, candidate, {}), /existing_submission_protected/);
   assert.deepEqual(
     await submitRelease({ ...client, getStatus: async () => ({ status: "Certification" }) }, candidate, {}),
     { submissionId: "202", status: "Certification", reused: true },
@@ -155,4 +181,56 @@ test("a lost commit response is reconciled by reading status, not by re-committi
     submissionId: "202", status: "Certification", reused: false,
   });
   assert.equal(commits, 1);
+});
+
+test("Store upload stops before commit unless one official blob has the expected digest", async () => {
+  const bytes = Buffer.from("test payload");
+  const digest = "exampleDigest";
+  const blob = "https://storepackages.blob.core.windows.net/pack/upload.zip?sig=test";
+  const calls = [];
+  const client = createStoreClient({
+    AZURE_AD_TENANT_ID: "12345678-1234-1234-1234-123456789abc",
+    AZURE_AD_APPLICATION_CLIENT_ID: "12345678-1234-1234-1234-123456789abc",
+    AZURE_AD_APPLICATION_SECRET: "test-credential",
+    SELLER_ID: "test-seller",
+  }, async (url, options) => {
+    calls.push([url, options.method]);
+    assert.equal(options.redirect, "error");
+    if (options.method === "PUT") {
+      assert.equal(options.headers["Content-MD5"], digest);
+      assert.deepEqual(options.body, bytes);
+      return new Response(null, { status: 201 });
+    }
+    return new Response(null, {
+      headers: { "content-length": String(bytes.length), "content-md5": "different" },
+    });
+  });
+  await assert.rejects(client.upload("https://example.org/upload.zip?sig=test", bytes, digest),
+    /upload_url_invalid/);
+  assert.deepEqual(calls, []);
+  await assert.rejects(client.upload(blob, bytes, digest), /partial_upload_draft_retained/);
+  assert.deepEqual(calls, [[blob, "PUT"], [blob, "HEAD"]]);
+});
+
+
+test("commit success requires progression beyond its asynchronous acknowledgement", async () => {
+  const sequence = ["CommitStarted", "PreProcessing"];
+  let reads = 0;
+  const fake = {
+    getStatus: async (id) => {
+      assert.equal(id, "202");
+      return { status: sequence[reads++] };
+    },
+  };
+  const fast = async () => {};
+  assert.equal(await confirmCommit(fake, "202", "CommitStarted", fast), "PreProcessing");
+  assert.equal(reads, 2);
+  await assert.rejects(
+    confirmCommit({ getStatus: async () => ({ status: "CommitFailed" }) }, "202", "CommitStarted", fast),
+    /store_commitfailed/,
+  );
+  await assert.rejects(
+    confirmCommit({ getStatus: async () => ({ status: "CommitStarted" }) }, "202", "CommitStarted", fast),
+    /store_commit_timeout/,
+  );
 });
